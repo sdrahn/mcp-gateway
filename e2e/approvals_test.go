@@ -185,3 +185,71 @@ func TestApprovalChannels(t *testing.T) {
 		}
 	})
 }
+
+func TestPendingApprovalSurvivesRestart(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	home, err := os.MkdirTemp("", "mcpgw-restart")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	rbac := fmt.Sprintf(`{
+	  "roles": {"developer": {"permissions": [
+	    {"server": "fs", "tool": "write_file", "require_approval": true, "approval_channel": "oob"}
+	  ]}},
+	  "bindings": {"groups": {}, "users": {%q: ["developer"]}}
+	}`, me.Username)
+	e := setup(t, rbac, map[string]string{"fs": home}, "")
+	write := func(c *client, id int) {
+		c.request(id, "tools/call", map[string]any{"name": "write_file",
+			"arguments": map[string]any{"path": filepath.Join(home, "r.txt"), "content": "after restart"}})
+	}
+	pending := func() []map[string]any {
+		var ps []map[string]any
+		controlDo(t, controlClient(e.ctlSock), "GET", "/v1/approvals", "", &ps)
+		return ps
+	}
+
+	// A call waits for an out-of-band approval; then the gateway restarts.
+	c := newClient(t, e.connect, e.gwSock, "fs")
+	c.initialize(map[string]any{})
+	write(c, 2)
+	if note := c.read(); note.Method != "notifications/message" {
+		t.Fatalf("notice %+v", note)
+	}
+	before := pending()
+	if len(before) != 1 || before[0]["waiting"] != true {
+		t.Fatalf("pending before the restart: %v", before)
+	}
+	e.restartGateway(t)
+
+	// The approval is still pending, without a waiting call and without
+	// the session scope.
+	after := pending()
+	if len(after) != 1 || after[0]["id"] != before[0]["id"] || after[0]["waiting"] != false {
+		t.Fatalf("pending after the restart: %v", after)
+	}
+	if strings.Contains(fmt.Sprint(after[0]["scopes"]), "session") {
+		t.Fatalf("session scope offered after the restart: %v", after[0]["scopes"])
+	}
+	id := after[0]["id"].(string)
+	if code := controlDo(t, controlClient(e.ctlSock), "POST", "/v1/approvals/"+id, `{"decision":"approve","scope":"once"}`, nil); code != 200 {
+		t.Fatalf("approve: %d", code)
+	}
+
+	// The agent's next attempt goes through once; the one after asks again.
+	c2 := newClient(t, e.connect, e.gwSock, "fs")
+	c2.initialize(map[string]any{})
+	write(c2, 2)
+	text, isErr := toolResult(t, c2.read())
+	if isErr || !strings.HasPrefix(text, "wrote") {
+		t.Fatalf("retry: %q %v", text, isErr)
+	}
+	write(c2, 3)
+	if note := c2.read(); note.Method != "notifications/message" || !strings.Contains(string(note.Params), "Waiting for approval") {
+		t.Fatalf("second retry: %+v", note)
+	}
+}

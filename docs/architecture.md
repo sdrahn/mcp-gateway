@@ -399,8 +399,30 @@ Behaviour:
   `/var/lib/mcp-gateway/grants.json` (atomic writes, mode 0600, label
   `mcpgw_var_lib_t`) and apply across sessions and restarts; session
   grants live in memory.
-- `scope: once` grants are never stored; they are valid only for the one
-  re-evaluation after the approval.
+- `scope: once` grants are valid only for the one re-evaluation after the
+  approval and are not stored, except for approvals decided while no call
+  was waiting (below).
+
+**Pending approvals outlive their call.** `url` and `oob` approvals are
+persisted to `/var/lib/mcp-gateway/pending.json` (atomic writes, mode
+0600; it holds the arguments shown to approvers). If the waiting call goes
+away before the decision (the client disconnects, the gateway shuts down
+or restarts), the approval stays pending until it expires, marked as
+having no waiting call (`"waiting": false` in the control API, a note on
+the Cockpit page), and without the `session` scope, whose session is gone.
+Then:
+
+- deciding it stores the grant for the agent's next attempt: a duration
+  grant as usual, a `once` grant as a stored one-time grant (valid for
+  15 min) that the next matching call takes and uses up (it is put back if
+  policy does not allow that call);
+- an attempt with the same principal, target and arguments before the
+  decision takes the approval over (same id, so an approval page already
+  open stays valid; the policy's scopes apply again), instead of creating
+  a second one;
+- a timeout or a decline removes it, as for a waiting call.
+
+`form` approvals are not persisted: they live in the client's dialog.
 
 **How the `url` and `oob` channels work.** Both create a *pending
 approval* with an unguessable id, visible through the control API
@@ -1066,9 +1088,8 @@ docs/
   which may belong to another of the client's requests. Clients treat all
   streams as one session, so this is harmless, but not precise.
   Resumability (`Last-Event-ID`) is not implemented.
-- Pending approvals live in memory; a gateway restart drops them together
-  with the waiting calls. There is no push channel (mail, desktop
-  notification) for out-of-band approvals yet; the inbox is polled.
+- There is no push channel (mail, desktop notification) for out-of-band
+  approvals yet; the inbox is polled.
 - A token that expires during a long SSE stream keeps that stream alive;
   every new request needs a valid token.
 - Exact JSON-RPC error codes for policy denials (align with any future

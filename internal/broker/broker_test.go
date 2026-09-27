@@ -2,8 +2,10 @@ package broker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -438,5 +440,178 @@ func TestAuditEvents(t *testing.T) {
 	}
 	if !slices.Equal(k.msgs, want) {
 		t.Fatalf("kernel audit messages:\n%q\nwant\n%q", k.msgs, want)
+	}
+}
+
+// waitPending waits for the pending approvals to satisfy cond.
+func waitPending(t *testing.T, b *Broker, cond func([]Pending) bool) []Pending {
+	t.Helper()
+	for range 400 {
+		if ps := b.ListPending(context.Background(), admin); cond(ps) {
+			return ps
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("pending approvals: %+v", b.ListPending(context.Background(), admin))
+	return nil
+}
+
+// orphaned leaves an oob approval of input() without a waiting call, as a
+// client that went away does.
+func orphaned(t *testing.T, b *Broker) Pending {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := b.Approve(ctx, &fakeElicitor{}, input(), urlAsk)
+		done <- err
+	}()
+	waitPending(t, b, func(ps []Pending) bool { return len(ps) == 1 && ps[0].Waiting })
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("approve: %v", err)
+	}
+	return waitPending(t, b, func(ps []Pending) bool { return len(ps) == 1 && !ps[0].Waiting })[0]
+}
+
+func TestPendingSurvivesCallAndRestart(t *testing.T) {
+	dir := t.TempDir()
+	files := func(o *Options) {
+		o.PendingFile, o.GrantsFile = filepath.Join(dir, "pending.json"), filepath.Join(dir, "grants.json")
+	}
+	b := newBroker(t, files)
+	p := orphaned(t, b)
+	if slices.Contains(p.Scopes, "session") || !slices.Contains(p.Scopes, "once") {
+		t.Fatalf("scopes of an orphaned approval: %v", p.Scopes)
+	}
+	st, err := os.Stat(filepath.Join(dir, "pending.json"))
+	if err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("pending file: %v %v", st, err)
+	}
+
+	// After a restart the approval is still there and can be decided.
+	b2 := newBroker(t, files)
+	ps := b2.ListPending(context.Background(), admin)
+	if len(ps) != 1 || ps[0].ID != p.ID || ps[0].Waiting || ps[0].Args["path"] != "/home/alice/x" {
+		t.Fatalf("restored %+v", ps)
+	}
+	g, err := b2.Resolve(context.Background(), aliceApprover, p.ID, true, "once")
+	if err != nil || g.Scope != "once" {
+		t.Fatalf("resolve: %+v %v", g, err)
+	}
+	if len(b2.ListPending(context.Background(), admin)) != 0 {
+		t.Fatal("decided approval still pending")
+	}
+
+	// The once grant waits for the next attempt, across restarts, and is
+	// used up by it.
+	b3 := newBroker(t, files)
+	if gs := b3.Grants(alice, "fs", "write_file"); len(gs) != 0 {
+		t.Fatalf("once grant matched as a standing grant: %+v", gs)
+	}
+	once, ok := b3.TakeOnce(alice, "fs", "write_file")
+	if !ok || once.ID != g.ID {
+		t.Fatalf("take: %+v %v", once, ok)
+	}
+	if _, ok := b3.TakeOnce(alice, "fs", "write_file"); ok {
+		t.Fatal("once grant taken twice")
+	}
+	b3.ReturnOnce(once)
+	if _, ok := b3.TakeOnce(alice, "fs", "write_file"); !ok {
+		t.Fatal("returned once grant not available")
+	}
+	if len(newBroker(t, files).ListPending(context.Background(), admin)) != 0 {
+		t.Fatal("pending file still lists the decided approval")
+	}
+}
+
+func TestRetryTakesOverOrphanedApproval(t *testing.T) {
+	b := newBroker(t, nil)
+	p := orphaned(t, b)
+
+	in := input()
+	in.Principal.SessionID = "s2"
+	type result struct {
+		g   *pep.Grant
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		g, err := b.Approve(context.Background(), &fakeElicitor{}, in, urlAsk)
+		done <- result{g, err}
+	}()
+	ps := waitPending(t, b, func(ps []Pending) bool { return len(ps) == 1 && ps[0].Waiting })
+	if ps[0].ID != p.ID || !slices.Contains(ps[0].Scopes, "session") {
+		t.Fatalf("taken over: %+v (was %s)", ps[0], p.ID)
+	}
+	if _, err := b.Resolve(context.Background(), aliceApprover, p.ID, true, "session"); err != nil {
+		t.Fatal(err)
+	}
+	r := <-done
+	if r.err != nil || r.g == nil || r.g.SessionID != "s2" {
+		t.Fatalf("approve: %+v %v", r.g, r.err)
+	}
+
+	// Another request (other arguments) does not take it over.
+	orphaned(t, b)
+	other := input()
+	other.Args = map[string]any{"path": "/home/alice/y"}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _, _ = b.Approve(ctx, &fakeElicitor{}, other, urlAsk) }()
+	waitPending(t, b, func(ps []Pending) bool { return len(ps) == 2 })
+}
+
+func TestOrphanedApprovalExpiresAndDeclines(t *testing.T) {
+	dir := t.TempDir()
+	files := func(o *Options) { o.PendingFile = filepath.Join(dir, "pending.json") }
+	b := newBroker(t, files)
+	p := orphaned(t, b)
+
+	// Declining it leaves no grant.
+	if g, err := b.Resolve(context.Background(), aliceApprover, p.ID, false, ""); err != nil || g != nil {
+		t.Fatalf("decline: %+v %v", g, err)
+	}
+	if _, ok := b.TakeOnce(alice, "fs", "write_file"); ok {
+		t.Fatal("declined approval left a grant")
+	}
+
+	// Expired ones are dropped, also when loading.
+	orphaned(t, b)
+	b.now = func() time.Time { return time.Now().Add(time.Hour) }
+	if ps := b.ListPending(context.Background(), admin); len(ps) != 0 {
+		t.Fatalf("expired approval listed: %+v", ps)
+	}
+	orphaned(t, newBroker(t, files))
+	path := filepath.Join(dir, "pending.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list []map[string]any
+	if err := json.Unmarshal(data, &list); err != nil || len(list) != 1 {
+		t.Fatalf("pending file: %s %v", data, err)
+	}
+	list[0]["expires"] = time.Now().Add(-time.Minute).Format(time.RFC3339Nano)
+	data, _ = json.Marshal(list)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ps := newBroker(t, files).ListPending(context.Background(), admin); len(ps) != 0 {
+		t.Fatalf("expired approval restored: %+v", ps)
+	}
+}
+
+func TestTimeoutDropsApproval(t *testing.T) {
+	dir := t.TempDir()
+	b := newBroker(t, func(o *Options) {
+		o.Timeout = 50 * time.Millisecond
+		o.PendingFile = filepath.Join(dir, "pending.json")
+	})
+	if _, err := b.Approve(context.Background(), &fakeElicitor{}, input(), urlAsk); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err %v", err)
+	}
+	if len(newBroker(t, func(o *Options) { o.PendingFile = filepath.Join(dir, "pending.json") }).ListPending(context.Background(), admin)) != 0 {
+		t.Fatal("timed-out approval persisted")
 	}
 }

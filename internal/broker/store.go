@@ -15,7 +15,9 @@ import (
 
 // Store keeps grants. "duration" grants are persisted to a JSON file, so
 // they survive restarts; "session" grants live as long as their session.
-// ("once" grants are never stored.)
+// "once" grants are stored (and persisted) only for approvals decided
+// while no call was waiting (see Broker.Resolve); the next matching call
+// takes and consumes one (TakeOnce).
 type Store struct {
 	path string
 	now  func() time.Time
@@ -68,20 +70,39 @@ func (s *Store) Add(g pep.Grant) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.grants = append(s.grants, g)
-	if g.Scope == "duration" {
+	if persisted(g) {
 		return s.persist()
 	}
 	return nil
 }
 
+func persisted(g pep.Grant) bool { return g.Scope == "duration" || g.Scope == "once" }
+
+// TakeOnce removes and returns the oldest unexpired stored "once" grant of
+// p for server/tool.
+func (s *Store) TakeOnce(p principal.Principal, server, tool string) (pep.Grant, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, g := range s.grants {
+		if g.Scope != "once" || s.expired(g) || g.Sub != p.Sub || g.Issuer != p.Issuer || g.Server != server || g.Tool != tool {
+			continue
+		}
+		s.grants = append(s.grants[:i], s.grants[i+1:]...)
+		_ = s.persist()
+		return g, true
+	}
+	return pep.Grant{}, false
+}
+
 // Match returns the unexpired grants of p for server/tool. Session grants
-// only match in their own session.
+// only match in their own session; stored "once" grants are left out
+// (TakeOnce consumes them).
 func (s *Store) Match(p principal.Principal, server, tool string) []pep.Grant {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []pep.Grant
 	for _, g := range s.grants {
-		if s.expired(g) || g.Sub != p.Sub || g.Issuer != p.Issuer || g.Server != server || g.Tool != tool {
+		if s.expired(g) || g.Sub != p.Sub || g.Issuer != p.Issuer || g.Server != server || g.Tool != tool || g.Scope == "once" {
 			continue
 		}
 		if g.Scope == "session" && g.SessionID != p.SessionID {
@@ -119,7 +140,7 @@ func (s *Store) Revoke(id string) error {
 	for i, g := range s.grants {
 		if g.ID == id {
 			s.grants = append(s.grants[:i], s.grants[i+1:]...)
-			if g.Scope == "duration" {
+			if persisted(g) {
 				return s.persist()
 			}
 			return nil
@@ -141,15 +162,15 @@ func (s *Store) EndSession(sessionID string) {
 	s.grants = kept
 }
 
-// persist writes the unexpired duration grants atomically. Caller holds
-// s.mu.
+// persist writes the unexpired duration and stored once grants
+// atomically. Caller holds s.mu.
 func (s *Store) persist() error {
 	if s.path == "" {
 		return nil
 	}
 	var durable []pep.Grant
 	for _, g := range s.grants {
-		if g.Scope == "duration" && !s.expired(g) {
+		if persisted(g) && !s.expired(g) {
 			durable = append(durable, g)
 		}
 	}
@@ -157,12 +178,17 @@ func (s *Store) persist() error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".grants-*")
+	return writeFileAtomic(s.path, append(b, '\n'))
+}
+
+// writeFileAtomic replaces path with data (mode 0600).
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(append(b, '\n')); err != nil {
+	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -177,5 +203,5 @@ func (s *Store) persist() error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), s.path)
+	return os.Rename(tmp.Name(), path)
 }

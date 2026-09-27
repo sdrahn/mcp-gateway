@@ -113,6 +113,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 	b, err := broker.New(broker.Options{
 		Timeout:     gw.ApprovalTimeout,
 		GrantsFile:  filepath.Join(gw.StateDir, "grants.json"),
+		PendingFile: filepath.Join(gw.StateDir, "pending.json"),
 		URLTemplate: gw.Approvals.URLTemplate,
 		OOB:         control,
 		Policy:      opa,

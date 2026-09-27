@@ -65,6 +65,10 @@ function renderApprovals(pending) {
         const card = el("div", { class: "card" + (p.id === focus ? " highlight" : ""), id: "approval-" + p.id },
             el("h3", null, p.server + " / " + p.name),
             p.prompt ? el("div", null, p.prompt) : null,
+            p.waiting === false
+                ? el("div", { class: "note" }, "The agent is no longer waiting (it disconnected, or the gateway " +
+                     "restarted). Approving lets its next attempt through.")
+                : null,
             el("dl", null,
                el("dt", null, "Principal"), el("dd", null, principalText(p.principal)),
                el("dt", null, "Action"), el("dd", null, p.action),
