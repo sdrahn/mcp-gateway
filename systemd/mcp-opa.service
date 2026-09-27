@@ -15,11 +15,15 @@ RuntimeDirectoryPreserve=yes
 # rather than through a file label ("-": ignored where SELinux is off).
 SELinuxContext=-system_u:system_r:mcpopa_t:s0
 # Policy logic (vendor, /usr/share) and role data (administrator, /etc).
+# Every decision is logged to the journal; policy/system/log.rego masks
+# tool arguments, and input.context.decision_id links an entry to the
+# gateway's audit record.
 ExecStart=/usr/bin/opa run --server \
     --addr unix:///run/mcp-gateway/opa.sock \
     --unix-socket-perm 0660 \
     --watch \
     --log-format json \
+    --set=decision_logs.console=true \
     /usr/share/mcp-gateway/policy \
     /etc/mcp-gateway/policy
 Restart=on-failure

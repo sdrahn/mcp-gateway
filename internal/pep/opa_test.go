@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -89,3 +90,37 @@ func TestOPAVisible(t *testing.T) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 }
+
+func TestOPAFingerprint(t *testing.T) {
+	var rbac atomicString
+	rbac.Store(`{"result":{"roles":{}}}`)
+	o := fakeOPA(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/policies":
+			_, _ = w.Write([]byte(`{"result":[{"id":"authz.rego","raw":"package mcp.authz"}]}`))
+		case "/v1/data/rbac":
+			_, _ = w.Write([]byte(rbac.Load()))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	a, err := o.Fingerprint(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := o.Fingerprint(context.Background()); b != a {
+		t.Fatal("fingerprint not stable")
+	}
+	rbac.Store(`{"result":{"roles":{"x":{}}}}`)
+	if c, _ := o.Fingerprint(context.Background()); c == a {
+		t.Fatal("fingerprint did not change with the data")
+	}
+}
+
+type atomicString struct {
+	mu sync.Mutex
+	s  string
+}
+
+func (a *atomicString) Store(s string) { a.mu.Lock(); a.s = s; a.mu.Unlock() }
+func (a *atomicString) Load() string   { a.mu.Lock(); defer a.mu.Unlock(); return a.s }

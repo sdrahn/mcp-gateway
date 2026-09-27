@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -478,6 +479,9 @@ func TestObligations(t *testing.T) {
 	if strings.Contains(out, `"args":{"path"`) {
 		t.Errorf("digest audit logged args verbatim: %s", out)
 	}
+	if !regexp.MustCompile(`"decision_id":"[0-9a-f]{32}"`).MatchString(out) {
+		t.Errorf("audit records lack decision ids: %s", out)
+	}
 }
 
 type syncWriter struct {
@@ -540,5 +544,62 @@ func TestSensitiveBackendElicitationDenied(t *testing.T) {
 	text, _ := toolText(t, c.roundTrip(2, "tools/call", map[string]any{"name": "ask_secret"}))
 	if !strings.Contains(text, "denied by mcp-gateway policy") {
 		t.Fatalf("got %q", text)
+	}
+}
+
+func TestPolicyChangedNotifiesSessions(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	c1 := connect(t, r, alice(), "fs", nil)
+	c2 := connect(t, r, alice(), "", nil)
+
+	// A changing fingerprint triggers exactly one broadcast per change.
+	fps := []string{"a", "a", "b", "b"}
+	var i int
+	var mu sync.Mutex
+	changes := make(chan struct{}, 4)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go r.WatchPolicy(ctx, 10*time.Millisecond, func(context.Context) (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		fp := fps[min(i, len(fps)-1)]
+		i++
+		return fp, nil
+	}, func() { changes <- struct{}{} })
+
+	for _, c := range []*client{c1, c2} {
+		var got []string
+		for range 3 {
+			got = append(got, c.read().Method)
+		}
+		if strings.Join(got, ",") != "notifications/tools/list_changed,notifications/prompts/list_changed,notifications/resources/list_changed" {
+			t.Fatalf("notifications %v", got)
+		}
+	}
+	<-changes
+	time.Sleep(50 * time.Millisecond)
+	if len(changes) != 0 {
+		t.Fatal("more than one change reported")
+	}
+	// After a session ends it is no longer notified.
+	c1.close()
+	r.PolicyChanged()
+	if m := c2.read(); m.Method != "notifications/tools/list_changed" {
+		t.Fatalf("got %+v", m)
+	}
+}
+
+func TestSingleEndpointAdvertisesListChanged(t *testing.T) {
+	caps := withListChanged(map[string]json.RawMessage{
+		"tools":     json.RawMessage(`{}`),
+		"resources": json.RawMessage(`{"subscribe":true}`),
+		"logging":   json.RawMessage(`{}`),
+	})
+	if string(caps["tools"]) != `{"listChanged":true}` || string(caps["resources"]) != `{"listChanged":true,"subscribe":true}` ||
+		string(caps["logging"]) != `{}` {
+		t.Fatalf("caps %s %s %s", caps["tools"], caps["resources"], caps["logging"])
+	}
+	if _, ok := caps["prompts"]; ok {
+		t.Fatal("capability added that the backend does not have")
 	}
 }

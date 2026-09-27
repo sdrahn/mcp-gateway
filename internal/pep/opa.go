@@ -3,6 +3,8 @@ package pep
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -74,6 +76,39 @@ func (o *OPA) Visible(ctx context.Context, p principal.Principal, rs []Resource)
 		return nil, err
 	}
 	return out, nil
+}
+
+// Fingerprint identifies the policy OPA has loaded: a hash of its
+// modules and of data.rbac. It changes when OPA reloads changed files.
+func (o *OPA) Fingerprint(ctx context.Context) (string, error) {
+	h := sha256.New()
+	for _, path := range []string{"/v1/policies", "/v1/data/rbac"} {
+		body, err := o.get(ctx, path)
+		if err != nil {
+			return "", err
+		}
+		h.Write(body)
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func (o *OPA) get(ctx context.Context, path string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, o.timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://opa"+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := o.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("opa: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("opa: GET %s: %s", path, resp.Status)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 }
 
 // Bool queries a boolean rule; an undefined or non-boolean result is an

@@ -145,6 +145,9 @@ optional_policy(`
 
 auth_use_nsswitch(mcpgw_t)
 miscfiles_read_localization(mcpgw_t)
+# Audit events (denials, approvals, grant revocations, policy changes) go
+# to the kernel audit subsystem as AUDIT_TRUSTED_APP records.
+logging_send_audit_msgs(mcpgw_t)
 
 # Remote transport: serve HTTPS, and fetch the IdP's discovery document
 # and key set.

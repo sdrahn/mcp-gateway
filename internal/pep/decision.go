@@ -62,10 +62,13 @@ type Grant struct {
 
 // Context carries request metadata that is not part of the identity.
 type Context struct {
-	Time               string              `json:"time"`
-	Transport          principal.Transport `json:"transport"`
-	RequestID          string              `json:"request_id,omitempty"`
-	ClientCapabilities map[string]any      `json:"client_capabilities,omitempty"`
+	Time      string              `json:"time"`
+	Transport principal.Transport `json:"transport"`
+	RequestID string              `json:"request_id,omitempty"`
+	// DecisionID correlates OPA's decision log with the gateway's audit
+	// record for the same enforcement.
+	DecisionID         string         `json:"decision_id,omitempty"`
+	ClientCapabilities map[string]any `json:"client_capabilities,omitempty"`
 }
 
 // Input is the policy input document (docs/architecture.md, section 6.2).

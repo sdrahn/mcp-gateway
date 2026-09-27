@@ -57,6 +57,16 @@ type Gateway struct {
 	ApprovalTimeout time.Duration `yaml:"approval_timeout"`
 	// Approvals configures URL and out-of-band approvals.
 	Approvals Approvals `yaml:"approvals"`
+	// Audit configures the audit trail.
+	Audit Audit `yaml:"audit"`
+}
+
+// Audit configures the audit trail (docs/architecture.md, section 5.9).
+type Audit struct {
+	// Kernel is "auto" (send security-relevant events to the kernel audit
+	// subsystem if possible), "on" (fail to start if not possible) or
+	// "off".
+	Kernel string `yaml:"kernel"`
 }
 
 // Approvals configures the control API and approval channels
@@ -119,6 +129,9 @@ type HTTP struct {
 type Policy struct {
 	OPASocket string        `yaml:"opa_socket"`
 	Timeout   time.Duration `yaml:"timeout"`
+	// WatchInterval is how often the gateway checks whether OPA loaded a
+	// changed policy, to tell clients to list tools etc. again.
+	WatchInterval time.Duration `yaml:"watch_interval"`
 }
 
 // Backend is one MCP server definition from the registry.
@@ -192,6 +205,7 @@ const (
 	DefaultPolicyTimeout   = 250 * time.Millisecond
 	DefaultApprovalTimeout = 120 * time.Second
 	DefaultIdleTimeout     = 15 * time.Minute
+	DefaultWatchInterval   = 10 * time.Second
 	DefaultHTTPSessionIdle = 30 * time.Minute
 	DefaultGroupsClaim     = "groups"
 	DefaultSELinuxType     = "mcpsrv_generic_t"
@@ -258,6 +272,9 @@ func (g *Gateway) setDefaults() {
 	if g.Policy.Timeout == 0 {
 		g.Policy.Timeout = DefaultPolicyTimeout
 	}
+	if g.Policy.WatchInterval == 0 {
+		g.Policy.WatchInterval = DefaultWatchInterval
+	}
 	if g.Supervisor.Mode == "" {
 		g.Supervisor.Mode = "systemd"
 	}
@@ -272,6 +289,9 @@ func (g *Gateway) setDefaults() {
 	}
 	if g.Approvals.ControlSocket == "" {
 		g.Approvals.ControlSocket = DefaultControl
+	}
+	if g.Audit.Kernel == "" {
+		g.Audit.Kernel = "auto"
 	}
 	if g.HTTP.GroupsClaim == "" {
 		g.HTTP.GroupsClaim = DefaultGroupsClaim
@@ -288,6 +308,9 @@ func (g *Gateway) Validate() error {
 	}
 	if g.Policy.Timeout < 0 {
 		return errors.New("policy.timeout: must not be negative")
+	}
+	if g.Policy.WatchInterval < time.Second {
+		return errors.New("policy.watch_interval: must be at least 1s")
 	}
 	if g.ApprovalTimeout < 0 {
 		return errors.New("approval_timeout: must not be negative")
@@ -315,6 +338,11 @@ func (g *Gateway) Validate() error {
 	case "auto", "on", "off":
 	default:
 		return fmt.Errorf("supervisor.selinux: unknown value %q", g.Supervisor.SELinux)
+	}
+	switch g.Audit.Kernel {
+	case "auto", "on", "off":
+	default:
+		return fmt.Errorf("audit.kernel: unknown value %q", g.Audit.Kernel)
 	}
 	if g.HTTP.Listen != "" {
 		if g.HTTP.CertFile == "" || g.HTTP.KeyFile == "" {

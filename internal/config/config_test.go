@@ -26,7 +26,7 @@ func TestLoadGatewayDefaults(t *testing.T) {
 	if g.Socket != DefaultSocket || g.Policy.OPASocket != DefaultOPASocket || g.Policy.Timeout != DefaultPolicyTimeout ||
 		g.Supervisor.Mode != "systemd" || g.Supervisor.SELinux != "auto" || g.ApprovalTimeout != DefaultApprovalTimeout ||
 		g.Supervisor.IdleTimeout != DefaultIdleTimeout ||
-		g.Approvals.ControlSocket != DefaultControl {
+		g.Approvals.ControlSocket != DefaultControl || g.Policy.WatchInterval != DefaultWatchInterval {
 		t.Errorf("defaults not applied: %+v", g)
 	}
 }
@@ -66,6 +66,8 @@ func TestLoadGatewayErrors(t *testing.T) {
 		"http no tls":     "http:\n  listen: ':8443'\n  issuer: x\n  audience: y\n",
 		"http no issuer":  "http:\n  listen: ':8443'\n  cert_file: c\n  key_file: k\n",
 		"bad mode":        "supervisor:\n  mode: docker\n",
+		"fast watch":      "policy:\n  watch_interval: 10ms\n",
+		"bad audit":       "audit:\n  kernel: maybe\n",
 		"url no id":       "approvals:\n  url_template: https://h/approve\n",
 		"url plain":       "approvals:\n  url_template: http://h.example.com/{id}\n",
 		"relative ctl":    "approvals:\n  control_socket: ctl.sock\n",

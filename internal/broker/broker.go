@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sdrahn/mcp-gateway/internal/audit"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 )
@@ -85,7 +86,9 @@ type Options struct {
 	// Policy decides who may decide on approvals and manage grants
 	// (data.mcp.approvals); nil allows only the principal themself.
 	Policy BoolPolicy
-	Log    *slog.Logger
+	// Audit, if set, records approval decisions and grant revocations.
+	Audit *audit.Logger
+	Log   *slog.Logger
 }
 
 // BoolPolicy answers boolean policy queries (pep.OPA implements it).
@@ -194,12 +197,17 @@ func (b *Broker) viaForm(ctx context.Context, el Elicitor, in pep.Input, ask pep
 		return nil, fmt.Errorf("broker: elicitation failed: %w", err)
 	}
 	if res.Action != "accept" {
+		b.auditApproval("", false, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, "", pep.ChannelForm)
 		return nil, nil
 	}
 	scope, _ := res.Content["scope"].(string)
 	// With form mode the governed client answers itself; the approval is
 	// recorded as the principal's own.
-	return b.grant(in.Principal, in.Resource.Server, in.Resource.Name, scope, ask.Scopes, in.Principal.Sub, pep.ChannelForm)
+	g, err := b.grant(in.Principal, in.Resource.Server, in.Resource.Name, scope, ask.Scopes, in.Principal.Sub, pep.ChannelForm)
+	if err == nil {
+		b.auditApproval(g.ID, true, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, scope, pep.ChannelForm)
+	}
+	return g, err
 }
 
 var scopeTitles = map[string]string{
@@ -438,6 +446,7 @@ func (b *Broker) Resolve(ctx context.Context, a Approver, id string, approve boo
 		}
 	}
 	b.log.Info("approval resolved", "id", id, "approved", approve, "by", a.Name, "scope", scope)
+	b.auditApproval(id, approve, p.Principal, p.Server, p.Name, a.Name, scope, p.Channel)
 	p.result <- g
 	return g, nil
 }
@@ -498,7 +507,22 @@ func (b *Broker) RevokeGrant(ctx context.Context, a Approver, id string) error {
 		return ErrNotFound
 	}
 	b.log.Info("grant revoked", "id", id, "by", a.Name)
+	b.opts.Audit.Event("mcp-grant-revoke", true, map[string]string{
+		"id": id, "by": a.Name, "principal": g.Sub, "server": g.Server, "target": g.Tool,
+	})
 	return b.store.Revoke(id)
+}
+
+// auditApproval records an approval decision; declines are recorded as
+// failed.
+func (b *Broker) auditApproval(id string, approved bool, p principal.Principal, server, name, by, scope string, c pep.Channel) {
+	if !approved {
+		scope = ""
+	}
+	b.opts.Audit.Event("mcp-approval", approved, map[string]string{
+		"id": id, "principal": p.Sub, "server": server, "target": name,
+		"by": by, "scope": scope, "channel": string(c),
+	})
 }
 
 func randomHex(n int) string {

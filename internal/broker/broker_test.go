@@ -3,12 +3,14 @@ package broker
 import (
 	"context"
 	"errors"
+	"io"
 	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/sdrahn/mcp-gateway/internal/audit"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 )
@@ -384,4 +386,57 @@ type errPolicy struct{}
 
 func (errPolicy) Bool(context.Context, string, any) (bool, error) {
 	return false, errors.New("opa down")
+}
+
+type kernelLog struct {
+	mu   sync.Mutex
+	msgs []string
+}
+
+func (k *kernelLog) Send(msg string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.msgs = append(k.msgs, msg)
+	return nil
+}
+
+func TestAuditEvents(t *testing.T) {
+	k := &kernelLog{}
+	b := newBroker(t, func(o *Options) { o.Audit = audit.New(io.Discard, audit.Options{Kernel: k}) })
+
+	el := &fakeElicitor{form: true, result: ElicitResult{Action: "accept", Content: map[string]any{"scope": "24h"}}}
+	g, err := b.Approve(context.Background(), el, input(), formAsk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	el.result = ElicitResult{Action: "decline"}
+	if _, err := b.Approve(context.Background(), el, input(), formAsk); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _, _ = b.Approve(context.Background(), &fakeElicitor{}, input(), urlAsk) }()
+	var id string
+	for i := 0; i < 200 && id == ""; i++ {
+		if ps := b.ListPending(context.Background(), admin); len(ps) > 0 {
+			id = ps[0].ID
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := b.Resolve(context.Background(), admin, id, true, "once"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.RevokeGrant(context.Background(), admin, g.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	want := []string{
+		"op=mcp-approval by=alice channel=form id=" + g.ID + " principal=alice scope=24h server=fs target=write_file res=success",
+		"op=mcp-approval by=alice channel=form principal=alice server=fs target=write_file res=failed",
+		"op=mcp-approval by=carol channel=oob id=" + id + " principal=alice scope=once server=fs target=write_file res=success",
+		"op=mcp-grant-revoke by=carol id=" + g.ID + " principal=alice server=fs target=write_file res=success",
+	}
+	if !slices.Equal(k.msgs, want) {
+		t.Fatalf("kernel audit messages:\n%q\nwant\n%q", k.msgs, want)
+	}
 }
