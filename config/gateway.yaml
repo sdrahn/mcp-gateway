@@ -31,10 +31,23 @@ supervisor:
   # Stop an instance this long after the last session using it ended.
   idle_timeout: 15m
 
-# Remote access via MCP Streamable HTTP. Disabled unless listen is set.
+# Remote access via MCP Streamable HTTP with OAuth bearer tokens.
+# Disabled unless listen is set. Endpoints: /mcp (aggregated) and
+# /mcp/<server>; metadata at /.well-known/oauth-protected-resource.
 # http:
 #   listen: ":8443"
 #   cert_file: /etc/mcp-gateway/tls/cert.pem
 #   key_file: /etc/mcp-gateway/tls/key.pem
+#   # Token validation: issuer, and audience = this gateway's public MCP URL.
 #   issuer: https://idp.example.com/realms/mcp
 #   audience: https://gateway.example.com:8443/mcp
+#   # Default: found via <issuer>/.well-known/openid-configuration.
+#   jwks_url: ""
+#   groups_claim: groups
+#   # Map remote users to local accounts by this claim (decision D1);
+#   # unmapped principals run backends as a dynamic user.
+#   local_user_claim: preferred_username
+#   scopes: []
+#   # Origins accepted from browser-based clients.
+#   allowed_origins: []
+#   session_idle_timeout: 30m

@@ -213,7 +213,8 @@ type env struct {
 
 // setup starts OPA with the shipped policy and rbac as role data, and the
 // gateway with one mcp-fs-demo backend per entry of roots (name → root).
-func setup(t *testing.T, rbac string, roots map[string]string) *env {
+// extra is appended to the gateway configuration.
+func setup(t *testing.T, rbac string, roots map[string]string, extra string) *env {
 	t.Helper()
 	opa := opaBinary(t)
 	// Unix socket paths are limited to 108 bytes; keep them short.
@@ -249,7 +250,7 @@ approval_timeout: 5s
 supervisor:
   mode: exec
   idle_timeout: 1h
-`, gwSock, filepath.Join(tmp, "servers.d"), opaSock))
+%s`, gwSock, filepath.Join(tmp, "servers.d"), opaSock, extra))
 	_, gwLogs := start(t, gateway, "--config", filepath.Join(tmp, "gateway.yaml"))
 	waitFor(t, gwSock)
 	return &env{tmp: tmp, connect: connect, gwSock: gwSock, opa: opaCmd, gwLogs: gwLogs}
@@ -307,7 +308,7 @@ func TestEndToEnd(t *testing.T) {
 	  ]}},
 	  "bindings": {"groups": {}, "users": {%q: ["developer"]}}
 	}`, "^"+regexp.QuoteMeta(home)+"/", me.Username)
-	e := setup(t, rbac, map[string]string{"fs": home})
+	e := setup(t, rbac, map[string]string{"fs": home}, "")
 	connect, gwSock, gwLogs, opaCmd := e.connect, e.gwSock, e.gwLogs, e.opa
 
 	c := newClient(t, connect, gwSock, "fs")
@@ -435,7 +436,7 @@ func TestAggregatedEndpoint(t *testing.T) {
 	  ]}},
 	  "bindings": {"groups": {}, "users": {%q: ["developer"]}}
 	}`, "file://"+home+"/*", me.Username)
-	e := setup(t, rbac, map[string]string{"fs": home, "notes": notes})
+	e := setup(t, rbac, map[string]string{"fs": home, "notes": notes}, "")
 
 	// No --server: the aggregated endpoint.
 	c := newClient(t, e.connect, e.gwSock, "all")

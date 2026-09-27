@@ -102,6 +102,18 @@ func NewError(id json.RawMessage, code int, msg string) *Message {
 	return &Message{JSONRPC: Version, ID: id, Error: &Error{Code: code, Message: msg}}
 }
 
+// MessageConn is a bidirectional message stream: a Conn over a byte
+// stream, or a transport that frames messages itself (HTTP).
+type MessageConn interface {
+	// Read returns the next message. A *Error means the peer sent an
+	// invalid message and the connection remains usable.
+	Read() (*Message, error)
+	Write(m *Message) error
+	Close() error
+}
+
+var _ MessageConn = (*Conn)(nil)
+
 // Conn reads and writes newline-delimited messages. Write is safe for
 // concurrent use; Read must be called from a single goroutine.
 type Conn struct {

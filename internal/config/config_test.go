@@ -40,6 +40,24 @@ func TestLoadGatewayShippedExample(t *testing.T) {
 	}
 }
 
+func TestLoadGatewayHTTP(t *testing.T) {
+	p := writeFile(t, t.TempDir(), "gateway.yaml", `http:
+  listen: ":8443"
+  cert_file: c
+  key_file: k
+  issuer: http://127.0.0.1:9000/realms/mcp
+  audience: https://gw.example.com:8443/mcp
+  scopes: [mcp]
+`)
+	g, err := LoadGateway(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.HTTP.GroupsClaim != "groups" || g.HTTP.SessionIdleTimeout != DefaultHTTPSessionIdle || g.HTTP.Scopes[0] != "mcp" {
+		t.Errorf("http = %+v", g.HTTP)
+	}
+}
+
 func TestLoadGatewayErrors(t *testing.T) {
 	tests := map[string]string{
 		"unknown field":   "sockett: /run/x.sock\n",
@@ -47,6 +65,8 @@ func TestLoadGatewayErrors(t *testing.T) {
 		"http no tls":     "http:\n  listen: ':8443'\n  issuer: x\n  audience: y\n",
 		"http no issuer":  "http:\n  listen: ':8443'\n  cert_file: c\n  key_file: k\n",
 		"bad mode":        "supervisor:\n  mode: docker\n",
+		"http issuer url": "http:\n  listen: ':8443'\n  cert_file: c\n  key_file: k\n  issuer: idp\n  audience: https://gw/mcp\n",
+		"http plain aud":  "http:\n  listen: ':8443'\n  cert_file: c\n  key_file: k\n  issuer: https://idp\n  audience: http://gw.example.com/mcp\n",
 		"bad selinux":     "supervisor:\n  selinux: maybe\n",
 	}
 	for name, content := range tests {

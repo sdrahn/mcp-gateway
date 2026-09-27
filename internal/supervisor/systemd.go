@@ -99,7 +99,10 @@ func (s *Systemd) Properties(b *config.Backend, p principal.Principal, fd int, m
 	switch b.RunAs {
 	case "principal":
 		if p.UID == nil {
-			return nil, fmt.Errorf("supervisor: backend %s runs as the principal, but %s has no local account", b.Name, p.Sub)
+			// A remote principal without a local account (decision D1):
+			// a throwaway user, isolated by the instance's MCS pair.
+			props = append(props, prop("DynamicUser", true))
+			break
 		}
 		props = append(props, prop("User", p.Sub))
 		if p.Home != "" {

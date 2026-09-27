@@ -9,7 +9,8 @@ remote MCP clients, with:
 - [OPA](https://www.openpolicyagent.org/) as the policy engine,
 - SELinux confinement of the gateway, the policy engine and every MCP server.
 
-Status: proof of concept, local clients only. See
+Status: proof of concept; local clients (unix socket) and remote clients
+(MCP Streamable HTTP with OAuth bearer tokens). See
 [docs/architecture.md](docs/architecture.md) for the design and
 [examples/poc](examples/poc/README.md) to try it.
 
@@ -19,9 +20,9 @@ Status: proof of concept, local clients only. See
 |---|---|
 | `cmd/mcp-gateway` | gateway daemon |
 | `cmd/mcp-connect` | stdio ↔ unix-socket shim for local clients |
-| `internal/` | `transport` (unix socket, peer credentials, hello), `authn`, `router` (MCP proxy core), `pep` (OPA client, fail-closed evaluation), `broker` (approvals, grants), `supervisor` (systemd / exec launchers, MCS allocation), `jsonrpc`, `audit`, `config`, `principal` |
+| `internal/` | `transport` (unix socket, peer credentials, hello; Streamable HTTP), `authn` (peer credentials; OAuth/JWT), `router` (MCP proxy core), `pep` (OPA client, fail-closed evaluation), `broker` (approvals, grants), `supervisor` (systemd / exec launchers, MCS allocation), `jsonrpc`, `audit`, `config`, `principal` |
 | `examples/` | `mcp-fs-demo` (demo MCP server) and the PoC walkthrough |
-| `e2e/` | end-to-end test: OPA + gateway + mcp-connect + demo server |
+| `e2e/` | end-to-end tests: OPA + gateway + mcp-connect or an HTTPS client with a test IdP + demo servers |
 | `policy/` | default OPA policy bundle (`data.mcp.authz.decision`, `data.mcp.filter.visible`), RBAC data and tests |
 | `selinux/` | `mcp_gateway` SELinux policy module (domains, types, isolation invariants, PoC launch path) |
 | `systemd/` | `mcp-gateway.service`, `mcp-opa.service` |

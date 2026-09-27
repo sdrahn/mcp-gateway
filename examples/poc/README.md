@@ -1,9 +1,11 @@
 # Proof of concept
 
-What works (docs/architecture.md, section 11, steps 3 and 4):
+What works (docs/architecture.md, section 11, steps 3 to 5):
 
 - local clients on the gateway's unix socket, identified by kernel peer
   credentials (`SO_PEERCRED`, `SO_PEERSEC`);
+- remote clients over MCP Streamable HTTP (TLS) with OAuth bearer tokens
+  from your IdP, optionally mapped to local accounts;
 - `mcp-connect` as the stdio shim, selecting a backend with a
   `mcp-gateway/hello` notification;
 - a per-server endpoint (`--server fs`) and the aggregated endpoint
@@ -27,8 +29,8 @@ What works (docs/architecture.md, section 11, steps 3 and 4):
   domain with a per-instance MCS pair, or as plain child processes in
   development mode.
 
-Not yet: remote access (HTTP/OAuth), URL/OOB approvals, persistent
-grants, obligations, list_changed on policy changes.
+Not yet: URL/OOB approvals, persistent grants, obligations, list_changed
+on policy changes.
 
 ## Development mode
 
@@ -58,6 +60,28 @@ Claude Code, an IDE, the MCP Inspector) at it, or talk to it by hand:
 `elicitation/create` request; the example role data uses the `form`
 channel so the PoC can demonstrate it (the shipped default policy asks for
 `url`, per decision D3).
+
+## Remote access
+
+Add an `http` section to `gateway.yaml` (see `config/gateway.yaml`):
+
+```yaml
+http:
+  listen: ":8443"
+  cert_file: /etc/mcp-gateway/tls/cert.pem
+  key_file: /etc/mcp-gateway/tls/key.pem
+  issuer: https://idp.example.com/realms/mcp        # e.g. Keycloak
+  audience: https://gateway.example.com:8443/mcp    # this gateway's URL
+  local_user_claim: preferred_username              # optional (D1)
+  scopes: [mcp]
+```
+
+Register the gateway as a resource (audience) at the IdP and give
+clients the URL `https://gateway.example.com:8443/mcp` (aggregated) or
+`.../mcp/fs`. MCP clients with OAuth support discover the IdP from the
+`401` response. Bind remote subjects or groups to roles in the RBAC data
+(`bindings.users` / `bindings.groups`). With SELinux:
+`semanage port -a -t mcp_port_t -p tcp 8443`.
 
 ## Confined mode (systemd + SELinux)
 

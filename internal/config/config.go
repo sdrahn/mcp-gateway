@@ -6,6 +6,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -56,15 +58,34 @@ type Supervisor struct {
 	IdleTimeout time.Duration `yaml:"idle_timeout"`
 }
 
-// HTTP configures the remote transport.
+// HTTP configures the remote transport (MCP Streamable HTTP with OAuth
+// bearer tokens; docs/architecture.md, sections 5.1, 5.2 and 7.2).
 type HTTP struct {
 	Listen   string `yaml:"listen"`
 	CertFile string `yaml:"cert_file"`
 	KeyFile  string `yaml:"key_file"`
 	// Issuer and Audience are used to validate bearer tokens. Audience is
-	// the gateway's public MCP URL (RFC 8707 resource indicator).
+	// the gateway's public MCP URL (RFC 8707 resource indicator), e.g.
+	// https://gw.example.com:8443/mcp.
 	Issuer   string `yaml:"issuer"`
 	Audience string `yaml:"audience"`
+	// JWKSURL overrides the key set URL found by OIDC discovery at
+	// <issuer>/.well-known/openid-configuration.
+	JWKSURL string `yaml:"jwks_url"`
+	// GroupsClaim names the token claim holding the principal's groups.
+	GroupsClaim string `yaml:"groups_claim"`
+	// LocalUserClaim, if set, names a claim whose value is looked up as a
+	// local account; if it exists, the principal runs as that account
+	// (decision D1). Otherwise backends run as a dynamic user.
+	LocalUserClaim string `yaml:"local_user_claim"`
+	// Scopes that every token must carry (space-separated "scope" claim).
+	Scopes []string `yaml:"scopes"`
+	// AllowedOrigins lists the Origin header values accepted from browser
+	// clients; requests with any other Origin are refused (DNS rebinding
+	// protection). Requests without Origin are accepted.
+	AllowedOrigins []string `yaml:"allowed_origins"`
+	// SessionIdleTimeout closes MCP sessions without traffic.
+	SessionIdleTimeout time.Duration `yaml:"session_idle_timeout"`
 }
 
 // Policy configures the connection to the policy decision point.
@@ -108,6 +129,8 @@ const (
 	DefaultPolicyTimeout   = 250 * time.Millisecond
 	DefaultApprovalTimeout = 120 * time.Second
 	DefaultIdleTimeout     = 15 * time.Minute
+	DefaultHTTPSessionIdle = 30 * time.Minute
+	DefaultGroupsClaim     = "groups"
 	DefaultSELinuxType     = "mcpsrv_generic_t"
 	DefaultRunAs           = "principal"
 	DefaultProtectHome     = "read-only"
@@ -159,6 +182,12 @@ func (g *Gateway) setDefaults() {
 	if g.Supervisor.IdleTimeout == 0 {
 		g.Supervisor.IdleTimeout = DefaultIdleTimeout
 	}
+	if g.HTTP.GroupsClaim == "" {
+		g.HTTP.GroupsClaim = DefaultGroupsClaim
+	}
+	if g.HTTP.SessionIdleTimeout == 0 {
+		g.HTTP.SessionIdleTimeout = DefaultHTTPSessionIdle
+	}
 }
 
 // Validate checks the configuration for consistency.
@@ -192,8 +221,40 @@ func (g *Gateway) Validate() error {
 		if g.HTTP.Issuer == "" || g.HTTP.Audience == "" {
 			return errors.New("http: issuer and audience are required when listen is set")
 		}
+		for name, v := range map[string]string{"issuer": g.HTTP.Issuer, "audience": g.HTTP.Audience, "jwks_url": g.HTTP.JWKSURL} {
+			if v == "" && name == "jwks_url" {
+				continue
+			}
+			if err := checkURL(v); err != nil {
+				return fmt.Errorf("http.%s: %w", name, err)
+			}
+		}
+		if g.HTTP.SessionIdleTimeout < 0 {
+			return errors.New("http.session_idle_timeout: must not be negative")
+		}
 	}
 	return nil
+}
+
+// checkURL accepts https URLs, and http URLs on loopback hosts (for
+// development and tests).
+func checkURL(s string) error {
+	u, err := url.Parse(s)
+	if err != nil {
+		return err
+	}
+	if u.Host == "" {
+		return fmt.Errorf("%q is not an absolute URL", s)
+	}
+	switch u.Scheme {
+	case "https":
+		return nil
+	case "http":
+		if h := u.Hostname(); h == "localhost" || net.ParseIP(h).IsLoopback() {
+			return nil
+		}
+	}
+	return fmt.Errorf("%q must be an https URL (http only on loopback)", s)
 }
 
 // LoadBackends reads every *.yaml file in dir, sorted by name, and returns

@@ -154,8 +154,28 @@ own backends.
   (RFC 9728) pointing at the configured authorization server, validates
   audience (RFC 8707 resource indicator = gateway URL), issuer, expiry and
   signature. The gateway never issues tokens itself.
-- Transport adapters produce a uniform `Conn` (JSON-RPC message stream +
-  raw identity evidence) consumed by the identity layer.
+  - Keys come from the issuer's JWKS (found by OIDC discovery, or
+    configured), cached for an hour and refreshed on an unknown key id at
+    most every 30 s. Only asymmetric algorithms are accepted (no `none`,
+    no HMAC key confusion); RSA keys below 2048 bits are ignored.
+    Required scopes are configurable.
+  - Every request carries the token and is validated; the metadata lives
+    at `/.well-known/oauth-protected-resource<path>` and every `401`
+    points to it.
+- Streamable HTTP details: the resource URL's path (e.g. `/mcp`) is the
+  aggregated endpoint, `<path>/<server>` the per-server ones. `POST`
+  carries one client message (no batches); requests are answered as JSON
+  or, if the client accepts it, as an SSE stream that also carries the
+  server's requests and notifications for that request (e.g. an approval
+  elicitation) and ends with the response. `GET` opens the session's
+  stream for everything else; messages with no open stream are queued
+  (bounded). `DELETE` ends the session. `initialize` creates the
+  session and returns `Mcp-Session-Id`; a session is bound to its
+  principal (issuer + subject), and requests from anyone else get `404`.
+  Sessions without traffic are closed after `http.session_idle_timeout`.
+  Browser `Origin`s must be allow-listed (DNS rebinding).
+- Transports hand the router a message connection
+  (`jsonrpc.MessageConn`) plus the authenticated principal.
 
 ### 5.2 Identity → Principal
 
@@ -177,8 +197,11 @@ what policy sees as `input.principal`:
 ```
 
 - **Local:** `uid` → user name and groups via NSS (works with SSSD/IPA).
-- **Remote:** `sub`, `groups` from token claims; `uid` from an optional
-  mapping to a local account (§9, D1).
+- **Remote:** `sub`, `iss` and `groups` (claim name configurable) from the
+  token. With `http.local_user_claim` set (e.g. `preferred_username`) and
+  a local account of that name, the principal becomes that account: its
+  name as `sub`, its uid, home and groups (§9, D1). Otherwise backends run
+  as a dynamic user, isolated by the instance's MCS pair.
 - **Roles** are derived by policy data (`data.rbac.bindings`) from groups,
   users or claims — role assignment is itself policy, not code.
 - `client` comes from the MCP `initialize` request (`clientInfo`); it is
@@ -790,7 +813,8 @@ docs/
    and filtering for resources, resource templates, prompts, completions
    and backend requests; instances shared by a principal's sessions with
    idle timeout; cancellation and progress mapping.
-5. Streamable HTTP + OAuth resource server.
+5. **Remote access** (done): Streamable HTTP transport and OAuth resource
+   server (JWT/JWKS validation, RFC 9728 metadata, local account mapping).
 6. URL-mode / OOB approvals with Cockpit approval page; grants store.
 7. MCS allocator, per-session isolation, hardening, RPM packaging.
 
@@ -800,6 +824,13 @@ docs/
   allowed tree can still point elsewhere. Resolving paths needs knowledge
   of the backend's filesystem view; until then DAC and SELinux are the
   backstop.
+- HTTP streams: with several requests in flight on one session, a server
+  notification or request goes to the most recently opened request stream,
+  which may belong to another of the client's requests. Clients treat all
+  streams as one session, so this is harmless, but not precise.
+  Resumability (`Last-Event-ID`) is not implemented.
+- A token that expires during a long SSE stream keeps that stream alive;
+  every new request needs a valid token.
 - Exact JSON-RPC error codes for policy denials (align with any future
   MCP-spec guidance).
 - Behaviour of long-running `tools/call` when a grant expires mid-call

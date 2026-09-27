@@ -53,7 +53,7 @@ var listSpecs = map[string]listSpec{
 type Session struct {
 	r      *Router
 	ep     endpoint
-	client *jsonrpc.Conn
+	client jsonrpc.MessageConn
 	log    *slog.Logger
 	ctx    context.Context
 
@@ -69,7 +69,7 @@ type Session struct {
 	annotations map[string]map[string]any // by exposed tool name
 }
 
-func newSession(r *Router, ep endpoint, client *jsonrpc.Conn, p principal.Principal) *Session {
+func newSession(r *Router, ep endpoint, client jsonrpc.MessageConn, p principal.Principal) *Session {
 	return &Session{
 		r:           r,
 		ep:          ep,

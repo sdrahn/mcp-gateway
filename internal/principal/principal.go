@@ -21,9 +21,11 @@ type Client struct {
 
 // Principal is an authenticated identity.
 type Principal struct {
-	// Sub is the subject: the Unix user name for local clients, the token
-	// subject for remote clients.
+	// Sub is the subject: the Unix user name for local clients and for
+	// remote clients mapped to a local account, else the token subject.
 	Sub string `json:"sub"`
+	// Issuer is the token issuer of a remote principal.
+	Issuer string `json:"iss,omitempty"`
 	// UID is the local Unix uid, or nil for a remote principal without a
 	// local account mapping.
 	UID    *uint32  `json:"uid,omitempty"`
