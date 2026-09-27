@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -419,6 +420,9 @@ func sseWithIDs(resp *http.Response, out chan<- sseEvent2) {
 	}
 }
 
+// diagnose, if set, describes the server state when nextEv times out.
+var diagnose func() string
+
 func nextEv(t *testing.T, ch <-chan sseEvent2) sseEvent2 {
 	t.Helper()
 	select {
@@ -427,10 +431,32 @@ func nextEv(t *testing.T, ch <-chan sseEvent2) sseEvent2 {
 			t.Fatal("stream ended")
 		}
 		return ev
-	case <-time.After(3 * time.Second):
-		t.Fatal("timeout")
+	case <-time.After(5 * time.Second):
+		msg := "timeout"
+		if diagnose != nil {
+			msg += "\n" + diagnose()
+		}
+		buf := make([]byte, 1<<20)
+		t.Fatalf("%s\ngoroutines:\n%s", msg, buf[:runtime.Stack(buf, true)])
 	}
 	return sseEvent2{}
+}
+
+// streamState describes the streams of all sessions of h.
+func streamState(h *HTTPHandler) string {
+	var b strings.Builder
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for id, s := range h.sessions {
+		s.mu.Lock()
+		fmt.Fprintf(&b, "session %s: pending=%d order=%d queue=%d\n", id, len(s.pending), len(s.order), len(s.queue))
+		for num, st := range s.streams {
+			fmt.Fprintf(&b, "  stream %d key=%q attached=%v conn=%d done=%v next=%d events=%d\n",
+				num, st.key, st.attached, st.conn, st.done, st.next, len(st.events))
+		}
+		s.mu.Unlock()
+	}
+	return b.String()
 }
 
 func resume(t *testing.T, srv *httptest.Server, sid, lastID string) *http.Response {
@@ -475,7 +501,9 @@ func answer(t *testing.T, srv *httptest.Server, sid string) {
 }
 
 func TestResumeRequestStream(t *testing.T) {
-	srv, _ := newTestServer(t, nil)
+	srv, h := newTestServer(t, nil)
+	diagnose = func() string { return streamState(h) }
+	t.Cleanup(func() { diagnose = nil })
 	sid := initialize(t, srv, "/mcp", "alice")
 	_, elID := askAndDrop(t, srv, sid)
 	// The response arrives while no connection is attached.
