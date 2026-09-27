@@ -549,8 +549,16 @@ func TestAggregatedEndpoint(t *testing.T) {
 		if text != "hello world" {
 			t.Fatalf("got %q", text)
 		}
-		if n := strings.Count(e.gwLogs.String(), `msg="instance started" server=fs`); n != 1 {
-			t.Fatalf("fs instance started %d times, want 1\n%s", n, e.gwLogs.String())
+		// One instance for the principal; listings came from the shared
+		// discovery instance (without any user's identity).
+		logs := e.gwLogs.String()
+		mine := regexp.MustCompile(`msg="instance started" server=fs instance=\S+ sub=` + regexp.QuoteMeta(me.Username) + `\b`)
+		if n := len(mine.FindAllString(logs, -1)); n != 1 {
+			t.Fatalf("fs instance started %d times for %s, want 1\n%s", n, me.Username, logs)
+		}
+		shared := regexp.MustCompile(`msg="instance started" server=fs instance=\S+ sub=mcp-discovery\b`)
+		if n := len(shared.FindAllString(logs, -1)); n != 1 {
+			t.Fatalf("want one shared discovery instance for fs, got %d\n%s", n, logs)
 		}
 	})
 }

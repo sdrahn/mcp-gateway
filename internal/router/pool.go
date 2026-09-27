@@ -10,6 +10,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/authn"
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 )
@@ -32,6 +33,8 @@ type pool struct {
 	idle     time.Duration
 	log      *slog.Logger
 	now      func() time.Time
+	// onListChanged is handed to every upstream (see upstreamHooks).
+	onListChanged func(*upstream, *jsonrpc.Message)
 
 	backoffBase, backoffMax, stableAfter time.Duration
 
@@ -165,7 +168,10 @@ func (p *pool) start(ctx context.Context, b *config.Backend, pr principal.Princi
 	if err != nil {
 		return nil, err
 	}
-	up, err := newUpstream(ctx, b, id, inst, p.log)
+	up, err := newUpstream(ctx, b, id, inst, p.log, upstreamHooks{
+		internal:      pr.Transport == principal.TransportInternal,
+		onListChanged: p.onListChanged,
+	})
 	if err != nil {
 		return nil, err
 	}

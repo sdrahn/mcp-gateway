@@ -952,11 +952,27 @@ Client        mcp-connect   Gateway/Router   PEP      OPA     Broker    Cockpit 
 ### 7.3 Discovery
 
 1. `tools/list` from client.
-2. Router ensures backend tool lists are cached (fetched once per backend
-   *type*, refreshed on backend `list_changed`), without necessarily
-   starting a per-principal instance.
+2. For backends with `discovery: shared` (the default), the list comes
+   from a cache filled by one **discovery instance** per backend, which the
+   gateway runs for its own principal (`mcp-discovery`, no local account:
+   a dynamic user under systemd, home `/`) and which only ever receives
+   list requests. The cache holds `tools/list`, `prompts/list` and
+   `resources/templates/list`; it is dropped when any instance of the
+   backend sends the matching `list_changed` (sessions that did not get it
+   from their own instance are told too) and when the discovery instance
+   stops (idle timeout). A single-server endpoint's `initialize` also
+   answers from the discovery instance. Connecting and listing thus start
+   no per-principal instance, and no user's view of a server is shown to
+   another. If the discovery instance cannot run, the session's own
+   instance answers.
 3. One batch query to `data.mcp.filter.visible`; filtered, namespaced list
-   returned.
+   returned: visibility stays per principal.
+
+`resources/list` is user data (e.g. the files in the user's home) and
+always comes from the principal's own instance, as do calls. Servers
+whose tool or prompt lists depend on the user set `discovery: instance`.
+`logging/setLevel` reaches running instances and is replayed to
+instances started later, without starting any.
 
 ## 8. Threat model (summary)
 

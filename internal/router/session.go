@@ -18,6 +18,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/audit"
 	"github.com/sdrahn/mcp-gateway/internal/broker"
+	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
@@ -69,6 +70,7 @@ type Session struct {
 	clientCaps  map[string]json.RawMessage
 	upstreams   map[string]*upstream
 	releases    []func()
+	logLevel    json.RawMessage // params of the client's last logging/setLevel
 	outbound    map[string]chan *jsonrpc.Message
 	inflight    map[string]context.CancelFunc
 	annotations map[string]map[string]any // by exposed tool name
@@ -271,8 +273,12 @@ func (s *Session) upstream(ctx context.Context, name string) (*upstream, error) 
 	}
 	s.upstreams[name] = u
 	s.releases = append(s.releases, release)
+	level := s.logLevel
 	s.mu.Unlock()
 	u.attach(s)
+	if level != nil && u.init.has("logging") {
+		_, _ = u.request(ctx, s, "logging/setLevel", level)
+	}
 	return u, nil
 }
 
@@ -297,13 +303,13 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 		v = p.ProtocolVersion
 	}
 	if !s.ep.aggregated {
-		u, err := s.upstream(ctx, s.ep.order[0])
+		init, err := s.backendInit(ctx, s.ep.order[0])
 		if err != nil {
 			return nil, unavailable(err)
 		}
-		res := map[string]any{"protocolVersion": v, "capabilities": withListChanged(u.init.Capabilities), "serverInfo": u.init.ServerInfo}
-		if u.init.Instructions != "" {
-			res["instructions"] = u.init.Instructions
+		res := map[string]any{"protocolVersion": v, "capabilities": withListChanged(init.Capabilities), "serverInfo": init.ServerInfo}
+		if init.Instructions != "" {
+			res["instructions"] = init.Instructions
 		}
 		return res, nil
 	}
@@ -420,10 +426,23 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 
 // fetchList returns all items of one backend's list, following cursors.
 func (s *Session) fetchList(ctx context.Context, server, method string, spec listSpec) ([]listItem, error) {
+	if b := s.ep.backends[server]; b != nil && b.Discovery == config.DiscoveryShared && sharedMethods[method] {
+		items, err := s.r.sharedList(ctx, b, method, spec)
+		if err == nil {
+			return items, nil
+		}
+		s.log.Warn("shared discovery failed; listing from the session's instance", "server", server, "method", method, "err", err)
+	}
 	u, err := s.upstream(ctx, server)
 	if err != nil {
 		return nil, err
 	}
+	return fetchPages(ctx, u, s, server, method, spec)
+}
+
+// fetchPages fetches all pages of a list from u (for session s, nil for
+// the gateway's own requests).
+func fetchPages(ctx context.Context, u *upstream, s *Session, server, method string, spec listSpec) ([]listItem, error) {
 	if !u.init.has(spec.capability) {
 		return nil, nil
 	}
@@ -746,13 +765,38 @@ func (s *Session) exposeContents(server string, result json.RawMessage) json.Raw
 	return out
 }
 
-func (s *Session) setLevel(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error) {
-	for _, server := range s.ep.order {
-		u, err := s.upstream(ctx, server)
-		if err != nil || !u.init.has("logging") {
-			continue
+// backendInit returns a backend's initialize result: the shared discovery
+// instance's, so that initializing does not start the principal's
+// instance, else the principal's instance's.
+func (s *Session) backendInit(ctx context.Context, server string) (initResult, error) {
+	if b := s.ep.backends[server]; b != nil && b.Discovery == config.DiscoveryShared {
+		init, err := s.r.sharedInit(ctx, b)
+		if err == nil {
+			return init, nil
 		}
-		_, _ = u.request(ctx, s, m.Method, m.Params)
+		s.log.Warn("shared discovery failed; initializing the session's instance", "server", server, "err", err)
+	}
+	u, err := s.upstream(ctx, server)
+	if err != nil {
+		return initResult{}, err
+	}
+	return u.init, nil
+}
+
+// setLevel passes the log level to the session's running instances and
+// remembers it for instances started later (without starting any).
+func (s *Session) setLevel(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error) {
+	s.mu.Lock()
+	s.logLevel = m.Params
+	ups := make([]*upstream, 0, len(s.upstreams))
+	for _, u := range s.upstreams {
+		ups = append(ups, u)
+	}
+	s.mu.Unlock()
+	for _, u := range ups {
+		if !u.isClosed() && u.init.has("logging") {
+			_, _ = u.request(ctx, s, m.Method, m.Params)
+		}
 	}
 	return map[string]any{}, nil
 }

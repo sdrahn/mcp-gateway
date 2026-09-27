@@ -171,6 +171,7 @@ func TestLoadBackendsErrors(t *testing.T) {
 		"empty command":    {"name: a\n"},
 		"bad selinux type": {"name: a\ncommand: [/usr/bin/a]\nselinux_type: unconfined_t\n"},
 		"bad isolation":    {"name: a\ncommand: [/usr/bin/a]\nisolation: global\n"},
+		"bad discovery":    {"name: a\ncommand: [/usr/bin/a]\ndiscovery: cached\n"},
 		"bad protect_home": {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  protect_home: maybe\n"},
 		"bad cred name":    {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"../x\"]\n"},
 		"relative cred":    {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"db:secrets/db\"]\n"},

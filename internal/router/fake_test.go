@@ -6,6 +6,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
@@ -87,22 +88,28 @@ type fakeLauncher struct {
 	instances map[string][]*fakeInstance
 	// fail, if set, is returned by Start.
 	fail error
+	// failFor, if set, may refuse starts for some principals.
+	failFor func(principal.Principal) error
 }
 
 func newFakeLauncher(t *testing.T) *fakeLauncher {
 	return &fakeLauncher{t: t, instances: map[string][]*fakeInstance{}}
 }
 
-func (l *fakeLauncher) Start(_ context.Context, b *config.Backend, _ principal.Principal, id string) (supervisor.Instance, error) {
+func (l *fakeLauncher) Start(_ context.Context, b *config.Backend, p principal.Principal, id string) (supervisor.Instance, error) {
 	l.mu.Lock()
 	err := l.fail
+	if err == nil && l.failFor != nil {
+		err = l.failFor(p)
+	}
 	l.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
 	gw, be := net.Pipe()
-	fi := &fakeInstance{Conn: gw, name: b.Name, id: id, closed: make(chan struct{}), cancelled: make(chan string, 10)}
-	go fi.serve(jsonrpc.NewConn(be))
+	fi := &fakeInstance{Conn: gw, name: b.Name, id: id, p: p, closed: make(chan struct{}), cancelled: make(chan string, 10)}
+	fi.be = jsonrpc.NewConn(be)
+	go fi.serve(fi.be)
 	l.mu.Lock()
 	l.instances[b.Name] = append(l.instances[b.Name], fi)
 	l.mu.Unlock()
@@ -119,12 +126,21 @@ type fakeInstance struct {
 	net.Conn
 	name      string
 	id        string
+	p         principal.Principal // whom the instance runs for
+	be        *jsonrpc.Conn       // the backend's end
+	lists     atomic.Int32        // tools/list listings served
 	closeOnce sync.Once
 	closed    chan struct{}
 	cancelled chan string // request ids the backend was told to cancel
 }
 
 func (f *fakeInstance) Name() string { return "fake-" + f.name + "-" + f.id }
+
+// notify sends a notification from the backend.
+func (f *fakeInstance) notify(method string) {
+	n, _ := jsonrpc.NewNotification(method, nil)
+	_ = f.be.Write(n)
+}
 
 func (f *fakeInstance) Close() error {
 	f.closeOnce.Do(func() { close(f.closed) })
@@ -211,6 +227,9 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 				"serverInfo":      map[string]any{"name": "fake-" + f.name},
 			})
 		case "tools/list":
+			if p.Cursor == "" {
+				f.lists.Add(1) // listings, not pages
+			}
 			// Two pages.
 			if p.Cursor == "" {
 				respond(m, map[string]any{"tools": []map[string]any{

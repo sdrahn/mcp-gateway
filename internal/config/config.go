@@ -167,13 +167,19 @@ type Policy struct {
 
 // Backend is one MCP server definition from the registry.
 type Backend struct {
-	Name        string            `yaml:"name"`
-	Command     []string          `yaml:"command"`
-	SELinuxType string            `yaml:"selinux_type"`
-	Isolation   Isolation         `yaml:"isolation"`
-	Network     bool              `yaml:"network"`
-	RunAs       string            `yaml:"run_as"`
-	Env         map[string]string `yaml:"env"`
+	Name        string    `yaml:"name"`
+	Command     []string  `yaml:"command"`
+	SELinuxType string    `yaml:"selinux_type"`
+	Isolation   Isolation `yaml:"isolation"`
+	Network     bool      `yaml:"network"`
+	RunAs       string    `yaml:"run_as"`
+	// Discovery is "shared" (tool, prompt and resource template lists
+	// come from a gateway-owned instance without any user's identity and
+	// are cached, so listing does not start instances for every user) or
+	// "instance" (lists come from the principal's own instance, for
+	// servers whose lists depend on the user).
+	Discovery string            `yaml:"discovery"`
+	Env       map[string]string `yaml:"env"`
 	// Credentials are secrets handed to the backend by systemd
 	// (LoadCredential=): "name" reads DefaultCredentialsDir/name,
 	// "name:/path" reads /path. The backend finds each as
@@ -222,6 +228,12 @@ const (
 	IsolationPrincipal Isolation = "principal"
 	// IsolationSession runs one instance per client session.
 	IsolationSession Isolation = "session"
+)
+
+// Discovery modes (Backend.Discovery).
+const (
+	DiscoveryShared   = "shared"
+	DiscoveryInstance = "instance"
 )
 
 // Sandbox holds per-backend relaxations of the default systemd sandbox.
@@ -511,6 +523,9 @@ func (b *Backend) setDefaults() {
 	if b.RunAs == "" {
 		b.RunAs = DefaultRunAs
 	}
+	if b.Discovery == "" {
+		b.Discovery = DiscoveryShared
+	}
 	if b.Sandbox.ProtectHome == "" {
 		b.Sandbox.ProtectHome = DefaultProtectHome
 	}
@@ -531,6 +546,11 @@ func (b *Backend) Validate() error {
 	case IsolationPrincipal, IsolationSession:
 	default:
 		return fmt.Errorf("isolation: unknown value %q", b.Isolation)
+	}
+	switch b.Discovery {
+	case DiscoveryShared, DiscoveryInstance:
+	default:
+		return fmt.Errorf("discovery: unknown value %q", b.Discovery)
 	}
 	switch b.Sandbox.ProtectHome {
 	case "yes", "read-only", "read-write":
