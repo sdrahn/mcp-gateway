@@ -85,6 +85,8 @@ type fakeLauncher struct {
 	mu sync.Mutex
 	// instances by backend name, in start order
 	instances map[string][]*fakeInstance
+	// fail, if set, is returned by Start.
+	fail error
 }
 
 func newFakeLauncher(t *testing.T) *fakeLauncher {
@@ -92,6 +94,12 @@ func newFakeLauncher(t *testing.T) *fakeLauncher {
 }
 
 func (l *fakeLauncher) Start(_ context.Context, b *config.Backend, _ principal.Principal, id string) (supervisor.Instance, error) {
+	l.mu.Lock()
+	err := l.fail
+	l.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
 	gw, be := net.Pipe()
 	fi := &fakeInstance{Conn: gw, name: b.Name, id: id, closed: make(chan struct{}), cancelled: make(chan string, 10)}
 	go fi.serve(jsonrpc.NewConn(be))

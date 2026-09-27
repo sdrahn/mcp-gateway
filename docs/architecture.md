@@ -436,7 +436,12 @@ The gateway:
   (stderr goes to the journal).
 - **Lifecycle:** start on first use; idle timeout (default 15 min); stop on
   session end for `isolation: session`; crash ⇒ error to client, restart on
-  next call (with backoff).
+  next call. After an instance failed to start or exited on its own, the
+  next start of the same instance (same principal or session and backend)
+  waits 1 s, doubling with each further failure up to 2 min; calls in
+  the meantime fail at once with "backend unavailable; retry in …". An
+  instance that ran for a minute before failing starts the count afresh,
+  and stops by the gateway (idle, session end) are not failures.
 - **Credentials:** the gateway **never forwards client tokens** to
   backends (token passthrough is prohibited by the MCP authorization
   specification). Backend secrets come from systemd credentials.

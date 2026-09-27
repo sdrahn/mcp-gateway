@@ -299,7 +299,7 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 	if !s.ep.aggregated {
 		u, err := s.upstream(ctx, s.ep.order[0])
 		if err != nil {
-			return nil, rpcError(jsonrpc.CodeInternalError, "backend unavailable")
+			return nil, unavailable(err)
 		}
 		res := map[string]any{"protocolVersion": v, "capabilities": withListChanged(u.init.Capabilities), "serverInfo": u.init.ServerInfo}
 		if u.init.Instructions != "" {
@@ -595,7 +595,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 
 	u, err := s.upstream(ctx, t.server)
 	if err != nil {
-		return nil, rpcError(jsonrpc.CodeInternalError, "backend unavailable")
+		return nil, unavailable(err)
 	}
 	t.rewrite(params)
 	if gw := s.rewriteProgressToken(u, params); gw != nil {
@@ -665,6 +665,16 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 		dec = pep.Decision{Effect: pep.Deny, Reason: "policy did not accept the approval"}
 	}
 	return dec, g.ID
+}
+
+// unavailable is the client's error for a backend that cannot be
+// reached; it tells when a failed backend will be tried again.
+func unavailable(err error) *jsonrpc.Error {
+	var b *BackoffError
+	if errors.As(err, &b) {
+		return rpcError(jsonrpc.CodeInternalError, fmt.Sprintf("backend unavailable; retry in %s", b.RetryIn.Round(time.Second)))
+	}
+	return rpcError(jsonrpc.CodeInternalError, "backend unavailable")
 }
 
 func (s *Session) denial(method, reason string) (any, *jsonrpc.Error) {
