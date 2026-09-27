@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -466,18 +467,33 @@ func resume(t *testing.T, srv *httptest.Server, sid, lastID string) *http.Respon
 	hr.Header.Set("Mcp-Session-Id", sid)
 	hr.Header.Set("Accept", "text/event-stream")
 	hr.Header.Set("Last-Event-ID", lastID)
-	resp, err := srv.Client().Do(hr)
+	// A new connection, as a client reconnecting after a drop.
+	c := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	resp, err := c.Do(hr)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return resp
 }
 
-// askAndDrop starts an "ask" request over SSE, reads the priming event and
-// the elicitation, then drops the connection. It returns their ids.
+// askAndDrop starts an "ask" request over SSE on its own TCP connection,
+// reads the priming event and the elicitation, then closes the connection
+// (an HTTP client may keep and drain a connection when a body is closed,
+// which would not drop it). It returns the two events' ids.
 func askAndDrop(t *testing.T, srv *httptest.Server, sid string) (priming, elicitation string) {
 	t.Helper()
-	resp := do(t, srv, req{token: "alice", session: sid, accept: "text/event-stream", body: `{"jsonrpc":"2.0","id":2,"method":"ask"}`})
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	body := `{"jsonrpc":"2.0","id":2,"method":"ask"}`
+	fmt.Fprintf(conn, "POST /mcp HTTP/1.1\r\nHost: gw\r\nAuthorization: Bearer alice\r\nMcp-Session-Id: %s\r\n"+
+		"Content-Type: application/json\r\nAccept: text/event-stream\r\nContent-Length: %d\r\n\r\n%s", sid, len(body), body)
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	events := make(chan sseEvent2, 8)
 	go sseWithIDs(resp, events)
 	p := nextEv(t, events)
@@ -488,7 +504,6 @@ func askAndDrop(t *testing.T, srv *httptest.Server, sid string) (priming, elicit
 	if el.msg == nil || el.msg.Method != "elicitation/create" {
 		t.Fatalf("want elicitation, got %+v", el)
 	}
-	_ = resp.Body.Close()
 	return p.id, el.id
 }
 
