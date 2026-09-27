@@ -329,17 +329,35 @@ Behaviour:
     "channel": "url"
   }
   ```
-- Grants are stored by the broker (SQLite under
-  `/var/lib/mcp-gateway/`, label `mcpgw_var_lib_t`), passed to OPA as
-  `input.grants` (only those matching the principal/server/tool), and
-  revocable from Cockpit.
-- The approval page shows the *exact* call (server, tool, rendered
-  arguments, principal, client), a nonce, and the scope choices the policy
-  allowed. The URL contains an unguessable one-time token and is only
-  valid for the approving human (`approved_by` must satisfy
-  `data.rbac.approvers`, which by default is the principal themself or an
-  admin role).
-- `scope: once` grants are consumed atomically on use.
+- Grants are kept by the broker and passed to OPA as `input.grants` (only
+  those matching the principal, server and tool; session grants only in
+  their session), and are revocable from Cockpit. `duration` grants
+  (scopes like `"24h"`, at most 30 days) are persisted to
+  `/var/lib/mcp-gateway/grants.json` (atomic writes, mode 0600, label
+  `mcpgw_var_lib_t`) and apply across sessions and restarts; session
+  grants live in memory.
+- `scope: once` grants are never stored; they are valid only for the one
+  re-evaluation after the approval.
+
+**How the `url` and `oob` channels work.** Both create a *pending
+approval* with an unguessable id, visible through the control API
+(§5.10). With `url`, the client receives a URL-mode `elicitation/create`
+(MCP 2025-11-25: `mode: "url"`, `url`, `elicitationId`) pointing at the
+approval page (`approvals.url_template`, e.g. the Cockpit page with
+`#/approvals/{id}`); the client's answer only says whether the user agreed
+to open it, and declining denies the call. The decision is made on the
+page, and the gateway then sends `notifications/elicitation/complete`.
+With `oob`, the client only gets a `notifications/message` that an
+approval is pending; the request shows up in the inbox. Either way the
+call waits until a decision or `approval_timeout`.
+
+**Who may decide.** The principal themself, identified by local uid (the
+approval page runs as the logged-in Cockpit user, so a local principal
+approves their own requests), or a member of `approvals.admin_group`
+(default `wheel`) and root. A remote principal without a local account can
+only be approved by an admin. The page shows the exact call: server, tool,
+arguments, principal, client, and the scopes the policy offered; nothing
+else can be chosen.
 
 #### 5.6.2 Backend-initiated elicitation
 
@@ -476,16 +494,31 @@ and aimed at MLS-style deployments.
 
 ### 5.10 Cockpit integration
 
-A Cockpit module (in `cockpit-kit` or a sibling repository) talks to the
-gateway's control socket (`mcpgw_ctl_sock_t`, root/admin only) and offers:
+The gateway serves a small **control API** on
+`/run/mcp-gateway/control.sock` (`mcpgw_ctl_sock_t`, same group as the MCP
+socket), HTTP with JSON:
+
+| Request | Meaning |
+|---|---|
+| `GET /v1/whoami` | the caller as the gateway sees them |
+| `GET /v1/approvals`, `GET /v1/approvals/{id}` | pending approvals the caller may decide on |
+| `POST /v1/approvals/{id}` `{"decision": "approve"\|"deny", "scope": "…"}` | decide |
+| `GET /v1/grants`, `DELETE /v1/grants/{id}` | the caller's grants (all for admins); revoke |
+
+Callers are identified by the socket's peer credentials, so the API needs
+no tokens: a Cockpit page reaches it with `cockpit.http({unix: …})` as the
+logged-in user, who has authenticated to Cockpit, not to the agent.
+Anything not the caller's is reported as not found.
+
+The approvals page ships in this repository (`cockpit/mcp-gateway`,
+installed to `/usr/share/cockpit/mcp-gateway`): pending approvals with
+their details and one button per offered scope plus Deny, and the grants
+list with Revoke. Approval links (`#/approvals/<id>`) highlight the
+request. Planned additions to it, or to a Cockpit module in `cockpit-kit`:
 
 - **Servers:** registry, running instances, start/stop, logs.
 - **Policy:** role bindings and permissions (editing `data.rbac`), bundle
   status, `opa test` results.
-- **Approvals:** inbox and the target page for URL-mode elicitation; reuses
-  Cockpit's own login, so approvals are bound to a separately authenticated
-  human.
-- **Grants:** list / revoke.
 - **Audit:** filtered view on journald records.
 
 ## 6. Policy model
@@ -815,7 +848,8 @@ docs/
    idle timeout; cancellation and progress mapping.
 5. **Remote access** (done): Streamable HTTP transport and OAuth resource
    server (JWT/JWKS validation, RFC 9728 metadata, local account mapping).
-6. URL-mode / OOB approvals with Cockpit approval page; grants store.
+6. **Approvals** (done): URL-mode and out-of-band approvals, control API,
+   Cockpit approvals page, persistent grants.
 7. MCS allocator, per-session isolation, hardening, RPM packaging.
 
 ## 12. Open items
@@ -829,6 +863,9 @@ docs/
   which may belong to another of the client's requests. Clients treat all
   streams as one session, so this is harmless, but not precise.
   Resumability (`Last-Event-ID`) is not implemented.
+- Pending approvals live in memory; a gateway restart drops them together
+  with the waiting calls. There is no push channel (mail, desktop
+  notification) for out-of-band approvals yet; the inbox is polled.
 - A token that expires during a long SSE stream keeps that stream alive;
   every new request needs a valid token.
 - Exact JSON-RPC error codes for policy denials (align with any future

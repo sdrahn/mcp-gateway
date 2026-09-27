@@ -64,6 +64,8 @@ install: build
 	install -Dm0644 systemd/mcp-opa.service $(DESTDIR)$(UNITDIR)/mcp-opa.service
 	install -Dm0644 packaging/sysusers.d/mcp-gateway.conf $(DESTDIR)$(PREFIX)/lib/sysusers.d/mcp-gateway.conf
 	install -Dm0644 packaging/polkit/50-mcp-gateway.rules $(DESTDIR)$(PREFIX)/share/polkit-1/rules.d/50-mcp-gateway.rules
+	install -d $(DESTDIR)$(PREFIX)/share/cockpit/mcp-gateway
+	install -m0644 cockpit/mcp-gateway/* $(DESTDIR)$(PREFIX)/share/cockpit/mcp-gateway/
 
 clean:
 	rm -rf bin selinux/tmp selinux/*.pp

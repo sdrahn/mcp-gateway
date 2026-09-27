@@ -25,7 +25,8 @@ func TestLoadGatewayDefaults(t *testing.T) {
 	}
 	if g.Socket != DefaultSocket || g.Policy.OPASocket != DefaultOPASocket || g.Policy.Timeout != DefaultPolicyTimeout ||
 		g.Supervisor.Mode != "systemd" || g.Supervisor.SELinux != "auto" || g.ApprovalTimeout != DefaultApprovalTimeout ||
-		g.Supervisor.IdleTimeout != DefaultIdleTimeout {
+		g.Supervisor.IdleTimeout != DefaultIdleTimeout ||
+		g.Approvals.ControlSocket != DefaultControl || g.Approvals.AdminGroup != "wheel" {
 		t.Errorf("defaults not applied: %+v", g)
 	}
 }
@@ -65,6 +66,9 @@ func TestLoadGatewayErrors(t *testing.T) {
 		"http no tls":     "http:\n  listen: ':8443'\n  issuer: x\n  audience: y\n",
 		"http no issuer":  "http:\n  listen: ':8443'\n  cert_file: c\n  key_file: k\n",
 		"bad mode":        "supervisor:\n  mode: docker\n",
+		"url no id":       "approvals:\n  url_template: https://h/approve\n",
+		"url plain":       "approvals:\n  url_template: http://h.example.com/{id}\n",
+		"relative ctl":    "approvals:\n  control_socket: ctl.sock\n",
 		"http issuer url": "http:\n  listen: ':8443'\n  cert_file: c\n  key_file: k\n  issuer: idp\n  audience: https://gw/mcp\n",
 		"http plain aud":  "http:\n  listen: ':8443'\n  cert_file: c\n  key_file: k\n  issuer: https://idp\n  audience: http://gw.example.com/mcp\n",
 		"bad selinux":     "supervisor:\n  selinux: maybe\n",

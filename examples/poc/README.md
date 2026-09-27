@@ -1,6 +1,6 @@
 # Proof of concept
 
-What works (docs/architecture.md, section 11, steps 3 to 5):
+What works (docs/architecture.md, section 11, steps 3 to 6):
 
 - local clients on the gateway's unix socket, identified by kernel peer
   credentials (`SO_PEERCRED`, `SO_PEERSEC`);
@@ -21,16 +21,18 @@ What works (docs/architecture.md, section 11, steps 3 to 5):
 - one backend instance per principal, shared by their sessions and
   stopped after an idle timeout (`isolation: session` for one per
   session);
-- `ask` answered through form-mode elicitation to the client, with
-  `once` / `session` grants;
+- `ask` answered through the channel policy picks: form-mode elicitation
+  to the client, a URL-mode elicitation pointing at the Cockpit approvals
+  page, or out-of-band in that page's inbox; `once` / `session` /
+  duration grants, the latter persisted across restarts;
 - fail closed when OPA is slow, unreachable or returns garbage;
 - audit records (JSON, argument digests) on stderr;
 - backend instances as systemd transient units in their own SELinux
   domain with a per-instance MCS pair, or as plain child processes in
   development mode.
 
-Not yet: URL/OOB approvals, persistent grants, obligations, list_changed
-on policy changes.
+Not yet: obligations, list_changed on policy changes, push notifications
+for out-of-band approvals.
 
 ## Development mode
 
@@ -60,6 +62,24 @@ Claude Code, an IDE, the MCP Inspector) at it, or talk to it by hand:
 `elicitation/create` request; the example role data uses the `form`
 channel so the PoC can demonstrate it (the shipped default policy asks for
 `url`, per decision D3).
+
+## Approvals page
+
+`make install` puts the Cockpit page into `/usr/share/cockpit/mcp-gateway`
+("MCP Gateway approvals" in Cockpit's tools menu). It talks to
+`/run/mcp-gateway/control.sock` as the logged-in user: you see and decide
+your own agents' requests; members of `approvals.admin_group` see
+everyone's. For URL-mode approvals, point clients at it:
+
+```yaml
+approvals:
+  url_template: https://gateway.example.com:9090/mcp-gateway#/approvals/{id}
+```
+
+The shipped default policy asks via `url` with `oob` as fallback, so
+clients without URL-mode support still work: the request waits in the
+inbox. In development mode the same API is on the work directory's
+`control.sock` (see the output of `run-dev.sh`).
 
 ## Remote access
 

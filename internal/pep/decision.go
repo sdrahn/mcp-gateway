@@ -46,6 +46,7 @@ type Resource struct {
 type Grant struct {
 	ID        string         `json:"id"`
 	Sub       string         `json:"sub"`
+	Issuer    string         `json:"iss,omitempty"`
 	Server    string         `json:"server"`
 	Tool      string         `json:"tool"`
 	ArgsMatch map[string]any `json:"args_match,omitempty"`

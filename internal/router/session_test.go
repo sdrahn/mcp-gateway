@@ -26,11 +26,20 @@ func testRouter(t *testing.T, idle time.Duration) (*Router, *fakeLauncher) {
 		},
 		Launcher:    l,
 		PDP:         fakePDP{},
-		Broker:      broker.New(time.Second),
+		Broker:      mustBroker(t, broker.Options{Timeout: time.Second}),
 		IdleTimeout: idle,
 	}
 	t.Cleanup(func() { r.init(); r.pool.closeAll() })
 	return r, l
+}
+
+func mustBroker(t *testing.T, o broker.Options) *broker.Broker {
+	t.Helper()
+	b, err := broker.New(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
 
 var sessionCounter int

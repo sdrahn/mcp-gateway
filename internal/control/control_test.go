@@ -1,0 +1,205 @@
+package control
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/sdrahn/mcp-gateway/internal/broker"
+	"github.com/sdrahn/mcp-gateway/internal/pep"
+	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/transport"
+)
+
+type nopElicitor struct{}
+
+func (nopElicitor) SupportsForm() bool { return false }
+func (nopElicitor) SupportsURL() bool  { return false }
+func (nopElicitor) Elicit(context.Context, any) (broker.ElicitResult, error) {
+	return broker.ElicitResult{}, errors.New("unsupported")
+}
+func (nopElicitor) Notify(string, any) {}
+
+var users = map[uint32]broker.Approver{
+	1001: {Name: "alice", UID: 1001},
+	1002: {Name: "bob", UID: 1002},
+}
+
+func identify(p transport.PeerCred) (broker.Approver, error) {
+	if a, ok := users[p.UID]; ok {
+		return a, nil
+	}
+	return broker.Approver{}, errors.New("unknown")
+}
+
+// setup returns a server and a pending approval of alice's, whose
+// outcome arrives on the returned channel.
+func setup(t *testing.T) (*Server, string, chan *pep.Grant) {
+	t.Helper()
+	b, err := broker.New(broker.Options{Timeout: 5 * time.Second, OOB: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid := uint32(1001)
+	in := pep.Input{
+		Principal: principal.Principal{Sub: "alice", UID: &uid, SessionID: "s1"},
+		Action:    "tools.call",
+		Resource:  pep.Resource{Server: "fs", Kind: "tool", Name: "write_file"},
+	}
+	outcome := make(chan *pep.Grant, 1)
+	go func() {
+		g, _ := b.Approve(context.Background(), nopElicitor{}, in, pep.AskSpec{Channel: pep.ChannelOOB, Scopes: []string{"once", "session"}})
+		outcome <- g
+	}()
+	var id string
+	for i := 0; i < 200 && id == ""; i++ {
+		if ps := b.ListPending(broker.Approver{UID: 0}); len(ps) > 0 {
+			id = ps[0].ID
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if id == "" {
+		t.Fatal("no pending approval")
+	}
+	return &Server{Broker: b, Identify: identify}, id, outcome
+}
+
+func call(t *testing.T, s *Server, uid uint32, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if uid != 0 {
+		req = req.WithContext(WithPeer(req.Context(), transport.PeerCred{UID: uid}))
+	}
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	return rec
+}
+
+func TestNoPeer(t *testing.T) {
+	s, _, _ := setup(t)
+	if rec := call(t, s, 0, "GET", "/v1/approvals", ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("got %d", rec.Code)
+	}
+	if rec := call(t, s, 4242, "GET", "/v1/approvals", ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("unknown uid: %d", rec.Code)
+	}
+}
+
+func TestWhoami(t *testing.T) {
+	s, _, _ := setup(t)
+	rec := call(t, s, 1001, "GET", "/v1/whoami", "")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"name":"alice"`) {
+		t.Fatalf("got %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestListAndGet(t *testing.T) {
+	s, id, _ := setup(t)
+	var ps []broker.Pending
+	rec := call(t, s, 1001, "GET", "/v1/approvals", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &ps); err != nil || len(ps) != 1 || ps[0].ID != id || ps[0].Name != "write_file" {
+		t.Fatalf("alice: %s %v", rec.Body, err)
+	}
+	rec = call(t, s, 1002, "GET", "/v1/approvals", "")
+	if strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Fatalf("bob sees %s", rec.Body)
+	}
+	if rec := call(t, s, 1001, "GET", "/v1/approvals/"+id, ""); rec.Code != 200 {
+		t.Fatalf("get: %d", rec.Code)
+	}
+	if rec := call(t, s, 1002, "GET", "/v1/approvals/"+id, ""); rec.Code != 404 {
+		t.Fatalf("bob get: %d", rec.Code)
+	}
+}
+
+func TestResolve(t *testing.T) {
+	s, id, outcome := setup(t)
+	for _, tc := range []struct {
+		uid  uint32
+		body string
+		want int
+	}{
+		{1001, `{"decision":"maybe"}`, 400},
+		{1001, `not json`, 400},
+		{1001, `{"decision":"approve","scope":"forever"}`, 400},
+		{1002, `{"decision":"approve","scope":"once"}`, 404},
+	} {
+		if rec := call(t, s, tc.uid, "POST", "/v1/approvals/"+id, tc.body); rec.Code != tc.want {
+			t.Fatalf("%d %s: got %d %s", tc.uid, tc.body, rec.Code, rec.Body)
+		}
+	}
+	rec := call(t, s, 1001, "POST", "/v1/approvals/"+id, `{"decision":"approve","scope":"session"}`)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"approved_by":"alice"`) {
+		t.Fatalf("approve: %d %s", rec.Code, rec.Body)
+	}
+	if g := <-outcome; g == nil || g.Scope != "session" {
+		t.Fatalf("outcome %+v", g)
+	}
+	if rec := call(t, s, 1001, "POST", "/v1/approvals/"+id, `{"decision":"deny"}`); rec.Code != 404 {
+		t.Fatalf("second decision: %d", rec.Code)
+	}
+
+	// The session grant is listed for alice, not bob, and alice can revoke it.
+	var gs []pep.Grant
+	rec = call(t, s, 1001, "GET", "/v1/grants", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &gs); err != nil || len(gs) != 1 {
+		t.Fatalf("grants: %s", rec.Body)
+	}
+	if rec := call(t, s, 1002, "DELETE", "/v1/grants/"+gs[0].ID, ""); rec.Code != 404 {
+		t.Fatalf("bob revoke: %d", rec.Code)
+	}
+	if rec := call(t, s, 1001, "DELETE", "/v1/grants/"+gs[0].ID, ""); rec.Code != 204 {
+		t.Fatalf("revoke: %d", rec.Code)
+	}
+}
+
+func TestDeny(t *testing.T) {
+	s, id, outcome := setup(t)
+	if rec := call(t, s, 1001, "POST", "/v1/approvals/"+id, `{"decision":"deny"}`); rec.Code != 204 {
+		t.Fatalf("deny: %d", rec.Code)
+	}
+	if g := <-outcome; g != nil {
+		t.Fatalf("outcome %+v", g)
+	}
+}
+
+func TestServeOverUnixSocket(t *testing.T) {
+	b, err := broker.New(broker.Options{Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(t.TempDir(), "control.sock")
+	l, err := transport.ListenUnix(sock, 0o660, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &Server{Broker: b} // real NSS identification of the peer
+	go func() { _ = s.Serve(ctx, l) }()
+
+	client := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, "unix", sock)
+	}}}
+	resp, err := client.Get("http://control/v1/whoami")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var a broker.Approver
+	if err := json.NewDecoder(resp.Body).Decode(&a); err != nil {
+		t.Fatal(err)
+	}
+	if a.UID != uint32(os.Getuid()) || a.Name == "" {
+		t.Fatalf("whoami %+v", a)
+	}
+}

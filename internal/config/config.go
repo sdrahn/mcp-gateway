@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -24,6 +25,7 @@ const (
 	DefaultSocket     = "/run/mcp-gateway/mcp.sock"
 	DefaultOPASocket  = "/run/mcp-gateway/opa.sock"
 	DefaultStateDir   = "/var/lib/mcp-gateway"
+	DefaultControl    = "/run/mcp-gateway/control.sock"
 )
 
 // Gateway is the main configuration file.
@@ -43,6 +45,24 @@ type Gateway struct {
 	Supervisor Supervisor `yaml:"supervisor"`
 	// ApprovalTimeout bounds how long a call waits for a human decision.
 	ApprovalTimeout time.Duration `yaml:"approval_timeout"`
+	// Approvals configures URL and out-of-band approvals.
+	Approvals Approvals `yaml:"approvals"`
+}
+
+// Approvals configures the control API and approval channels
+// (docs/architecture.md, section 5.6).
+type Approvals struct {
+	// ControlSocket serves the control API (approvals, grants) to local
+	// users, identified by peer credentials; e.g. the Cockpit page. "-"
+	// disables it, and with it the url and oob channels.
+	ControlSocket string `yaml:"control_socket"`
+	// URLTemplate is the approval page URL, with "{id}" for the approval
+	// id, sent to clients in URL-mode elicitations. Empty disables the url
+	// channel.
+	URLTemplate string `yaml:"url_template"`
+	// AdminGroup members may decide on everyone's approvals and see and
+	// revoke all grants.
+	AdminGroup string `yaml:"admin_group"`
 }
 
 // Supervisor configures backend instance launching.
@@ -182,6 +202,12 @@ func (g *Gateway) setDefaults() {
 	if g.Supervisor.IdleTimeout == 0 {
 		g.Supervisor.IdleTimeout = DefaultIdleTimeout
 	}
+	if g.Approvals.ControlSocket == "" {
+		g.Approvals.ControlSocket = DefaultControl
+	}
+	if g.Approvals.AdminGroup == "" {
+		g.Approvals.AdminGroup = "wheel"
+	}
 	if g.HTTP.GroupsClaim == "" {
 		g.HTTP.GroupsClaim = DefaultGroupsClaim
 	}
@@ -200,6 +226,17 @@ func (g *Gateway) Validate() error {
 	}
 	if g.ApprovalTimeout < 0 {
 		return errors.New("approval_timeout: must not be negative")
+	}
+	if g.Approvals.ControlSocket != "-" && !filepath.IsAbs(g.Approvals.ControlSocket) {
+		return fmt.Errorf("approvals.control_socket: must be an absolute path or \"-\", got %q", g.Approvals.ControlSocket)
+	}
+	if t := g.Approvals.URLTemplate; t != "" {
+		if !strings.Contains(t, "{id}") {
+			return errors.New("approvals.url_template: must contain {id}")
+		}
+		if err := checkURL(strings.ReplaceAll(t, "{id}", "x")); err != nil {
+			return fmt.Errorf("approvals.url_template: %w", err)
+		}
 	}
 	if g.Supervisor.IdleTimeout < 0 {
 		return errors.New("supervisor.idle_timeout: must not be negative")

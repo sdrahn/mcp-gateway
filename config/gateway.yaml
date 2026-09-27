@@ -21,6 +21,18 @@ policy:
 # How long a call waits for a human approval before it is denied.
 approval_timeout: 120s
 
+approvals:
+  # Control API for the approvals inbox and grants (the Cockpit page talks
+  # to it as the logged-in user). "-" disables it, and with it the url and
+  # oob approval channels.
+  control_socket: /run/mcp-gateway/control.sock
+  # Approval page for URL-mode elicitations; {id} is the approval id.
+  # Empty disables the url channel. With the Cockpit page, e.g.:
+  #   https://gateway.example.com:9090/mcp-gateway#/approvals/{id}
+  url_template: ""
+  # Members may decide on everyone's approvals and revoke any grant.
+  admin_group: wheel
+
 supervisor:
   # systemd: each backend instance is a confined transient unit.
   # exec: plain child processes without confinement (development only).
