@@ -488,8 +488,10 @@ func askAndDrop(t *testing.T, srv *httptest.Server, sid string) (priming, elicit
 	}
 	defer func() { _ = conn.Close() }()
 	body := `{"jsonrpc":"2.0","id":2,"method":"ask"}`
-	fmt.Fprintf(conn, "POST /mcp HTTP/1.1\r\nHost: gw\r\nAuthorization: Bearer alice\r\nMcp-Session-Id: %s\r\n"+
-		"Content-Type: application/json\r\nAccept: text/event-stream\r\nContent-Length: %d\r\n\r\n%s", sid, len(body), body)
+	if _, err := fmt.Fprintf(conn, "POST /mcp HTTP/1.1\r\nHost: gw\r\nAuthorization: Bearer alice\r\nMcp-Session-Id: %s\r\n"+
+		"Content-Type: application/json\r\nAccept: text/event-stream\r\nContent-Length: %d\r\n\r\n%s", sid, len(body), body); err != nil {
+		t.Fatal(err)
+	}
 	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
 	if err != nil {
 		t.Fatal(err)
