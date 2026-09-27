@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -388,5 +389,259 @@ func TestSessionBoundToClientCert(t *testing.T) {
 	other.Cert = nil
 	if s.ownedBy(other) {
 		t.Error("session usable without the client certificate")
+	}
+}
+
+type sseEvent2 struct {
+	id  string
+	msg *jsonrpc.Message // nil for events without data (priming)
+}
+
+// sseWithIDs reads SSE events with their ids until the body ends.
+func sseWithIDs(resp *http.Response, out chan<- sseEvent2) {
+	defer close(out)
+	sc := bufio.NewScanner(resp.Body)
+	var ev sseEvent2
+	for sc.Scan() {
+		line := sc.Text()
+		switch {
+		case strings.HasPrefix(line, "id: "):
+			ev.id = strings.TrimPrefix(line, "id: ")
+		case strings.HasPrefix(line, "data: "):
+			m := &jsonrpc.Message{}
+			if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), m) == nil {
+				ev.msg = m
+			}
+		case line == "" && ev.id != "":
+			out <- ev
+			ev = sseEvent2{}
+		}
+	}
+}
+
+func nextEv(t *testing.T, ch <-chan sseEvent2) sseEvent2 {
+	t.Helper()
+	select {
+	case ev, ok := <-ch:
+		if !ok {
+			t.Fatal("stream ended")
+		}
+		return ev
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout")
+	}
+	return sseEvent2{}
+}
+
+func resume(t *testing.T, srv *httptest.Server, sid, lastID string) *http.Response {
+	t.Helper()
+	hr, _ := http.NewRequest(http.MethodGet, srv.URL+"/mcp", nil)
+	hr.Header.Set("Authorization", "Bearer alice")
+	hr.Header.Set("Mcp-Session-Id", sid)
+	hr.Header.Set("Accept", "text/event-stream")
+	hr.Header.Set("Last-Event-ID", lastID)
+	resp, err := srv.Client().Do(hr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+// askAndDrop starts an "ask" request over SSE, reads the priming event and
+// the elicitation, then drops the connection. It returns their ids.
+func askAndDrop(t *testing.T, srv *httptest.Server, sid string) (priming, elicitation string) {
+	t.Helper()
+	resp := do(t, srv, req{token: "alice", session: sid, accept: "text/event-stream", body: `{"jsonrpc":"2.0","id":2,"method":"ask"}`})
+	events := make(chan sseEvent2, 8)
+	go sseWithIDs(resp, events)
+	p := nextEv(t, events)
+	if p.msg != nil {
+		t.Fatalf("first event is not a priming event: %+v", p)
+	}
+	el := nextEv(t, events)
+	if el.msg == nil || el.msg.Method != "elicitation/create" {
+		t.Fatalf("want elicitation, got %+v", el)
+	}
+	_ = resp.Body.Close()
+	return p.id, el.id
+}
+
+func answer(t *testing.T, srv *httptest.Server, sid string) {
+	t.Helper()
+	a := do(t, srv, req{token: "alice", session: sid, body: `{"jsonrpc":"2.0","id":"e1","result":{"action":"accept"}}`})
+	if _ = readBody(t, a); a.StatusCode != 202 {
+		t.Fatalf("answer: %d", a.StatusCode)
+	}
+}
+
+func TestResumeRequestStream(t *testing.T) {
+	srv, _ := newTestServer(t, nil)
+	sid := initialize(t, srv, "/mcp", "alice")
+	_, elID := askAndDrop(t, srv, sid)
+	// The response arrives while no connection is attached.
+	answer(t, srv, sid)
+
+	resp := resume(t, srv, sid, elID)
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("resume: %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	events := make(chan sseEvent2, 8)
+	go sseWithIDs(resp, events)
+	if p := nextEv(t, events); p.msg != nil || p.id != elID {
+		t.Fatalf("priming %+v, want id %s", p, elID)
+	}
+	final := nextEv(t, events)
+	if final.msg == nil || final.msg.Key() != "2" || !strings.Contains(string(final.msg.Result), "accept") {
+		t.Fatalf("final %+v", final)
+	}
+	num, _, _ := parseEventID(elID)
+	if n, _, _ := parseEventID(final.id); n != num {
+		t.Fatalf("event %s is not on the resumed stream %d", final.id, num)
+	}
+	if _, ok := <-events; ok {
+		t.Fatal("resumed stream should end after the response")
+	}
+
+	// Resuming it again after the response was delivered ends at once.
+	again := resume(t, srv, sid, final.id)
+	if body := readBody(t, again); again.StatusCode != 200 || strings.Contains(body, "data: {") {
+		t.Fatalf("second resume: %d %q", again.StatusCode, body)
+	}
+}
+
+func TestResumeReplaysMissedEvents(t *testing.T) {
+	srv, _ := newTestServer(t, nil)
+	sid := initialize(t, srv, "/mcp", "alice")
+	primingID, _ := askAndDrop(t, srv, sid)
+	answer(t, srv, sid)
+
+	// From the priming id, the elicitation (possibly lost in transit) is
+	// replayed before the response.
+	resp := resume(t, srv, sid, primingID)
+	events := make(chan sseEvent2, 8)
+	go sseWithIDs(resp, events)
+	nextEv(t, events) // priming
+	if ev := nextEv(t, events); ev.msg == nil || ev.msg.Method != "elicitation/create" {
+		t.Fatalf("replayed %+v", ev)
+	}
+	if ev := nextEv(t, events); ev.msg == nil || ev.msg.Key() != "2" {
+		t.Fatalf("response %+v", ev)
+	}
+}
+
+func TestResumeGETStream(t *testing.T) {
+	srv, _ := newTestServer(t, nil)
+	sid := initialize(t, srv, "/mcp", "alice")
+	get := do(t, srv, req{method: http.MethodGet, token: "alice", session: sid, accept: "text/event-stream"})
+	events := make(chan sseEvent2, 8)
+	go sseWithIDs(get, events)
+	nextEv(t, events) // priming
+	later := func(id int) {
+		r := do(t, srv, req{token: "alice", session: sid, body: fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"later"}`, id)})
+		_ = readBody(t, r)
+	}
+	later(2)
+	first := nextEv(t, events)
+	if first.msg == nil || first.msg.Method != "notifications/tools/list_changed" || !strings.HasPrefix(first.id, "0-") {
+		t.Fatalf("GET event %+v", first)
+	}
+	_ = get.Body.Close()
+	// Wait until the server noticed the disconnect, then queue another.
+	waitDetached(t, srv, sid)
+	later(3)
+
+	// Resuming from before the first event replays it, then delivers the
+	// queued one.
+	num, seq, _ := parseEventID(first.id)
+	resp := resume(t, srv, sid, eventID(num, seq-1))
+	ev2 := make(chan sseEvent2, 8)
+	go sseWithIDs(resp, ev2)
+	nextEv(t, ev2) // priming
+	if ev := nextEv(t, ev2); ev.id != first.id {
+		t.Fatalf("replay %+v, want %s", ev, first.id)
+	}
+	if ev := nextEv(t, ev2); ev.msg == nil || ev.msg.Method != "notifications/tools/list_changed" {
+		t.Fatalf("queued %+v", ev)
+	}
+}
+
+// waitDetached waits until the session's GET stream has no connection.
+func waitDetached(t *testing.T, srv *httptest.Server, sid string) {
+	t.Helper()
+	h := srv.Config.Handler.(*HTTPHandler)
+	for range 300 {
+		h.mu.Lock()
+		s := h.sessions[sid]
+		h.mu.Unlock()
+		s.mu.Lock()
+		attached := s.streams[0] != nil && s.streams[0].attached
+		s.mu.Unlock()
+		if !attached {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("GET stream still attached")
+}
+
+func TestResumeErrors(t *testing.T) {
+	srv, h := newTestServer(t, nil)
+	sid := initialize(t, srv, "/mcp", "alice")
+	for _, id := range []string{"junk", "7-1", "-1-2"} {
+		if resp := resume(t, srv, sid, id); readBody(t, resp) == "" || resp.StatusCode != 400 {
+			t.Errorf("Last-Event-ID %q: %d", id, resp.StatusCode)
+		}
+	}
+	// Answered streams nobody resumed expire.
+	_, elID := askAndDrop(t, srv, sid)
+	answer(t, srv, sid)
+	h.mu.Lock()
+	s := h.sessions[sid]
+	h.mu.Unlock()
+	for range 300 {
+		s.mu.Lock()
+		num, _, _ := parseEventID(elID)
+		done := s.streams[num] != nil && s.streams[num].done
+		s.mu.Unlock()
+		if done {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	s.expireStreams(time.Now().Add(resumeRetention + time.Minute))
+	if resp := resume(t, srv, sid, elID); readBody(t, resp) == "" || resp.StatusCode != 400 {
+		t.Fatalf("expired stream: %d", resp.StatusCode)
+	}
+}
+
+func TestResumeReplacesStaleConnection(t *testing.T) {
+	srv, _ := newTestServer(t, nil)
+	sid := initialize(t, srv, "/mcp", "alice")
+	old := do(t, srv, req{method: http.MethodGet, token: "alice", session: sid, accept: "text/event-stream"})
+	oldEvents := make(chan sseEvent2, 8)
+	go sseWithIDs(old, oldEvents)
+	priming := nextEv(t, oldEvents)
+
+	// The client thinks the connection is gone and resumes; the server
+	// has not noticed yet. The resumption takes over the stream.
+	resp := resume(t, srv, sid, priming.id)
+	if resp.StatusCode != 200 {
+		t.Fatalf("resume: %d", resp.StatusCode)
+	}
+	events := make(chan sseEvent2, 8)
+	go sseWithIDs(resp, events)
+	nextEv(t, events) // priming
+	select {
+	case _, ok := <-oldEvents:
+		if ok {
+			t.Fatal("old connection got an event")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("old connection not ended")
+	}
+	r := do(t, srv, req{token: "alice", session: sid, body: `{"jsonrpc":"2.0","id":2,"method":"later"}`})
+	_ = readBody(t, r)
+	if ev := nextEv(t, events); ev.msg == nil || ev.msg.Method != "notifications/tools/list_changed" {
+		t.Fatalf("event %+v", ev)
 	}
 }

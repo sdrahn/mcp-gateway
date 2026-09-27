@@ -187,7 +187,17 @@ own backends.
   server's requests and notifications for that request (e.g. an approval
   elicitation) and ends with the response. `GET` opens the session's
   stream for everything else; messages with no open stream are queued
-  (bounded). `DELETE` ends the session. `initialize` creates the
+  (bounded). `DELETE` ends the session.
+  **Resumability:** every SSE event carries an id `<stream>-<seq>`, and
+  each stream keeps its last 256 events, also while no connection is
+  attached; a stream starts with a priming event (id, no data). A request
+  stream whose connection broke keeps receiving its messages up to the
+  response, and can be resumed for 5 minutes after it. The client resumes
+  a stream with `GET` and `Last-Event-ID`: the events after that id are
+  replayed, then the stream goes on (a request stream ends with its
+  response); events of other streams are never replayed. A resumption
+  replaces a connection the server still considers attached. Unknown or
+  expired ids get `400`. `initialize` creates the
   session and returns `Mcp-Session-Id`; a session is bound to its
   principal (issuer + subject, and client certificate if any), and
   requests from anyone else get `404`.
@@ -1086,8 +1096,9 @@ docs/
 - HTTP streams: with several requests in flight on one session, a server
   notification or request goes to the most recently opened request stream,
   which may belong to another of the client's requests. Clients treat all
-  streams as one session, so this is harmless, but not precise.
-  Resumability (`Last-Event-ID`) is not implemented.
+  streams as one session, so this is harmless, but not precise. Replay is
+  bounded (256 events per stream) and lives in memory: a gateway restart
+  ends all HTTP sessions anyway.
 - There is no push channel (mail, desktop notification) for out-of-band
   approvals yet; the inbox is polled.
 - A token that expires during a long SSE stream keeps that stream alive;

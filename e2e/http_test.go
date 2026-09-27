@@ -341,6 +341,52 @@ func TestRemoteHTTP(t *testing.T) {
 		}
 	})
 
+	t.Run("resume a dropped stream", func(t *testing.T) {
+		target := filepath.Join(home, "resumed.txt")
+		resp := c.post(map[string]any{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": map[string]any{
+			"name": "write_file", "arguments": map[string]any{"path": target, "content": "resumed"},
+		}}, true)
+		// Read up to the elicitation, remembering its event id, then drop
+		// the connection.
+		sc := bufio.NewScanner(resp.Body)
+		var lastID string
+		var el msg
+		for el.Method == "" && sc.Scan() {
+			line := sc.Text()
+			if id, ok := strings.CutPrefix(line, "id: "); ok {
+				lastID = id
+			}
+			if data, ok := strings.CutPrefix(line, "data: "); ok {
+				_ = json.Unmarshal([]byte(data), &el)
+			}
+		}
+		_ = resp.Body.Close()
+		if el.Method != "elicitation/create" || lastID == "" {
+			t.Fatalf("elicitation %+v id %q", el, lastID)
+		}
+		ack := c.post(map[string]any{"jsonrpc": "2.0", "id": el.ID, "result": map[string]any{
+			"action": "accept", "content": map[string]any{"scope": "once"},
+		}}, false)
+		_ = ack.Body.Close()
+
+		req, _ := http.NewRequest(http.MethodGet, c.url, nil)
+		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("Mcp-Session-Id", c.session)
+		req.Header.Set("Accept", "text/event-stream")
+		req.Header.Set("Last-Event-ID", lastID)
+		resumed, err := client.Do(req)
+		if err != nil || resumed.StatusCode != 200 {
+			t.Fatalf("resume: %v %v", resumed, err)
+		}
+		text, isErr := toolResult(t, nextEvent(t, sse(t, resumed)))
+		if isErr || !strings.HasPrefix(text, "wrote") {
+			t.Fatalf("got %q %v", text, isErr)
+		}
+		if b, err := os.ReadFile(target); err != nil || string(b) != "resumed" {
+			t.Fatalf("file %q %v", b, err)
+		}
+	})
+
 	t.Run("other principal cannot use the session", func(t *testing.T) {
 		mallory := &remote{t: t, client: client, url: c.url, session: c.session, token: provider.token(t, "u-mallory", audience)}
 		resp := mallory.post(map[string]any{"jsonrpc": "2.0", "id": 9, "method": "tools/list"}, false)
