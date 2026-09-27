@@ -1,0 +1,254 @@
+# 5. Connecting clients
+
+Agents reach the gateway in one of three ways:
+
+| Client | Transport | Identity |
+|---|---|---|
+| local agent that spawns MCP servers (most desktop agents and IDEs) | `mcp-connect` shim → unix socket | the local user (kernel peer credentials) |
+| local program speaking MCP over a socket | `/run/mcp-gateway/mcp.sock` directly | the local user |
+| remote agent | MCP Streamable HTTP over HTTPS | OAuth 2.1 bearer token (optionally with a client certificate) |
+
+## Endpoints and names
+
+A session talks to one **endpoint**:
+
+- **one server** (`--server fs`, `https://…/mcp/fs`): the server's tools,
+  prompts and resources under their own names;
+- the **aggregated** endpoint (`--server all` or no hello, `https://…/mcp`):
+  all servers the principal may use, with names prefixed by the server:
+
+| Item | On the server endpoint | On the aggregated endpoint |
+|---|---|---|
+| tool | `read_file` | `fs__read_file` |
+| prompt | `review` | `git__review` |
+| resource | `file:///home/alice/notes.txt` | `mcp+fs:file:///home/alice/notes.txt` |
+
+The gateway translates names in both directions; MCP servers never see
+the prefixes. Use the aggregated endpoint for agents that should have
+everything in one connection, per-server endpoints to give an agent
+exactly one server.
+
+In both cases the agent sees only what policy lets the principal use
+(items needing approval included), and it is told to list again when
+the policy changes (`notifications/tools/list_changed` and friends).
+
+## Local agents
+
+### Prerequisites
+
+- The user is a member of the socket's group (`mcp-users` as shipped) and
+  has logged in again since being added: `id -nG` must list it.
+- The user holds a role granting permissions for the server (chapter 6).
+
+### With `mcp-connect`
+
+`mcp-connect` is a tiny stdio ↔ socket bridge: the agent starts it as if
+it were the MCP server. It never interprets MCP, carries no credentials and
+adds no rights; the gateway identifies the user from the socket.
+
+```
+mcp-connect [--server NAME|all] [--socket PATH]
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--server` | `all` | the endpoint: a server name, or `all` for the aggregated endpoint |
+| `--socket` | `/run/mcp-gateway/mcp.sock` | the gateway's socket |
+| `--version` | | print the version |
+
+Typical agent configurations (the JSON shape most MCP clients use):
+
+```json
+{
+  "mcpServers": {
+    "fs":  { "command": "mcp-connect", "args": ["--server", "fs"] },
+    "git": { "command": "mcp-connect", "args": ["--server", "git"] }
+  }
+}
+```
+
+or everything through one entry:
+
+```json
+{
+  "mcpServers": {
+    "gateway": { "command": "mcp-connect" }
+  }
+}
+```
+
+Replace existing entries that start MCP servers directly (`npx …`,
+`uvx …`, a path) with `mcp-connect` entries once the servers are
+registered with the gateway; the server then runs confined and under
+policy instead of with the agent's rights.
+
+### Directly over the socket
+
+Programs can connect to the socket themselves. The connection carries
+newline-delimited JSON-RPC (one message per line). To select an endpoint,
+send this notification first; without it, the session uses the
+aggregated endpoint:
+
+```json
+{"jsonrpc":"2.0","method":"mcp-gateway/hello","params":{"version":1,"server":"fs"}}
+```
+
+Then speak MCP as usual (`initialize`, `notifications/initialized`, …).
+
+```bash
+socat - UNIX-CONNECT:/run/mcp-gateway/mcp.sock
+```
+
+### What the gateway knows about a local client
+
+The principal is the user of the connecting process as the kernel
+reports it (uid, and from it name, groups and home), plus the process's
+SELinux context. The `clientInfo` the agent sends in `initialize` is
+recorded but never used for decisions.
+
+## Remote agents (HTTPS)
+
+Remote access uses MCP Streamable HTTP. The gateway is an OAuth 2.1
+**resource server**: it validates access tokens issued by your identity
+provider (IdP); it does not issue tokens and has no login page.
+
+### 1. Identity provider
+
+Register the gateway as a resource (an API / audience) in the IdP
+(Keycloak, Entra ID, Okta, Authentik, Dex, …):
+
+- **audience**: the gateway's public MCP URL, exactly as clients use it,
+  e.g. `https://gw.example.com:8443/mcp`. Tokens must carry it in `aud`
+  (RFC 8707 resource indicators).
+- a **scope** clients request, e.g. `mcp` (optional, see `http.scopes`).
+- a **groups claim** in the access token (`groups` by default), if roles
+  are bound to groups.
+- optionally a claim with the **local account name**
+  (`preferred_username`), if remote users should act as their local
+  accounts.
+
+Register the agents as OAuth clients (authorization code with PKCE for
+interactive agents; client credentials for services).
+
+### 2. Certificate and port
+
+```bash
+install -d -m0750 -o root -g mcp-gateway /etc/mcp-gateway/tls
+install -m0640 -g mcp-gateway gw.crt /etc/mcp-gateway/tls/cert.pem
+install -m0640 -g mcp-gateway gw.key /etc/mcp-gateway/tls/key.pem
+restorecon -R /etc/mcp-gateway/tls
+
+semanage port -a -t mcp_port_t -p tcp 8443      # SELinux: let the gateway bind 8443
+firewall-cmd --permanent --add-port=8443/tcp && firewall-cmd --reload
+```
+
+### 3. Configuration
+
+```yaml
+# /etc/mcp-gateway/gateway.yaml (excerpt)
+http:
+  listen: ":8443"
+  cert_file: /etc/mcp-gateway/tls/cert.pem
+  key_file: /etc/mcp-gateway/tls/key.pem
+  issuer: https://idp.example.com/realms/mcp
+  audience: https://gw.example.com:8443/mcp
+  groups_claim: groups
+  local_user_claim: preferred_username
+  scopes: [mcp]
+```
+
+```bash
+mcp-gateway --check && systemctl restart mcp-gateway.service
+```
+
+The gateway fetches the IdP's signing keys from
+`<issuer>/.well-known/openid-configuration` (or `http.jwks_url`) and
+refreshes them when it sees an unknown key id.
+
+### 4. Endpoints
+
+With `audience: https://gw.example.com:8443/mcp`:
+
+| URL | What |
+|---|---|
+| `https://gw.example.com:8443/mcp` | aggregated endpoint |
+| `https://gw.example.com:8443/mcp/<server>` | one server, e.g. `/mcp/fs` |
+| `https://gw.example.com:8443/.well-known/oauth-protected-resource/mcp` | protected resource metadata (RFC 9728): the issuer and scopes, for clients discovering how to get a token |
+
+A request without a token gets `401` with a `WWW-Authenticate: Bearer`
+header pointing to the metadata, so MCP clients that implement the MCP
+authorization specification find the IdP by themselves. Point the agent
+at the endpoint URL:
+
+```json
+{
+  "mcpServers": {
+    "gateway": { "type": "http", "url": "https://gw.example.com:8443/mcp" }
+  }
+}
+```
+
+### Who a remote user is
+
+| Token | Principal |
+|---|---|
+| `local_user_claim` names an existing local account | that local user: name, uid, home and groups of the account (plus the token's groups). MCP servers run as that user, exactly as for a local connection. |
+| otherwise | the token's `sub` (with its issuer) and the token's groups; no home directory. MCP servers with `run_as: principal` run as a throwaway dynamic user. |
+
+Policy bindings name users by `sub` (the local account name, or the
+token subject) and groups by name.
+
+### Sessions and resumability
+
+- The gateway creates an MCP session at `initialize` and returns its id
+  in `Mcp-Session-Id`; later requests must carry it and the same
+  principal's token. Another principal's session id is treated as
+  unknown (`404`).
+- Sessions without traffic end after `http.session_idle_timeout`
+  (30 minutes); the client then gets `404` and starts a new session.
+- Responses stream as server-sent events with event ids. A client whose
+  connection drops reconnects with `GET` and `Last-Event-ID` and receives
+  what it missed (the last 256 events per stream, kept for 5 minutes),
+  including approval requests that were pending. A resumption takes over
+  from a connection that is still considered open.
+- `DELETE` with the session id ends a session.
+
+### Browser clients
+
+Browser-based agents send an `Origin` header. List accepted origins in
+`http.allowed_origins`; requests with any other `Origin` are refused
+(`403`), requests without one (non-browser clients) are accepted.
+
+### Client certificates (mTLS) and bound tokens
+
+For agents running on known machines, require a client certificate in
+addition to the token:
+
+```yaml
+http:
+  client_ca_file: /etc/mcp-gateway/tls/clients-ca.pem
+  client_auth: required        # or optional: verify a certificate if one is presented
+  require_bound_tokens: true   # tokens must be bound to the certificate (RFC 8705)
+```
+
+- With a certificate, policy sees it (`input.principal.cert`: subject,
+  SHA-256 thumbprint, DNS/URI/e-mail names). Permissions with
+  `"require_client_cert": true` apply only to such clients (chapter 6),
+  e.g. "writes only from managed machines".
+- A token with a `cnf.x5t#S256` confirmation is accepted only over a
+  connection with that very certificate, whether or not
+  `require_bound_tokens` is set. With `require_bound_tokens`, unbound
+  tokens are refused, so a stolen token is useless without the
+  certificate's private key.
+
+### Errors
+
+| Status | Meaning |
+|---|---|
+| `401 authentication required` | no token; see the `WWW-Authenticate` header |
+| `401 invalid token` | wrong issuer or audience, expired, bad signature, or not bound to the presented certificate; the gateway's journal says why (`token rejected`) |
+| `403 insufficient scope` | the token lacks a scope from `http.scopes` |
+| `403 origin not allowed` | `Origin` not in `http.allowed_origins` |
+| `404 unknown session` / `session ended` | the session expired or belongs to someone else; initialize again |
+| `400 unknown or expired Last-Event-ID` | the stream to resume is gone; send the request again |
+| `409 stream already open` | a second `GET` stream (without `Last-Event-ID`) while the session's stream is open |
