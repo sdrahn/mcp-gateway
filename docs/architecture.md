@@ -187,7 +187,17 @@ own backends.
   server's requests and notifications for that request (e.g. an approval
   elicitation) and ends with the response. `GET` opens the session's
   stream for everything else; messages with no open stream are queued
-  (bounded). `DELETE` ends the session. `initialize` creates the
+  (bounded). `DELETE` ends the session.
+  **Resumability:** every SSE event carries an id `<stream>-<seq>`, and
+  each stream keeps its last 256 events, also while no connection is
+  attached; a stream starts with a priming event (id, no data). A request
+  stream whose connection broke keeps receiving its messages up to the
+  response, and can be resumed for 5 minutes after it. The client resumes
+  a stream with `GET` and `Last-Event-ID`: the events after that id are
+  replayed, then the stream goes on (a request stream ends with its
+  response); events of other streams are never replayed. A resumption
+  replaces a connection the server still considers attached. Unknown or
+  expired ids get `400`. `initialize` creates the
   session and returns `Mcp-Session-Id`; a session is bound to its
   principal (issuer + subject, and client certificate if any), and
   requests from anyone else get `404`.
@@ -399,8 +409,30 @@ Behaviour:
   `/var/lib/mcp-gateway/grants.json` (atomic writes, mode 0600, label
   `mcpgw_var_lib_t`) and apply across sessions and restarts; session
   grants live in memory.
-- `scope: once` grants are never stored; they are valid only for the one
-  re-evaluation after the approval.
+- `scope: once` grants are valid only for the one re-evaluation after the
+  approval and are not stored, except for approvals decided while no call
+  was waiting (below).
+
+**Pending approvals outlive their call.** `url` and `oob` approvals are
+persisted to `/var/lib/mcp-gateway/pending.json` (atomic writes, mode
+0600; it holds the arguments shown to approvers). If the waiting call goes
+away before the decision (the client disconnects, the gateway shuts down
+or restarts), the approval stays pending until it expires, marked as
+having no waiting call (`"waiting": false` in the control API, a note on
+the Cockpit page), and without the `session` scope, whose session is gone.
+Then:
+
+- deciding it stores the grant for the agent's next attempt: a duration
+  grant as usual, a `once` grant as a stored one-time grant (valid for
+  15 min) that the next matching call takes and uses up (it is put back if
+  policy does not allow that call);
+- an attempt with the same principal, target and arguments before the
+  decision takes the approval over (same id, so an approval page already
+  open stays valid; the policy's scopes apply again), instead of creating
+  a second one;
+- a timeout or a decline removes it, as for a waiting call.
+
+`form` approvals are not persisted: they live in the client's dialog.
 
 **How the `url` and `oob` channels work.** Both create a *pending
 approval* with an unguessable id, visible through the control API
@@ -551,11 +583,38 @@ Key rules (sketch):
   remote bundle server is configured (boolean `mcpopa_can_network`).
 
 **MCS isolation per session** (sVirt-style): the supervisor allocates a
-unique category pair per instance from a configured range (e.g. `c0.c1023`
-minus reserved) and sets it in `SELinuxContext=`. Per-instance scratch
+unique category pair per instance from `supervisor.mcs_range` (default
+`c768.c1023`) and sets it in `SELinuxContext=`. Per-instance scratch
 directories are labelled with the same pair. Two instances running as the
 same Unix account (e.g. dynamic/service user for remote principals) thus
 cannot access each other's processes or files.
+
+**Coordination with libvirt and podman.** Both hand out random pairs as
+well and know nothing about the gateway's. Type enforcement already keeps
+`mcpsrv_*_t` apart from `svirt_t` and `container_t` and their files, so a
+shared pair is not an access path by itself; coordination keeps MCS a
+second, independent barrier:
+
+- **libvirt** picks each machine's pair from the category range of its
+  own daemon process (`virSecuritySELinuxMCSGetProcessRange` in
+  `security_selinux.c`). The drop-ins in `/usr/share/mcp-gateway/mcs/`
+  (`virtqemud.conf`, `libvirtd.conf`) start the daemon with
+  `s0-s0:c0.c767`, so its machines never get a pair from the gateway's
+  range. The gateway warns at start and every 30 s while a libvirt daemon's
+  range overlaps its own.
+- **podman** (go-selinux) picks from the whole range: go-selinux has
+  `SetCategoryRange`, but podman (checked with v6.1.2) does not expose it,
+  and it only avoids pairs of its own containers. With
+  `supervisor.mcs_avoid: auto` (default) the gateway reads the contexts of
+  running container and machine processes, skips their pairs when it
+  allocates, and every 30 s stops an instance whose pair a container or
+  machine started later holds too (logged and recorded as an
+  `mcp-mcs-collision` audit event); its sessions get a new instance with a
+  new pair on their next call. Containers given explicit levels
+  (`--security-opt label=level:…`) should use categories below c768.
+
+The policy lets the gateway read the process state of container, virtual
+machine and libvirt domains only, not of all processes.
 
 **Client label as policy input:** `SO_PEERSEC` delivers the client's
 context; it is part of `input.principal.selinux`, allowing rules such as
@@ -1037,11 +1096,11 @@ docs/
 - HTTP streams: with several requests in flight on one session, a server
   notification or request goes to the most recently opened request stream,
   which may belong to another of the client's requests. Clients treat all
-  streams as one session, so this is harmless, but not precise.
-  Resumability (`Last-Event-ID`) is not implemented.
-- Pending approvals live in memory; a gateway restart drops them together
-  with the waiting calls. There is no push channel (mail, desktop
-  notification) for out-of-band approvals yet; the inbox is polled.
+  streams as one session, so this is harmless, but not precise. Replay is
+  bounded (256 events per stream) and lives in memory: a gateway restart
+  ends all HTTP sessions anyway.
+- There is no push channel (mail, desktop notification) for out-of-band
+  approvals yet; the inbox is polled.
 - A token that expires during a long SSE stream keeps that stream alive;
   every new request needs a valid token.
 - Exact JSON-RPC error codes for policy denials (align with any future
@@ -1056,5 +1115,6 @@ docs/
   containers without `CAP_AUDIT_WRITE` only the journal records remain.
 - Rate-limit counters live in the gateway's memory (sliding windows per
   principal, action and target); a restart resets them.
-- Whether the MCS category range must be coordinated with other sVirt users
-  (libvirt, podman) on the same host.
+- MCS pairs of stopped containers (their files keep the pair) are not
+  known to the gateway, and a container can take an instance's pair for up
+  to 30 s before the instance is replaced (§5.8).

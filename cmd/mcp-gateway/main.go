@@ -20,6 +20,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -36,10 +37,9 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
 
-// MCS categories handed out to backend instances. c0 is left alone, and
-// the range stays below the one libvirt and container tools usually use
-// for their own random pairs (docs/architecture.md, section 12).
-const mcsLo, mcsHi = 1, 255
+// How often running containers and virtual machines are checked for
+// category pairs that backend instances hold (supervisor.mcs_avoid).
+const mcsWatchInterval = 30 * time.Second
 
 func main() {
 	configPath := flag.String("config", "", "path to the gateway configuration (default: "+
@@ -87,6 +87,8 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 	if err != nil {
 		return err
 	}
+	sd, _ := launcher.(*supervisor.Systemd)
+	mcsAvoid := sd != nil && sd.SELinux && gw.Supervisor.MCSAvoid == "auto"
 
 	l, err := transport.ListenUnix(gw.Socket, 0o660, gw.SocketGroup)
 	if err != nil {
@@ -111,6 +113,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 	b, err := broker.New(broker.Options{
 		Timeout:     gw.ApprovalTimeout,
 		GrantsFile:  filepath.Join(gw.StateDir, "grants.json"),
+		PendingFile: filepath.Join(gw.StateDir, "pending.json"),
 		URLTemplate: gw.Approvals.URLTemplate,
 		OOB:         control,
 		Policy:      opa,
@@ -146,6 +149,10 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 				log.Error("control API failed", "err", err)
 			}
 		}()
+	}
+
+	if mcsAvoid {
+		go watchMCS(ctx, log, auditLog, sd, gw.Supervisor)
 	}
 
 	// Clients learn about policy changes through list_changed.
@@ -286,6 +293,33 @@ func serverTLS(cfg config.HTTP) (*tls.Config, error) {
 	return c, nil
 }
 
+// watchMCS coordinates MCS category pairs with podman and libvirt
+// (docs/architecture.md, section 5.8): it warns about libvirt daemons
+// whose range overlaps the gateway's, and replaces backend instances whose
+// pair a container or virtual machine took after them.
+func watchMCS(ctx context.Context, log *slog.Logger, auditLog *audit.Logger, sd *supervisor.Systemd, cfg config.Supervisor) {
+	lo, hi, _ := cfg.MCSCategories()
+	warned := map[int]bool{}
+	check := func(scan supervisor.MCSScan) {
+		for _, d := range scan.Overlapping(lo, hi) {
+			if !warned[d.PID] {
+				warned[d.PID] = true
+				log.Warn("libvirt picks MCS categories from the gateway's range; confine it with a drop-in from /usr/share/mcp-gateway/mcs",
+					"pid", d.PID, "context", d.Context, "mcs_range", cfg.MCSRange)
+			}
+		}
+		for _, c := range sd.Collisions(scan) {
+			log.Warn("MCS pair taken by another workload; stopping the instance", "instance", c.Instance,
+				"pair", c.Pair, "pid", c.Foreign.PID, "context", c.Foreign.Context)
+			auditLog.Event("mcp-mcs-collision", false, map[string]string{
+				"instance": c.Instance, "pair": c.Pair, "foreign_pid": strconv.Itoa(c.Foreign.PID), "foreign_context": c.Foreign.Context,
+			})
+		}
+	}
+	check(supervisor.ScanMCS("/proc"))
+	supervisor.WatchMCS(ctx, "/proc", mcsWatchInterval, check)
+}
+
 func newLauncher(log *slog.Logger, s config.Supervisor) (supervisor.Launcher, error) {
 	switch s.Mode {
 	case "exec":
@@ -293,8 +327,17 @@ func newLauncher(log *slog.Logger, s config.Supervisor) (supervisor.Launcher, er
 		return &supervisor.Exec{Log: log}, nil
 	case "systemd":
 		useSELinux := s.SELinux == "on" || (s.SELinux == "auto" && supervisor.SELinuxEnabled())
-		log.Info("supervisor mode systemd", "selinux", useSELinux)
-		return &supervisor.Systemd{Log: log, SELinux: useSELinux, MCS: supervisor.NewMCSAllocator(mcsLo, mcsHi)}, nil
+		lo, hi, err := s.MCSCategories()
+		if err != nil {
+			return nil, err
+		}
+		mcs := supervisor.NewMCSAllocator(lo, hi)
+		if s.MCSAvoid == "auto" {
+			// Skip pairs of running containers and virtual machines.
+			mcs.Foreign = func() map[[2]int]supervisor.ForeignProc { return supervisor.ScanMCS("/proc").Pairs }
+		}
+		log.Info("supervisor mode systemd", "selinux", useSELinux, "mcs_range", s.MCSRange, "mcs_avoid", s.MCSAvoid)
+		return &supervisor.Systemd{Log: log, SELinux: useSELinux, MCS: mcs}, nil
 	}
 	return nil, fmt.Errorf("unknown supervisor mode %q", s.Mode)
 }

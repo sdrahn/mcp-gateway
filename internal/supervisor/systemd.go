@@ -37,6 +37,9 @@ type Systemd struct {
 
 	mu   sync.Mutex
 	conn *sddbus.Conn
+	live map[[2]int]*unitInstance // by MCS pair
+	// stop stops an instance (tests replace it).
+	stop func(*unitInstance)
 }
 
 // SELinuxEnabled reports whether SELinux is enabled on this host.
@@ -206,7 +209,50 @@ func (s *Systemd) Start(ctx context.Context, b *config.Backend, p principal.Prin
 	if s.Log != nil {
 		s.Log.Info("backend started", "instance", name, "selinux_mcs", mcs)
 	}
-	return &unitInstance{Conn: gwConn, name: name, mcs: mcs, s: s}, nil
+	inst := &unitInstance{Conn: gwConn, name: name, mcs: mcs, s: s}
+	if pair, ok := parsePair("s0:" + mcs); ok {
+		s.mu.Lock()
+		if s.live == nil {
+			s.live = map[[2]int]*unitInstance{}
+		}
+		s.live[pair] = inst
+		s.mu.Unlock()
+	}
+	return inst, nil
+}
+
+// MCSCollision is an instance whose category pair another workload
+// holds as well.
+type MCSCollision struct {
+	Instance string
+	Pair     string
+	Foreign  ForeignProc
+}
+
+// Collisions stops the instances whose category pair appears in scan (a
+// container or virtual machine started after the instance picked the
+// same pair; podman and libvirt do not know the gateway's pairs). The
+// sessions using them get a new instance, with a new pair, on their next
+// call.
+func (s *Systemd) Collisions(scan MCSScan) []MCSCollision {
+	s.mu.Lock()
+	var hits []MCSCollision
+	var stop []*unitInstance
+	for pair, inst := range s.live {
+		if f, ok := scan.Pairs[pair]; ok {
+			hits = append(hits, MCSCollision{Instance: inst.name, Pair: inst.mcs, Foreign: f})
+			stop = append(stop, inst)
+		}
+	}
+	s.mu.Unlock()
+	for _, inst := range stop {
+		if s.stop != nil {
+			s.stop(inst)
+			continue
+		}
+		go func() { _ = inst.Close() }()
+	}
+	return hits
 }
 
 type unitInstance struct {
@@ -239,6 +285,11 @@ func (i *unitInstance) Close() error {
 			}
 		}
 		if i.mcs != "" {
+			i.s.mu.Lock()
+			if pair, ok := parsePair("s0:" + i.mcs); ok && i.s.live[pair] == i {
+				delete(i.s.live, pair)
+			}
+			i.s.mu.Unlock()
 			i.s.MCS.Release(i.mcs)
 		}
 	})

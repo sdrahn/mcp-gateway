@@ -14,6 +14,10 @@ import (
 type MCSAllocator struct {
 	lo, hi int // inclusive category range
 
+	// Foreign, if set, reports pairs held by other workloads (containers,
+	// virtual machines), which are skipped.
+	Foreign func() map[[2]int]ForeignProc
+
 	mu    sync.Mutex
 	inUse map[[2]int]bool
 }
@@ -28,14 +32,34 @@ var ErrMCSExhausted = errors.New("supervisor: MCS category pairs exhausted")
 
 // Allocate returns a free pair, e.g. "c12,c40".
 func (a *MCSAllocator) Allocate() (string, error) {
+	var foreign map[[2]int]ForeignProc
+	if a.Foreign != nil {
+		foreign = a.Foreign()
+	}
 	n := a.hi - a.lo + 1
 	total := n * (n - 1) / 2
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if len(a.inUse) >= total {
+	taken := func(k [2]int) bool {
+		_, f := foreign[k]
+		return a.inUse[k] || f
+	}
+	used := len(a.inUse)
+	for k := range foreign {
+		if k[0] >= a.lo && k[1] <= a.hi && !a.inUse[k] {
+			used++
+		}
+	}
+	if used >= total {
 		return "", ErrMCSExhausted
 	}
-	for {
+	take := func(k [2]int) string {
+		a.inUse[k] = true
+		return fmt.Sprintf("c%d,c%d", k[0], k[1])
+	}
+	// Random pairs, like sVirt; when the range is nearly full, the first
+	// free one.
+	for range 1000 {
 		x, err := randInt(n)
 		if err != nil {
 			return "", err
@@ -50,12 +74,18 @@ func (a *MCSAllocator) Allocate() (string, error) {
 		if x > y {
 			x, y = y, x
 		}
-		k := [2]int{a.lo + x, a.lo + y}
-		if !a.inUse[k] {
-			a.inUse[k] = true
-			return fmt.Sprintf("c%d,c%d", k[0], k[1]), nil
+		if k := [2]int{a.lo + x, a.lo + y}; !taken(k) {
+			return take(k), nil
 		}
 	}
+	for x := a.lo; x <= a.hi; x++ {
+		for y := x + 1; y <= a.hi; y++ {
+			if k := [2]int{x, y}; !taken(k) {
+				return take(k), nil
+			}
+		}
+	}
+	return "", ErrMCSExhausted
 }
 
 // Release frees a pair returned by Allocate.

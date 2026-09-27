@@ -150,6 +150,7 @@ fi
 %dir %{_datadir}/mcp-gateway/servers.d
 %{_datadir}/mcp-gateway/policy
 %{_datadir}/mcp-gateway/opa
+%{_datadir}/mcp-gateway/mcs
 %{_unitdir}/mcp-gateway.service
 %{_unitdir}/mcp-opa.service
 %{_sysusersdir}/%{name}.conf

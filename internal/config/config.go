@@ -93,6 +93,27 @@ type Supervisor struct {
 	// IdleTimeout stops an instance this long after its last session
 	// ended.
 	IdleTimeout time.Duration `yaml:"idle_timeout"`
+	// MCSRange is the category range ("cN.cM") backend instances get
+	// their category pairs from. Keep it disjoint from libvirt's
+	// (/usr/share/mcp-gateway/mcs drop-ins confine libvirt to c0.c767).
+	MCSRange string `yaml:"mcs_range"`
+	// MCSAvoid is "auto" (skip pairs held by running containers and
+	// virtual machines, and replace an instance whose pair one of them
+	// takes later) or "off".
+	MCSAvoid string `yaml:"mcs_avoid"`
+}
+
+// MCSCategories returns the bounds of MCSRange.
+func (s Supervisor) MCSCategories() (lo, hi int, err error) {
+	if _, err := fmt.Sscanf(s.MCSRange, "c%d.c%d", &lo, &hi); err != nil ||
+		fmt.Sprintf("c%d.c%d", lo, hi) != s.MCSRange {
+		return 0, 0, fmt.Errorf("supervisor.mcs_range: want cN.cM, got %q", s.MCSRange)
+	}
+	if lo < 0 || hi > MaxCategory || hi-lo+1 < MinMCSCategories {
+		return 0, 0, fmt.Errorf("supervisor.mcs_range: %q must lie within c0.c%d and span at least %d categories",
+			s.MCSRange, MaxCategory, MinMCSCategories)
+	}
+	return lo, hi, nil
 }
 
 // HTTP configures the remote transport (MCP Streamable HTTP with OAuth
@@ -215,6 +236,11 @@ const (
 	DefaultPolicyTimeout   = 250 * time.Millisecond
 	DefaultApprovalTimeout = 120 * time.Second
 	DefaultIdleTimeout     = 15 * time.Minute
+	// DefaultMCSRange is the upper quarter of the targeted policy's
+	// categories; libvirt is confined to the rest by the shipped drop-ins.
+	DefaultMCSRange        = "c768.c1023"
+	MaxCategory            = 1023
+	MinMCSCategories       = 8
 	DefaultWatchInterval   = 10 * time.Second
 	DefaultHTTPSessionIdle = 30 * time.Minute
 	DefaultGroupsClaim     = "groups"
@@ -291,6 +317,12 @@ func (g *Gateway) setDefaults() {
 	if g.Supervisor.SELinux == "" {
 		g.Supervisor.SELinux = "auto"
 	}
+	if g.Supervisor.MCSRange == "" {
+		g.Supervisor.MCSRange = DefaultMCSRange
+	}
+	if g.Supervisor.MCSAvoid == "" {
+		g.Supervisor.MCSAvoid = "auto"
+	}
 	if g.ApprovalTimeout == 0 {
 		g.ApprovalTimeout = DefaultApprovalTimeout
 	}
@@ -354,6 +386,14 @@ func (g *Gateway) Validate() error {
 	case "auto", "on", "off":
 	default:
 		return fmt.Errorf("supervisor.selinux: unknown value %q", g.Supervisor.SELinux)
+	}
+	if _, _, err := g.Supervisor.MCSCategories(); err != nil {
+		return err
+	}
+	switch g.Supervisor.MCSAvoid {
+	case "auto", "off":
+	default:
+		return fmt.Errorf("supervisor.mcs_avoid: unknown value %q", g.Supervisor.MCSAvoid)
 	}
 	switch g.Audit.Kernel {
 	case "auto", "on", "off":

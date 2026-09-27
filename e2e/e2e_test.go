@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -209,6 +210,22 @@ type env struct {
 	tmp, connect, gwSock, ctlSock string
 	opa                           *exec.Cmd
 	gwLogs, opaLogs               *syncBuffer
+	gateway                       *exec.Cmd
+	gwBin, gwConfig               string
+}
+
+// restartGateway stops the gateway (SIGTERM) and starts it again with the
+// same configuration and state directory.
+func (e *env) restartGateway(t *testing.T) {
+	t.Helper()
+	_ = e.gateway.Process.Signal(syscall.SIGTERM)
+	_ = e.gateway.Wait()
+	// Wait for the new sockets, not for leftovers of the old process.
+	_ = os.Remove(e.gwSock)
+	_ = os.Remove(e.ctlSock)
+	e.gateway, e.gwLogs = start(t, e.gwBin, "--config", e.gwConfig)
+	waitFor(t, e.gwSock)
+	waitFor(t, e.ctlSock)
 }
 
 // setup starts OPA with the shipped policy and rbac as role data, and the
@@ -267,9 +284,10 @@ approvals:
   control_socket: %s
   url_template: https://gw.example.com/approvals/{id}
 %s`, gwSock, filepath.Join(tmp, "servers.d"), filepath.Join(tmp, "state"), opaSock, filepath.Join(tmp, "control.sock"), extra))
-	_, gwLogs := start(t, gateway, "--config", filepath.Join(tmp, "gateway.yaml"))
+	gwCmd, gwLogs := start(t, gateway, "--config", filepath.Join(tmp, "gateway.yaml"))
 	waitFor(t, gwSock)
-	return &env{tmp: tmp, connect: connect, gwSock: gwSock, ctlSock: filepath.Join(tmp, "control.sock"), opa: opaCmd, gwLogs: gwLogs, opaLogs: opaLogs}
+	return &env{tmp: tmp, connect: connect, gwSock: gwSock, ctlSock: filepath.Join(tmp, "control.sock"), opa: opaCmd,
+		gwLogs: gwLogs, opaLogs: opaLogs, gateway: gwCmd, gwBin: gateway, gwConfig: filepath.Join(tmp, "gateway.yaml")}
 }
 
 func (c *client) initialize(caps map[string]any) msg {

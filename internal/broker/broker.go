@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -24,6 +25,10 @@ const (
 	SessionTTL = 8 * time.Hour
 	// MaxGrantTTL bounds duration scopes offered by policy ("24h", ...).
 	MaxGrantTTL = 30 * 24 * time.Hour
+	// OrphanOnceTTL is how long a "once" grant from an approval decided
+	// while no call was waiting stays usable: the agent's next attempt
+	// takes it.
+	OrphanOnceTTL = 15 * time.Minute
 )
 
 // Errors.
@@ -78,6 +83,9 @@ type Options struct {
 	Timeout time.Duration
 	// GrantsFile persists duration grants ("" = memory only).
 	GrantsFile string
+	// PendingFile persists pending url and oob approvals, so they survive
+	// the waiting call and restarts ("" = memory only).
+	PendingFile string
 	// URLTemplate is the approval page URL with "{id}" for the approval
 	// id; empty disables the url channel.
 	URLTemplate string
@@ -127,8 +135,14 @@ type Pending struct {
 	Scopes    []string            `json:"scopes"`
 	Created   time.Time           `json:"created"`
 	Expires   time.Time           `json:"expires"`
+	// Waiting tells whether a call waits for the decision. An approval
+	// whose call went away (the client left, the gateway restarted) stays
+	// pending until it expires; deciding it stores the grant for the
+	// agent's next attempt, which also picks up the approval itself if it
+	// comes first.
+	Waiting bool `json:"waiting"`
 
-	result chan *pep.Grant // nil grant: denied
+	result chan *pep.Grant // nil grant: denied; nil channel: no call waits
 }
 
 // Approver is a human deciding on approvals (through the control API).
@@ -150,12 +164,106 @@ func New(opts Options) (*Broker, error) {
 		return nil, err
 	}
 	b.store = store
+	if err := b.loadPending(); err != nil {
+		return nil, err
+	}
 	return b, nil
 }
 
-// Grants returns the principal's unexpired grants for server/tool.
+// loadPending restores the pending approvals of a previous run; no call
+// waits for them any more.
+func (b *Broker) loadPending() error {
+	if b.opts.PendingFile == "" {
+		return nil
+	}
+	data, err := os.ReadFile(b.opts.PendingFile)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var list []*Pending
+	if err := json.Unmarshal(data, &list); err != nil {
+		return fmt.Errorf("broker: reading %s: %w", b.opts.PendingFile, err)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, p := range list {
+		if p.ID == "" || !p.Expires.After(b.now()) {
+			continue
+		}
+		orphan(p)
+		b.pending[p.ID] = p
+		b.log.Info("approval restored", "id", p.ID, "sub", p.Principal.Sub, "server", p.Server, "name", p.Name)
+	}
+	b.persistPending()
+	return nil
+}
+
+// orphan marks p as having no waiting call. The session scope goes: the
+// session that asked is gone.
+func orphan(p *Pending) {
+	p.result = nil
+	p.Waiting = false
+	p.Scopes = slices.DeleteFunc(slices.Clone(p.Scopes), func(s string) bool { return s == "session" })
+	if len(p.Scopes) == 0 {
+		p.Scopes = []string{"once"}
+	}
+}
+
+// persistPending writes the pending approvals. Caller holds b.mu.
+func (b *Broker) persistPending() {
+	if b.opts.PendingFile == "" {
+		return
+	}
+	list := make([]*Pending, 0, len(b.pending))
+	for _, p := range b.pending {
+		list = append(list, p)
+	}
+	slices.SortFunc(list, func(x, y *Pending) int { return x.Created.Compare(y.Created) })
+	data, err := json.MarshalIndent(list, "", "  ")
+	if err == nil {
+		err = writeFileAtomic(b.opts.PendingFile, append(data, '\n'))
+	}
+	if err != nil {
+		b.log.Warn("persisting pending approvals failed", "err", err)
+	}
+}
+
+// pruneExpired drops orphaned approvals past their expiry (waiting ones
+// end with their call). Caller holds b.mu.
+func (b *Broker) pruneExpired() {
+	changed := false
+	for id, p := range b.pending {
+		if p.result == nil && !p.Expires.After(b.now()) {
+			delete(b.pending, id)
+			changed = true
+		}
+	}
+	if changed {
+		b.persistPending()
+	}
+}
+
+// Grants returns the principal's unexpired grants for server/tool
+// (without stored "once" grants; see TakeOnce).
 func (b *Broker) Grants(p principal.Principal, server, tool string) []pep.Grant {
 	return b.store.Match(p, server, tool)
+}
+
+// TakeOnce takes a stored "once" grant of p for server/tool (from an
+// approval decided while no call was waiting). The caller consumes it
+// with the call it allows, or gives it back with ReturnOnce.
+func (b *Broker) TakeOnce(p principal.Principal, server, tool string) (pep.Grant, bool) {
+	return b.store.TakeOnce(p, server, tool)
+}
+
+// ReturnOnce gives back a grant from TakeOnce that did not allow a call.
+func (b *Broker) ReturnOnce(g pep.Grant) {
+	if err := b.store.Add(g); err != nil {
+		b.log.Warn("returning once grant failed", "grant", g.ID, "err", err)
+	}
 }
 
 // EndSession drops the session grants of a session.
@@ -261,9 +369,14 @@ func (b *Broker) approvalURL(id string) string {
 	return strings.ReplaceAll(b.opts.URLTemplate, "{id}", id)
 }
 
-func (b *Broker) viaURL(ctx context.Context, el Elicitor, in pep.Input, ask pep.AskSpec) (*pep.Grant, error) {
+func (b *Broker) viaURL(ctx context.Context, el Elicitor, in pep.Input, ask pep.AskSpec) (g *pep.Grant, err error) {
 	p := b.addPending(in, ask, pep.ChannelURL)
-	defer b.dropPending(p.ID)
+	defer func() {
+		b.endWait(p, err)
+		if errors.Is(err, errDeclinedToOpen) {
+			g, err = nil, nil // declined
+		}
+	}()
 	defer el.Notify("notifications/elicitation/complete", map[string]any{"elicitationId": p.ID})
 
 	type elicited struct {
@@ -289,7 +402,7 @@ func (b *Broker) viaURL(ctx context.Context, el Elicitor, in pep.Input, ask pep.
 				return nil, fmt.Errorf("broker: elicitation failed: %w", e.err)
 			}
 			if e.res.Action != "accept" {
-				return nil, nil // the user declined to open the page
+				return nil, errDeclinedToOpen
 			}
 			opened = nil // keep waiting for the decision on the page
 		case <-ctx.Done():
@@ -298,9 +411,9 @@ func (b *Broker) viaURL(ctx context.Context, el Elicitor, in pep.Input, ask pep.
 	}
 }
 
-func (b *Broker) viaOOB(ctx context.Context, el Elicitor, in pep.Input, ask pep.AskSpec) (*pep.Grant, error) {
+func (b *Broker) viaOOB(ctx context.Context, el Elicitor, in pep.Input, ask pep.AskSpec) (g *pep.Grant, err error) {
 	p := b.addPending(in, ask, pep.ChannelOOB)
-	defer b.dropPending(p.ID)
+	defer func() { b.endWait(p, err) }()
 	where := "on the mcp-gateway approvals page"
 	if b.opts.URLTemplate != "" {
 		where = "at " + b.approvalURL(p.ID)
@@ -318,8 +431,27 @@ func (b *Broker) viaOOB(ctx context.Context, el Elicitor, in pep.Input, ask pep.
 	}
 }
 
+// addPending registers a pending approval for in with a waiting call. An
+// approval of the same request left without a waiting call (by an earlier
+// attempt, possibly before a restart) is taken over instead, keeping its
+// id, so an approval page opened for it stays valid.
 func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel) *Pending {
 	now := b.now()
+	b.mu.Lock()
+	b.pruneExpired()
+	for _, p := range b.pending {
+		if p.result == nil && sameRequest(p, in) {
+			p.Principal, p.Scopes, p.Channel, p.Prompt = in.Principal, ask.Scopes, c, ask.Prompt
+			p.Expires = now.Add(b.opts.Timeout)
+			p.result = make(chan *pep.Grant, 1)
+			p.Waiting = true
+			b.persistPending()
+			b.mu.Unlock()
+			b.log.Info("approval taken over by a new attempt", "id", p.ID, "sub", p.Principal.Sub, "server", p.Server, "name", p.Name)
+			return p
+		}
+	}
+	b.mu.Unlock()
 	p := &Pending{
 		ID:        "a-" + randomHex(16),
 		Channel:   c,
@@ -332,19 +464,53 @@ func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel) *Pendi
 		Scopes:    ask.Scopes,
 		Created:   now,
 		Expires:   now.Add(b.opts.Timeout),
+		Waiting:   true,
 		result:    make(chan *pep.Grant, 1),
 	}
 	b.mu.Lock()
 	b.pending[p.ID] = p
+	b.persistPending()
 	b.mu.Unlock()
 	b.log.Info("approval pending", "id", p.ID, "channel", c, "sub", p.Principal.Sub, "server", p.Server, "name", p.Name)
 	return p
 }
 
-func (b *Broker) dropPending(id string) {
+// errDeclinedToOpen: the user did not open the URL-mode approval page.
+var errDeclinedToOpen = errors.New("broker: approval page not opened")
+
+// endWait ends the wait of the call for p: an approval decided, timed out
+// or declined is gone; one whose call went away (the client left, the
+// gateway shuts down) stays pending without a waiting call.
+func (b *Broker) endWait(p *Pending, err error) {
 	b.mu.Lock()
-	delete(b.pending, id)
-	b.mu.Unlock()
+	defer b.mu.Unlock()
+	if b.pending[p.ID] != p {
+		return // decided
+	}
+	if errors.Is(err, context.Canceled) && p.Expires.After(b.now()) {
+		orphan(p)
+		b.log.Info("approval kept without a waiting call", "id", p.ID)
+	} else {
+		delete(b.pending, p.ID)
+	}
+	b.persistPending()
+}
+
+// sameRequest reports whether pending approval p is for the same request
+// as in: principal (not session), target and arguments.
+func sameRequest(p *Pending, in pep.Input) bool {
+	a, b := p.Principal, in.Principal
+	if a.Transport != b.Transport || a.Issuer != b.Issuer || a.Sub != b.Sub || !sameUID(a.UID, b.UID) ||
+		p.Action != in.Action || p.Server != in.Resource.Server || p.Name != in.Resource.Name {
+		return false
+	}
+	x, _ := json.Marshal(p.Args)
+	y, _ := json.Marshal(in.Args)
+	return string(x) == string(y)
+}
+
+func sameUID(a, b *uint32) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
 // ask queries the approver policy; errors deny. Root may always act: it
@@ -393,12 +559,14 @@ func (b *Broker) mayManage(ctx context.Context, a Approver, g pep.Grant) bool {
 	return b.ask(ctx, a, manageGrantPath, map[string]any{"grant": g})
 }
 
-func (b *Broker) snapshotPending() []*Pending {
+// snapshotPending copies the pending approvals.
+func (b *Broker) snapshotPending() []Pending {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	out := make([]*Pending, 0, len(b.pending))
+	b.pruneExpired()
+	out := make([]Pending, 0, len(b.pending))
 	for _, p := range b.pending {
-		out = append(out, p)
+		out = append(out, *p)
 	}
 	return out
 }
@@ -407,8 +575,8 @@ func (b *Broker) snapshotPending() []*Pending {
 func (b *Broker) ListPending(ctx context.Context, a Approver) []Pending {
 	out := []Pending{}
 	for _, p := range b.snapshotPending() {
-		if b.mayApprove(ctx, a, p) {
-			out = append(out, *p)
+		if b.mayApprove(ctx, a, &p) {
+			out = append(out, p)
 		}
 	}
 	slices.SortFunc(out, func(x, y Pending) int { return x.Created.Compare(y.Created) })
@@ -418,48 +586,94 @@ func (b *Broker) ListPending(ctx context.Context, a Approver) []Pending {
 // GetPending returns one pending approval if a may decide on it.
 func (b *Broker) GetPending(ctx context.Context, a Approver, id string) (Pending, error) {
 	b.mu.Lock()
+	b.pruneExpired()
 	p, ok := b.pending[id]
+	var c Pending
+	if ok {
+		c = *p
+	}
 	b.mu.Unlock()
-	if !ok || !b.mayApprove(ctx, a, p) {
+	if !ok || !b.mayApprove(ctx, a, &c) {
 		return Pending{}, ErrNotFound
 	}
-	return *p, nil
+	return c, nil
 }
 
 // Resolve records a's decision on approval id. On approval it returns the
 // grant for scope, which must be one the policy offered.
 func (b *Broker) Resolve(ctx context.Context, a Approver, id string, approve bool, scope string) (*pep.Grant, error) {
 	b.mu.Lock()
+	b.pruneExpired()
 	p, ok := b.pending[id]
+	var c Pending
+	if ok {
+		c = *p
+	}
 	b.mu.Unlock()
 	// Someone else's approval is reported as unknown.
-	if !ok || !b.mayApprove(ctx, a, p) {
+	if !ok || !b.mayApprove(ctx, a, &c) {
 		return nil, ErrNotFound
-	}
-	if approve && !slices.Contains(p.Scopes, scope) {
-		return nil, ErrBadScope
 	}
 	b.mu.Lock()
 	if b.pending[id] != p {
 		b.mu.Unlock()
 		return nil, ErrNotFound // decided or timed out meanwhile
 	}
+	// Re-read under the lock: a new attempt may have taken p over.
+	c = *p
+	if approve && !slices.Contains(c.Scopes, scope) {
+		b.mu.Unlock()
+		return nil, ErrBadScope
+	}
 	delete(b.pending, id)
+	b.persistPending()
 	b.mu.Unlock()
 
 	var g *pep.Grant
 	if approve {
 		var err error
-		g, err = b.grant(p.Principal, p.Server, p.Name, scope, p.Scopes, a.Name, p.Channel)
+		if c.result == nil {
+			g, err = b.orphanGrant(c, scope, a.Name)
+		} else {
+			g, err = b.grant(c.Principal, c.Server, c.Name, scope, c.Scopes, a.Name, c.Channel)
+		}
 		if err != nil {
-			p.result <- nil
+			if c.result != nil {
+				c.result <- nil
+			}
 			return nil, err
 		}
 	}
-	b.log.Info("approval resolved", "id", id, "approved", approve, "by", a.Name, "scope", scope)
-	b.auditApproval(id, approve, p.Principal, p.Server, p.Name, a.Name, scope, p.Channel)
-	p.result <- g
+	b.log.Info("approval resolved", "id", id, "approved", approve, "by", a.Name, "scope", scope, "waiting", c.result != nil)
+	b.auditApproval(id, approve, c.Principal, c.Server, c.Name, a.Name, scope, c.Channel)
+	if c.result != nil {
+		c.result <- g
+	}
 	return g, nil
+}
+
+// orphanGrant stores the grant for an approval decided while no call was
+// waiting: a "once" grant is kept for the next attempt (OrphanOnceTTL).
+func (b *Broker) orphanGrant(p Pending, scope, by string) (*pep.Grant, error) {
+	if scope != "once" {
+		return b.grant(p.Principal, p.Server, p.Name, scope, p.Scopes, by, p.Channel)
+	}
+	g := pep.Grant{
+		ID:         "g-" + randomHex(8),
+		Sub:        p.Principal.Sub,
+		Issuer:     p.Principal.Issuer,
+		UID:        p.Principal.UID,
+		Server:     p.Server,
+		Tool:       p.Name,
+		Scope:      "once",
+		Expires:    b.now().Add(OrphanOnceTTL).UTC().Format(time.RFC3339),
+		ApprovedBy: by,
+		Channel:    p.Channel,
+	}
+	if err := b.store.Add(g); err != nil {
+		return nil, fmt.Errorf("broker: storing grant: %w", err)
+	}
+	return &g, nil
 }
 
 // grant creates (and, unless "once", stores) a grant.

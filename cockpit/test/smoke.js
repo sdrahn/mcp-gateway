@@ -36,6 +36,8 @@ function site() {
     check(await page.isVisible("#tab-approvals"), "approvals tab shown");
     check((await page.textContent("#whoami")).includes("carol"), "whoami");
     check(await page.$eval("#approval-a1", e => e.classList.contains("highlight")), "linked approval highlighted");
+    check(!(await page.textContent("#approval-a1")).includes("no longer waiting") &&
+          (await page.textContent("#approval-a2")).includes("no longer waiting"), "approvals without a waiting call marked");
     await page.click("#approval-a1 button:has-text('Only this call')");
     await page.waitForTimeout(200);
     check((await page.evaluate(() => __calls)).some(c => c[0] === "POST" && c[1] === "/v1/approvals/a1" && c[2].includes('"approve"')), "approve posts decision");

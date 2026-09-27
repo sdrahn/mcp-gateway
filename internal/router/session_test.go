@@ -603,3 +603,60 @@ func TestSingleEndpointAdvertisesListChanged(t *testing.T) {
 		t.Fatal("capability added that the backend does not have")
 	}
 }
+
+type goneElicitor struct{}
+
+func (goneElicitor) SupportsForm() bool { return false }
+func (goneElicitor) SupportsURL() bool  { return false }
+func (goneElicitor) Elicit(context.Context, any) (broker.ElicitResult, error) {
+	return broker.ElicitResult{}, context.Canceled
+}
+func (goneElicitor) Notify(string, any) {}
+
+func TestOnceGrantFromApprovalWithoutWaitingCall(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	b := mustBroker(t, broker.Options{Timeout: 5 * time.Second, OOB: true})
+	r.Broker = b
+	var logs strings.Builder
+	r.Audit = audit.New(&syncWriter{w: &logs})
+	p := alice()
+
+	// An approval whose call went away, approved "once" afterwards.
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		_, _ = b.Approve(ctx, goneElicitor{}, pep.Input{Principal: p, Action: "tools.call",
+			Resource: pep.Resource{Server: "fs", Kind: "tool", Name: "write_file"}},
+			pep.AskSpec{Channel: pep.ChannelOOB, Scopes: []string{"once"}})
+	}()
+	root := broker.Approver{Name: "root", UID: 0}
+	var id string
+	for i := 0; i < 400 && id == ""; i++ {
+		if ps := b.ListPending(context.Background(), root); len(ps) == 1 {
+			id = ps[0].ID
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	for i := 0; i < 400; i++ {
+		if ps := b.ListPending(context.Background(), root); len(ps) == 1 && !ps[0].Waiting {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	g, err := b.Resolve(context.Background(), root, id, true, "once")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The next attempt uses it up.
+	c := connect(t, r, p, "fs", nil)
+	if text, isErr := toolText(t, c.roundTrip(1, "tools/call", map[string]any{"name": "write_file"})); isErr || text != "fs did write_file" {
+		t.Fatalf("first call: %q %v", text, isErr)
+	}
+	if !strings.Contains(logs.String(), `"grant":"`+g.ID+`"`) {
+		t.Errorf("audit record lacks the once grant: %s", logs.String())
+	}
+	if _, ok := b.TakeOnce(p, "fs", "write_file"); ok {
+		t.Fatal("once grant not used up")
+	}
+}

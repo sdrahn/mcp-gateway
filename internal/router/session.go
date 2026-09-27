@@ -640,7 +640,21 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 		Grants:    s.r.Broker.Grants(p, t.resource.Server, t.resource.Name),
 		Context:   s.policyContext(decisionID),
 	}
+	// A "once" grant from an approval decided while no call was waiting
+	// (the client left, the gateway restarted) is used up by the call it
+	// allows.
+	once, haveOnce := s.r.Broker.TakeOnce(p, t.resource.Server, t.resource.Name)
+	if haveOnce {
+		in.Grants = append(in.Grants, once)
+	}
 	dec := pep.Evaluate(ctx, s.r.PDP, in)
+	if haveOnce {
+		if dec.Effect == pep.Allow {
+			return dec, once.ID
+		}
+		s.r.Broker.ReturnOnce(once)
+		in.Grants = in.Grants[:len(in.Grants)-1]
+	}
 	if dec.Effect != pep.Ask {
 		return dec, ""
 	}

@@ -43,11 +43,22 @@ func controlDo(t *testing.T, c *http.Client, method, path, body string, out any)
 
 // readUntilResponse reads client messages until the response with id,
 // returning it and the notification methods seen before it.
-func readUntilResponse(c *client, id int) (msg, []string) {
+// A cancellation of the elicitation request withdrawn (the gateway
+// withdraws it when the approval is decided before the client's answer to
+// the elicitation arrives, which is a race in these tests) is not listed.
+func readUntilResponse(c *client, id int, elicitation json.RawMessage) (msg, []string) {
 	c.t.Helper()
 	var seen []string
 	for {
 		m := c.read()
+		if m.Method == "notifications/cancelled" && elicitation != nil {
+			var p struct {
+				RequestID json.RawMessage `json:"requestId"`
+			}
+			if json.Unmarshal(m.Params, &p) == nil && string(p.RequestID) == string(elicitation) {
+				continue
+			}
+		}
 		if m.Method != "" {
 			seen = append(seen, m.Method)
 			continue
@@ -113,7 +124,7 @@ func TestApprovalChannels(t *testing.T) {
 		if code := controlDo(t, ctl, "POST", "/v1/approvals/"+p.ElicitationID, `{"decision":"approve","scope":"session"}`, &g); code != 200 {
 			t.Fatalf("approve: %d %v", code, g)
 		}
-		res, seen := readUntilResponse(c, 2)
+		res, seen := readUntilResponse(c, 2, el.ID)
 		text, isErr := toolResult(t, res)
 		if isErr || !strings.HasPrefix(text, "wrote") {
 			t.Fatalf("got %q %v", text, isErr)
@@ -164,7 +175,7 @@ func TestApprovalChannels(t *testing.T) {
 		if code := controlDo(t, ctl, "POST", "/v1/approvals/"+id, `{"decision":"deny"}`, nil); code != 204 {
 			t.Fatalf("deny: %d", code)
 		}
-		res, _ := readUntilResponse(c, 2)
+		res, _ := readUntilResponse(c, 2, nil)
 		text, isErr := toolResult(t, res)
 		if !isErr || !strings.Contains(text, "declined") {
 			t.Fatalf("got %q %v", text, isErr)
@@ -173,4 +184,72 @@ func TestApprovalChannels(t *testing.T) {
 			t.Fatal("file written despite denial")
 		}
 	})
+}
+
+func TestPendingApprovalSurvivesRestart(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	home, err := os.MkdirTemp("", "mcpgw-restart")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	rbac := fmt.Sprintf(`{
+	  "roles": {"developer": {"permissions": [
+	    {"server": "fs", "tool": "write_file", "require_approval": true, "approval_channel": "oob"}
+	  ]}},
+	  "bindings": {"groups": {}, "users": {%q: ["developer"]}}
+	}`, me.Username)
+	e := setup(t, rbac, map[string]string{"fs": home}, "")
+	write := func(c *client, id int) {
+		c.request(id, "tools/call", map[string]any{"name": "write_file",
+			"arguments": map[string]any{"path": filepath.Join(home, "r.txt"), "content": "after restart"}})
+	}
+	pending := func() []map[string]any {
+		var ps []map[string]any
+		controlDo(t, controlClient(e.ctlSock), "GET", "/v1/approvals", "", &ps)
+		return ps
+	}
+
+	// A call waits for an out-of-band approval; then the gateway restarts.
+	c := newClient(t, e.connect, e.gwSock, "fs")
+	c.initialize(map[string]any{})
+	write(c, 2)
+	if note := c.read(); note.Method != "notifications/message" {
+		t.Fatalf("notice %+v", note)
+	}
+	before := pending()
+	if len(before) != 1 || before[0]["waiting"] != true {
+		t.Fatalf("pending before the restart: %v", before)
+	}
+	e.restartGateway(t)
+
+	// The approval is still pending, without a waiting call and without
+	// the session scope.
+	after := pending()
+	if len(after) != 1 || after[0]["id"] != before[0]["id"] || after[0]["waiting"] != false {
+		t.Fatalf("pending after the restart: %v", after)
+	}
+	if strings.Contains(fmt.Sprint(after[0]["scopes"]), "session") {
+		t.Fatalf("session scope offered after the restart: %v", after[0]["scopes"])
+	}
+	id := after[0]["id"].(string)
+	if code := controlDo(t, controlClient(e.ctlSock), "POST", "/v1/approvals/"+id, `{"decision":"approve","scope":"once"}`, nil); code != 200 {
+		t.Fatalf("approve: %d", code)
+	}
+
+	// The agent's next attempt goes through once; the one after asks again.
+	c2 := newClient(t, e.connect, e.gwSock, "fs")
+	c2.initialize(map[string]any{})
+	write(c2, 2)
+	text, isErr := toolResult(t, c2.read())
+	if isErr || !strings.HasPrefix(text, "wrote") {
+		t.Fatalf("retry: %q %v", text, isErr)
+	}
+	write(c2, 3)
+	if note := c2.read(); note.Method != "notifications/message" || !strings.Contains(string(note.Params), "Waiting for approval") {
+		t.Fatalf("second retry: %+v", note)
+	}
 }
