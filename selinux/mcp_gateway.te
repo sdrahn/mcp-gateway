@@ -162,8 +162,9 @@ tunable_policy(`mcpopa_can_network',`
 #
 # Clients
 #
-# Which user domains may connect to the gateway at all. Everything finer
-# grained is decided by OPA, which sees the client's context.
+# Which user domains may connect to the gateway (MCP socket) and its
+# control API (approvals inbox, e.g. from Cockpit) at all. Everything finer
+# grained is decided by OPA and the broker, from the client's identity.
 #
 
 optional_policy(`
@@ -171,6 +172,7 @@ optional_policy(`
 		type unconfined_t;
 	')
 	mcp_gateway_client(unconfined_t)
+	mcp_gateway_control_client(unconfined_t)
 ')
 
 optional_policy(`
@@ -178,6 +180,7 @@ optional_policy(`
 		type staff_t;
 	')
 	mcp_gateway_client(staff_t)
+	mcp_gateway_control_client(staff_t)
 ')
 
 optional_policy(`
@@ -185,4 +188,5 @@ optional_policy(`
 		type user_t;
 	')
 	mcp_gateway_client(user_t)
+	mcp_gateway_control_client(user_t)
 ')

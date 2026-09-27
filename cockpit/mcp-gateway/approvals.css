@@ -1,0 +1,87 @@
+:root {
+    --bg: #ffffff;
+    --fg: #151515;
+    --muted: #6a6e73;
+    --card: #f5f5f5;
+    --border: #d2d2d2;
+    --accent: #0066cc;
+    --accent-fg: #ffffff;
+    --danger: #c9190b;
+    --highlight: #fdf7e7;
+    --error-bg: #faeae8;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #1b1d21;
+        --fg: #e0e0e0;
+        --muted: #a2a5a9;
+        --card: #26292d;
+        --border: #3c3f42;
+        --accent: #73bcf7;
+        --accent-fg: #151515;
+        --danger: #fe5142;
+        --highlight: #3d3419;
+        --error-bg: #470000;
+    }
+}
+
+body {
+    margin: 0;
+    padding: 1rem 1.5rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.5 "Red Hat Text", system-ui, sans-serif;
+}
+
+header { display: flex; align-items: baseline; gap: 1rem; }
+h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
+h2 { font-size: 1.15rem; margin: 1.5rem 0 0.25rem; }
+.muted { color: var(--muted); }
+.error { background: var(--error-bg); border-left: 3px solid var(--danger); padding: 0.5rem 1rem; }
+
+.card {
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    margin: 0.75rem 0;
+}
+.card.highlight { background: var(--highlight); border-color: var(--accent); }
+.card h3 { margin: 0 0 0.25rem; font-size: 1rem; }
+.card dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.1rem 1rem; margin: 0.5rem 0; }
+.card dt { color: var(--muted); }
+.card dd { margin: 0; overflow-wrap: anywhere; }
+pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+button {
+    font: inherit;
+    padding: 0.3rem 0.9rem;
+    border-radius: 4px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--accent-fg);
+    cursor: pointer;
+}
+button.secondary { background: transparent; color: var(--accent); }
+button.danger { border-color: var(--danger); background: transparent; color: var(--danger); }
+button:disabled { opacity: 0.5; cursor: default; }
+
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: normal; }
+
+@media (max-width: 600px) {
+    body { padding: 0.75rem 1rem; }
+    table, thead, tbody, tr, th, td { display: block; }
+    thead { display: none; }
+    tr { border-bottom: 1px solid var(--border); padding: 0.5rem 0; }
+    td { border: 0; padding: 0.1rem 0; }
+}
+
+@media (max-width: 600px) {
+    .card dl { grid-template-columns: minmax(0, 1fr); }
+    .card dt { margin-top: 0.25rem; }
+}

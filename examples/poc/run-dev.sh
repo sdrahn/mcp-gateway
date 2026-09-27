@@ -28,6 +28,9 @@ YAML
 cat >"$work/gateway.yaml" <<YAML
 socket: $work/mcp.sock
 servers_dir: $work/servers.d
+state_dir: $work/state
+approvals:
+  control_socket: $work/control.sock
 policy:
   opa_socket: $work/opa.sock
 supervisor:
@@ -46,6 +49,9 @@ MCP client configuration:
 
   { "command": "$repo/bin/mcp-connect",
     "args": ["--socket", "$work/mcp.sock", "--server", "fs"] }
+
+Approvals inbox (control API, as you):
+  curl --unix-socket $work/control.sock http://x/v1/approvals
 
 Logs: $work/opa.log (OPA); gateway and audit records below.
 MSG

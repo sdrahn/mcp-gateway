@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/authn"
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	controlapi "github.com/sdrahn/mcp-gateway/internal/control"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/router"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
@@ -88,11 +90,43 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	if err := os.MkdirAll(gw.StateDir, 0o700); err != nil {
+		return fmt.Errorf("state directory: %w", err)
+	}
+	control := gw.Approvals.ControlSocket != "-"
+	b, err := broker.New(broker.Options{
+		Timeout:     gw.ApprovalTimeout,
+		GrantsFile:  filepath.Join(gw.StateDir, "grants.json"),
+		URLTemplate: gw.Approvals.URLTemplate,
+		OOB:         control,
+		AdminGroup:  gw.Approvals.AdminGroup,
+		Log:         log,
+	})
+	if err != nil {
+		return err
+	}
+	if !control && gw.Approvals.URLTemplate != "" {
+		log.Warn("approvals.url_template is set but the control socket is disabled; url approvals cannot be decided")
+	}
+	if control {
+		cl, err := transport.ListenUnix(gw.Approvals.ControlSocket, 0o660, gw.SocketGroup)
+		if err != nil {
+			return fmt.Errorf("listening on %s: %w", gw.Approvals.ControlSocket, err)
+		}
+		log.Info("listening", "control", gw.Approvals.ControlSocket)
+		cs := &controlapi.Server{Broker: b, Log: log}
+		go func() {
+			if err := cs.Serve(ctx, cl); err != nil {
+				log.Error("control API failed", "err", err)
+			}
+		}()
+	}
+
 	r := &router.Router{
 		Backends: backends,
 		Launcher: launcher,
 		PDP:      pep.NewOPA(gw.Policy.OPASocket, gw.Policy.Timeout),
-		Broker:   broker.New(gw.ApprovalTimeout),
+		Broker:   b,
 		Audit:    audit.New(os.Stderr),
 		Log:      log,
 

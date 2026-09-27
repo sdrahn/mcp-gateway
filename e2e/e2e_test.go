@@ -206,9 +206,9 @@ func toolResult(t *testing.T, m msg) (string, bool) {
 
 // env is a running gateway with OPA.
 type env struct {
-	tmp, connect, gwSock string
-	opa                  *exec.Cmd
-	gwLogs               *syncBuffer
+	tmp, connect, gwSock, ctlSock string
+	opa                           *exec.Cmd
+	gwLogs                        *syncBuffer
 }
 
 // setup starts OPA with the shipped policy and rbac as role data, and the
@@ -243,6 +243,7 @@ func setup(t *testing.T, rbac string, roots map[string]string, extra string) *en
 	writeFile(t, filepath.Join(tmp, "gateway.yaml"), fmt.Sprintf(`
 socket: %s
 servers_dir: %s
+state_dir: %s
 policy:
   opa_socket: %s
   timeout: 2s
@@ -250,10 +251,13 @@ approval_timeout: 5s
 supervisor:
   mode: exec
   idle_timeout: 1h
-%s`, gwSock, filepath.Join(tmp, "servers.d"), opaSock, extra))
+approvals:
+  control_socket: %s
+  url_template: https://gw.example.com/approvals/{id}
+%s`, gwSock, filepath.Join(tmp, "servers.d"), filepath.Join(tmp, "state"), opaSock, filepath.Join(tmp, "control.sock"), extra))
 	_, gwLogs := start(t, gateway, "--config", filepath.Join(tmp, "gateway.yaml"))
 	waitFor(t, gwSock)
-	return &env{tmp: tmp, connect: connect, gwSock: gwSock, opa: opaCmd, gwLogs: gwLogs}
+	return &env{tmp: tmp, connect: connect, gwSock: gwSock, ctlSock: filepath.Join(tmp, "control.sock"), opa: opaCmd, gwLogs: gwLogs}
 }
 
 func (c *client) initialize(caps map[string]any) msg {

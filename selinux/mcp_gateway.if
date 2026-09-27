@@ -83,6 +83,27 @@ interface(`mcp_gateway_client',`
 
 ########################################
 ## <summary>
+##	Allow a domain to use the gateway's control API (approvals, grants),
+##	e.g. the Cockpit bridge of a logged-in user. What the caller may do
+##	is decided by the gateway from its peer credentials.
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed access.
+##	</summary>
+## </param>
+#
+interface(`mcp_gateway_control_client',`
+	gen_require(`
+		type mcpgw_t, mcpgw_runtime_t, mcpgw_ctl_sock_t;
+	')
+
+	files_search_runtime($1)
+	stream_connect_pattern($1, mcpgw_runtime_t, mcpgw_ctl_sock_t, mcpgw_t)
+')
+
+########################################
+## <summary>
 ##	Allow a backend domain to read and write the content of user home
 ##	directories (subject to its MCS categories).
 ## </summary>

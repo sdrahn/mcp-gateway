@@ -770,28 +770,47 @@ func labelElicitation(params json.RawMessage, server string) json.RawMessage {
 
 // --- requests to the client (broker.Elicitor) ---------------------------
 
-// SupportsForm implements broker.Elicitor. Clients that declare an
-// elicitation capability without modes support form mode.
-func (s *Session) SupportsForm() bool {
+// elicitationModes returns the elicitation modes the client declared
+// (nil without the capability). A capability without modes means form
+// mode (MCP before 2025-11-25).
+func (s *Session) elicitationModes() map[string]json.RawMessage {
 	s.mu.Lock()
 	raw, ok := s.clientCaps["elicitation"]
 	s.mu.Unlock()
 	if !ok {
-		return false
+		return nil
 	}
 	var modes map[string]json.RawMessage
 	if json.Unmarshal(raw, &modes) != nil {
-		return false
+		return nil
 	}
 	if len(modes) == 0 {
-		return true
+		return map[string]json.RawMessage{"form": nil}
 	}
-	_, form := modes["form"]
-	return form
+	return modes
+}
+
+// SupportsForm implements broker.Elicitor.
+func (s *Session) SupportsForm() bool {
+	_, ok := s.elicitationModes()["form"]
+	return ok
+}
+
+// SupportsURL implements broker.Elicitor.
+func (s *Session) SupportsURL() bool {
+	_, ok := s.elicitationModes()["url"]
+	return ok
+}
+
+// Notify implements broker.Elicitor.
+func (s *Session) Notify(method string, params any) {
+	if n, err := jsonrpc.NewNotification(method, params); err == nil {
+		_ = s.client.Write(n)
+	}
 }
 
 // Elicit implements broker.Elicitor.
-func (s *Session) Elicit(ctx context.Context, p broker.ElicitParams) (broker.ElicitResult, error) {
+func (s *Session) Elicit(ctx context.Context, p any) (broker.ElicitResult, error) {
 	resp, err := s.requestClient(ctx, "elicitation/create", p)
 	if err != nil {
 		return broker.ElicitResult{}, err
