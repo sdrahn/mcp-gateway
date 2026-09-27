@@ -62,6 +62,14 @@ supervisor:
   selinux: auto
   # Stop an instance this long after the last session using it ended.
   idle_timeout: 15m
+  # MCS categories for the instances' pairs. libvirt picks its pairs from
+  # its daemon's range: confine it to the rest with a drop-in from
+  # /usr/share/mcp-gateway/mcs (the gateway warns while they overlap).
+  mcs_range: c768.c1023
+  # auto: skip pairs held by running containers (podman cannot be
+  # confined to a range) and virtual machines, and replace an instance
+  # whose pair a container or machine started later takes. off.
+  mcs_avoid: auto
 
 # Remote access via MCP Streamable HTTP with OAuth bearer tokens.
 # Disabled unless listen is set. Endpoints: /mcp (aggregated) and

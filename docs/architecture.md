@@ -551,11 +551,38 @@ Key rules (sketch):
   remote bundle server is configured (boolean `mcpopa_can_network`).
 
 **MCS isolation per session** (sVirt-style): the supervisor allocates a
-unique category pair per instance from a configured range (e.g. `c0.c1023`
-minus reserved) and sets it in `SELinuxContext=`. Per-instance scratch
+unique category pair per instance from `supervisor.mcs_range` (default
+`c768.c1023`) and sets it in `SELinuxContext=`. Per-instance scratch
 directories are labelled with the same pair. Two instances running as the
 same Unix account (e.g. dynamic/service user for remote principals) thus
 cannot access each other's processes or files.
+
+**Coordination with libvirt and podman.** Both hand out random pairs as
+well and know nothing about the gateway's. Type enforcement already keeps
+`mcpsrv_*_t` apart from `svirt_t` and `container_t` and their files, so a
+shared pair is not an access path by itself; coordination keeps MCS a
+second, independent barrier:
+
+- **libvirt** picks each machine's pair from the category range of its
+  own daemon process (`virSecuritySELinuxMCSGetProcessRange` in
+  `security_selinux.c`). The drop-ins in `/usr/share/mcp-gateway/mcs/`
+  (`virtqemud.conf`, `libvirtd.conf`) start the daemon with
+  `s0-s0:c0.c767`, so its machines never get a pair from the gateway's
+  range. The gateway warns at start and every 30 s while a libvirt daemon's
+  range overlaps its own.
+- **podman** (go-selinux) picks from the whole range: go-selinux has
+  `SetCategoryRange`, but podman (checked with v6.1.2) does not expose it,
+  and it only avoids pairs of its own containers. With
+  `supervisor.mcs_avoid: auto` (default) the gateway reads the contexts of
+  running container and machine processes, skips their pairs when it
+  allocates, and every 30 s stops an instance whose pair a container or
+  machine started later holds too (logged and recorded as an
+  `mcp-mcs-collision` audit event); its sessions get a new instance with a
+  new pair on their next call. Containers given explicit levels
+  (`--security-opt label=level:…`) should use categories below c768.
+
+The policy lets the gateway read the process state of container, virtual
+machine and libvirt domains only, not of all processes.
 
 **Client label as policy input:** `SO_PEERSEC` delivers the client's
 context; it is part of `input.principal.selinux`, allowing rules such as
@@ -1056,5 +1083,6 @@ docs/
   containers without `CAP_AUDIT_WRITE` only the journal records remain.
 - Rate-limit counters live in the gateway's memory (sliding windows per
   principal, action and target); a restart resets them.
-- Whether the MCS category range must be coordinated with other sVirt users
-  (libvirt, podman) on the same host.
+- MCS pairs of stopped containers (their files keep the pair) are not
+  known to the gateway, and a container can take an instance's pair for up
+  to 30 s before the instance is replaced (§5.8).

@@ -154,6 +154,39 @@ optional_policy(`
 
 auth_use_nsswitch(mcpgw_t)
 miscfiles_read_localization(mcpgw_t)
+
+# MCS coordination (supervisor.mcs_avoid): read the contexts of containers,
+# virtual machines and libvirt daemons to skip the category pairs they hold
+# and to check libvirt's range. Only these domains, not all processes.
+kernel_list_proc(mcpgw_t)
+optional_policy(`
+	gen_require(`type container_t;')
+	ps_process_pattern(mcpgw_t, container_t)
+')
+optional_policy(`
+	gen_require(`type container_init_t;')
+	ps_process_pattern(mcpgw_t, container_init_t)
+')
+optional_policy(`
+	gen_require(`type container_kvm_t;')
+	ps_process_pattern(mcpgw_t, container_kvm_t)
+')
+optional_policy(`
+	gen_require(`type svirt_t;')
+	ps_process_pattern(mcpgw_t, svirt_t)
+')
+optional_policy(`
+	gen_require(`type svirt_tcg_t;')
+	ps_process_pattern(mcpgw_t, svirt_tcg_t)
+')
+optional_policy(`
+	gen_require(`type virtd_t;')
+	ps_process_pattern(mcpgw_t, virtd_t)
+')
+optional_policy(`
+	gen_require(`type virtqemud_t;')
+	ps_process_pattern(mcpgw_t, virtqemud_t)
+')
 # Audit events (denials, approvals, grant revocations, policy changes) go
 # to the kernel audit subsystem as AUDIT_TRUSTED_APP records.
 logging_send_audit_msgs(mcpgw_t)
