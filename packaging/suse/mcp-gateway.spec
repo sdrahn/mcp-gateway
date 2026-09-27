@@ -15,9 +15,7 @@ Name:           mcp-gateway
 Version:        0.1.0
 Release:        0
 Summary:        Policy-enforcing gateway for local MCP servers
-# FIXME: the repository has no LICENSE file yet; set the actual license
-# and add a %%license line to %%files.
-License:        MIT
+License:        GPL-2.0-or-later
 Group:          Productivity/Networking/Security
 URL:            https://github.com/sdrahn/mcp-gateway
 Source0:        %{name}-%{version}.tar.gz
@@ -27,6 +25,7 @@ BuildRequires:  bzip2
 BuildRequires:  gcc
 BuildRequires:  golang(API) >= 1.24
 BuildRequires:  make
+BuildRequires:  pkgconfig(systemd)
 BuildRequires:  selinux-policy-devel
 BuildRequires:  sysuser-tools
 BuildRequires:  systemd-rpm-macros
@@ -126,6 +125,7 @@ fi
 %selinux_relabel_post -s %{selinuxtype}
 
 %files
+%license LICENSE
 %doc README.md docs/architecture.md
 %{_bindir}/mcp-gateway
 %{_bindir}/mcp-connect

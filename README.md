@@ -54,3 +54,7 @@ CI builds the SELinux module against Ubuntu's reference policy and, in
 the openSUSE job, against openSUSE's policy while building the RPMs; the
 module uses `ifdef` shims where reference policy and Fedora-derived
 policies (openSUSE, Fedora) differ.
+
+## License
+
+GPL-2.0-or-later; see [LICENSE](LICENSE).
