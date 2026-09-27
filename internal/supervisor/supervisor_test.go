@@ -108,10 +108,12 @@ func TestSystemdProperties(t *testing.T) {
 		}
 	}
 
+	// A remote principal without a local account gets a dynamic user.
 	b.RunAs = "principal"
 	remote := principal.Principal{Sub: "bob@idp", SessionID: "x"}
-	if _, err := s.Properties(b, remote, 5, ""); err == nil {
-		t.Error("expected error for principal without local account")
+	m = propMap(t, s, b, remote, "c1,c2")
+	if m["DynamicUser"] != true || m["User"] != nil {
+		t.Errorf("remote props %v", m)
 	}
 }
 

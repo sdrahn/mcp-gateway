@@ -1,21 +1,27 @@
 // Command mcp-gateway is the policy-enforcing MCP gateway daemon.
 //
 // Current scope (docs/architecture.md, section 11): local clients on the
-// unix socket, per-server and aggregated endpoints, OPA decisions,
+// unix socket and remote clients over MCP Streamable HTTP with OAuth
+// bearer tokens, per-server and aggregated endpoints, OPA decisions,
 // form-mode approvals, backends as systemd transient units shared by a
 // principal's sessions.
 package main
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/audit"
+	"github.com/sdrahn/mcp-gateway/internal/authn"
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
@@ -92,7 +98,66 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 
 		IdleTimeout: gw.Supervisor.IdleTimeout,
 	}
-	return r.Serve(ctx, l)
+
+	// Serve returns after ctx ends and all backend instances are stopped;
+	// always wait for it so no instance outlives the gateway.
+	served := make(chan error, 1)
+	go func() { served <- r.Serve(ctx, l) }()
+	var httpErr error
+	if gw.HTTP.Listen != "" {
+		httpErrs := make(chan error, 1)
+		stopHTTP, err := serveHTTP(log, gw.HTTP, r, httpErrs)
+		if err != nil {
+			stop()
+			<-served
+			return err
+		}
+		select {
+		case httpErr = <-httpErrs:
+		case <-ctx.Done():
+		}
+		stopHTTP()
+		stop()
+	}
+	return errors.Join(httpErr, <-served)
+}
+
+// serveHTTP starts the remote transport (MCP Streamable HTTP, OAuth
+// resource server). The returned function ends all HTTP sessions and
+// shuts the server down.
+func serveHTTP(log *slog.Logger, cfg config.HTTP, r *router.Router, errc chan<- error) (func(), error) {
+	h, err := transport.NewHTTPHandler(transport.HTTPConfig{
+		Resource:             cfg.Audience,
+		AuthorizationServers: []string{cfg.Issuer},
+		Scopes:               cfg.Scopes,
+		AllowedOrigins:       cfg.AllowedOrigins,
+		KnownServer:          func(name string) bool { return r.Backends[name] != nil },
+		SessionIdle:          cfg.SessionIdleTimeout,
+		Log:                  log,
+	}, authn.NewOAuth(cfg, nil), r.ServeClient)
+	if err != nil {
+		return nil, err
+	}
+	srv := &http.Server{
+		Addr:              cfg.Listen,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12},
+	}
+	go func() {
+		err := srv.ListenAndServeTLS(cfg.CertFile, cfg.KeyFile)
+		if !errors.Is(err, http.ErrServerClosed) {
+			errc <- fmt.Errorf("http: %w", err)
+		}
+	}()
+	log.Info("listening", "http", cfg.Listen, "resource", cfg.Audience)
+	return func() {
+		// Sessions first: open SSE streams only end with their session.
+		h.Close()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}, nil
 }
 
 func newLauncher(log *slog.Logger, s config.Supervisor) (supervisor.Launcher, error) {

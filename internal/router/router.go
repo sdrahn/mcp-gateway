@@ -93,7 +93,7 @@ func (r *Router) handle(ctx context.Context, c *transport.UnixConn) {
 // ServeClient runs the session of an authenticated client whose first
 // message (a hello, or an MCP message for the aggregated endpoint) has
 // been read.
-func (r *Router) ServeClient(ctx context.Context, client *jsonrpc.Conn, p principal.Principal, first *jsonrpc.Message) {
+func (r *Router) ServeClient(ctx context.Context, client jsonrpc.MessageConn, p principal.Principal, first *jsonrpc.Message) {
 	r.init()
 	log := r.Log.With("session", p.SessionID, "sub", p.Sub)
 
@@ -124,7 +124,7 @@ func (r *Router) ServeClient(ctx context.Context, client *jsonrpc.Conn, p princi
 
 // reject answers the first message with an error if it was a request, and
 // closes the connection.
-func reject(c *jsonrpc.Conn, first *jsonrpc.Message, msg string) {
+func reject(c jsonrpc.MessageConn, first *jsonrpc.Message, msg string) {
 	defer func() { _ = c.Close() }()
 	if first.IsRequest() {
 		_ = c.Write(jsonrpc.NewError(first.ID, jsonrpc.CodeInvalidRequest, "mcp-gateway: "+msg))
