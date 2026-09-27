@@ -43,11 +43,22 @@ func controlDo(t *testing.T, c *http.Client, method, path, body string, out any)
 
 // readUntilResponse reads client messages until the response with id,
 // returning it and the notification methods seen before it.
-func readUntilResponse(c *client, id int) (msg, []string) {
+// A cancellation of the elicitation request withdrawn (the gateway
+// withdraws it when the approval is decided before the client's answer to
+// the elicitation arrives, which is a race in these tests) is not listed.
+func readUntilResponse(c *client, id int, elicitation json.RawMessage) (msg, []string) {
 	c.t.Helper()
 	var seen []string
 	for {
 		m := c.read()
+		if m.Method == "notifications/cancelled" && elicitation != nil {
+			var p struct {
+				RequestID json.RawMessage `json:"requestId"`
+			}
+			if json.Unmarshal(m.Params, &p) == nil && string(p.RequestID) == string(elicitation) {
+				continue
+			}
+		}
 		if m.Method != "" {
 			seen = append(seen, m.Method)
 			continue
@@ -113,7 +124,7 @@ func TestApprovalChannels(t *testing.T) {
 		if code := controlDo(t, ctl, "POST", "/v1/approvals/"+p.ElicitationID, `{"decision":"approve","scope":"session"}`, &g); code != 200 {
 			t.Fatalf("approve: %d %v", code, g)
 		}
-		res, seen := readUntilResponse(c, 2)
+		res, seen := readUntilResponse(c, 2, el.ID)
 		text, isErr := toolResult(t, res)
 		if isErr || !strings.HasPrefix(text, "wrote") {
 			t.Fatalf("got %q %v", text, isErr)
@@ -164,7 +175,7 @@ func TestApprovalChannels(t *testing.T) {
 		if code := controlDo(t, ctl, "POST", "/v1/approvals/"+id, `{"decision":"deny"}`, nil); code != 204 {
 			t.Fatalf("deny: %d", code)
 		}
-		res, _ := readUntilResponse(c, 2)
+		res, _ := readUntilResponse(c, 2, nil)
 		text, isErr := toolResult(t, res)
 		if !isErr || !strings.Contains(text, "declined") {
 			t.Fatalf("got %q %v", text, isErr)
