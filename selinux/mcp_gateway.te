@@ -173,12 +173,18 @@ read_files_pattern(mcpopa_t, mcpgw_etc_t, mcpgw_etc_t)
 list_dirs_pattern(mcpopa_t, mcpgw_etc_t, mcpgw_etc_t)
 files_read_usr_files(mcpopa_t)
 
-# Remote bundle server. Name resolution (sysnet_dns_name_resolve) cannot
-# live inside a conditional and is added with bundle server support.
+# Signed bundles (mcp-policy-bundle) in /etc/mcp-gateway/bundle are
+# mcpgw_etc_t, readable above.
+
+# Remote bundle server (bundle-server.conf drop-in). Name resolution and
+# the CA certificates cannot live inside a conditional; without the
+# tunable (and with the default unit's PrivateNetwork=) they are unused.
 tunable_policy(`mcpopa_can_network',`
 	allow mcpopa_t self:tcp_socket create_stream_socket_perms;
 	corenet_tcp_connect_http_port(mcpopa_t)
 ')
+sysnet_dns_name_resolve(mcpopa_t)
+miscfiles_read_generic_certs(mcpopa_t)
 
 ########################################
 #

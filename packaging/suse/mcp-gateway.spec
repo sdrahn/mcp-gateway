@@ -89,7 +89,7 @@ make selinux
 
 %install
 %make_install install install-selinux install-cockpit install-demo \
-    PREFIX=%{_prefix} BINDIR=%{_bindir} LIBEXECDIR=%{_libexecdir} \
+    PREFIX=%{_prefix} BINDIR=%{_bindir} SBINDIR=%{_sbindir} LIBEXECDIR=%{_libexecdir} \
     DATADIR=%{_datadir} SYSCONFDIR=%{_sysconfdir} DISTCONFDIR=%{_distconfdir} \
     UNITDIR=%{_unitdir} SYSUSERSDIR=%{_sysusersdir} \
     SELINUXDIR=%{_datadir}/selinux/packages/%{selinuxtype}
@@ -129,6 +129,7 @@ fi
 %doc README.md docs/architecture.md
 %{_bindir}/mcp-gateway
 %{_bindir}/mcp-connect
+%{_sbindir}/mcp-policy-bundle
 %dir %{_sysconfdir}/mcp-gateway
 %dir %{_sysconfdir}/mcp-gateway/servers.d
 %dir %attr(0700,root,root) %{_sysconfdir}/mcp-gateway/credentials
@@ -144,6 +145,7 @@ fi
 %dir %{_datadir}/mcp-gateway
 %dir %{_datadir}/mcp-gateway/servers.d
 %{_datadir}/mcp-gateway/policy
+%{_datadir}/mcp-gateway/opa
 %{_unitdir}/mcp-gateway.service
 %{_unitdir}/mcp-opa.service
 %{_sysusersdir}/%{name}.conf

@@ -1,7 +1,10 @@
 [Unit]
 Description=MCP gateway
 Documentation=https://github.com/sdrahn/mcp-gateway/blob/main/docs/architecture.md
-Requires=mcp-opa.service
+# Wants=, not Requires=: restarting OPA (e.g. for a new signed policy
+# bundle) must not restart the gateway and end every session. Without OPA
+# the gateway denies all requests.
+Wants=mcp-opa.service
 After=mcp-opa.service network-online.target
 Wants=network-online.target
 

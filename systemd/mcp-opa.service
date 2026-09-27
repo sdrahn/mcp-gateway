@@ -15,6 +15,8 @@ RuntimeDirectoryPreserve=yes
 # rather than through a file label ("-": ignored where SELinux is off).
 SELinuxContext=-system_u:system_r:mcpopa_t:s0
 # Policy logic (vendor, /usr/share) and role data (administrator, /etc).
+# For signed bundles (from mcp-policy-bundle or a bundle server) replace
+# ExecStart= with a drop-in from /usr/share/mcp-gateway/opa/.
 # Every decision is logged to the journal; policy/system/log.rego masks
 # tool arguments, and input.context.decision_id links an entry to the
 # gateway's audit record.

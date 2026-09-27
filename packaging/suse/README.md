@@ -32,7 +32,7 @@ so `mcp-gateway-selinux` does not apply there.
 
 | Package | Contents |
 |---|---|
-| `mcp-gateway` | `mcp-gateway`, `mcp-connect`, systemd units, sysusers config, default configuration, policy, polkit rule |
+| `mcp-gateway` | `mcp-gateway`, `mcp-connect`, `mcp-policy-bundle`, systemd units and OPA drop-ins, sysusers config, default configuration, policy, polkit rule |
 | `mcp-gateway-selinux` | SELinux module `mcp_gateway` (installed with the `%selinux_*` macros); pulled in automatically where `selinux-policy-targeted` is installed |
 | `mcp-gateway-cockpit` | the approvals page for Cockpit (`/usr/share/cockpit/mcp-gateway`) |
 | `mcp-gateway-demo-server` | demo filesystem MCP server, registered as server `fs` |
@@ -55,6 +55,8 @@ the administrator's (below `/etc`), which suits transactional systems
 | `/etc/mcp-gateway/servers.d/*.yaml` | local definitions; a file with the same name overrides a vendor file, an empty file or a symlink to `/dev/null` disables it | admin |
 | `/usr/share/mcp-gateway/policy/` | policy logic (Rego) | package |
 | `/etc/mcp-gateway/policy/rbac/data.json` | roles, bindings and approver rules (`%config(noreplace)`) | admin |
+| `/usr/share/mcp-gateway/opa/` | `mcp-opa.service` drop-ins for signed bundles (`signed-bundle.conf`, `bundle-server.conf`) and an OPA configuration example | package |
+| `/etc/mcp-gateway/bundle/` | signed policy bundle (`policy.tar.gz`, from `mcp-policy-bundle`) and its verification key (`verify.pem`) | admin |
 | `/etc/mcp-gateway/credentials/` | secrets for MCP servers (`credentials:` in their definitions), mode 0700, label `mcpgw_cred_t`; read by systemd, never by the gateway | admin |
 | `/var/lib/mcp-gateway/` | persistent grants (`StateDirectory=`) | service |
 | `/run/mcp-gateway/` | sockets (`RuntimeDirectory=`) | service |

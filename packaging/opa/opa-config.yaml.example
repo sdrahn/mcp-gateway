@@ -1,0 +1,34 @@
+# OPA configuration for mcp-opa.service with a bundle server
+# (bundle-server.conf). Copy to /etc/mcp-gateway/opa-config.yaml.
+services:
+  policy:
+    url: https://bundles.example.com
+    # Authentication towards the bundle server, e.g.:
+    # credentials:
+    #   bearer:
+    #     token_path: /etc/mcp-gateway/bundle/token
+
+bundles:
+  mcp:
+    service: policy
+    resource: bundles/mcp-gateway.tar.gz
+    polling:
+      min_delay_seconds: 60
+      max_delay_seconds: 120
+    # Mandatory: bundles must be signed with this key (build them with
+    # mcp-policy-bundle or "opa build --signing-key").
+    signing:
+      keyid: mcp
+
+keys:
+  mcp:
+    algorithm: RS256
+    key: |
+      -----BEGIN PUBLIC KEY-----
+      ...
+      -----END PUBLIC KEY-----
+
+# Decisions to the journal; policy/system/log.rego (part of the bundle)
+# masks the arguments.
+decision_logs:
+  console: true

@@ -216,6 +216,13 @@ type env struct {
 // extra is appended to the gateway configuration.
 func setup(t *testing.T, rbac string, roots map[string]string, extra string) *env {
 	t.Helper()
+	return setupWith(t, rbac, roots, extra, nil)
+}
+
+// setupWith is setup with OPA started with opaArgs(tmp, opaSock) instead
+// of the policy directories (tmp/data holds the role data).
+func setupWith(t *testing.T, rbac string, roots map[string]string, extra string, opaArgs func(tmp, opaSock string) []string) *env {
+	t.Helper()
 	opa := opaBinary(t)
 	// Unix socket paths are limited to 108 bytes; keep them short.
 	tmp, err := os.MkdirTemp("", "mcpgw")
@@ -231,9 +238,13 @@ func setup(t *testing.T, rbac string, roots map[string]string, extra string) *en
 
 	writeFile(t, filepath.Join(tmp, "data", "rbac", "data.json"), rbac)
 	opaSock := filepath.Join(tmp, "opa.sock")
-	opaCmd, opaLogs := start(t, opa, "run", "--server", "--addr", "unix://"+opaSock,
+	args := []string{"run", "--server", "--addr", "unix://" + opaSock,
 		"--set=decision_logs.console=true",
-		filepath.Join("..", "policy", "mcp"), filepath.Join("..", "policy", "system"), filepath.Join(tmp, "data"))
+		filepath.Join("..", "policy", "mcp"), filepath.Join("..", "policy", "system"), filepath.Join(tmp, "data")}
+	if opaArgs != nil {
+		args = opaArgs(tmp, opaSock)
+	}
+	opaCmd, opaLogs := start(t, opa, args...)
 	waitFor(t, opaSock)
 
 	for name, root := range roots {

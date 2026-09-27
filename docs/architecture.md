@@ -319,11 +319,33 @@ Unknown methods are **denied by default**.
   language neutrality. Embedding OPA as a Go library remains an option if
   latency requires it; the PEP talks to OPA through an interface so both
   are drop-in.
-- **Policy distribution:** today from local disk: policy logic from the
-  package in `/usr/share/mcp-gateway/policy/`, roles and bindings from the
-  administrator in `/etc/mcp-gateway/policy/` (D4), reloaded on change
-  (`--watch`). Planned: signed OPA bundles from a bundle server, with
-  signature verification mandatory in production.
+- **Policy distribution**, three modes, chosen by the `mcp-opa.service`
+  unit (drop-ins in `/usr/share/mcp-gateway/opa/`):
+  - **directories** (default): policy logic from the package in
+    `/usr/share/mcp-gateway/policy/`, roles and bindings from the
+    administrator in `/etc/mcp-gateway/policy/` (D4), reloaded on change
+    (`--watch`). Unsigned; protected by file permissions and SELinux
+    (`mcpgw_etc_t`).
+  - **signed bundle file** (`signed-bundle.conf`): `mcp-policy-bundle -k
+    <key>` builds a bundle from the same two sources, signs it (RS256),
+    writes `/etc/mcp-gateway/bundle/policy.tar.gz` and restarts OPA,
+    which verifies it against `/etc/mcp-gateway/bundle/verify.pem` and
+    refuses to start with an unsigned or tampered bundle (the gateway
+    then denies everything). The signing key belongs off the host, e.g.
+    in CI, which builds bundles from the policy repository.
+  - **bundle server** (`bundle-server.conf`, `opa-config.yaml.example`):
+    OPA polls a bundle server and verifies every download (`signing`
+    in its configuration); a bundle that does not verify is rejected and
+    the active revision stays. Needs `setsebool -P mcpopa_can_network
+    on`.
+
+  Signed bundles are not combined with `--watch`: OPA (checked with 1.21)
+  does not verify signatures when `--watch` reloads a bundle file, and a
+  tampered bundle would be activated. Bundle files are read once at start
+  instead, so a new revision needs a restart of `mcp-opa.service` (the
+  gateway, which only `Wants=` OPA, keeps its sessions and denies
+  requests for that second). The gateway logs the active revisions at
+  start and records them in `mcp-policy-change` audit events.
 - **Decision logs:** enabled, masked (`system.log.mask`) to strip argument
   values flagged as sensitive, shipped to the audit sink (§5.9).
 - **Status API:** gateway polls OPA health; unhealthy ⇒ fail closed.
@@ -796,8 +818,9 @@ grant > ask > default deny.)
 ### 6.6 Policy lifecycle
 
 - Rego logic lives in git with `opa test` and `opa check --strict` in CI.
-- RBAC data may be edited through Cockpit; edits produce a new signed
-  bundle revision, keeping git as source of truth for logic.
+- RBAC data may be edited through Cockpit; with signed bundles, edits
+  take effect with a new bundle revision (`mcp-policy-bundle`), keeping
+  git as source of truth for logic.
 - Bundle activation is atomic; the gateway notices the change (§5.3,
   item 6), emits `list_changed` notifications and records a
   `mcp-policy-change` audit event.
@@ -855,7 +878,7 @@ Client        mcp-connect   Gateway/Router   PEP      OPA     Broker    Cockpit 
 | Backend phishing the user via elicitation | policy on `elicitation.create`, origin labelling, secret-field blocking |
 | Cross-tenant data leakage | instance per principal (or session), MCS categories, separate Unix users where possible |
 | Token theft / confused deputy | audience-bound tokens, no token passthrough, backend creds via systemd credentials |
-| Policy tampering | signed bundles, OPA in own domain, config/bundle dirs writable only by admin |
+| Policy tampering | signed bundles verified by OPA (file or bundle server; never with `--watch`), OPA in own domain, config/bundle dirs writable only by admin |
 | OPA outage | fail closed |
 | Local user spoofing identity | kernel-provided peer credentials; `clientInfo` never trusted |
 
@@ -888,6 +911,9 @@ names for clients configured per server.
 **D4 — Policy authoring.**
 *Decision (accepted):* Rego logic in git (tests in CI); RBAC data editable through
 Cockpit, which generates signed bundle revisions.
+*Implementation:* bundles are built and signed by `mcp-policy-bundle`
+(§5.5); signing from Cockpit needs the key on the host and is left to the
+administrator's choice.
 
 **D5 — Trust in backends.**
 *Decision (accepted):* treat all backends as **untrusted** by default

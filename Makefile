@@ -14,6 +14,7 @@ SELINUXTYPE   ?= targeted
 # passes %{_libexecdir}, %{_distconfdir}, %{_unitdir}, ...).
 PREFIX      ?= /usr
 BINDIR      ?= $(PREFIX)/bin
+SBINDIR     ?= $(PREFIX)/sbin
 LIBEXECDIR  ?= $(PREFIX)/libexec
 DATADIR     ?= $(PREFIX)/share
 SYSCONFDIR  ?= /etc
@@ -79,6 +80,9 @@ install: install-gateway
 install-gateway:
 	install -Dm0755 bin/mcp-gateway $(DESTDIR)$(BINDIR)/mcp-gateway
 	install -Dm0755 bin/mcp-connect $(DESTDIR)$(BINDIR)/mcp-connect
+	install -Dm0755 tools/mcp-policy-bundle $(DESTDIR)$(SBINDIR)/mcp-policy-bundle
+	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/opa
+	install -m0644 packaging/opa/* $(DESTDIR)$(DATADIR)/mcp-gateway/opa/
 	install -Dm0644 config/gateway.yaml $(DESTDIR)$(DISTCONFDIR)/mcp-gateway/gateway.yaml
 	install -d $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/servers.d
 	install -d -m0700 $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/credentials

@@ -19,6 +19,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -148,8 +150,11 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 
 	// Clients learn about policy changes through list_changed.
 	go r.WatchPolicy(ctx, gw.Policy.WatchInterval, opa.Fingerprint, func() {
-		auditLog.Event("mcp-policy-change", true, nil)
+		auditLog.Event("mcp-policy-change", true, map[string]string{"revision": bundleRevisions(ctx, opa)})
 	})
+	if revs := bundleRevisions(ctx, opa); revs != "" {
+		log.Info("policy bundles", "revisions", revs)
+	}
 
 	// Serve returns after ctx ends and all backend instances are stopped;
 	// always wait for it so no instance outlives the gateway.
@@ -242,6 +247,21 @@ func newAudit(log *slog.Logger, gw *config.Gateway) (*audit.Logger, func(), erro
 		}
 	}
 	return audit.New(os.Stderr, opts), closeFn, nil
+}
+
+// bundleRevisions describes the activated policy bundles as
+// "name=revision,…" (empty with directory-loaded policy or on errors).
+func bundleRevisions(ctx context.Context, opa *pep.OPA) string {
+	bundles, err := opa.Bundles(ctx)
+	if err != nil {
+		return ""
+	}
+	var out []string
+	for name, rev := range bundles {
+		out = append(out, name+"="+rev)
+	}
+	sort.Strings(out)
+	return strings.Join(out, ",")
 }
 
 // serverTLS returns the TLS configuration of the remote transport, with
