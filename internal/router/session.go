@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -535,8 +538,22 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 
 	dec, grantID := s.decide(ctx, t)
 	p := s.snapshotPrincipal()
+	// Obligations were validated by pep.Evaluate; a compile error here
+	// cannot happen, but would deny.
+	ob, err := dec.Obligations.Compile()
+	if err != nil {
+		dec = pep.Decision{Effect: pep.Deny, Reason: "invalid obligations"}
+	}
+	if dec.Effect == pep.Allow {
+		if err := ob.CheckArgs(t.args); err != nil {
+			dec = pep.Decision{Effect: pep.Deny, Reason: err.Error()}
+		} else if !s.r.limiter.Allow(rateKey(p, t), ob.Rates) {
+			dec = pep.Decision{Effect: pep.Deny, Reason: "rate limit exceeded"}
+		}
+	}
 	s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: t.action, Server: t.server,
-		Name: t.resource.Name, Effect: string(dec.Effect), Reason: dec.Reason, GrantID: grantID, Args: t.args})
+		Name: t.resource.Name, Effect: string(dec.Effect), Reason: dec.Reason, GrantID: grantID,
+		Args: t.args, FullArgs: ob != nil && ob.FullAudit})
 	if dec.Effect != pep.Allow {
 		return s.denial(m.Method, dec.Reason)
 	}
@@ -556,10 +573,22 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	if resp.Error != nil {
 		return nil, resp.Error
 	}
-	if m.Method == "resources/read" && s.ep.aggregated {
-		return s.exposeContents(t.server, resp.Result), nil
+	result, err := ob.ApplyOutput(resp.Result)
+	if err != nil {
+		s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: t.action, Server: t.server,
+			Name: t.resource.Name, Effect: string(pep.Deny), Reason: "output withheld: " + err.Error()})
+		return s.denial(m.Method, "output withheld: "+err.Error())
 	}
-	return resp.Result, nil
+	if m.Method == "resources/read" && s.ep.aggregated {
+		return s.exposeContents(t.server, result), nil
+	}
+	return result, nil
+}
+
+// rateKey identifies the counter for rate-limit obligations: per
+// principal, action and target.
+func rateKey(p principal.Principal, t *callTarget) string {
+	return strings.Join([]string{string(p.Transport), p.Issuer, p.Sub, t.action, t.server, t.resource.Name}, "\x00")
 }
 
 // decide evaluates policy for t, obtaining an approval if policy asks.
@@ -724,16 +753,21 @@ func (s *Session) relayBackendRequest(u *upstream, m *jsonrpc.Message) *jsonrpc.
 	p := s.snapshotPrincipal()
 	action, known := backendRequests[m.Method]
 	dec := pep.Decision{Effect: pep.Deny, Reason: "method not permitted"}
+	var args map[string]any
+	if m.Method == "elicitation/create" {
+		args = elicitationArgs(m.Params)
+	}
 	if known {
 		dec = pep.Evaluate(s.ctx, s.r.PDP, pep.Input{
 			Principal: p,
 			Action:    action,
 			Resource:  pep.Resource{Server: u.backend.Name, Kind: "client", Name: m.Method},
+			Args:      args,
 			Context:   s.policyContext(),
 		})
 	}
 	s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: m.Method, Server: u.backend.Name,
-		Effect: string(dec.Effect), Reason: dec.Reason, Instance: u.id})
+		Effect: string(dec.Effect), Reason: dec.Reason, Instance: u.id, Args: args})
 	if dec.Effect != pep.Allow {
 		return jsonrpc.NewError(m.ID, jsonrpc.CodeForbidden, "denied by mcp-gateway policy")
 	}
@@ -750,6 +784,50 @@ func (s *Session) relayBackendRequest(u *upstream, m *jsonrpc.Message) *jsonrpc.
 		return jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "client unavailable")
 	}
 	return &jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Result: resp.Result}
+}
+
+// sensitiveField matches schema fields that look like they ask for
+// secrets. Backends must not collect those through elicitation (the MCP
+// specification forbids requesting sensitive information in form mode);
+// policy can still allow it per permission ("allow_sensitive").
+var sensitiveField = regexp.MustCompile(`(?i)pass(word|phrase|wd|code)|secret|token|api[-_ ]?key|` +
+	`private[-_ ]?key|credential|card[-_ ]?number|(^|[^a-z])(pin|otp|2fa|mfa|totp|cvv|iban|ssn)([^a-z]|$)`)
+
+// elicitationArgs describes a backend's elicitation for policy: its mode,
+// URL (URL mode), requested field names, and whether any field looks
+// like it asks for a secret (by name, title, description or format).
+func elicitationArgs(params json.RawMessage) map[string]any {
+	var p struct {
+		Mode            string `json:"mode"`
+		URL             string `json:"url"`
+		RequestedSchema struct {
+			Properties map[string]struct {
+				Title       string `json:"title"`
+				Description string `json:"description"`
+				Format      string `json:"format"`
+			} `json:"properties"`
+		} `json:"requestedSchema"`
+	}
+	_ = json.Unmarshal(params, &p)
+	if p.Mode == "" {
+		p.Mode = "form"
+	}
+	fields := make([]string, 0, len(p.RequestedSchema.Properties))
+	sensitive := false
+	for name, f := range p.RequestedSchema.Properties {
+		fields = append(fields, name)
+		for _, s := range []string{name, f.Title, f.Description, f.Format} {
+			if sensitiveField.MatchString(s) {
+				sensitive = true
+			}
+		}
+	}
+	sort.Strings(fields)
+	args := map[string]any{"mode": p.Mode, "fields": fields, "sensitive": sensitive}
+	if p.URL != "" {
+		args["url"] = p.URL
+	}
+	return args
 }
 
 // labelElicitation prefixes a backend's elicitation message with the

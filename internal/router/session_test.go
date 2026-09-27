@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/sdrahn/mcp-gateway/internal/audit"
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
+	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
 )
@@ -432,9 +435,110 @@ func TestNames(t *testing.T) {
 	}
 }
 
+func TestObligations(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	var logs strings.Builder
+	r.Audit = audit.New(&syncWriter{w: &logs})
+	c := connect(t, r, alice(), "fs", nil)
+	call := func(id int, name string, args map[string]any) (string, bool) {
+		return toolText(t, c.roundTrip(id, "tools/call", map[string]any{"name": name, "arguments": args}))
+	}
+
+	if text, isErr := call(1, "read_secret", nil); isErr || text != "user=bob "+pep.Redacted+" done" {
+		t.Errorf("redaction: %q %v", text, isErr)
+	}
+	if text, isErr := call(2, "read_big", nil); !isErr || !strings.Contains(text, "output withheld") {
+		t.Errorf("size limit: %q %v", text, isErr)
+	}
+	if _, isErr := call(3, "read_limited", nil); isErr {
+		t.Error("first limited call refused")
+	}
+	if _, isErr := call(4, "read_limited", nil); isErr {
+		t.Error("second limited call refused")
+	}
+	if text, isErr := call(5, "read_limited", nil); !isErr || !strings.Contains(text, "rate limit") {
+		t.Errorf("rate limit: %q %v", text, isErr)
+	}
+	if _, isErr := call(6, "read_path", map[string]any{"path": "/ok/a"}); isErr {
+		t.Error("constrained call with a valid argument refused")
+	}
+	if text, isErr := call(7, "read_path", map[string]any{"path": "/etc/passwd"}); !isErr || !strings.Contains(text, "violates a constraint") {
+		t.Errorf("arg constraint: %q %v", text, isErr)
+	}
+	if _, isErr := call(8, "read_audited", map[string]any{"q": "visible"}); isErr {
+		t.Error("audited call refused")
+	}
+	if text, isErr := call(9, "read_broken", nil); !isErr || !strings.Contains(text, "invalid policy decision") {
+		t.Errorf("malformed obligation must deny: %q %v", text, isErr)
+	}
+	out := logs.String()
+	if !strings.Contains(out, `"args":{"q":"visible"}`) {
+		t.Errorf("full audit missing args: %s", out)
+	}
+	if strings.Contains(out, `"args":{"path"`) {
+		t.Errorf("digest audit logged args verbatim: %s", out)
+	}
+}
+
+type syncWriter struct {
+	mu sync.Mutex
+	w  *strings.Builder
+}
+
+func (s *syncWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
+}
+
 func TestLabelElicitation(t *testing.T) {
 	out := labelElicitation(json.RawMessage(`{"message":"Your token?","requestedSchema":{}}`), "fs")
 	if !strings.Contains(string(out), `"[fs] Your token?"`) {
 		t.Fatalf("got %s", out)
+	}
+}
+
+func TestElicitationArgs(t *testing.T) {
+	for _, tc := range []struct {
+		schema    string
+		sensitive bool
+	}{
+		{`{"color":{"type":"string"}}`, false},
+		{`{"compass_heading":{"type":"string"},"spinner":{"type":"string"}}`, false},
+		{`{"user_password":{"type":"string"}}`, true},
+		{`{"value":{"type":"string","title":"GitHub token"}}`, true},
+		{`{"x":{"type":"string","description":"Your API key"}}`, true},
+		{`{"code":{"type":"string","title":"2FA code"}}`, true},
+		{`{"user_pin":{"type":"string"}}`, true},
+	} {
+		args := elicitationArgs(json.RawMessage(`{"message":"m","requestedSchema":{"type":"object","properties":` + tc.schema + `}}`))
+		if args["sensitive"] != tc.sensitive || args["mode"] != "form" {
+			t.Errorf("%s: args %v", tc.schema, args)
+		}
+	}
+	args := elicitationArgs(json.RawMessage(`{"mode":"url","message":"m","url":"https://x/y","elicitationId":"1"}`))
+	if args["mode"] != "url" || args["url"] != "https://x/y" {
+		t.Errorf("url mode: %v", args)
+	}
+}
+
+func TestSensitiveBackendElicitationDenied(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	c := connect(t, r, alice(), "fs", map[string]any{"elicitation": map[string]any{}})
+
+	// A harmless question is relayed to the client ...
+	c.send(1, "tools/call", map[string]any{"name": "ask_color"})
+	req := c.read()
+	if req.Method != "elicitation/create" || !strings.Contains(string(req.Params), "[fs]") {
+		t.Fatalf("want relayed elicitation, got %+v", req)
+	}
+	c.write(result(t, req.ID, map[string]any{"action": "accept", "content": map[string]any{"color": "blue"}}))
+	if text, _ := toolText(t, c.read()); !strings.Contains(text, "blue") {
+		t.Fatalf("got %q", text)
+	}
+	// ... one asking for a password never reaches it.
+	text, _ := toolText(t, c.roundTrip(2, "tools/call", map[string]any{"name": "ask_secret"}))
+	if !strings.Contains(text, "denied by mcp-gateway policy") {
+		t.Fatalf("got %q", text)
 	}
 }

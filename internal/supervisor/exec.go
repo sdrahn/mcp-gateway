@@ -3,11 +3,14 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -53,20 +56,42 @@ func (e *Exec) Start(_ context.Context, b *config.Backend, p principal.Principal
 	if p.Home != "" {
 		cmd.Dir = p.Home
 	}
+	credDir, err := stageCredentials(b)
+	if err != nil {
+		return nil, err
+	}
+	if credDir != "" {
+		cmd.Env = append(cmd.Env, "CREDENTIALS_DIRECTORY="+credDir)
+		if cred := cmd.SysProcAttr.Credential; cred != nil {
+			if err := chownTree(credDir, int(cred.Uid), int(cred.Gid)); err != nil {
+				_ = os.RemoveAll(credDir)
+				return nil, err
+			}
+		}
+	}
+	cleanup := func() {
+		if credDir != "" {
+			_ = os.RemoveAll(credDir)
+		}
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		cleanup()
 		return nil, err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		cleanup()
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
+		cleanup()
 		return nil, err
 	}
 	inst := &execInstance{name: unitName(b, id), cmd: cmd, stdin: stdin, stdout: stdout, done: make(chan struct{})}
 	go func() {
 		err := cmd.Wait()
+		cleanup()
 		if e.Log != nil {
 			e.Log.Info("backend exited", "instance", inst.name, "err", err)
 		}
@@ -93,4 +118,44 @@ func (i *execInstance) Close() error {
 		err = nil
 	}
 	return err
+}
+
+// stageCredentials copies the backend's credentials into a private
+// directory, as systemd's LoadCredential= would (development mode only:
+// here the gateway must be able to read them). It returns "" without
+// credentials.
+func stageCredentials(b *config.Backend) (string, error) {
+	creds, err := b.ParseCredentials()
+	if err != nil || len(creds) == 0 {
+		return "", err
+	}
+	dir, err := os.MkdirTemp("", "mcp-credentials-")
+	if err != nil {
+		return "", err
+	}
+	for _, c := range creds {
+		data, err := os.ReadFile(c.Path)
+		if err != nil {
+			_ = os.RemoveAll(dir)
+			return "", fmt.Errorf("credential %s: %w", c.Name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, c.Name), data, 0o400); err != nil {
+			_ = os.RemoveAll(dir)
+			return "", err
+		}
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
+}
+
+func chownTree(dir string, uid, gid int) error {
+	return filepath.WalkDir(dir, func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Lchown(path, uid, gid)
+	})
 }

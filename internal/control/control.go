@@ -3,8 +3,8 @@
 // revoke). Callers are identified by kernel peer credentials, so a Cockpit
 // page talking to the socket through cockpit.http({unix: ...}) acts as
 // the logged-in Cockpit user. What a caller may see and do is decided by
-// the broker: their own approvals and grants, or everyone's for members
-// of the admin group.
+// policy (data.mcp.approvals: by default their own approvals and grants,
+// and everyone's for the admin role).
 //
 // API (JSON):
 //
@@ -80,11 +80,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/whoami", s.with(func(w http.ResponseWriter, _ *http.Request, a broker.Approver) {
 		writeJSON(w, http.StatusOK, a)
 	}))
-	mux.HandleFunc("GET /v1/approvals", s.with(func(w http.ResponseWriter, _ *http.Request, a broker.Approver) {
-		writeJSON(w, http.StatusOK, s.Broker.ListPending(a))
+	mux.HandleFunc("GET /v1/approvals", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+		writeJSON(w, http.StatusOK, s.Broker.ListPending(r.Context(), a))
 	}))
 	mux.HandleFunc("GET /v1/approvals/{id}", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
-		p, err := s.Broker.GetPending(a, r.PathValue("id"))
+		p, err := s.Broker.GetPending(r.Context(), a, r.PathValue("id"))
 		if err != nil {
 			writeError(w, http.StatusNotFound, "no such approval")
 			return
@@ -92,11 +92,11 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, p)
 	}))
 	mux.HandleFunc("POST /v1/approvals/{id}", s.with(s.resolve))
-	mux.HandleFunc("GET /v1/grants", s.with(func(w http.ResponseWriter, _ *http.Request, a broker.Approver) {
-		writeJSON(w, http.StatusOK, s.Broker.ListGrants(a))
+	mux.HandleFunc("GET /v1/grants", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+		writeJSON(w, http.StatusOK, s.Broker.ListGrants(r.Context(), a))
 	}))
 	mux.HandleFunc("DELETE /v1/grants/{id}", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
-		if err := s.Broker.RevokeGrant(a, r.PathValue("id")); err != nil {
+		if err := s.Broker.RevokeGrant(r.Context(), a, r.PathValue("id")); err != nil {
 			writeError(w, http.StatusNotFound, "no such grant")
 			return
 		}
@@ -118,7 +118,7 @@ func (s *Server) resolve(w http.ResponseWriter, r *http.Request, a broker.Approv
 		writeError(w, http.StatusBadRequest, `decision must be "approve" or "deny"`)
 		return
 	}
-	g, err := s.Broker.Resolve(a, r.PathValue("id"), body.Decision == "approve", body.Scope)
+	g, err := s.Broker.Resolve(r.Context(), a, r.PathValue("id"), body.Decision == "approve", body.Scope)
 	switch {
 	case errors.Is(err, broker.ErrNotFound), errors.Is(err, broker.ErrForbidden):
 		writeError(w, http.StatusNotFound, "no such approval")

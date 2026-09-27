@@ -9,3 +9,8 @@ env:
   LOG_LEVEL: info
 sandbox:
   protect_home: read-write
+# Secrets for the server, handed over by systemd (LoadCredential=) and read
+# by the server from $CREDENTIALS_DIRECTORY/<name>. "name" reads
+# /etc/mcp-gateway/credentials/<name> (root only); "name:/path" reads /path.
+# The gateway itself never reads them.
+# credentials: [github-token]

@@ -26,7 +26,7 @@ func TestLoadGatewayDefaults(t *testing.T) {
 	if g.Socket != DefaultSocket || g.Policy.OPASocket != DefaultOPASocket || g.Policy.Timeout != DefaultPolicyTimeout ||
 		g.Supervisor.Mode != "systemd" || g.Supervisor.SELinux != "auto" || g.ApprovalTimeout != DefaultApprovalTimeout ||
 		g.Supervisor.IdleTimeout != DefaultIdleTimeout ||
-		g.Approvals.ControlSocket != DefaultControl || g.Approvals.AdminGroup != "wheel" {
+		g.Approvals.ControlSocket != DefaultControl {
 		t.Errorf("defaults not applied: %+v", g)
 	}
 }
@@ -137,6 +137,18 @@ func TestLoadBackendsVendorOverrideMask(t *testing.T) {
 	}
 }
 
+func TestParseCredentials(t *testing.T) {
+	b := &Backend{Credentials: []string{"github-token", "db:/srv/secrets/db.pass"}}
+	cs, err := b.ParseCredentials()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cs) != 2 || cs[0] != (Credential{"github-token", DefaultCredentialsDir + "/github-token"}) ||
+		cs[1] != (Credential{"db", "/srv/secrets/db.pass"}) {
+		t.Fatalf("credentials %+v", cs)
+	}
+}
+
 func TestResolveExplicitMissing(t *testing.T) {
 	if _, _, err := Resolve(filepath.Join(t.TempDir(), "nope.yaml")); err == nil {
 		t.Fatal("expected error for a missing explicit config")
@@ -151,6 +163,10 @@ func TestLoadBackendsErrors(t *testing.T) {
 		"bad selinux type": {"name: a\ncommand: [/usr/bin/a]\nselinux_type: unconfined_t\n"},
 		"bad isolation":    {"name: a\ncommand: [/usr/bin/a]\nisolation: global\n"},
 		"bad protect_home": {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  protect_home: maybe\n"},
+		"bad cred name":    {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"../x\"]\n"},
+		"relative cred":    {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"db:secrets/db\"]\n"},
+		"unclean cred":     {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"db:/etc/../root/x\"]\n"},
+		"dup cred":         {"name: a\ncommand: [/usr/bin/a]\ncredentials: [db, \"db:/x\"]\n"},
 		"duplicate":        {"name: a\ncommand: [/usr/bin/a]\n", "name: a\ncommand: [/usr/bin/b]\n"},
 	}
 	for name, files := range tests {

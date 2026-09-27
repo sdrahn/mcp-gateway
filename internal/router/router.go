@@ -35,8 +35,9 @@ type Router struct {
 	// session ended.
 	IdleTimeout time.Duration
 
-	once sync.Once
-	pool *pool
+	once    sync.Once
+	pool    *pool
+	limiter *pep.Limiter
 }
 
 func (r *Router) init() {
@@ -45,6 +46,7 @@ func (r *Router) init() {
 			r.Log = slog.New(slog.DiscardHandler)
 		}
 		r.pool = newPool(r.Launcher, r.IdleTimeout, r.Log)
+		r.limiter = pep.NewLimiter()
 	})
 }
 

@@ -39,8 +39,9 @@ approvals:
   # Empty disables the url channel. With the Cockpit page, e.g.:
   #   https://gateway.example.com:9090/mcp-gateway#/approvals/{id}
   url_template: ""
-  # Members may decide on everyone's approvals and revoke any grant.
-  admin_group: wheel
+  # Who may decide on approvals and revoke grants is policy: "approvers"
+  # in /etc/mcp-gateway/policy/rbac/data.json (default: the principal
+  # themself and the admin role).
 
 supervisor:
   # systemd: each backend instance is a confined transient unit.

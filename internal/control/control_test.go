@@ -44,7 +44,7 @@ func identify(p transport.PeerCred) (broker.Approver, error) {
 // outcome arrives on the returned channel.
 func setup(t *testing.T) (*Server, string, chan *pep.Grant) {
 	t.Helper()
-	b, err := broker.New(broker.Options{Timeout: 5 * time.Second, OOB: true})
+	b, err := broker.New(broker.Options{Timeout: 5 * time.Second, OOB: true}) // no policy: self only
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func setup(t *testing.T) (*Server, string, chan *pep.Grant) {
 	}()
 	var id string
 	for i := 0; i < 200 && id == ""; i++ {
-		if ps := b.ListPending(broker.Approver{UID: 0}); len(ps) > 0 {
+		if ps := b.ListPending(context.Background(), broker.Approver{UID: 0}); len(ps) > 0 {
 			id = ps[0].ID
 		}
 		time.Sleep(5 * time.Millisecond)

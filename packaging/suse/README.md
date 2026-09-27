@@ -54,7 +54,8 @@ the administrator's (below `/etc`), which suits transactional systems
 | `/usr/share/mcp-gateway/servers.d/*.yaml` | MCP server definitions shipped by packages | packages |
 | `/etc/mcp-gateway/servers.d/*.yaml` | local definitions; a file with the same name overrides a vendor file, an empty file or a symlink to `/dev/null` disables it | admin |
 | `/usr/share/mcp-gateway/policy/` | policy logic (Rego) | package |
-| `/etc/mcp-gateway/policy/rbac/data.json` | roles and bindings (`%config(noreplace)`) | admin |
+| `/etc/mcp-gateway/policy/rbac/data.json` | roles, bindings and approver rules (`%config(noreplace)`) | admin |
+| `/etc/mcp-gateway/credentials/` | secrets for MCP servers (`credentials:` in their definitions), mode 0700, label `mcpgw_cred_t`; read by systemd, never by the gateway | admin |
 | `/var/lib/mcp-gateway/` | persistent grants (`StateDirectory=`) | service |
 | `/run/mcp-gateway/` | sockets (`RuntimeDirectory=`) | service |
 

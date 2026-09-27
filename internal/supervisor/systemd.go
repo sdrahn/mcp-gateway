@@ -134,6 +134,20 @@ func (s *Systemd) Properties(b *config.Backend, p principal.Principal, fd int, m
 	if mcs != "" {
 		props = append(props, prop("SELinuxContext", fmt.Sprintf("system_u:system_r:%s:s0:%s", b.SELinuxType, mcs)))
 	}
+	creds, err := b.ParseCredentials()
+	if err != nil {
+		return nil, err
+	}
+	if len(creds) > 0 {
+		// systemd (as root) reads the files and exposes them to the
+		// backend below $CREDENTIALS_DIRECTORY; the gateway never sees them.
+		type loadCredential struct{ ID, Path string }
+		lc := make([]loadCredential, len(creds))
+		for i, c := range creds {
+			lc[i] = loadCredential{c.Name, c.Path}
+		}
+		props = append(props, prop("LoadCredential", lc))
+	}
 	return props, nil
 }
 
