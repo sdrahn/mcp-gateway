@@ -35,6 +35,38 @@ manage_instance if {
 	grants(rule, input.instance)
 }
 
+# Whom to tell about a pending approval (e-mail notifications): the
+# approvers its server's rules name, as "user:<name>" and "group:<name>".
+# "self" is the principal's local account, if it has one.
+notify contains sprintf("user:%s", [input.request.principal.sub]) if {
+	"self" in rules_for(input.request.server)
+	is_number(input.request.principal.uid)
+}
+
+notify contains rule if {
+	some rule in rules_for(input.request.server)
+	startswith(rule, "user:")
+}
+
+notify contains rule if {
+	some rule in rules_for(input.request.server)
+	startswith(rule, "group:")
+}
+
+notify contains sprintf("user:%s", [user]) if {
+	some rule in rules_for(input.request.server)
+	startswith(rule, "role:")
+	some user, roles in data.rbac.bindings.users
+	substring(rule, 5, -1) in roles
+}
+
+notify contains sprintf("group:%s", [group]) if {
+	some rule in rules_for(input.request.server)
+	startswith(rule, "role:")
+	some group, roles in data.rbac.bindings.groups
+	substring(rule, 5, -1) in roles
+}
+
 rules_for(server) := rules if {
 	rules := data.rbac.approvers[server]
 } else := rules if {

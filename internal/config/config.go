@@ -59,6 +59,36 @@ type Gateway struct {
 	Approvals Approvals `yaml:"approvals"`
 	// Audit configures the audit trail.
 	Audit Audit `yaml:"audit"`
+	// Notifications configures the push channels for approvals.
+	Notifications Notifications `yaml:"notifications"`
+}
+
+// Notifications configures how approvers learn about pending approvals
+// besides the inbox (docs/architecture.md, section 5.6.3). Desktop
+// notifications need no configuration: mcp-gateway-notify follows the
+// control API.
+type Notifications struct {
+	Email Email `yaml:"email"`
+}
+
+// Email configures e-mail notifications; enabled when SMTP is set.
+type Email struct {
+	// SMTP is the mail server, host:port (e.g. localhost:25).
+	SMTP string `yaml:"smtp"`
+	From string `yaml:"from"`
+	// To is the address template for an approver's local account name,
+	// "{user}" (local delivery by the MTA) or e.g. "{user}@example.com".
+	To string `yaml:"to"`
+	// StartTLS is "auto" (use it if offered), "always" or "never".
+	StartTLS string `yaml:"starttls"`
+	// Username and PasswordFile authenticate (PLAIN, over TLS or to
+	// localhost). The password file is read at start (e.g. from systemd's
+	// $CREDENTIALS_DIRECTORY via LoadCredential=).
+	Username     string `yaml:"username"`
+	PasswordFile string `yaml:"password_file"`
+	// IncludeArgs puts the call's arguments into the mail; off by
+	// default, since mail may leave the host.
+	IncludeArgs bool `yaml:"include_args"`
 }
 
 // Audit configures the audit trail (docs/architecture.md, section 5.9).
@@ -347,6 +377,12 @@ func (g *Gateway) setDefaults() {
 	if g.Audit.Kernel == "" {
 		g.Audit.Kernel = "auto"
 	}
+	if g.Notifications.Email.To == "" {
+		g.Notifications.Email.To = "{user}"
+	}
+	if g.Notifications.Email.StartTLS == "" {
+		g.Notifications.Email.StartTLS = "auto"
+	}
 	if g.HTTP.GroupsClaim == "" {
 		g.HTTP.GroupsClaim = DefaultGroupsClaim
 	}
@@ -411,6 +447,22 @@ func (g *Gateway) Validate() error {
 	case "auto", "on", "off":
 	default:
 		return fmt.Errorf("audit.kernel: unknown value %q", g.Audit.Kernel)
+	}
+	if e := g.Notifications.Email; e.SMTP != "" {
+		if _, _, err := net.SplitHostPort(e.SMTP); err != nil {
+			return fmt.Errorf("notifications.email.smtp: want host:port, got %q", e.SMTP)
+		}
+		if e.From == "" {
+			return errors.New("notifications.email.from: required with smtp")
+		}
+		switch e.StartTLS {
+		case "auto", "always", "never":
+		default:
+			return fmt.Errorf("notifications.email.starttls: unknown value %q", e.StartTLS)
+		}
+		if (e.Username == "") != (e.PasswordFile == "") {
+			return errors.New("notifications.email: username and password_file go together")
+		}
 	}
 	if g.HTTP.Listen != "" {
 		if g.HTTP.CertFile == "" || g.HTTP.KeyFile == "" {

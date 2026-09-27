@@ -63,3 +63,18 @@ test_manage_instance if {
 	not approvals.manage_instance with input as {"approver": alice, "instance": remote}
 	approvals.manage_instance with input as {"approver": carol, "instance": remote}
 }
+
+test_notify if {
+	# policy/rbac/data.json: default ["self", "role:admin"], wheel → admin
+	approvals.notify == {"user:alice", "group:wheel"} with input as {"request": alice_req}
+
+	# An unmapped remote principal has no local account to tell.
+	approvals.notify == {"group:wheel"} with input as {"request": remote_req}
+
+	rbac := {
+		"approvers": {"fs": ["user:carol", "group:ops", "role:auditor"]},
+		"bindings": {"users": {"dave": ["auditor"]}, "groups": {"sec": ["auditor"]}},
+	}
+	approvals.notify == {"user:carol", "group:ops", "user:dave", "group:sec"} with input as {"request": alice_req}
+		with data.rbac as rbac
+}

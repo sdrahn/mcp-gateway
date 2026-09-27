@@ -30,6 +30,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	controlapi "github.com/sdrahn/mcp-gateway/internal/control"
+	"github.com/sdrahn/mcp-gateway/internal/notify"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/router"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
@@ -122,6 +123,17 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 	})
 	if err != nil {
 		return err
+	}
+	if gw.Notifications.Email.SMTP != "" {
+		mail, err := notify.NewEmail(gw.Notifications.Email, opa, log)
+		if err != nil {
+			return err
+		}
+		mail.URL = b.ApprovalURL
+		events, stopEvents := b.Subscribe()
+		defer stopEvents()
+		go mail.Run(ctx, events)
+		log.Info("approval mail enabled", "smtp", gw.Notifications.Email.SMTP)
 	}
 	if !control && gw.Approvals.URLTemplate != "" {
 		log.Warn("approvals.url_template is set but the control socket is disabled; url approvals cannot be decided")

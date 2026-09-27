@@ -46,6 +46,24 @@ approvals:
   # in /etc/mcp-gateway/policy/rbac/data.json (default: the principal
   # themself and the admin role).
 
+# Push channels for approvals. Desktop notifications need no settings
+# (package mcp-gateway-desktop). Mail goes to the approvers the policy
+# names (data.mcp.approvals.notify); enabled when smtp is set. SELinux:
+# setsebool -P mcpgw_can_send_mail on
+# notifications:
+#   email:
+#     smtp: localhost:25
+#     from: mcp-gateway@gateway.example.com
+#     # Address for an approver's local account name.
+#     to: "{user}"
+#     # auto: STARTTLS if offered; always; never.
+#     starttls: auto
+#     # PLAIN authentication; the password file is read at start.
+#     username: ""
+#     password_file: ""
+#     # Arguments in the mail (off: mail may leave the host).
+#     include_args: false
+
 audit:
   # Denials, approval decisions, grant revocations and policy changes also
   # go to the kernel audit subsystem (ausearch -m TRUSTED_APP), next to
