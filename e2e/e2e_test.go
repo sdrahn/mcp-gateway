@@ -434,6 +434,7 @@ func TestAggregatedEndpoint(t *testing.T) {
 	rbac := fmt.Sprintf(`{
 	  "roles": {"developer": {"permissions": [
 	    {"server": "*", "tool": "read_*"},
+	    {"server": "notes", "tool": "read_*", "obligations": {"redact_output": "milk"}},
 	    {"server": "fs", "tool": "list_*"},
 	    {"server": "fs", "resource": %q},
 	    {"server": "*", "prompt": "*"}
@@ -457,8 +458,9 @@ func TestAggregatedEndpoint(t *testing.T) {
 	})
 
 	t.Run("calls are routed", func(t *testing.T) {
+		// The notes permission carries a redaction obligation.
 		text, isErr := toolResult(t, c.call(3, "notes__read_file", map[string]any{"path": "todo.txt"}))
-		if isErr || text != "buy milk" {
+		if isErr || text != "buy [redacted]" {
 			t.Fatalf("got %q isError=%v", text, isErr)
 		}
 		text, isErr = toolResult(t, c.call(4, "notes__write_file", map[string]any{"path": "x", "content": "x"}))

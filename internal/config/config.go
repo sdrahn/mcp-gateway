@@ -29,6 +29,9 @@ const (
 	DefaultOPASocket        = "/run/mcp-gateway/opa.sock"
 	DefaultStateDir         = "/var/lib/mcp-gateway"
 	DefaultControl          = "/run/mcp-gateway/control.sock"
+	// DefaultCredentialsDir holds backend secrets named by bare credential
+	// entries; readable by root only (systemd reads them, not the gateway).
+	DefaultCredentialsDir = "/etc/mcp-gateway/credentials"
 )
 
 // Gateway is the main configuration file.
@@ -67,9 +70,6 @@ type Approvals struct {
 	// id, sent to clients in URL-mode elicitations. Empty disables the url
 	// channel.
 	URLTemplate string `yaml:"url_template"`
-	// AdminGroup members may decide on everyone's approvals and see and
-	// revoke all grants.
-	AdminGroup string `yaml:"admin_group"`
 }
 
 // Supervisor configures backend instance launching.
@@ -130,8 +130,44 @@ type Backend struct {
 	Network     bool              `yaml:"network"`
 	RunAs       string            `yaml:"run_as"`
 	Env         map[string]string `yaml:"env"`
-	Credentials []string          `yaml:"credentials"`
-	Sandbox     Sandbox           `yaml:"sandbox"`
+	// Credentials are secrets handed to the backend by systemd
+	// (LoadCredential=): "name" reads DefaultCredentialsDir/name,
+	// "name:/path" reads /path. The backend finds each as
+	// $CREDENTIALS_DIRECTORY/name; the gateway itself never reads them.
+	Credentials []string `yaml:"credentials"`
+	Sandbox     Sandbox  `yaml:"sandbox"`
+}
+
+// Credential is a parsed credentials entry.
+type Credential struct {
+	Name string
+	Path string
+}
+
+var credentialName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$`)
+
+// ParseCredentials parses b.Credentials.
+func (b *Backend) ParseCredentials() ([]Credential, error) {
+	out := make([]Credential, 0, len(b.Credentials))
+	seen := map[string]bool{}
+	for _, e := range b.Credentials {
+		name, path, hasPath := strings.Cut(e, ":")
+		if !hasPath {
+			path = filepath.Join(DefaultCredentialsDir, name)
+		}
+		if !credentialName.MatchString(name) {
+			return nil, fmt.Errorf("credentials: invalid name %q", name)
+		}
+		if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+			return nil, fmt.Errorf("credentials: %s: path must be absolute and clean, got %q", name, path)
+		}
+		if seen[name] {
+			return nil, fmt.Errorf("credentials: duplicate name %q", name)
+		}
+		seen[name] = true
+		out = append(out, Credential{Name: name, Path: path})
+	}
+	return out, nil
 }
 
 // Isolation selects how backend instances are shared.
@@ -236,9 +272,6 @@ func (g *Gateway) setDefaults() {
 	}
 	if g.Approvals.ControlSocket == "" {
 		g.Approvals.ControlSocket = DefaultControl
-	}
-	if g.Approvals.AdminGroup == "" {
-		g.Approvals.AdminGroup = "wheel"
 	}
 	if g.HTTP.GroupsClaim == "" {
 		g.HTTP.GroupsClaim = DefaultGroupsClaim
@@ -407,6 +440,9 @@ func (b *Backend) Validate() error {
 	case "yes", "read-only", "read-write":
 	default:
 		return fmt.Errorf("sandbox.protect_home: unknown value %q", b.Sandbox.ProtectHome)
+	}
+	if _, err := b.ParseCredentials(); err != nil {
+		return err
 	}
 	return nil
 }

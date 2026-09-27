@@ -3,6 +3,7 @@
 /usr/(lib|libexec)/mcp-servers/mcp-fs(-demo)?		--	gen_context(system_u:object_r:mcpsrv_fs_exec_t,s0)
 
 /etc/mcp-gateway(/.*)?						gen_context(system_u:object_r:mcpgw_etc_t,s0)
+/etc/mcp-gateway/credentials(/.*)?				gen_context(system_u:object_r:mcpgw_cred_t,s0)
 /usr/etc/mcp-gateway(/.*)?					gen_context(system_u:object_r:mcpgw_etc_t,s0)
 /var/lib/mcp-gateway(/.*)?					gen_context(system_u:object_r:mcpgw_var_lib_t,s0)
 /var/log/mcp-gateway(/.*)?					gen_context(system_u:object_r:mcpgw_log_t,s0)

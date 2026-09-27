@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -67,9 +68,29 @@ func input() pep.Input {
 	}
 }
 
+// fakePolicy mimics the shipped approver rules: "self" (by uid) and
+// members of wheel.
+type fakePolicy struct{}
+
+func (fakePolicy) Bool(_ context.Context, path string, input any) (bool, error) {
+	in := input.(map[string]any)
+	a := in["approver"].(Approver)
+	if slices.Contains(a.Groups, "wheel") {
+		return true, nil
+	}
+	var uid *uint32
+	switch path {
+	case approvePath:
+		uid = in["request"].(map[string]any)["principal"].(principal.Principal).UID
+	case manageGrantPath:
+		uid = in["grant"].(pep.Grant).UID
+	}
+	return uid != nil && *uid == a.UID, nil
+}
+
 func newBroker(t *testing.T, mod func(*Options)) *Broker {
 	t.Helper()
-	o := Options{Timeout: 2 * time.Second, AdminGroup: "wheel", OOB: true, URLTemplate: "https://gw/approvals/{id}"}
+	o := Options{Timeout: 2 * time.Second, Policy: fakePolicy{}, OOB: true, URLTemplate: "https://gw/approvals/{id}"}
 	if mod != nil {
 		mod(&o)
 	}
@@ -131,8 +152,8 @@ func resolveWhenPending(t *testing.T, b *Broker, a Approver, approve bool, scope
 	go func() {
 		deadline := time.Now().Add(2 * time.Second)
 		for time.Now().Before(deadline) {
-			if ps := b.ListPending(admin); len(ps) > 0 {
-				_, err := b.Resolve(a, ps[0].ID, approve, scope)
+			if ps := b.ListPending(context.Background(), admin); len(ps) > 0 {
+				_, err := b.Resolve(context.Background(), a, ps[0].ID, approve, scope)
 				done <- err
 				return
 			}
@@ -163,7 +184,7 @@ func TestURLApproved(t *testing.T) {
 	if n := el.notifications(); len(n) != 1 || n[0] != "notifications/elicitation/complete" {
 		t.Fatalf("notifications %v", n)
 	}
-	if len(b.ListPending(admin)) != 0 {
+	if len(b.ListPending(context.Background(), admin)) != 0 {
 		t.Fatal("approval still pending")
 	}
 }
@@ -197,7 +218,7 @@ func TestOOBTimeout(t *testing.T) {
 	if _, err := b.Approve(context.Background(), &fakeElicitor{}, input(), urlAsk); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err %v", err)
 	}
-	if len(b.ListPending(admin)) != 0 {
+	if len(b.ListPending(context.Background(), admin)) != 0 {
 		t.Fatal("timed-out approval still pending")
 	}
 }
@@ -219,7 +240,7 @@ func TestApproverAuthorization(t *testing.T) {
 	go func() { _, _ = b.Approve(context.Background(), &fakeElicitor{}, input(), urlAsk) }()
 	var id string
 	for i := 0; i < 200 && id == ""; i++ {
-		if ps := b.ListPending(admin); len(ps) > 0 {
+		if ps := b.ListPending(context.Background(), admin); len(ps) > 0 {
 			id = ps[0].ID
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -227,22 +248,22 @@ func TestApproverAuthorization(t *testing.T) {
 	if id == "" {
 		t.Fatal("no pending approval")
 	}
-	if ps := b.ListPending(bobApprover); len(ps) != 0 {
+	if ps := b.ListPending(context.Background(), bobApprover); len(ps) != 0 {
 		t.Fatalf("bob sees alice's approvals: %+v", ps)
 	}
-	if _, err := b.GetPending(bobApprover, id); !errors.Is(err, ErrNotFound) {
+	if _, err := b.GetPending(context.Background(), bobApprover, id); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("bob get: %v", err)
 	}
-	if _, err := b.Resolve(bobApprover, id, true, "once"); !errors.Is(err, ErrNotFound) {
+	if _, err := b.Resolve(context.Background(), bobApprover, id, true, "once"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("bob resolve: %v", err)
 	}
-	if _, err := b.Resolve(aliceApprover, id, true, "forever"); !errors.Is(err, ErrBadScope) {
+	if _, err := b.Resolve(context.Background(), aliceApprover, id, true, "forever"); !errors.Is(err, ErrBadScope) {
 		t.Fatalf("bad scope: %v", err)
 	}
-	if ps := b.ListPending(aliceApprover); len(ps) != 1 {
+	if ps := b.ListPending(context.Background(), aliceApprover); len(ps) != 1 {
 		t.Fatalf("alice sees %d approvals", len(ps))
 	}
-	if _, err := b.Resolve(aliceApprover, id, true, "once"); err != nil {
+	if _, err := b.Resolve(context.Background(), aliceApprover, id, true, "once"); err != nil {
 		t.Fatalf("alice resolve: %v", err)
 	}
 }
@@ -254,17 +275,17 @@ func TestRemotePrincipalNeedsAdmin(t *testing.T) {
 	go func() { _, _ = b.Approve(context.Background(), &fakeElicitor{}, in, urlAsk) }()
 	var id string
 	for i := 0; i < 200 && id == ""; i++ {
-		if ps := b.ListPending(admin); len(ps) > 0 {
+		if ps := b.ListPending(context.Background(), admin); len(ps) > 0 {
 			id = ps[0].ID
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	// A local user with the same name as nobody cannot approve an unmapped
 	// remote principal's request; only admins can.
-	if _, err := b.Resolve(Approver{Name: "u-remote", UID: 1500}, id, true, "once"); !errors.Is(err, ErrNotFound) {
+	if _, err := b.Resolve(context.Background(), Approver{Name: "u-remote", UID: 1500}, id, true, "once"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("namesake resolve: %v", err)
 	}
-	if _, err := b.Resolve(admin, id, true, "once"); err != nil {
+	if _, err := b.Resolve(context.Background(), admin, id, true, "once"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -292,16 +313,16 @@ func TestGrantsPersistAndRevoke(t *testing.T) {
 	if len(got) != 1 || got[0].ID != durable.ID {
 		t.Fatalf("after restart: %+v", got)
 	}
-	if gs := b2.ListGrants(bobApprover); len(gs) != 0 {
+	if gs := b2.ListGrants(context.Background(), bobApprover); len(gs) != 0 {
 		t.Fatalf("bob sees %+v", gs)
 	}
-	if gs := b2.ListGrants(aliceApprover); len(gs) != 1 {
+	if gs := b2.ListGrants(context.Background(), aliceApprover); len(gs) != 1 {
 		t.Fatalf("alice sees %+v", gs)
 	}
-	if err := b2.RevokeGrant(bobApprover, durable.ID); !errors.Is(err, ErrNotFound) {
+	if err := b2.RevokeGrant(context.Background(), bobApprover, durable.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("bob revoke: %v", err)
 	}
-	if err := b2.RevokeGrant(aliceApprover, durable.ID); err != nil {
+	if err := b2.RevokeGrant(context.Background(), aliceApprover, durable.ID); err != nil {
 		t.Fatal(err)
 	}
 	b3 := newBroker(t, func(o *Options) { o.GrantsFile = file })
@@ -320,4 +341,47 @@ func TestExpiredGrantsIgnored(t *testing.T) {
 	if got := b.Grants(alice, "fs", "write_file"); len(got) != 0 {
 		t.Fatalf("expired grant returned: %+v", got)
 	}
+}
+
+func TestApproverPolicyErrorsDeny(t *testing.T) {
+	b := newBroker(t, func(o *Options) { o.Policy = errPolicy{} })
+	go func() { _, _ = b.Approve(context.Background(), &fakeElicitor{}, input(), urlAsk) }()
+	root := Approver{Name: "root", UID: 0}
+	var id string
+	for i := 0; i < 200 && id == ""; i++ {
+		if ps := b.ListPending(context.Background(), root); len(ps) > 0 {
+			id = ps[0].ID
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if id == "" {
+		t.Fatal("root does not see the pending approval")
+	}
+	if _, err := b.Resolve(context.Background(), aliceApprover, id, true, "once"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("policy error must deny, got %v", err)
+	}
+}
+
+func TestSelfOnlyWithoutPolicy(t *testing.T) {
+	b := newBroker(t, func(o *Options) { o.Policy = nil })
+	go func() { _, _ = b.Approve(context.Background(), &fakeElicitor{}, input(), urlAsk) }()
+	var id string
+	for i := 0; i < 200 && id == ""; i++ {
+		if ps := b.ListPending(context.Background(), aliceApprover); len(ps) > 0 {
+			id = ps[0].ID
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if id == "" {
+		t.Fatal("alice does not see her own approval")
+	}
+	if ps := b.ListPending(context.Background(), admin); len(ps) != 0 {
+		t.Fatal("without policy, group membership must not grant anything")
+	}
+}
+
+type errPolicy struct{}
+
+func (errPolicy) Bool(context.Context, string, any) (bool, error) {
+	return false, errors.New("opa down")
 }

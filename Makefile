@@ -81,9 +81,10 @@ install-gateway:
 	install -Dm0755 bin/mcp-connect $(DESTDIR)$(BINDIR)/mcp-connect
 	install -Dm0644 config/gateway.yaml $(DESTDIR)$(DISTCONFDIR)/mcp-gateway/gateway.yaml
 	install -d $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/servers.d
+	install -d -m0700 $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/credentials
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d
-	install -Dm0644 policy/mcp/authz.rego $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/authz.rego
-	install -Dm0644 policy/mcp/filter.rego $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/filter.rego
+	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp
+	install -m0644 $(filter-out %_test.rego,$(wildcard policy/mcp/*.rego)) $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/
 	install -Dm0644 policy/rbac/data.json $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/policy/rbac/data.json
 	install -Dm0644 systemd/mcp-gateway.service $(DESTDIR)$(UNITDIR)/mcp-gateway.service
 	install -Dm0644 systemd/mcp-opa.service $(DESTDIR)$(UNITDIR)/mcp-opa.service

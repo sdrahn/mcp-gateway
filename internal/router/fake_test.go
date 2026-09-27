@@ -26,8 +26,11 @@ func (fakePDP) Decide(_ context.Context, in pep.Input) (pep.Decision, error) {
 	deny := pep.Decision{Effect: pep.Deny, Reason: "not yours"}
 	switch in.Action {
 	case "tools.call":
+		if o, ok := testObligations[in.Resource.Name]; ok {
+			return pep.Decision{Effect: pep.Allow, Obligations: &o}, nil
+		}
 		switch {
-		case strings.HasPrefix(in.Resource.Name, "read_"), in.Resource.Name == "ask_roots",
+		case strings.HasPrefix(in.Resource.Name, "read_"), strings.HasPrefix(in.Resource.Name, "ask_"),
 			in.Resource.Name == "slow", in.Resource.Name == "progress":
 			return allow, nil
 		case strings.HasPrefix(in.Resource.Name, "write_"):
@@ -46,6 +49,11 @@ func (fakePDP) Decide(_ context.Context, in pep.Input) (pep.Decision, error) {
 		return allow, nil
 	case "roots.list":
 		return allow, nil
+	case "elicitation.create":
+		if in.Args["sensitive"] == true {
+			return deny, nil
+		}
+		return allow, nil
 	}
 	return deny, nil
 }
@@ -59,6 +67,16 @@ func (f fakePDP) Visible(ctx context.Context, p principal.Principal, rs []pep.Re
 		}
 	}
 	return out, nil
+}
+
+// testObligations are attached to allows of these tools.
+var testObligations = map[string]pep.Obligations{
+	"read_secret":  {RedactOutput: []string{`token=\S+`}},
+	"read_big":     {MaxOutputBytes: 64},
+	"read_limited": {RateLimit: pep.StringList{"2/m"}},
+	"read_path":    {ArgConstraints: map[string]pep.StringList{"path": {"^/ok/"}}},
+	"read_audited": {Audit: "full"},
+	"read_broken":  {RedactOutput: []string{"("}},
 }
 
 // fakeLauncher starts in-process fake backends and records them.
@@ -125,14 +143,14 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 		waiting = map[string]chan *jsonrpc.Message{}
 	)
 	// ask sends a request to the gateway (as the backend's client).
-	ask := func(method string) *jsonrpc.Message {
+	ask := func(method string, params any) *jsonrpc.Message {
 		mu.Lock()
 		nextID++
 		id := json.RawMessage(`"be-` + string(rune('0'+nextID)) + `"`)
 		ch := make(chan *jsonrpc.Message, 1)
 		waiting[string(id)] = ch
 		mu.Unlock()
-		req, _ := jsonrpc.NewRequest(id, method, map[string]any{})
+		req, _ := jsonrpc.NewRequest(id, method, params)
 		_ = c.Write(req)
 		return <-ch
 	}
@@ -201,7 +219,7 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 			switch p.Name {
 			case "ask_roots":
 				go func(m *jsonrpc.Message) {
-					resp := ask("roots/list")
+					resp := ask("roots/list", map[string]any{})
 					if resp.Error != nil {
 						respond(m, text("roots error: "+resp.Error.Message))
 						return
@@ -213,6 +231,24 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 				mu.Lock()
 				slow[m.Key()] = ch
 				mu.Unlock()
+			case "ask_color", "ask_secret":
+				field := map[string]any{"color": map[string]any{"type": "string"}}
+				if p.Name == "ask_secret" {
+					field = map[string]any{"password": map[string]any{"type": "string"}}
+				}
+				go func(m *jsonrpc.Message) {
+					resp := ask("elicitation/create", map[string]any{"message": "Question",
+						"requestedSchema": map[string]any{"type": "object", "properties": field}})
+					if resp.Error != nil {
+						respond(m, text("elicitation error: "+resp.Error.Message))
+						return
+					}
+					respond(m, text("answer: "+string(resp.Result)))
+				}(m)
+			case "read_secret":
+				respond(m, text("user=bob token=abc123 done"))
+			case "read_big":
+				respond(m, text(strings.Repeat("x", 200)))
 			case "progress":
 				var meta struct {
 					ProgressToken json.RawMessage `json:"progressToken"`

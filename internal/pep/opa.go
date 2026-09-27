@@ -28,8 +28,10 @@ type PDP interface {
 
 // Policy paths queried in OPA.
 const (
-	DecisionPath = "/v1/data/mcp/authz/decision"
-	VisiblePath  = "/v1/data/mcp/filter/visible"
+	DecisionPath     = "/v1/data/mcp/authz/decision"
+	VisiblePath      = "/v1/data/mcp/filter/visible"
+	ApproveAllowPath = "/v1/data/mcp/approvals/allow"
+	ManageGrantPath  = "/v1/data/mcp/approvals/manage_grant"
 )
 
 // OPA queries an OPA server over its REST API on a unix socket.
@@ -72,6 +74,16 @@ func (o *OPA) Visible(ctx context.Context, p principal.Principal, rs []Resource)
 		return nil, err
 	}
 	return out, nil
+}
+
+// Bool queries a boolean rule; an undefined or non-boolean result is an
+// error.
+func (o *OPA) Bool(ctx context.Context, path string, input any) (bool, error) {
+	var b bool
+	if err := o.query(ctx, path, input, &b); err != nil {
+		return false, err
+	}
+	return b, nil
 }
 
 func (o *OPA) query(ctx context.Context, path string, input, result any) error {

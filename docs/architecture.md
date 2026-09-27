@@ -268,7 +268,9 @@ Unknown methods are **denied by default**.
 
 - Builds the OPA input document (§6.2), queries OPA, and applies the
   decision:
-  - `allow` → forward; apply obligations to request/response;
+  - `allow` → check the obligations' argument constraints and rate limits,
+    forward, then apply redaction and the output size limit to the result
+    (§6.3);
   - `deny` → JSON-RPC error `-32001` ("Forbidden") with a policy-provided,
     non-sensitive `reason`; for `tools/call`, respond with a tool result
     `isError: true` so agents can reason about it;
@@ -356,13 +358,17 @@ With `oob`, the client only gets a `notifications/message` that an
 approval is pending; the request shows up in the inbox. Either way the
 call waits until a decision or `approval_timeout`.
 
-**Who may decide.** The principal themself, identified by local uid (the
-approval page runs as the logged-in Cockpit user, so a local principal
-approves their own requests), or a member of `approvals.admin_group`
-(default `wheel`) and root. A remote principal without a local account can
-only be approved by an admin. The page shows the exact call: server, tool,
-arguments, principal, client, and the scopes the policy offered; nothing
-else can be chosen.
+**Who may decide** is policy (`data.mcp.approvals`, rules in
+`data.rbac.approvers`, §6.4); the gateway identifies the approver by the
+control socket's peer credentials. The shipped rules allow the principal
+themself, matched by local uid (the approval page runs as the logged-in
+Cockpit user, so a local principal approves their own requests), and the
+admin role. A remote principal without a local account has no uid, so
+only role, group or user rules can approve its requests. The same rules
+decide who sees and revokes a grant (grants record the principal's uid).
+Root may always decide. If OPA fails, nobody else may. The page shows
+the exact call: server, tool, arguments, principal, client, and the scopes
+the policy offered; nothing else can be chosen.
 
 #### 5.6.2 Backend-initiated elicitation
 
@@ -374,8 +380,12 @@ The gateway:
 2. prefixes the message with the backend's identity (the user must always
    know *who* asks) and never lets backend-originated requests use the
    gateway's own approval UI styling or URL namespace;
-3. rejects requests whose schema asks for fields matching secret patterns
-   (`password`, `token`, `secret`, …) unless policy explicitly allows;
+3. passes the request's mode, URL (URL mode), field names and a
+   `sensitive` flag to policy as `input.args`. The flag is set when a
+   field's name, title, description or format looks like a secret
+   (password, token, secret, API or private key, credential, PIN, OTP,
+   card number, …). A sensitive request is only covered by a permission
+   with `"allow_sensitive": true`;
 4. relays to the client and returns the answer to the backend.
 
 ### 5.7 Instance supervisor
@@ -411,7 +421,7 @@ The gateway:
   MemoryMax=512M
   TasksMax=64
   RuntimeMaxSec=8h
-  LoadCredential=db-password:/etc/mcp-gateway/creds/db   # planned
+  LoadCredential=github-token:/etc/mcp-gateway/credentials/github-token
   ```
   `MemoryDenyWriteExecute=` is deliberately not set: it breaks JIT
   runtimes such as Node.js, which many MCP servers use.
@@ -595,14 +605,30 @@ ask) but never to grant access.
     "fallback": "oob | deny"
   },
   "obligations": {
-    "redact_output": ["$.content[*].text~/(?i)password=\\S+/"],
+    "redact_output": ["(?i)password=\\S+"],
     "max_output_bytes": 1048576,
-    "rate_limit": "30/m",
-    "arg_constraints": { "path": "^/home/alice/" },
+    "rate_limit": ["30/m"],
+    "arg_constraints": { "path": ["^/home/alice/"] },
     "audit": "digest | full"
   }
 }
 ```
+
+Obligations, as the gateway enforces them:
+
+| Obligation | Effect |
+|---|---|
+| `redact_output` | regular expressions; matches in every string of the result are replaced with `[redacted]` |
+| `max_output_bytes` | results larger than this (after redaction) are withheld; the call returns an error |
+| `rate_limit` | `N/s`, `N/m` or `N/h`, one or a list; each counts calls per principal, action and target; exceeding denies |
+| `arg_constraints` | per argument, regular expressions that must all match; a missing or non-string argument fails |
+| `audit` | `full` logs the arguments verbatim instead of a digest |
+
+A malformed obligation (bad regex, bad rate) makes the whole decision
+invalid, which fails closed. The shipped policy takes obligations from the
+matching permissions' `obligations` objects and merges them. Redactions,
+rate limits and argument constraints add up, the smallest output limit
+wins, and `full` audit wins.
 
 `data.mcp.filter.visible` returns, for a principal and a list of
 resources, the subset to show — one OPA query per `*/list`, not one per
@@ -615,8 +641,16 @@ A permission names a backend (`server` glob) and exactly one target: a
 backend sends to the client (`roots/list`, `sampling/createMessage`,
 `elicitation/create`). Globs have no separators (`*` matches `/`) and may
 use `${sub}` and `${home}`. Optional fields: `effect: "deny"` (explicit
-deny, wins over everything), `require_approval`, `approval_channel`, and
-`args` (regular expressions per tool/prompt argument).
+deny, wins over everything), `require_approval`, `approval_channel`,
+`args` (regular expressions per tool/prompt argument, deciding whether the
+permission applies), `obligations` (§6.3, conditions on an allowed call),
+and for `client` permissions `allow_sensitive` (backend elicitations that
+look like they ask for secrets, §5.6.2).
+
+`approvers` maps a server name, or `default`, to the rules for who may
+decide on that server's approvals and manage its grants: `self`,
+`role:<role>`, `group:<group>`, `user:<user>` (§5.6.1). Without it, only
+`self` applies.
 
 Completions follow their target: a prompt's like `prompts.get`; a resource
 template's (and its visibility in `resources/templates/list`) wherever the
@@ -899,6 +933,7 @@ docs/
   (proposal: grants are checked at call start only).
 - Handling of `resources/subscribe` notifications after access is revoked
   (proposal: gateway drops notifications and unsubscribes).
-- Rate-limit state location (in-gateway token buckets vs. OPA data).
+- Rate-limit counters live in the gateway's memory (sliding windows per
+  principal, action and target); a restart resets them.
 - Whether the MCS category range must be coordinated with other sVirt users
   (libvirt, podman) on the same host.

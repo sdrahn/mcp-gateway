@@ -82,10 +82,22 @@ type Options struct {
 	URLTemplate string
 	// OOB enables out-of-band approvals (the control API is serving).
 	OOB bool
-	// AdminGroup members may approve any request and see all grants.
-	AdminGroup string
-	Log        *slog.Logger
+	// Policy decides who may decide on approvals and manage grants
+	// (data.mcp.approvals); nil allows only the principal themself.
+	Policy BoolPolicy
+	Log    *slog.Logger
 }
+
+// BoolPolicy answers boolean policy queries (pep.OPA implements it).
+type BoolPolicy interface {
+	Bool(ctx context.Context, path string, input any) (bool, error)
+}
+
+// Policy paths for approver decisions.
+const (
+	approvePath     = "/v1/data/mcp/approvals/allow"
+	manageGrantPath = "/v1/data/mcp/approvals/manage_grant"
+)
 
 // Broker obtains approvals and keeps grants.
 type Broker struct {
@@ -326,26 +338,57 @@ func (b *Broker) dropPending(id string) {
 	b.mu.Unlock()
 }
 
-// isAdmin reports whether a may act on everyone's approvals and grants.
-func (b *Broker) isAdmin(a Approver) bool {
-	return a.UID == 0 || (b.opts.AdminGroup != "" && slices.Contains(a.Groups, b.opts.AdminGroup))
-}
-
-// mayApprove: the principal themself (same local account) or an admin.
-func (b *Broker) mayApprove(a Approver, p *Pending) bool {
-	if b.isAdmin(a) {
+// ask queries the approver policy; errors deny. Root may always act: it
+// controls the host (and the policy) anyway.
+func (b *Broker) ask(ctx context.Context, a Approver, path string, input map[string]any) bool {
+	if a.UID == 0 {
 		return true
 	}
-	return p.Principal.UID != nil && *p.Principal.UID == a.UID
+	if b.opts.Policy == nil {
+		return false
+	}
+	input["approver"] = a
+	ok, err := b.opts.Policy.Bool(ctx, path, input)
+	if err != nil {
+		b.log.Warn("approver policy failed", "path", path, "err", err)
+		return false
+	}
+	return ok
+}
+
+// mayApprove: as policy says; without policy, the principal themself.
+func (b *Broker) mayApprove(ctx context.Context, a Approver, p *Pending) bool {
+	if b.opts.Policy == nil && a.UID != 0 {
+		return p.Principal.UID != nil && *p.Principal.UID == a.UID
+	}
+	return b.ask(ctx, a, approvePath, map[string]any{"request": map[string]any{
+		"principal": p.Principal, "server": p.Server, "name": p.Name, "action": p.Action,
+	}})
+}
+
+// mayManage: as policy says; without policy, the principal's own grants.
+func (b *Broker) mayManage(ctx context.Context, a Approver, g pep.Grant) bool {
+	if b.opts.Policy == nil && a.UID != 0 {
+		return g.UID != nil && *g.UID == a.UID
+	}
+	return b.ask(ctx, a, manageGrantPath, map[string]any{"grant": g})
+}
+
+func (b *Broker) snapshotPending() []*Pending {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]*Pending, 0, len(b.pending))
+	for _, p := range b.pending {
+		out = append(out, p)
+	}
+	return out
 }
 
 // ListPending returns the pending approvals a may decide on.
-func (b *Broker) ListPending(a Approver) []Pending {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (b *Broker) ListPending(ctx context.Context, a Approver) []Pending {
 	out := []Pending{}
-	for _, p := range b.pending {
-		if b.mayApprove(a, p) {
+	for _, p := range b.snapshotPending() {
+		if b.mayApprove(ctx, a, p) {
 			out = append(out, *p)
 		}
 	}
@@ -354,11 +397,11 @@ func (b *Broker) ListPending(a Approver) []Pending {
 }
 
 // GetPending returns one pending approval if a may decide on it.
-func (b *Broker) GetPending(a Approver, id string) (Pending, error) {
+func (b *Broker) GetPending(ctx context.Context, a Approver, id string) (Pending, error) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	p, ok := b.pending[id]
-	if !ok || !b.mayApprove(a, p) {
+	b.mu.Unlock()
+	if !ok || !b.mayApprove(ctx, a, p) {
 		return Pending{}, ErrNotFound
 	}
 	return *p, nil
@@ -366,17 +409,21 @@ func (b *Broker) GetPending(a Approver, id string) (Pending, error) {
 
 // Resolve records a's decision on approval id. On approval it returns the
 // grant for scope, which must be one the policy offered.
-func (b *Broker) Resolve(a Approver, id string, approve bool, scope string) (*pep.Grant, error) {
+func (b *Broker) Resolve(ctx context.Context, a Approver, id string, approve bool, scope string) (*pep.Grant, error) {
 	b.mu.Lock()
 	p, ok := b.pending[id]
-	if !ok || !b.mayApprove(a, p) {
-		b.mu.Unlock()
-		// Someone else's approval is reported as unknown.
+	b.mu.Unlock()
+	// Someone else's approval is reported as unknown.
+	if !ok || !b.mayApprove(ctx, a, p) {
 		return nil, ErrNotFound
 	}
 	if approve && !slices.Contains(p.Scopes, scope) {
-		b.mu.Unlock()
 		return nil, ErrBadScope
+	}
+	b.mu.Lock()
+	if b.pending[id] != p {
+		b.mu.Unlock()
+		return nil, ErrNotFound // decided or timed out meanwhile
 	}
 	delete(b.pending, id)
 	b.mu.Unlock()
@@ -416,6 +463,7 @@ func (b *Broker) grant(p principal.Principal, server, tool, scope string, offere
 		ID:         "g-" + randomHex(8),
 		Sub:        p.Sub,
 		Issuer:     p.Issuer,
+		UID:        p.UID,
 		Server:     server,
 		Tool:       tool,
 		Scope:      stored,
@@ -432,21 +480,21 @@ func (b *Broker) grant(p principal.Principal, server, tool, scope string, offere
 	return g, nil
 }
 
-// ListGrants returns the grants a may see: their own, or all for admins.
-func (b *Broker) ListGrants(a Approver) []pep.Grant {
+// ListGrants returns the grants a may see and revoke.
+func (b *Broker) ListGrants(ctx context.Context, a Approver) []pep.Grant {
 	out := []pep.Grant{}
 	for _, g := range b.store.List() {
-		if b.isAdmin(a) || g.Sub == a.Name {
+		if b.mayManage(ctx, a, g) {
 			out = append(out, g)
 		}
 	}
 	return out
 }
 
-// RevokeGrant removes a grant a may see.
-func (b *Broker) RevokeGrant(a Approver, id string) error {
+// RevokeGrant removes a grant a may manage.
+func (b *Broker) RevokeGrant(ctx context.Context, a Approver, id string) error {
 	g, ok := b.store.Get(id)
-	if !ok || (!b.isAdmin(a) && g.Sub != a.Name) {
+	if !ok || !b.mayManage(ctx, a, g) {
 		return ErrNotFound
 	}
 	b.log.Info("grant revoked", "id", id, "by", a.Name)

@@ -44,9 +44,11 @@ type Resource struct {
 
 // Grant is a recorded human approval, as passed to policy.
 type Grant struct {
-	ID        string         `json:"id"`
-	Sub       string         `json:"sub"`
-	Issuer    string         `json:"iss,omitempty"`
+	ID     string `json:"id"`
+	Sub    string `json:"sub"`
+	Issuer string `json:"iss,omitempty"`
+	// UID is the principal's local uid, if any (for "own grant" checks).
+	UID       *uint32        `json:"uid,omitempty"`
 	Server    string         `json:"server"`
 	Tool      string         `json:"tool"`
 	ArgsMatch map[string]any `json:"args_match,omitempty"`
@@ -86,13 +88,22 @@ type AskSpec struct {
 	Fallback string `json:"fallback,omitempty"`
 }
 
-// Obligations are extra conditions attached to an allow.
+// Obligations are extra conditions attached to an allow; see
+// obligations.go for their meaning and enforcement.
 type Obligations struct {
-	RedactOutput   []string          `json:"redact_output,omitempty"`
-	MaxOutputBytes int64             `json:"max_output_bytes,omitempty"`
-	RateLimit      string            `json:"rate_limit,omitempty"`
-	ArgConstraints map[string]string `json:"arg_constraints,omitempty"`
-	Audit          string            `json:"audit,omitempty"`
+	// RedactOutput are regular expressions; matches in any string of the
+	// result are replaced with "[redacted]".
+	RedactOutput []string `json:"redact_output,omitempty"`
+	// MaxOutputBytes bounds the JSON size of the result (after redaction).
+	MaxOutputBytes int64 `json:"max_output_bytes,omitempty"`
+	// RateLimit are limits like "30/m" (per s, m or h), each applied per
+	// principal and target. Policy may return a single string or a list.
+	RateLimit StringList `json:"rate_limit,omitempty"`
+	// ArgConstraints are regular expressions per argument (a string or a
+	// list; all must match); the argument must be present and a string.
+	ArgConstraints map[string]StringList `json:"arg_constraints,omitempty"`
+	// Audit is "digest" (default) or "full" (arguments logged verbatim).
+	Audit string `json:"audit,omitempty"`
 }
 
 // Decision is the policy decision document (docs/architecture.md, section
@@ -104,8 +115,14 @@ type Decision struct {
 	Obligations *Obligations `json:"obligations,omitempty"`
 }
 
-// Validate reports whether d is well-formed enough to be enforced.
+// Validate reports whether d is well-formed enough to be enforced,
+// including its obligations.
 func (d Decision) Validate() error {
+	if d.Obligations != nil {
+		if _, err := d.Obligations.Compile(); err != nil {
+			return err
+		}
+	}
 	switch d.Effect {
 	case Allow, Deny:
 	case Ask:

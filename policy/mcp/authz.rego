@@ -46,6 +46,15 @@ matching contains p if {
 	glob.match(expand_glob(p[field]), null, input.resource.name)
 	target_ok(field)
 	args_ok(p)
+	not sensitive_blocked(field, p)
+}
+
+# A backend's elicitation that looks like it asks for secrets (the gateway
+# sets input.args.sensitive) is only covered by permissions that say
+# "allow_sensitive": true.
+sensitive_blocked("client", p) if {
+	input.args.sensitive == true
+	not p.allow_sensitive == true
 }
 
 # Completions follow what they complete: a prompt like prompts.get, a
@@ -164,11 +173,68 @@ ask_channel := c if {
 	c := object.get(p, "approval_channel", "url")
 }
 
+# Obligations of all matching (non-deny) permissions, merged: redaction
+# patterns, rate limits and argument constraints add up (every constraint
+# must hold), the smallest output limit wins, and "full" audit wins.
+applicable contains p if {
+	some p in matching
+	not p.effect == "deny"
+}
+
+obligation_sets[key] := vs if {
+	some key in {"redact_output", "rate_limit"}
+	vs := {v |
+		some p in applicable
+		some v in as_list(object.get(p, ["obligations", key], []))
+	}
+}
+
+output_limits contains n if {
+	some p in applicable
+	n := p.obligations.max_output_bytes
+}
+
+arg_constraints[name] := patterns if {
+	some p in applicable
+	some name, _ in object.get(p, ["obligations", "arg_constraints"], {})
+	patterns := {pattern |
+		some q in applicable
+		some pattern in as_list(object.get(q, ["obligations", "arg_constraints", name], []))
+	}
+}
+
+obligation_entries contains [key, sort(vs)] if {
+	some key, vs in obligation_sets
+	count(vs) > 0
+}
+
+obligation_entries contains ["max_output_bytes", min(output_limits)] if count(output_limits) > 0
+
+obligation_entries contains ["arg_constraints", {name: sort(ps) | some name, ps in arg_constraints}] if {
+	count(arg_constraints) > 0
+}
+
+obligation_entries contains ["audit", "full"] if {
+	some p in applicable
+	p.obligations.audit == "full"
+}
+
+obligations := {e[0]: e[1] | some e in obligation_entries}
+
+as_list(x) := x if is_array(x)
+
+as_list(x) := [x] if is_string(x)
+
+# An allow decision, with the obligations if there are any.
+allow_with(d) := object.union(d, {"obligations": obligations}) if count(obligations) > 0
+
+else := d
+
 decision := {"effect": "deny", "reason": "denied by policy"} if {
 	denied
-} else := {"effect": "allow"} if {
+} else := allow_with({"effect": "allow"}) if {
 	allowed
-} else := {"effect": "allow", "reason": "approved"} if {
+} else := allow_with({"effect": "allow", "reason": "approved"}) if {
 	count(approvable) > 0
 	granted
 } else := {

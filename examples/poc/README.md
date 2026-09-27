@@ -68,8 +68,9 @@ channel so the PoC can demonstrate it (the shipped default policy asks for
 `make install` puts the Cockpit page into `/usr/share/cockpit/mcp-gateway`
 ("MCP Gateway approvals" in Cockpit's tools menu). It talks to
 `/run/mcp-gateway/control.sock` as the logged-in user: you see and decide
-your own agents' requests; members of `approvals.admin_group` see
-everyone's. For URL-mode approvals, point clients at it:
+your own agents' requests, and holders of the admin role see everyone's
+(the `approvers` rules in the RBAC data decide). For URL-mode approvals,
+point clients at it:
 
 ```yaml
 approvals:

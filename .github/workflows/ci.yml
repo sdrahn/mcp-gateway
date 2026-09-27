@@ -94,6 +94,8 @@ jobs:
           mcp-gateway --check 2>&1 | tee /tmp/check.log
           grep -q 'config=/usr/etc/mcp-gateway/gateway.yaml' /tmp/check.log
           grep -q 'backends=1' /tmp/check.log
+          test -f /usr/share/mcp-gateway/policy/mcp/approvals.rego
+          test "$(stat -c %a /etc/mcp-gateway/credentials)" = 700
       - name: Install the SELinux module
         run: |
           zypper -n --gpg-auto-import-keys in --allow-unsigned-rpm ~/rpmbuild/RPMS/noarch/mcp-gateway-selinux-*.rpm

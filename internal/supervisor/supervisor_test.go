@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
@@ -146,5 +149,62 @@ func TestExecLauncher(t *testing.T) {
 	}
 	if err := inst.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSystemdLoadCredential(t *testing.T) {
+	b := &config.Backend{Name: "git", Command: []string{"/usr/bin/git-mcp"}, SELinuxType: "mcpsrv_generic_t",
+		RunAs: "principal", Sandbox: config.Sandbox{ProtectHome: "read-only"},
+		Credentials: []string{"github-token", "db:/srv/db.pass"}}
+	m := propMap(t, &Systemd{}, b, alice(), "")
+	got := fmt.Sprint(m["LoadCredential"])
+	want := "[{github-token " + config.DefaultCredentialsDir + "/github-token} {db /srv/db.pass}]"
+	if got != want {
+		t.Fatalf("LoadCredential = %s, want %s", got, want)
+	}
+}
+
+func TestExecCredentials(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(src, []byte("s3cr3t"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	uid := uint32(os.Getuid())
+	p := principal.Principal{Sub: "me", UID: &uid, SessionID: "cafe"}
+	// The "server" prints its credential and where it found it, then exits.
+	b := &config.Backend{Name: "sh", Command: []string{"/bin/sh", "-c", `cat "$CREDENTIALS_DIRECTORY/token"; echo; echo "$CREDENTIALS_DIRECTORY"`},
+		RunAs: "gateway", Credentials: []string{"token:" + src}}
+	inst, err := (&Exec{}).Start(context.Background(), b, p, "cafecafecafecafe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := io.ReadAll(inst)
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) != 2 || lines[0] != "s3cr3t" {
+		t.Fatalf("output %q", out)
+	}
+	_ = inst.Close()
+	if _, err := os.Stat(lines[1]); !os.IsNotExist(err) {
+		t.Fatalf("credentials directory %s not removed: %v", lines[1], err)
+	}
+}
+
+// Output written right before the process exits must not be lost (Wait
+// used to close the pipe under the reader).
+func TestExecOutputBeforeExit(t *testing.T) {
+	uid := uint32(os.Getuid())
+	p := principal.Principal{Sub: "me", UID: &uid, SessionID: "beef"}
+	b := &config.Backend{Name: "sh", Command: []string{"/bin/sh", "-c", "seq 1 20000"}, RunAs: "gateway"}
+	for range 20 {
+		inst, err := (&Exec{}).Start(context.Background(), b, p, "beefbeefbeefbeef")
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(20 * time.Millisecond) // let the process exit first
+		out, _ := io.ReadAll(inst)
+		_ = inst.Close()
+		if !strings.HasSuffix(string(out), "\n20000\n") {
+			t.Fatalf("output truncated to %d bytes", len(out))
+		}
 	}
 }

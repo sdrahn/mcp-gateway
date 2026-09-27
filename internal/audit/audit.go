@@ -19,8 +19,10 @@ type Record struct {
 	Reason   string
 	GrantID  string
 	Instance string
-	// Args are logged as a digest only.
-	Args map[string]any
+	// Args are logged as a digest, or verbatim with FullArgs (the policy's
+	// audit: full obligation).
+	Args     map[string]any
+	FullArgs bool
 }
 
 // Logger writes audit records as JSON lines (journald picks them up from
@@ -49,7 +51,11 @@ func (a *Logger) Log(r Record) {
 		}
 	}
 	if r.Args != nil {
-		attrs = append(attrs, "args_sha256", Digest(r.Args))
+		if r.FullArgs {
+			attrs = append(attrs, "args", r.Args)
+		} else {
+			attrs = append(attrs, "args_sha256", Digest(r.Args))
+		}
 	}
 	a.l.Info("mcp", attrs...)
 }

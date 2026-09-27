@@ -3,11 +3,14 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -53,20 +56,50 @@ func (e *Exec) Start(_ context.Context, b *config.Backend, p principal.Principal
 	if p.Home != "" {
 		cmd.Dir = p.Home
 	}
-	stdin, err := cmd.StdinPipe()
+	credDir, err := stageCredentials(b)
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
+	if credDir != "" {
+		cmd.Env = append(cmd.Env, "CREDENTIALS_DIRECTORY="+credDir)
+		if cred := cmd.SysProcAttr.Credential; cred != nil {
+			if err := chownTree(credDir, int(cred.Uid), int(cred.Gid)); err != nil {
+				removeCredentials(credDir)
+				return nil, err
+			}
+		}
+	}
+	cleanup := func() {
+		if credDir != "" {
+			removeCredentials(credDir)
+		}
+	}
+	// Own pipes rather than cmd.StdoutPipe: Wait (which runs as soon as
+	// the process exits) closes those, and output not yet read is lost.
+	childIn, stdin, err := os.Pipe()
 	if err != nil {
+		cleanup()
 		return nil, err
 	}
-	if err := cmd.Start(); err != nil {
+	stdout, childOut, err := os.Pipe()
+	if err != nil {
+		_, _ = childIn.Close(), stdin.Close()
+		cleanup()
+		return nil, err
+	}
+	cmd.Stdin, cmd.Stdout = childIn, childOut
+	err = cmd.Start()
+	// The child has its own copies; the gateway keeps only its ends.
+	_, _ = childIn.Close(), childOut.Close()
+	if err != nil {
+		_, _ = stdin.Close(), stdout.Close()
+		cleanup()
 		return nil, err
 	}
 	inst := &execInstance{name: unitName(b, id), cmd: cmd, stdin: stdin, stdout: stdout, done: make(chan struct{})}
 	go func() {
 		err := cmd.Wait()
+		cleanup()
 		if e.Log != nil {
 			e.Log.Info("backend exited", "instance", inst.name, "err", err)
 		}
@@ -89,8 +122,57 @@ func (i *execInstance) Close() error {
 		_ = syscall.Kill(-i.cmd.Process.Pid, syscall.SIGKILL)
 		<-i.done
 	}
+	_ = i.stdout.Close()
 	if errors.Is(err, os.ErrClosed) {
 		err = nil
 	}
 	return err
+}
+
+// stageCredentials copies the backend's credentials into a private
+// directory, as systemd's LoadCredential= would (development mode only:
+// here the gateway must be able to read them). It returns "" without
+// credentials.
+func stageCredentials(b *config.Backend) (string, error) {
+	creds, err := b.ParseCredentials()
+	if err != nil || len(creds) == 0 {
+		return "", err
+	}
+	dir, err := os.MkdirTemp("", "mcp-credentials-")
+	if err != nil {
+		return "", err
+	}
+	for _, c := range creds {
+		data, err := os.ReadFile(c.Path)
+		if err != nil {
+			_ = os.RemoveAll(dir)
+			return "", fmt.Errorf("credential %s: %w", c.Name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, c.Name), data, 0o400); err != nil {
+			_ = os.RemoveAll(dir)
+			return "", err
+		}
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
+}
+
+// removeCredentials deletes a staged credentials directory. It is
+// read-only (0500), which would keep an unprivileged gateway from deleting
+// the files in it, so make it writable first.
+func removeCredentials(dir string) {
+	_ = os.Chmod(dir, 0o700)
+	_ = os.RemoveAll(dir)
+}
+
+func chownTree(dir string, uid, gid int) error {
+	return filepath.WalkDir(dir, func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Lchown(path, uid, gid)
+	})
 }

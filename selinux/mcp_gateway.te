@@ -28,6 +28,11 @@ init_daemon_domain(mcpgw_t, mcpgw_exec_t)
 type mcpgw_etc_t;
 files_config_file(mcpgw_etc_t)
 
+# Backend secrets (/etc/mcp-gateway/credentials); read by systemd for
+# LoadCredential=, never by the gateway.
+type mcpgw_cred_t;
+files_type(mcpgw_cred_t)
+
 type mcpgw_var_lib_t;
 files_type(mcpgw_var_lib_t)
 
@@ -83,6 +88,10 @@ neverallow mcpsrv_domain { mcpgw_sock_t mcpgw_ctl_sock_t mcpopa_sock_t }:sock_fi
 # Backends must never modify policy, configuration or gateway state.
 neverallow mcpsrv_domain { mcpgw_etc_t mcpgw_var_lib_t }:file { write append create unlink setattr };
 
+# Backend secrets reach backends only through systemd's credentials
+# directory; neither the gateway nor the backends read the source files.
+neverallow { mcpgw_t mcpsrv_domain } mcpgw_cred_t:file { read open map };
+
 ########################################
 #
 # Gateway local policy
@@ -123,6 +132,8 @@ gen_require(`
 allow init_t mcpgw_t:fd use;
 allow init_t mcpgw_t:unix_stream_socket rw_socket_perms;
 allow init_t mcpopa_t:process transition;
+allow init_t mcpgw_cred_t:dir list_dir_perms;
+allow init_t mcpgw_cred_t:file read_file_perms;
 
 optional_policy(`
 	gen_require(`

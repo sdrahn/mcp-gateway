@@ -182,3 +182,44 @@ test_filter_resources_prompts_templates if {
 		{"server": "git", "kind": "prompt", "name": "summarize"},
 	}
 }
+
+test_obligations_merged if {
+	perms := {"developer": {"permissions": [
+		{"server": "fs", "tool": "read_*", "obligations": {"redact_output": "token=\\S+", "max_output_bytes": 4096, "arg_constraints": {"path": "^/srv/"}}},
+		{"server": "fs", "tool": "read_file", "obligations": {"redact_output": ["AKIA\\w+"], "max_output_bytes": 1024, "rate_limit": "10/m", "arg_constraints": {"path": "\\.txt$"}, "audit": "full"}},
+		{"server": "fs", "tool": "read_file"},
+	]}}
+	d := authz.decision with input as call(alice, "fs", "read_file", {}) with data.rbac.roles as perms
+	d.effect == "allow"
+	d.obligations == {
+		"redact_output": ["AKIA\\w+", "token=\\S+"],
+		"max_output_bytes": 1024,
+		"rate_limit": ["10/m"],
+		"arg_constraints": {"path": ["\\.txt$", "^/srv/"]},
+		"audit": "full",
+	}
+}
+
+test_no_obligations_no_field if {
+	d := authz.decision with input as call(alice, "git", "commit", {})
+	d == {"effect": "allow"}
+}
+
+test_obligations_on_approved if {
+	perms := {"developer": {"permissions": [{"server": "fs", "tool": "write_file", "require_approval": true, "obligations": {"audit": "full"}}]}}
+	g := {"sub": "alice", "server": "fs", "tool": "write_file", "scope": "duration", "expires": future}
+	inp := object.union(call(alice, "fs", "write_file", {}), {"grants": [g]})
+	d := authz.decision with input as inp with data.rbac.roles as perms
+	d.effect == "allow"
+	d.obligations.audit == "full"
+}
+
+test_sensitive_elicitation if {
+	admin := object.union(alice, {"groups": ["wheel"]})
+	plain := object.union(req(admin, "elicitation.create", "fs", "client", "elicitation/create"), {"args": {"mode": "form", "fields": ["color"], "sensitive": false}})
+	secret := object.union(plain, {"args": {"mode": "form", "fields": ["password"], "sensitive": true}})
+	authz.decision.effect == "allow" with input as plain
+	authz.decision.effect == "deny" with input as secret
+	perms := {"admin": {"permissions": [{"server": "fs", "client": "elicitation/create", "allow_sensitive": true}]}}
+	authz.decision.effect == "allow" with input as secret with data.rbac.roles as perms
+}

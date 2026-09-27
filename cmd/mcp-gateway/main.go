@@ -98,12 +98,13 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 		return fmt.Errorf("state directory: %w", err)
 	}
 	control := gw.Approvals.ControlSocket != "-"
+	opa := pep.NewOPA(gw.Policy.OPASocket, gw.Policy.Timeout)
 	b, err := broker.New(broker.Options{
 		Timeout:     gw.ApprovalTimeout,
 		GrantsFile:  filepath.Join(gw.StateDir, "grants.json"),
 		URLTemplate: gw.Approvals.URLTemplate,
 		OOB:         control,
-		AdminGroup:  gw.Approvals.AdminGroup,
+		Policy:      opa,
 		Log:         log,
 	})
 	if err != nil {
@@ -129,7 +130,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 	r := &router.Router{
 		Backends: backends,
 		Launcher: launcher,
-		PDP:      pep.NewOPA(gw.Policy.OPASocket, gw.Policy.Timeout),
+		PDP:      opa,
 		Broker:   b,
 		Audit:    audit.New(os.Stderr),
 		Log:      log,
