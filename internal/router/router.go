@@ -38,6 +38,71 @@ type Router struct {
 	once    sync.Once
 	pool    *pool
 	limiter *pep.Limiter
+
+	mu       sync.Mutex
+	sessions map[*Session]struct{}
+}
+
+func (r *Router) register(s *Session) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.sessions == nil {
+		r.sessions = map[*Session]struct{}{}
+	}
+	r.sessions[s] = struct{}{}
+}
+
+func (r *Router) unregister(s *Session) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.sessions, s)
+}
+
+// PolicyChanged notifies every session that the tools, prompts and
+// resources it may see may have changed, so clients list them again.
+// (Grants do not change visibility: discovery shows items that need
+// approval.)
+func (r *Router) PolicyChanged() {
+	r.mu.Lock()
+	sessions := make([]*Session, 0, len(r.sessions))
+	for s := range r.sessions {
+		sessions = append(sessions, s)
+	}
+	r.mu.Unlock()
+	r.Log.Info("policy changed; notifying sessions", "sessions", len(sessions))
+	for _, s := range sessions {
+		s.listChanged()
+	}
+}
+
+// WatchPolicy calls fingerprint every interval and PolicyChanged when the
+// result changes. Errors are logged and skipped (decisions fail closed
+// meanwhile anyway). It returns when ctx ends.
+func (r *Router) WatchPolicy(ctx context.Context, interval time.Duration, fingerprint func(context.Context) (string, error), onChange func()) {
+	r.init()
+	var last string
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		fp, err := fingerprint(ctx)
+		switch {
+		case err != nil:
+			r.Log.Warn("policy fingerprint failed", "err", err)
+		case last != "" && fp != last:
+			r.PolicyChanged()
+			if onChange != nil {
+				onChange()
+			}
+			last = fp
+		default:
+			last = fp
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }
 
 func (r *Router) init() {

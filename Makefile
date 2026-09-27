@@ -85,6 +85,8 @@ install-gateway:
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp
 	install -m0644 $(filter-out %_test.rego,$(wildcard policy/mcp/*.rego)) $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/
+	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/policy/system
+	install -m0644 $(filter-out %_test.rego,$(wildcard policy/system/*.rego)) $(DESTDIR)$(DATADIR)/mcp-gateway/policy/system/
 	install -Dm0644 policy/rbac/data.json $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/policy/rbac/data.json
 	install -Dm0644 systemd/mcp-gateway.service $(DESTDIR)$(UNITDIR)/mcp-gateway.service
 	install -Dm0644 systemd/mcp-opa.service $(DESTDIR)$(UNITDIR)/mcp-opa.service

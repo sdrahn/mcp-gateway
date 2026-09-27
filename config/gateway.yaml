@@ -26,6 +26,9 @@ policy:
   opa_socket: /run/mcp-gateway/opa.sock
   # Decisions not received within this time are denied.
   timeout: 250ms
+  # How often to check whether OPA loaded a changed policy; clients are
+  # then told to list tools, prompts and resources again.
+  watch_interval: 10s
 
 # How long a call waits for a human approval before it is denied.
 approval_timeout: 120s
@@ -42,6 +45,13 @@ approvals:
   # Who may decide on approvals and revoke grants is policy: "approvers"
   # in /etc/mcp-gateway/policy/rbac/data.json (default: the principal
   # themself and the admin role).
+
+audit:
+  # Denials, approval decisions, grant revocations and policy changes also
+  # go to the kernel audit subsystem (ausearch -m TRUSTED_APP), next to
+  # SELinux AVC records. auto: if possible (needs CAP_AUDIT_WRITE);
+  # on: refuse to start otherwise; off.
+  kernel: auto
 
 supervisor:
   # systemd: each backend instance is a confined transient unit.

@@ -95,6 +95,7 @@ jobs:
           grep -q 'config=/usr/etc/mcp-gateway/gateway.yaml' /tmp/check.log
           grep -q 'backends=1' /tmp/check.log
           test -f /usr/share/mcp-gateway/policy/mcp/approvals.rego
+          test -f /usr/share/mcp-gateway/policy/system/log.rego
           test "$(stat -c %a /etc/mcp-gateway/credentials)" = 700
       - name: Install the SELinux module
         run: |

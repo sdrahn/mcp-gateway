@@ -208,7 +208,7 @@ func toolResult(t *testing.T, m msg) (string, bool) {
 type env struct {
 	tmp, connect, gwSock, ctlSock string
 	opa                           *exec.Cmd
-	gwLogs                        *syncBuffer
+	gwLogs, opaLogs               *syncBuffer
 }
 
 // setup starts OPA with the shipped policy and rbac as role data, and the
@@ -231,8 +231,9 @@ func setup(t *testing.T, rbac string, roots map[string]string, extra string) *en
 
 	writeFile(t, filepath.Join(tmp, "data", "rbac", "data.json"), rbac)
 	opaSock := filepath.Join(tmp, "opa.sock")
-	opaCmd, _ := start(t, opa, "run", "--server", "--addr", "unix://"+opaSock,
-		filepath.Join("..", "policy", "mcp"), filepath.Join(tmp, "data"))
+	opaCmd, opaLogs := start(t, opa, "run", "--server", "--addr", "unix://"+opaSock,
+		"--set=decision_logs.console=true",
+		filepath.Join("..", "policy", "mcp"), filepath.Join("..", "policy", "system"), filepath.Join(tmp, "data"))
 	waitFor(t, opaSock)
 
 	for name, root := range roots {
@@ -257,7 +258,7 @@ approvals:
 %s`, gwSock, filepath.Join(tmp, "servers.d"), filepath.Join(tmp, "state"), opaSock, filepath.Join(tmp, "control.sock"), extra))
 	_, gwLogs := start(t, gateway, "--config", filepath.Join(tmp, "gateway.yaml"))
 	waitFor(t, gwSock)
-	return &env{tmp: tmp, connect: connect, gwSock: gwSock, ctlSock: filepath.Join(tmp, "control.sock"), opa: opaCmd, gwLogs: gwLogs}
+	return &env{tmp: tmp, connect: connect, gwSock: gwSock, ctlSock: filepath.Join(tmp, "control.sock"), opa: opaCmd, gwLogs: gwLogs, opaLogs: opaLogs}
 }
 
 func (c *client) initialize(caps map[string]any) msg {
@@ -313,7 +314,7 @@ func TestEndToEnd(t *testing.T) {
 	  "bindings": {"groups": {}, "users": {%q: ["developer"]}}
 	}`, "^"+regexp.QuoteMeta(home)+"/", me.Username)
 	e := setup(t, rbac, map[string]string{"fs": home}, "")
-	connect, gwSock, gwLogs, opaCmd := e.connect, e.gwSock, e.gwLogs, e.opa
+	connect, gwSock, gwLogs, opaCmd, opaLogs := e.connect, e.gwSock, e.gwLogs, e.opa, e.opaLogs
 
 	c := newClient(t, connect, gwSock, "fs")
 
@@ -400,10 +401,25 @@ func TestEndToEnd(t *testing.T) {
 
 	t.Run("audit records", func(t *testing.T) {
 		logs := gwLogs.String()
-		for _, want := range []string{`"effect":"allow"`, `"effect":"deny"`, `"grant":"g-`, `"args_sha256"`} {
+		for _, want := range []string{`"effect":"allow"`, `"effect":"deny"`, `"grant":"g-`, `"args_hmac"`} {
 			if !strings.Contains(logs, want) {
 				t.Errorf("gateway logs lack %s", want)
 			}
+		}
+		// OPA's decision log carries the same decision ids, with the
+		// arguments masked (policy/system/log.rego).
+		ids := regexp.MustCompile(`"decision_id":"([0-9a-f]{32})"`).FindAllStringSubmatch(logs, -1)
+		if len(ids) == 0 {
+			t.Fatal("gateway audit records lack decision ids")
+		}
+		decisions := opaLogs.String()
+		for _, id := range ids {
+			if !strings.Contains(decisions, id[1]) {
+				t.Errorf("OPA decision log lacks decision %s", id[1])
+			}
+		}
+		if !strings.Contains(decisions, `"/input/args"`) || strings.Contains(decisions, "hello.txt") {
+			t.Error("OPA decision log does not mask the arguments")
 		}
 	})
 

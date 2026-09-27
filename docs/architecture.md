@@ -244,8 +244,13 @@ Responsibilities:
    client (`sampling/createMessage`, `elicitation/create`, `roots/list`) are
    also policy-checked and labelled with the originating backend.
 6. **Change propagation.** Emits `notifications/tools/list_changed` (and
-   the resources/prompts equivalents) when policy bundles or grants change
-   the visible set.
+   the resources/prompts equivalents) to every session when OPA loads a
+   changed policy or RBAC data. The gateway polls a fingerprint (a hash of
+   OPA's `/v1/policies` and `/v1/data/rbac`) every `policy.watch_interval`
+   (default 10 s) and advertises `listChanged` for all three lists.
+   Grants do not change visibility (discovery shows items that need
+   approval), so they trigger no notification. Backends' own
+   `list_changed` notifications are passed through.
 7. **Cancellation / progress.** Maps request IDs between client and backend
    sessions; forwards `notifications/cancelled` and progress tokens.
 
@@ -508,17 +513,32 @@ and aimed at MLS-style deployments.
 
 ### 5.9 Audit
 
-- Every enforced message produces a structured audit record (JSON to
-  journald with `SYSLOG_IDENTIFIER=mcp-gateway`, `MCP_SESSION=`,
-  `MCP_DECISION=`, …): principal, action, resource, argument digest,
-  decision, reason, grant id, backend instance/unit, latency.
-- Security-relevant events (deny, approval granted/denied, policy bundle
-  activated, grant revoked) are additionally emitted to the kernel audit
-  subsystem (`audit_log_user_message`, type `USER_AVC`/`USER_ACCT`-style)
-  so they correlate with SELinux AVC records via `ausearch`.
-- OPA decision logs carry the same `decision_id` as the gateway record.
-- Arguments are logged as a keyed hash by default; full values only for
-  tools/fields policy marks as `audit: full`.
+- Every enforced message produces a structured audit record (a JSON line
+  with `"audit":true` on stderr, i.e. in the journal of
+  `mcp-gateway.service`): session, principal, action, server, target,
+  effect, reason, grant id, backend instance, `decision_id` and the
+  arguments.
+- Arguments are logged as `args_hmac`, an HMAC-SHA256 of their JSON
+  encoding keyed with a per-installation key (`state_dir/audit.key`,
+  created on first start, mode 0600), so digests can be compared with
+  each other but not matched against guessed values without the key. The
+  full values are logged only when the decision carries the obligation
+  `audit: full`.
+- Security-relevant events are also sent to the kernel audit subsystem as
+  `AUDIT_TRUSTED_APP` records (`ausearch -m TRUSTED_APP`), next to the
+  SELinux AVC records of the same host: denials (`op=mcp-decision`),
+  approval decisions (`op=mcp-approval`, declines as `res=failed`), grant
+  revocations (`op=mcp-grant-revoke`) and policy changes
+  (`op=mcp-policy-change`). Values that are not plain tokens are
+  hex-encoded, as auditd does for untrusted strings. This needs
+  `CAP_AUDIT_WRITE` (granted by the unit as an ambient capability) and
+  the SELinux permission `logging_send_audit_msgs`; `audit.kernel: auto`
+  (default) uses it when available, `on` refuses to start without it.
+- OPA logs every decision to its journal (`decision_logs.console`). The
+  gateway puts a random `decision_id` into each policy input
+  (`input.context.decision_id`) and into its audit record, which links
+  the two. The mask policy `policy/system/log.rego` removes the arguments
+  from OPA's log unless the decision asked for `audit: full`.
 
 ### 5.10 Cockpit integration
 
@@ -560,6 +580,7 @@ policy/
   mcp/elicitation.rego    # rules for backend-initiated elicitation
   mcp/lib/*.rego          # helpers (arg matching, time windows)
   mcp/*_test.rego         # policy tests (opa test)
+  system/log.rego         # masking for OPA's decision log
   rbac/data.json          # data.rbac: roles, permissions, bindings, approvers
 ```
 
@@ -581,6 +602,7 @@ policy/
     "time": "2026-09-27T14:03:11Z",
     "transport": "unix",
     "request_id": "42",
+    "decision_id": "5f0c…",
     "client_capabilities": { "elicitation": { "form": {}, "url": {} } }
   }
 }
@@ -746,8 +768,9 @@ grant > ask > default deny.)
 - Rego logic lives in git with `opa test` and `opa check --strict` in CI.
 - RBAC data may be edited through Cockpit; edits produce a new signed
   bundle revision, keeping git as source of truth for logic.
-- Bundle activation is atomic; the gateway flushes caches and emits
-  `list_changed` notifications.
+- Bundle activation is atomic; the gateway notices the change (§5.3,
+  item 6), emits `list_changed` notifications and records a
+  `mcp-policy-change` audit event.
 
 ## 7. Key flows
 
@@ -933,6 +956,10 @@ docs/
   (proposal: grants are checked at call start only).
 - Handling of `resources/subscribe` notifications after access is revoked
   (proposal: gateway drops notifications and unsubscribes).
+- Policy changes are noticed by polling (up to `policy.watch_interval`
+  late); OPA has no change notification over its REST API.
+- The kernel audit subsystem is optional (`audit.kernel: auto`); in
+  containers without `CAP_AUDIT_WRITE` only the journal records remain.
 - Rate-limit counters live in the gateway's memory (sliding windows per
   principal, action and target); a restart resets them.
 - Whether the MCS category range must be coordinated with other sVirt users

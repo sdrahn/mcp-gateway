@@ -2,6 +2,8 @@ package router
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,7 +93,9 @@ func newSession(r *Router, ep endpoint, client jsonrpc.MessageConn, p principal.
 func (s *Session) Run(ctx context.Context, first *jsonrpc.Message) error {
 	ctx, cancel := context.WithCancel(ctx)
 	s.ctx = ctx
+	s.r.register(s)
 	defer func() {
+		s.r.unregister(s)
 		cancel()
 		_ = s.client.Close()
 		s.mu.Lock()
@@ -297,7 +301,7 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 		if err != nil {
 			return nil, rpcError(jsonrpc.CodeInternalError, "backend unavailable")
 		}
-		res := map[string]any{"protocolVersion": v, "capabilities": u.init.Capabilities, "serverInfo": u.init.ServerInfo}
+		res := map[string]any{"protocolVersion": v, "capabilities": withListChanged(u.init.Capabilities), "serverInfo": u.init.ServerInfo}
 		if u.init.Instructions != "" {
 			res["instructions"] = u.init.Instructions
 		}
@@ -316,6 +320,36 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 		"instructions": "This server aggregates several MCP servers. Tool and prompt names are " +
 			"prefixed with \"<server>" + nameSep + "\", resource URIs with \"" + uriPrefix + "<server>:\".",
 	}, nil
+}
+
+// withListChanged returns the backend's capabilities with listChanged set
+// for tools, prompts and resources: the gateway notifies clients when
+// policy changes what they may see, whatever the backend supports.
+func withListChanged(caps map[string]json.RawMessage) map[string]json.RawMessage {
+	out := make(map[string]json.RawMessage, len(caps))
+	for k, v := range caps {
+		out[k] = v
+		if k != "tools" && k != "prompts" && k != "resources" {
+			continue
+		}
+		var c map[string]any
+		if json.Unmarshal(v, &c) != nil || c == nil {
+			c = map[string]any{}
+		}
+		c["listChanged"] = true
+		if b, err := json.Marshal(c); err == nil {
+			out[k] = b
+		}
+	}
+	return out
+}
+
+// listChanged tells the client that what it may see may have changed.
+func (s *Session) listChanged() {
+	for _, m := range []string{"notifications/tools/list_changed", "notifications/prompts/list_changed",
+		"notifications/resources/list_changed"} {
+		_ = s.client.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: m})
+	}
 }
 
 // --- */list -------------------------------------------------------------
@@ -536,7 +570,8 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		return nil, rpcErr
 	}
 
-	dec, grantID := s.decide(ctx, t)
+	decisionID := newDecisionID()
+	dec, grantID := s.decide(ctx, t, decisionID)
 	p := s.snapshotPrincipal()
 	// Obligations were validated by pep.Evaluate; a compile error here
 	// cannot happen, but would deny.
@@ -553,7 +588,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	}
 	s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: t.action, Server: t.server,
 		Name: t.resource.Name, Effect: string(dec.Effect), Reason: dec.Reason, GrantID: grantID,
-		Args: t.args, FullArgs: ob != nil && ob.FullAudit})
+		DecisionID: decisionID, Args: t.args, FullArgs: ob != nil && ob.FullAudit})
 	if dec.Effect != pep.Allow {
 		return s.denial(m.Method, dec.Reason)
 	}
@@ -576,7 +611,8 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	result, err := ob.ApplyOutput(resp.Result)
 	if err != nil {
 		s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: t.action, Server: t.server,
-			Name: t.resource.Name, Effect: string(pep.Deny), Reason: "output withheld: " + err.Error()})
+			Name: t.resource.Name, Effect: string(pep.Deny), Reason: "output withheld: " + err.Error(),
+			DecisionID: decisionID})
 		return s.denial(m.Method, "output withheld: "+err.Error())
 	}
 	if m.Method == "resources/read" && s.ep.aggregated {
@@ -592,7 +628,9 @@ func rateKey(p principal.Principal, t *callTarget) string {
 }
 
 // decide evaluates policy for t, obtaining an approval if policy asks.
-func (s *Session) decide(ctx context.Context, t *callTarget) (pep.Decision, string) {
+// decisionID goes into the policy input to correlate OPA's decision log
+// with the audit record.
+func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) (pep.Decision, string) {
 	p := s.snapshotPrincipal()
 	in := pep.Input{
 		Principal: p,
@@ -600,7 +638,7 @@ func (s *Session) decide(ctx context.Context, t *callTarget) (pep.Decision, stri
 		Resource:  t.resource,
 		Args:      t.args,
 		Grants:    s.r.Broker.Grants(p, t.resource.Server, t.resource.Name),
-		Context:   s.policyContext(),
+		Context:   s.policyContext(decisionID),
 	}
 	dec := pep.Evaluate(ctx, s.r.PDP, in)
 	if dec.Effect != pep.Ask {
@@ -695,7 +733,16 @@ func (s *Session) setLevel(ctx context.Context, m *jsonrpc.Message) (any, *jsonr
 	return map[string]any{}, nil
 }
 
-func (s *Session) policyContext() pep.Context {
+// newDecisionID returns a random id for one enforcement decision.
+func newDecisionID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}
+
+func (s *Session) policyContext(decisionID string) pep.Context {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	caps := map[string]any{}
@@ -708,6 +755,7 @@ func (s *Session) policyContext() pep.Context {
 	return pep.Context{
 		Time:               time.Now().UTC().Format(time.RFC3339),
 		Transport:          s.principal.Transport,
+		DecisionID:         decisionID,
 		ClientCapabilities: caps,
 	}
 }
@@ -757,17 +805,18 @@ func (s *Session) relayBackendRequest(u *upstream, m *jsonrpc.Message) *jsonrpc.
 	if m.Method == "elicitation/create" {
 		args = elicitationArgs(m.Params)
 	}
+	decisionID := newDecisionID()
 	if known {
 		dec = pep.Evaluate(s.ctx, s.r.PDP, pep.Input{
 			Principal: p,
 			Action:    action,
 			Resource:  pep.Resource{Server: u.backend.Name, Kind: "client", Name: m.Method},
 			Args:      args,
-			Context:   s.policyContext(),
+			Context:   s.policyContext(decisionID),
 		})
 	}
 	s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: m.Method, Server: u.backend.Name,
-		Effect: string(dec.Effect), Reason: dec.Reason, Instance: u.id, Args: args})
+		Effect: string(dec.Effect), Reason: dec.Reason, Instance: u.id, DecisionID: decisionID, Args: args})
 	if dec.Effect != pep.Allow {
 		return jsonrpc.NewError(m.ID, jsonrpc.CodeForbidden, "denied by mcp-gateway policy")
 	}

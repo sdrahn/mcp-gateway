@@ -97,6 +97,12 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 	if err := os.MkdirAll(gw.StateDir, 0o700); err != nil {
 		return fmt.Errorf("state directory: %w", err)
 	}
+	auditLog, closeAudit, err := newAudit(log, gw)
+	if err != nil {
+		return err
+	}
+	defer closeAudit()
+
 	control := gw.Approvals.ControlSocket != "-"
 	opa := pep.NewOPA(gw.Policy.OPASocket, gw.Policy.Timeout)
 	b, err := broker.New(broker.Options{
@@ -105,6 +111,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 		URLTemplate: gw.Approvals.URLTemplate,
 		OOB:         control,
 		Policy:      opa,
+		Audit:       auditLog,
 		Log:         log,
 	})
 	if err != nil {
@@ -132,11 +139,16 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 		Launcher: launcher,
 		PDP:      opa,
 		Broker:   b,
-		Audit:    audit.New(os.Stderr),
+		Audit:    auditLog,
 		Log:      log,
 
 		IdleTimeout: gw.Supervisor.IdleTimeout,
 	}
+
+	// Clients learn about policy changes through list_changed.
+	go r.WatchPolicy(ctx, gw.Policy.WatchInterval, opa.Fingerprint, func() {
+		auditLog.Event("mcp-policy-change", true, nil)
+	})
 
 	// Serve returns after ctx ends and all backend instances are stopped;
 	// always wait for it so no instance outlives the gateway.
@@ -197,6 +209,32 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, r *router.Router, errc chan<- 
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}, nil
+}
+
+// newAudit sets up the audit trail: JSON records on stderr (journald),
+// argument digests keyed with the per-installation key in the state
+// directory, and security-relevant events to the kernel audit subsystem.
+func newAudit(log *slog.Logger, gw *config.Gateway) (*audit.Logger, func(), error) {
+	key, err := audit.LoadKey(filepath.Join(gw.StateDir, "audit.key"))
+	if err != nil {
+		return nil, nil, fmt.Errorf("audit key: %w", err)
+	}
+	opts := audit.Options{Key: key}
+	closeFn := func() {}
+	if gw.Audit.Kernel != "off" {
+		nl, err := audit.OpenNetlink()
+		switch {
+		case err == nil:
+			opts.Kernel = nl
+			closeFn = func() { _ = nl.Close() }
+			log.Info("kernel audit enabled")
+		case gw.Audit.Kernel == "on":
+			return nil, nil, fmt.Errorf("kernel audit: %w", err)
+		default:
+			log.Warn("kernel audit not available", "err", err)
+		}
+	}
+	return audit.New(os.Stderr, opts), closeFn, nil
 }
 
 func newLauncher(log *slog.Logger, s config.Supervisor) (supervisor.Launcher, error) {
