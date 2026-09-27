@@ -1,0 +1,154 @@
+# 10. Operations
+
+## Services
+
+| Unit | What | Notes |
+|---|---|---|
+| `mcp-gateway.service` | the gateway | runs `mcp-gateway --check` before starting; restarts on failure; wants `mcp-opa.service` |
+| `mcp-opa.service` | OPA | loads policy changes by itself (directory mode) |
+| `mcp-<server>-<id>.service` | one MCP server instance | transient; started and stopped by the gateway |
+
+```bash
+systemctl status mcp-gateway.service mcp-opa.service
+systemctl list-units 'mcp-*'                 # includes running instances
+```
+
+Stopping the gateway stops all instances. Restarting it ends all
+sessions: local agents reconnect (most clients restart `mcp-connect`),
+remote agents initialize a new session. Pending approvals and grants
+survive (chapter 7).
+
+What needs what after a change:
+
+| Change | Action |
+|---|---|
+| `gateway.yaml`, server definitions, TLS certificate, SMTP password | `mcp-gateway --check && systemctl restart mcp-gateway.service` |
+| role data (directory mode) | nothing; picked up within seconds |
+| role data (signed bundle) | `mcp-policy-bundle` (or "Sign and apply" in Cockpit) |
+| OPA drop-in | `systemctl daemon-reload && systemctl restart mcp-opa.service` |
+| a user added to `mcp-users` | the user logs in again |
+| SELinux module of a server | `semodule -i …`; running instances keep their old rules until restarted |
+
+## Logs
+
+```bash
+journalctl -u mcp-gateway.service -f                  # gateway: operation and audit records
+journalctl -u mcp-opa.service -f                      # OPA: errors and decision log
+journalctl -u 'mcp-fs-*' -f                           # the fs server's instances (their stderr)
+journalctl -u mcp-gateway.service -o cat | grep '"audit":true' | jq -c 'select(.effect=="deny")'
+```
+
+For more detail, add `--debug` to the gateway's command line temporarily:
+
+```bash
+systemctl edit mcp-gateway.service
+# [Service]
+# ExecStart=
+# ExecStart=/usr/bin/mcp-gateway --debug
+```
+
+## State and backup
+
+`/var/lib/mcp-gateway/` (mode 0700, owned by `mcp-gateway`):
+
+| File | Contents | If lost |
+|---|---|---|
+| `grants.json` | standing approvals | users are asked again |
+| `pending.json` | pending approvals | pending approvals are gone; agents retry |
+| `audit.key` | key of the argument digests | new key: old digests can no longer be compared with new ones |
+
+Back up `/etc/mcp-gateway/` (configuration, definitions, role data,
+bundle keys, credentials) and `/var/lib/mcp-gateway/`. All files are
+written atomically; copying them while the gateway runs is safe.
+
+## Upgrades
+
+```bash
+zypper update 'mcp-gateway*'
+systemctl try-restart mcp-gateway.service mcp-opa.service
+```
+
+Your files below `/etc` are left alone. If the package's default
+configuration changed, compare it with your copy:
+`diff /usr/etc/mcp-gateway/gateway.yaml /etc/mcp-gateway/gateway.yaml`.
+In signed bundle mode, rebuild the bundle after an update: the bundle
+contains the policy logic of the version it was built with.
+
+## Monitoring
+
+Useful signals:
+
+- `systemctl is-active mcp-gateway.service mcp-opa.service`;
+- the rate of `"effect":"deny"` records, especially with reason "policy
+  evaluation failed" (OPA trouble);
+- `backend unavailable` in the gateway log (servers crashing);
+- kernel audit records `op=mcp-mcs-collision`;
+- `GET /v1/policy` on the control socket (as root): the active bundle
+  revision on every gateway.
+
+## Troubleshooting
+
+### The agent cannot connect
+
+| Symptom | Cause and fix |
+|---|---|
+| `mcp-connect: … permission denied` | the user is not in `mcp-users`, or has not logged in again since: `id -nG` |
+| `… no such file or directory` | the gateway is not running: `systemctl status mcp-gateway.service` |
+| connection closes at once, AVC denial for the agent's domain | the agent runs in a confined domain not allowed to connect (chapter 9) |
+| the agent lists no tools | the principal holds no role with permissions for the server; check the bindings and test a decision (chapter 6) |
+| `unknown server "x"` | no server with that name; `mcp-gateway --check` lists how many are registered, the Servers tab in Cockpit their names |
+
+### Calls fail
+
+The error text the agent gets (a tool error starting with `mcp-gateway:`
+for tool calls) says why; the audit record has the same reason.
+
+| Reason | Meaning and fix |
+|---|---|
+| `no matching permission` | no role of the principal allows this; add a permission or binding |
+| `denied by policy` | a permission with `effect: "deny"` matched |
+| `policy evaluation failed` | OPA did not answer in time or is down: `systemctl status mcp-opa.service`, `journalctl -u mcp-opa.service`; with a signed bundle, check that it verifies |
+| `invalid policy decision` / `invalid obligations` | custom policy produced something the gateway cannot use; see the gateway log |
+| `approval via url required but not available` | neither the channel nor the fallback is usable: set `approvals.url_template`, keep the control socket enabled, or use a client with URL elicitation |
+| `declined by user` | the approver denied, or the user declined to open the approval page |
+| `approval failed` | the approval timed out (`approval_timeout`) or the agent's client failed the elicitation |
+| `policy did not accept the approval` | a grant was created but policy still asks (custom policy) |
+| `rate limit exceeded` | a `rate_limit` obligation; wait |
+| `argument "x" violates a constraint` | an `arg_constraints` obligation |
+| `output withheld: result of N bytes exceeds the limit of M` | a `max_output_bytes` obligation |
+| `backend unavailable; retry in 8s` | the instance crashed or could not start and is backing off; read its journal (`journalctl -u 'mcp-<server>-*'`) |
+| `backend unavailable` | the instance died during the call |
+
+### Instances do not start
+
+```bash
+journalctl -u mcp-gateway.service -b | grep -i 'instance\|backend'
+journalctl -u 'mcp-git-*' -b
+ausearch -m AVC -ts recent | grep mcpsrv
+```
+
+| Cause | Fix |
+|---|---|
+| the program is not executable or not found | the first element of `command` must be an absolute path to an executable |
+| SELinux denies the program as entry point | label it with the domain's `_exec_t` type or add `corecmd_bin_entry_type` (chapter 4) |
+| SELinux denies what the server does | extend the server's module (permissive + `audit2allow`) |
+| the server needs the network / a writable home | `network: true`, `sandbox.protect_home: read-write` |
+| "Interactive authentication required" / polkit denial | the polkit rule `50-mcp-gateway.rules` is missing, or the unit name does not start with `mcp-` |
+| out of memory, killed after 8 hours | the fixed limits (512 MiB, 8 h); split the work or restart |
+
+### Remote clients
+
+See the status table in chapter 5. The gateway logs the reason for every
+rejected token (`token rejected`, with the error) at the default log
+level. Common causes: the token's `aud` is not exactly `http.audience`,
+the clock is off, or the IdP's keys cannot be fetched (check that the
+gateway may reach the issuer).
+
+### Warnings at start
+
+| Warning | Meaning |
+|---|---|
+| `libvirt picks MCS categories from the gateway's range; …` | install the libvirt drop-in (chapter 9) |
+| `kernel audit not available` | events go only to the journal; set `audit.kernel: off` to silence, `on` to require |
+| `approvals.url_template is set but the control socket is disabled; …` | URL approvals cannot be decided; enable the control socket |
+| `supervisor mode exec: backends run unconfined …` | development mode is on |

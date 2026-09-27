@@ -1,0 +1,185 @@
+# 11. Reference
+
+## Commands
+
+### mcp-gateway
+
+```
+mcp-gateway [--config FILE] [--check] [--debug] [--version]
+```
+
+| Flag | Meaning |
+|---|---|
+| `--config FILE` | configuration file (default: `/etc/mcp-gateway/gateway.yaml`, else `/usr/etc/mcp-gateway/gateway.yaml`, else built-in defaults) |
+| `--check` | validate the configuration and all MCP server definitions, print a summary, exit (status 1 on errors) |
+| `--debug` | log debug messages |
+| `--version` | print the version |
+
+### mcp-connect
+
+```
+mcp-connect [--server NAME|all] [--socket PATH] [--version]
+```
+
+stdio ↔ unix socket bridge for local agents; `--server` defaults to
+`all` (aggregated endpoint), `--socket` to `/run/mcp-gateway/mcp.sock`.
+Chapter 5.
+
+### mcp-gateway-notify
+
+```
+mcp-gateway-notify [--socket PATH] [--url TEMPLATE] [--debug] [--version]
+```
+
+Desktop notifications for pending approvals; `--socket` defaults to
+`/run/mcp-gateway/control.sock`, `--url` to
+`https://localhost:9090/mcp-gateway#/approvals/{id}`. Chapter 7.
+
+### mcp-policy-bundle
+
+```
+mcp-policy-bundle [-k KEY] [-o OUTPUT] [-r REVISION] [-n] [-a ALG] [-V DIR] [-L DIR]
+mcp-policy-bundle -G [-k KEY] [-o OUTPUT]
+```
+
+Builds and signs a policy bundle, or (`-G`) creates a signing key pair.
+Chapter 6 lists the options. The environment variable `OPA` selects the
+`opa` binary.
+
+## Control API
+
+HTTP/1.1 with JSON on the unix socket `/run/mcp-gateway/control.sock`
+(group `mcp-users`). The caller is identified by kernel peer
+credentials; what it sees and may do is decided by the approver rules
+(chapter 6). `root` may do everything.
+
+```bash
+curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
+```
+
+| Method and path | Body / result |
+|---|---|
+| `GET /v1/whoami` | the caller: `{"name", "uid", "groups"}` |
+| `GET /v1/approvals` | pending approvals the caller may decide on (list of approvals, below) |
+| `GET /v1/approvals/{id}` | one approval; `404` if unknown or not the caller's to decide |
+| `POST /v1/approvals/{id}` | `{"decision": "approve"\|"deny", "scope": "once"\|"session"\|<duration>}`; returns the grant (`200`) or nothing (`204`, denied); `400 scope not offered` |
+| `GET /v1/grants` | grants the caller may manage (list of grants, below) |
+| `DELETE /v1/grants/{id}` | revoke; `204` |
+| `GET /v1/servers` | registered servers `{"name", "selinux_type", "isolation", "network", "run_as", "instances"}` with the instances the caller may manage `{"id", "server", "unit", "sub", "iss", "uid", "transport", "session_id", "isolation", "started", "sessions"}` |
+| `DELETE /v1/instances/{id}` | stop an instance; `204` |
+| `GET /v1/policy` | `{"mode": "directories"\|"bundle", "bundles": {name: revision}}`; `502` if OPA is unavailable |
+| `GET /v1/events` | server-sent events (`event: approval`) for the approvals the caller may decide on: first all pending, then changes; `data` is `{"type": "pending"\|"resolved", "id", "new", "pending", "url"}` |
+
+Errors are `{"error": "…"}` with a matching status.
+
+**Approval** fields: `id`, `channel`, `principal` (as policy sees it:
+`sub`, `iss`, `uid`, `groups`, `home`, `transport`, `selinux`,
+`client`, `session_id`, `cert`), `action`, `server`, `name`, `args`,
+`prompt`, `scopes`, `created`, `expires`, `waiting`.
+
+**Grant** fields: `id`, `sub`, `iss`, `uid`, `server`, `tool`, `scope`
+(`once`, `session`, `duration`), `session_id`, `expires`, `approved_by`,
+`channel`.
+
+## Audit records
+
+Decision records (journal of `mcp-gateway.service`, `"audit": true`):
+
+| Field | Meaning |
+|---|---|
+| `session` | MCP session id |
+| `sub` | principal |
+| `action` | `tools.call`, `prompts.get`, `resources.read`, `resources.subscribe`, `resources.unsubscribe`, `completion.complete`, `sampling.create`, `elicitation.create`, `roots.list` |
+| `server` | MCP server |
+| `name` | tool, prompt, resource URI or method |
+| `effect` | `allow` or `deny` |
+| `reason` | why (for denials, and `approved`) |
+| `grant` | the grant that allowed the call |
+| `instance` | the instance involved |
+| `decision_id` | correlates with OPA's decision log |
+| `args_hmac` | HMAC-SHA256 of the arguments (key: `/var/lib/mcp-gateway/audit.key`) |
+| `args` | the arguments, instead of `args_hmac`, with the obligation `audit: "full"` |
+
+Event records carry `event` (the operation below), `ok` and fields of
+the event.
+
+Kernel audit (`TRUSTED_APP`) operations:
+
+| `op=` | When | Fields |
+|---|---|---|
+| `mcp-gateway-start` | the gateway started | |
+| `mcp-decision` | a request was denied (`res=failed`) | `session`, `principal`, `action`, `server`, `target`, `reason`, `decision_id` |
+| `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel` |
+| `mcp-grant-revoke` | a grant was revoked | `id`, `by`, `principal`, `server`, `target` |
+| `mcp-policy-change` | OPA loaded a different policy | `revision` |
+| `mcp-mcs-collision` | an instance's MCS pair was taken by another workload | `instance`, `pair`, `foreign_pid`, `foreign_context` |
+
+## Files and directories
+
+| Path | Contents |
+|---|---|
+| `/usr/bin/mcp-gateway`, `mcp-connect`, `mcp-gateway-notify` | programs |
+| `/usr/sbin/mcp-policy-bundle` | bundle tool |
+| `/usr/etc/mcp-gateway/gateway.yaml` | default configuration |
+| `/etc/mcp-gateway/gateway.yaml` | your configuration |
+| `/usr/share/mcp-gateway/servers.d/` | package server definitions |
+| `/etc/mcp-gateway/servers.d/` | your server definitions |
+| `/usr/share/mcp-gateway/policy/` | policy logic |
+| `/etc/mcp-gateway/policy/rbac/data.json` | role data |
+| `/etc/mcp-gateway/credentials/` | MCP server secrets (0700, `mcpgw_cred_t`) |
+| `/etc/mcp-gateway/bundle/` | `policy.tar.gz`, `verify.pem`, `signing.pem` |
+| `/usr/share/mcp-gateway/opa/` | OPA drop-ins: `signed-bundle.conf`, `bundle-server.conf`, `opa-config.yaml.example` |
+| `/usr/share/mcp-gateway/mcs/` | libvirt drop-ins: `virtqemud.conf`, `libvirtd.conf` |
+| `/var/lib/mcp-gateway/` | `grants.json`, `pending.json`, `audit.key` |
+| `/run/mcp-gateway/mcp.sock` | MCP socket |
+| `/run/mcp-gateway/control.sock` | control API |
+| `/run/mcp-gateway/opa.sock` | OPA (gateway only) |
+| `/usr/lib/systemd/system/mcp-gateway.service`, `mcp-opa.service` | units |
+| `/usr/lib/sysusers.d/mcp-gateway.conf` | accounts |
+| `/usr/share/polkit-1/rules.d/50-mcp-gateway.rules` | lets the gateway manage `mcp-*.service` |
+| `/usr/share/cockpit/mcp-gateway/` | Cockpit page |
+| `/etc/xdg/autostart/mcp-gateway-notify.desktop` | desktop agent autostart |
+| `/usr/libexec/mcp-servers/` | conventional place for MCP server programs |
+
+## SELinux
+
+| Type | For |
+|---|---|
+| `mcpgw_t`, `mcpgw_exec_t` | gateway |
+| `mcpopa_t`, `mcpopa_exec_t` | OPA |
+| `mcpsrv_generic_t`, `mcpsrv_fs_t`, `mcpsrv_<name>_t` | MCP server instances |
+| `mcpgw_etc_t` | `/etc/mcp-gateway`, `/usr/etc/mcp-gateway` |
+| `mcpgw_cred_t` | `/etc/mcp-gateway/credentials` |
+| `mcpgw_signing_key_t` | `/etc/mcp-gateway/bundle/signing.pem` |
+| `mcpgw_var_lib_t` | `/var/lib/mcp-gateway` |
+| `mcpgw_runtime_t`, `mcpgw_sock_t`, `mcpgw_ctl_sock_t`, `mcpopa_sock_t` | `/run/mcp-gateway` and its sockets |
+| `mcp_port_t` | the HTTPS port (`semanage port -a -t mcp_port_t -p tcp 8443`) |
+
+| Boolean | Default | Allows |
+|---|---|---|
+| `mcpopa_can_network` | off | OPA to fetch bundles over HTTPS |
+| `mcpgw_can_send_mail` | off | the gateway to connect to SMTP ports |
+
+| Interface | For |
+|---|---|
+| `mcp_gateway_backend_template(name)` | defines `mcpsrv_<name>_t` and `mcpsrv_<name>_exec_t` |
+| `mcp_gateway_backend_home_rw(domain)` | a server domain reading and writing user home content |
+| `mcp_gateway_client(domain)` | a user domain connecting to the MCP socket |
+| `mcp_gateway_control_client(domain)` | a user domain using the control API |
+
+## Limits and timings
+
+| What | Value | Configurable |
+|---|---|---|
+| approval wait | 120 s | `approval_timeout` |
+| policy decision | 250 ms | `policy.timeout` |
+| policy change detection | 10 s | `policy.watch_interval` |
+| instance idle stop | 15 min | `supervisor.idle_timeout` |
+| HTTP session idle | 30 min | `http.session_idle_timeout` |
+| instance memory / tasks / runtime | 512 MiB / 64 / 8 h | no |
+| restart backoff | 1 s doubling to 2 min | no |
+| MCS collision check | 30 s | no |
+| "once" grant | 1 min (15 min if decided with no call waiting) | no |
+| "session" grant | session end, at most 8 h | no |
+| duration grant | at most 30 days | policy |
+| SSE replay buffer | 256 events per stream, 5 min | no |

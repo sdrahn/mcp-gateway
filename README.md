@@ -13,8 +13,10 @@ Target distributions: openSUSE (Tumbleweed, Leap) and SLES, packaged with
 the Open Build Service; see [packaging/suse](packaging/suse/README.md).
 
 Status: proof of concept; local clients (unix socket) and remote clients
-(MCP Streamable HTTP with OAuth bearer tokens). See
-[docs/architecture.md](docs/architecture.md) for the design and
+(MCP Streamable HTTP with OAuth bearer tokens). The
+[user guide](docs/user-guide/README.md) covers installation,
+configuration, MCP servers, clients, policy, approvals and operations;
+see [docs/architecture.md](docs/architecture.md) for the design and
 [examples/poc](examples/poc/README.md) to try it.
 
 ## Repository layout
@@ -34,6 +36,7 @@ Status: proof of concept; local clients (unix socket) and remote clients
 | `tools/` | `mcp-policy-bundle`: builds and signs a policy bundle |
 | `config/` | example `gateway.yaml` and backend definitions (`servers.d/`) |
 | `packaging/` | OBS package for openSUSE/SLES (`suse/`), `mcp-opa.service` drop-ins for signed bundles (`opa/`), sysusers.d, polkit rule, demo server definition |
+| `docs/` | [user guide](docs/user-guide/README.md), [architecture](docs/architecture.md) |
 
 ## Development
 

@@ -1,0 +1,212 @@
+# 9. Security
+
+## Threat model
+
+| Party | Trusted? | Consequence |
+|---|---|---|
+| the **agent** (LLM, its client) | no | may be manipulated by prompt injection; sees only permitted tools; cannot answer high-trust approvals; its self-reported name is informational only |
+| **MCP servers** | no | may be buggy or malicious; run confined, cannot reach the gateway, OPA, other users' instances or secrets they were not given |
+| **the user** | as far as their account goes | decides on their own approvals unless policy says otherwise |
+| **administrators** | yes | maintain policy, server definitions and keys |
+
+Layers, from outside in:
+
+1. **Authentication**: kernel peer credentials locally; validated OAuth
+   tokens (and optionally client certificates) remotely.
+2. **Authorization**: OPA, fail-closed (no answer = deny).
+3. **Human approval** for what policy marks sensitive.
+4. **Obligations**: redaction, output limits, rate limits, argument
+   constraints.
+5. **Confinement** of each MCP server instance: account, systemd
+   sandbox, SELinux domain, MCS categories.
+6. **Audit**: journal and kernel audit log.
+
+## SELinux
+
+With `mcp-gateway-selinux`, the gateway, OPA and MCP servers run in
+their own domains:
+
+| Domain | Runs | May |
+|---|---|---|
+| `mcpgw_t` | the gateway | read its configuration, write its state, serve its sockets, bind `mcp_port_t`, ask systemd over D-Bus to start `mcp-*` units, talk to OPA; mail with `mcpgw_can_send_mail` |
+| `mcpopa_t` | OPA | read the policy, serve its socket; network only with `mcpopa_can_network` |
+| `mcpsrv_generic_t` | MCP servers without `selinux_type` | stdio, libraries, `/etc`, syslog |
+| `mcpsrv_fs_t` | the demo file server | additionally user home content (read/write) |
+| `mcpsrv_<name>_t` | your servers (chapter 4) | what the module grants |
+
+Isolation rules for every server domain: no access to the gateway's and
+OPA's sockets, configuration, state or keys; no reading of
+`/etc/mcp-gateway/credentials` (`mcpgw_cred_t`, systemd reads it for
+them). Neither the gateway nor OPA may read the bundle signing key
+(`mcpgw_signing_key_t`).
+
+Which user domains may connect: `unconfined_t`, `staff_t` and `user_t`
+may use the MCP socket and the control socket. An agent running in
+another confined domain (for example in a container) needs a local
+module with `mcp_gateway_client(<domain>)` (and
+`mcp_gateway_control_client(<domain>)` for the control API).
+
+Check for denials after changes:
+
+```bash
+ausearch -m AVC,USER_AVC -ts recent | grep -E 'mcpgw|mcpopa|mcpsrv'
+```
+
+## MCS: separating instances
+
+Instances of different principals may run as the same account
+(`run_as: <account>`) and always share the server's SELinux domain. Each instance
+therefore gets a unique **MCS category pair** from `supervisor.mcs_range`
+(default `c768.c1023`), for example `s0:c801,c942`. SELinux denies
+access between processes and files of different pairs, whatever the
+Unix permissions say.
+
+The same mechanism (sVirt) separates virtual machines (libvirt) and
+containers (podman). To keep them from picking the same pair:
+
+- **libvirt**: restrict it to the categories below the gateway's range
+  with a drop-in:
+
+  ```bash
+  ps -eZ | grep -E 'virtqemud|libvirtd'        # which daemon runs?
+  install -D -m0644 /usr/share/mcp-gateway/mcs/virtqemud.conf \
+          /etc/systemd/system/virtqemud.service.d/mcs.conf     # or libvirtd.conf → libvirtd.service.d
+  systemctl daemon-reload && systemctl restart virtqemud.service
+  ```
+
+  The drop-ins set the range `c0.c767`; adjust them if you change
+  `mcs_range`. Until then the gateway warns at start: "libvirt picks MCS
+  categories from the gateway's range; confine it with a drop-in from
+  /usr/share/mcp-gateway/mcs".
+- **podman** and other container engines pick pairs from the whole
+  range and cannot be restricted per engine. With `supervisor.mcs_avoid:
+  auto` (the default) the gateway skips pairs held by running processes
+  and checks every 30 s; if a container later takes an instance's pair,
+  the instance is stopped (the next call starts a new one with a fresh
+  pair) and a `mcp-mcs-collision` audit event is written.
+
+## Sandboxing
+
+Each instance is a transient systemd service with a strict sandbox
+(chapter 4, "What an instance gets"): no new privileges, read-only file
+system, home read-only by default, private `/tmp` and `/dev`, no
+capabilities, `@system-service` system calls, no network unless
+`network: true`, memory, task and runtime limits.
+
+Account choices, from most to least isolated:
+
+- `run_as: dynamic`: a throwaway account per instance, no home;
+- `run_as: principal` for remote principals without a local account:
+  also a throwaway account;
+- `run_as: principal` for local users: the user's own account (needed
+  to work on their files), confined by the sandbox and the domain;
+- `run_as: <account>`: a fixed service account shared by all instances,
+  separated only by MCS.
+
+`supervisor.mode: exec` disables all of this; the gateway logs a
+warning. Use it for development only.
+
+## Secrets
+
+- MCP server credentials: `credentials:` in the definition, delivered by
+  systemd, never readable by the gateway (chapter 4).
+- The OAuth tokens of remote agents are validated and not passed on to
+  MCP servers.
+- TLS keys, the SMTP password and the audit key are readable by the
+  gateway only.
+- The bundle signing key is readable by root only, and better kept off
+  the host (chapter 6).
+
+## Fail-closed behaviour
+
+| Situation | Result |
+|---|---|
+| OPA not running, slow (`policy.timeout`) or answering invalid data | every request denied ("policy evaluation failed") |
+| signed bundle missing, unsigned or tampered | OPA does not start; everything denied |
+| an obligation cannot be enforced (invalid pattern) | call denied |
+| no usable approval channel | call denied |
+| approval times out | call denied |
+| an instance cannot be started | call fails; restarts back off |
+| `audit.kernel: on` and no kernel audit | the gateway does not start |
+
+## Audit trail
+
+### Gateway records (journal)
+
+Every decision is one JSON line in the gateway's journal:
+
+```bash
+journalctl -u mcp-gateway.service -o cat | grep '"audit":true' | jq
+```
+
+```json
+{"time":"2026-09-27T10:12:03.51Z","level":"INFO","msg":"mcp","audit":true,
+ "session":"4f1c…","sub":"alice","action":"tools.call","server":"fs",
+ "effect":"allow","name":"write_file","reason":"approved","grant":"g-5d0e…",
+ "decision_id":"8c2b…","args_hmac":"93a1…"}
+```
+
+Arguments are recorded as an HMAC-SHA256 digest keyed with
+`/var/lib/mcp-gateway/audit.key`: equal arguments give equal digests, so
+records can be compared, but the values cannot be guessed from the log
+without the key. With the obligation `audit: "full"` they are recorded
+verbatim (`args`).
+
+Security events (approvals, revocations, policy changes, MCS
+collisions) are records with `event` and `ok` fields. Chapter 11 lists
+all fields.
+
+### Kernel audit
+
+Denials and security events also go to the kernel audit subsystem as
+`TRUSTED_APP` records (type 1121), next to SELinux AVC denials:
+
+```bash
+ausearch -m TRUSTED_APP -ts today -i | grep 'op=mcp-'
+```
+
+```
+type=TRUSTED_APP … msg='op=mcp-decision session=4f1c… principal=alice action=tools.call
+  server=fs target=delete_file reason="denied by policy" decision_id=8c2b… res=failed'
+```
+
+Operations: `mcp-gateway-start`, `mcp-decision` (denials),
+`mcp-approval`, `mcp-grant-revoke`, `mcp-policy-change`,
+`mcp-mcs-collision`. `audit.kernel: auto` uses the kernel audit log when
+it is available; `on` makes it mandatory.
+
+### OPA decision log
+
+`mcp-opa.service` logs every decision (input and result) to its journal:
+
+```bash
+journalctl -u mcp-opa.service -o cat | jq 'select(.msg == "Decision Log")'
+```
+
+Tool arguments are masked (`system/log.rego`) unless the decision asked
+for a full audit. The `decision_id` of a gateway record appears in the
+decision log's input (`input.context.decision_id`), linking the two.
+
+Forward both journals to your log management; keep `audit.key` to
+compare digests later.
+
+## Hardening checklist
+
+- [ ] SELinux enforcing, `mcp-gateway-selinux` installed, no AVC denials
+      in normal use.
+- [ ] Only the intended users in `mcp-users`.
+- [ ] Role bindings reviewed; the shipped `dev`/`wheel` bindings adapted.
+- [ ] Destructive tools denied or approval-gated; approvals on `url` or
+      `oob`, not `form`; `self` removed from approver rules of high-risk
+      servers.
+- [ ] Each server with its own `selinux_type`, `network: false` unless
+      needed, `protect_home: read-only` or `yes` unless needed,
+      `run_as: dynamic` where it need not act as the user.
+- [ ] Secrets only through `credentials:`, never in `command` or `env`.
+- [ ] libvirt MCS drop-in installed on virtualization hosts.
+- [ ] Remote access: `http.scopes` set, token lifetimes short in the
+      IdP, mTLS with bound tokens for agent machines, `allowed_origins`
+      minimal, the port opened only where needed.
+- [ ] Signed policy bundles, with the key off the host.
+- [ ] Journals forwarded; `audit.kernel: on` where required.
+- [ ] `/var/lib/mcp-gateway` backed up (grants, audit key).
