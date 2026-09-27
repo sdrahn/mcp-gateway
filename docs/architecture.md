@@ -1,0 +1,753 @@
+# mcp-gateway — Architecture
+
+Status: **Draft / proposal**
+Scope: design of a policy-enforcing proxy that exposes local stdio-only MCP
+servers on a Linux host to local and remote MCP clients.
+
+---
+
+## 1. Problem statement
+
+A Linux host has several MCP servers installed that speak MCP **only over
+stdio**. Clients (AI agents such as Kit, Claude Code, IDE integrations)
+should be able to use them:
+
+- **locally** — processes on the same host, running as various Unix users;
+- **remotely** — agents on other hosts, over the network.
+
+Access must be governed. The gateway shall
+
+1. provide **access control / RBAC**,
+2. provide means for **permission elicitation** (asking a human to approve an
+   action),
+3. integrate **OPA** as the policy engine,
+4. use **SELinux** for OS-level confinement.
+
+## 2. Goals and non-goals
+
+### Goals
+
+- Single, auditable entry point to all MCP servers on the host.
+- MCP-aware enforcement: decisions on method, server, tool/resource/prompt
+  *and arguments*, not just on "may connect".
+- Least privilege at discovery time: principals only *see* the tools they
+  may use.
+- Human-in-the-loop approval for sensitive operations, with approvals that
+  cannot be forged by the agent being governed.
+- Defence in depth: a compromised MCP server, or a bug in the policy, must
+  still be contained by the kernel (SELinux, cgroups, namespaces, DAC).
+- No modification of the existing MCP servers.
+- Operable with standard Linux tooling: systemd, journald, auditd, RPM.
+
+### Non-goals (for now)
+
+- Proxying MCP servers that already speak HTTP (possible later, same
+  pipeline).
+- Being an identity provider. The gateway consumes identities from the
+  kernel (local) or an external OIDC IdP (remote).
+- Content-level safety filtering of tool output (prompt-injection
+  detection etc.). The design leaves a hook for it (obligations, §6.4).
+- High availability / multi-host clustering. One gateway per host.
+
+## 3. Terminology
+
+| Term | Meaning |
+|---|---|
+| **Backend** | An MCP server on the host, spoken to over stdio. |
+| **Instance** | A running process of a backend, bound to one principal/session. |
+| **Client** | An MCP client connecting to the gateway. |
+| **Principal** | The authenticated identity on whose behalf a client acts. |
+| **PEP** | Policy Enforcement Point — code in the gateway that applies decisions. |
+| **PDP** | Policy Decision Point — OPA. |
+| **Grant** | A recorded human approval, with scope and expiry. |
+| **Obligation** | An extra condition attached to an `allow` (redaction, limits…). |
+
+## 4. Architecture overview
+
+```
+             LOCAL CLIENTS                          REMOTE CLIENTS
+   (Kit, Claude Code, IDEs as user X)        (agents on other hosts)
+        │ stdio shim   │ unix socket                │ HTTPS (MCP Streamable HTTP)
+        │ (mcp-connect)│ SO_PEERCRED + SO_PEERSEC   │ OAuth 2.1 bearer / mTLS
+        ▼              ▼                            ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  mcp-gateway  (SELinux domain: mcpgw_t)                              │
+│                                                                      │
+│  ┌────────────┐   ┌──────────────────┐   ┌─────────────────────────┐ │
+│  │ Transport  │──▶│ AuthN / Identity │──▶│ MCP Protocol Router     │ │
+│  │ adapters   │   │ → Principal      │   │ - JSON-RPC parsing      │ │
+│  └────────────┘   └──────────────────┘   │ - namespacing srv__tool │ │
+│                                          │ - list filtering        │ │
+│                                          │ - session management    │ │
+│                                          └──────────┬──────────────┘ │
+│   ┌─────────────────────┐   input / decision        │                │
+│   │ PEP                 │◀──────────────────────────┘                │
+│   │ allow / deny / ask /│──────┐                                     │
+│   │ allow+obligations   │      │ unix socket (or embedded library)  │
+│   └────────┬────────────┘      ▼                                     │
+│            │ ask       ┌───────────────┐  bundles  ┌───────────────┐ │
+│            ▼           │ OPA (PDP)     │◀──────────│ Policy repo / │ │
+│   ┌─────────────────┐  │ mcpopa_t      │           │ Cockpit admin │ │
+│   │ Approval broker │  └──────┬────────┘           └───────────────┘ │
+│   │ (elicitation)   │         │ decision logs                        │
+│   └────────┬────────┘         ▼                                      │
+│            │           ┌──────────────────────────┐                  │
+│            │           │ Audit (journald/auditd)  │                  │
+│            │           └──────────────────────────┘                  │
+│   ┌────────▼───────────────────────────────────────────────────┐     │
+│   │ Instance supervisor: spawns/reaps backends via systemd     │     │
+│   └────────┬──────────────────┬──────────────────┬─────────────┘     │
+└────────────┼──────────────────┼──────────────────┼───────────────────┘
+             │ stdio pipes      │                  │
+     ┌───────▼──────┐   ┌───────▼──────┐   ┌───────▼──────┐
+     │ mcp-fs       │   │ mcp-git      │   │ mcp-db       │
+     │ mcpsrv_fs_t  │   │ mcpsrv_git_t │   │ mcpsrv_db_t  │
+     │ :s0:c12,c40  │   │ :s0:c12,c40  │   │ :s0:c7,c99   │  ← MCS pair per session
+     └──────────────┘   └──────────────┘   └──────────────┘
+```
+
+**Central design decision:** the gateway is a *protocol-aware* MCP proxy,
+not a byte-level stdio↔socket bridge. It terminates the client's MCP
+session, inspects every JSON-RPC message, and opens its own MCP sessions to
+backend instances. RBAC, OPA decisions and elicitation all require
+knowledge of method, target and arguments; a transparent pipe cannot offer
+that.
+
+**Separation of concerns between OPA and SELinux:**
+
+| Layer | Question answered | Enforced by |
+|---|---|---|
+| OPA | *Should* principal P be allowed to call tool T with args A now? | Gateway (PEP) |
+| SELinux | *Can* this process touch this file / socket / port at all? | Kernel |
+
+OPA governs MCP semantics; SELinux bounds what any backend process can do
+regardless of what OPA said, and protects the gateway and OPA from their
+own backends.
+
+## 5. Components
+
+### 5.1 Transport adapters
+
+| Adapter | Used by | Authentication |
+|---|---|---|
+| **Unix socket** `/run/mcp-gateway/mcp.sock` | local clients | kernel: `SO_PEERCRED` (uid/gid/pid), `SO_PEERSEC` (SELinux label) |
+| **stdio shim** `mcp-connect` | local clients that can only spawn a command | as unix socket (the shim connects to it) |
+| **Streamable HTTP** `https://host:8443/mcp` | remote clients | OAuth 2.1 bearer token (JWT from external IdP); optional mTLS |
+
+- The unix socket is `0660` with a dedicated group (`mcp-users`); the
+  socket file is labelled `mcpgw_sock_t` so SELinux decides which client
+  domains may `connectto` it.
+- `mcp-connect` is deliberately dumb: it copies bytes between its stdio and
+  the socket. Usage in a client config:
+  ```json
+  { "command": "mcp-connect", "args": ["--server", "git"] }
+  ```
+  `--server all` (default) connects to the aggregated endpoint.
+- HTTP follows the MCP authorization specification: the gateway is an
+  OAuth **resource server**, publishes Protected Resource Metadata
+  (RFC 9728) pointing at the configured authorization server, validates
+  audience (RFC 8707 resource indicator = gateway URL), issuer, expiry and
+  signature. The gateway never issues tokens itself.
+- Transport adapters produce a uniform `Conn` (JSON-RPC message stream +
+  raw identity evidence) consumed by the identity layer.
+
+### 5.2 Identity → Principal
+
+All identity evidence is normalised into one `Principal`, which is exactly
+what policy sees as `input.principal`:
+
+```json
+{
+  "sub": "alice",
+  "uid": 1001,
+  "groups": ["dev", "mcp-users"],
+  "roles": ["developer"],
+  "transport": "unix",
+  "selinux": "staff_u:staff_r:staff_t:s0-s0:c0.c1023",
+  "client": { "name": "kit", "version": "0.9.1" },
+  "session_id": "3f0c…"
+}
+```
+
+- **Local:** `uid` → user name and groups via NSS (works with SSSD/IPA).
+- **Remote:** `sub`, `groups` from token claims; `uid` from an optional
+  mapping to a local account (§9, D1).
+- **Roles** are derived by policy data (`data.rbac.bindings`) from groups,
+  users or claims — role assignment is itself policy, not code.
+- `client` comes from the MCP `initialize` request (`clientInfo`); it is
+  **self-asserted** and must only be used for convenience rules, never as a
+  security boundary.
+
+### 5.3 MCP protocol router
+
+Responsibilities:
+
+1. **Session handling.** Terminates the MCP `initialize` handshake with the
+   client, advertising the union of capabilities the gateway supports.
+   Opens backend sessions lazily on first use.
+2. **Namespacing / aggregation.** Two endpoint styles (§9, D2):
+   - *aggregated*: one virtual server; tools are exposed as
+     `<server>__<tool>`, resources as `mcp+<server>://…`, prompts as
+     `<server>__<prompt>`;
+   - *per-server*: one endpoint per backend, names unchanged.
+3. **Discovery filtering.** `tools/list`, `resources/list`,
+   `resources/templates/list`, `prompts/list` responses are filtered per
+   principal using a batch policy query (§6.3).
+4. **Enforcement on invocation.** Every request in the table below goes
+   through the PEP before being forwarded.
+5. **Reverse-direction requests.** Requests that a *backend* sends to the
+   client (`sampling/createMessage`, `elicitation/create`, `roots/list`) are
+   also policy-checked and labelled with the originating backend.
+6. **Change propagation.** Emits `notifications/tools/list_changed` (and
+   the resources/prompts equivalents) when policy bundles or grants change
+   the visible set.
+7. **Cancellation / progress.** Maps request IDs between client and backend
+   sessions; forwards `notifications/cancelled` and progress tokens.
+
+Enforced methods:
+
+| Direction | Method | `input.action` |
+|---|---|---|
+| client → backend | `tools/call` | `tools.call` |
+| client → backend | `resources/read`, `resources/subscribe` | `resources.read`, `resources.subscribe` |
+| client → backend | `prompts/get` | `prompts.get` |
+| client → backend | `completion/complete` | `completion.complete` |
+| client → backend | `*/list` | `*.list` (batch filter) |
+| backend → client | `sampling/createMessage` | `sampling.create` |
+| backend → client | `elicitation/create` | `elicitation.create` |
+| backend → client | `roots/list` | `roots.list` |
+
+Unknown methods are **denied by default**.
+
+### 5.4 Policy Enforcement Point (PEP)
+
+- Builds the OPA input document (§6.2), queries OPA, and applies the
+  decision:
+  - `allow` → forward; apply obligations to request/response;
+  - `deny` → JSON-RPC error `-32001` ("Forbidden") with a policy-provided,
+    non-sensitive `reason`; for `tools/call`, respond with a tool result
+    `isError: true` so agents can reason about it;
+  - `ask` → hand to the approval broker; re-query OPA after the outcome.
+- **Fail closed:** OPA unreachable, timeout (default 250 ms), or malformed
+  decision ⇒ `deny`.
+- Decision cache keyed by the full input hash, TTL ≤ a few seconds, flushed
+  on bundle activation or grant change. Only for list filtering; calls are
+  always evaluated live.
+
+### 5.5 OPA (Policy Decision Point)
+
+- **Deployment:** sidecar `opa run --server` listening on a unix socket
+  (`/run/mcp-gateway/opa.sock`), in its own SELinux domain `mcpopa_t`.
+  Rationale: hot bundle reload, standard OPA tooling, process isolation,
+  language neutrality. Embedding OPA as a Go library remains an option if
+  latency requires it; the PEP talks to OPA through an interface so both
+  are drop-in.
+- **Policy distribution:** OPA bundles (signed), either from local disk
+  (`/etc/mcp-gateway/policy/`) or a bundle server. Signature verification
+  is mandatory in production.
+- **Decision logs:** enabled, masked (`system.log.mask`) to strip argument
+  values flagged as sensitive, shipped to the audit sink (§5.9).
+- **Status API:** gateway polls OPA health; unhealthy ⇒ fail closed.
+
+### 5.6 Approval broker (permission elicitation)
+
+Two distinct flows with different trust properties.
+
+#### 5.6.1 Gateway-initiated approvals (policy said `ask`)
+
+The broker suspends the request and obtains a human decision via one of
+these channels (configured per policy decision, `ask.channel`):
+
+| Channel | Mechanism | Trust | Use for |
+|---|---|---|---|
+| `form` | MCP `elicitation/create` (form mode) sent to the client | **Low** — the client is the agent's host; a misconfigured or compromised client can auto-accept | low-risk confirmations, "are you sure?" |
+| `url` | MCP URL-mode elicitation: client is asked to open an approval URL served by the gateway (Cockpit page); the human authenticates *there* | **High** — approval happens outside the agent's control, bound to a separately authenticated human | sensitive tools (default) |
+| `oob` | Out-of-band: Cockpit "Approvals" inbox, desktop notification, push | **High** | unattended / remote agents, clients without elicitation support |
+
+Behaviour:
+
+- If the client did not advertise the required elicitation capability in
+  `initialize`, the broker falls back to `oob`, or denies if the policy
+  forbids fallback.
+- Pending approvals have a timeout (default 120 s); timeout ⇒ `deny`.
+- An approval produces a **grant**:
+  ```json
+  {
+    "id": "g-8d1e…",
+    "sub": "alice",
+    "server": "fs",
+    "tool": "write_file",
+    "args_match": { "path": "/home/alice/project/**" },
+    "scope": "session",            // once | session | duration
+    "session_id": "3f0c…",
+    "expires": "2026-09-28T10:00:00Z",
+    "approved_by": "alice",
+    "channel": "url"
+  }
+  ```
+- Grants are stored by the broker (SQLite under
+  `/var/lib/mcp-gateway/`, label `mcpgw_var_lib_t`), passed to OPA as
+  `input.grants` (only those matching the principal/server/tool), and
+  revocable from Cockpit.
+- The approval page shows the *exact* call (server, tool, rendered
+  arguments, principal, client), a nonce, and the scope choices the policy
+  allowed. The URL contains an unguessable one-time token and is only
+  valid for the approving human (`approved_by` must satisfy
+  `data.rbac.approvers`, which by default is the principal themself or an
+  admin role).
+- `scope: once` grants are consumed atomically on use.
+
+#### 5.6.2 Backend-initiated elicitation
+
+A backend may itself send `elicitation/create` to ask the user something.
+The gateway:
+
+1. checks `elicitation.create` policy for that backend (may it elicit at
+   all, which modes);
+2. prefixes the message with the backend's identity (the user must always
+   know *who* asks) and never lets backend-originated requests use the
+   gateway's own approval UI styling or URL namespace;
+3. rejects requests whose schema asks for fields matching secret patterns
+   (`password`, `token`, `secret`, …) unless policy explicitly allows;
+4. relays to the client and returns the answer to the backend.
+
+### 5.7 Instance supervisor
+
+- **Instance model:** stdio backends are single-client and may keep state,
+  so there is **one instance per (principal, backend)** by default, or one
+  per *session* for backends marked `isolation: session`. Instances are
+  never shared across principals.
+- **Spawning** via systemd transient units over D-Bus
+  (`StartTransientUnit`), unit name `mcp-<backend>-<sessionid>.service`,
+  with properties from the backend definition:
+  ```ini
+  User=alice                 # or DynamicUser=yes (§9, D1)
+  SELinuxContext=system_u:system_r:mcpsrv_fs_t:s0:c12,c40
+  NoNewPrivileges=yes
+  ProtectSystem=strict
+  ProtectHome=read-only      # relaxed per backend
+  PrivateTmp=yes
+  PrivateNetwork=yes         # unless backend needs network
+  RestrictAddressFamilies=AF_UNIX
+  SystemCallFilter=@system-service
+  MemoryMax=512M
+  TasksMax=64
+  RuntimeMaxSec=8h
+  LoadCredential=db-password:/etc/mcp-gateway/creds/db
+  ```
+  stdio is wired by passing one end of a gateway-owned socketpair to
+  systemd through the transient-unit properties
+  `StandardInputFileDescriptor` / `StandardOutputFileDescriptor`
+  (stderr goes to the journal).
+- **Lifecycle:** start on first use; idle timeout (default 15 min); stop on
+  session end for `isolation: session`; crash ⇒ error to client, restart on
+  next call (with backoff).
+- **Credentials:** the gateway **never forwards client tokens** to
+  backends (token passthrough is prohibited by the MCP authorization
+  specification). Backend secrets come from systemd credentials.
+- **Backend registry** (`/etc/mcp-gateway/servers.d/*.yaml`):
+  ```yaml
+  name: fs
+  command: ["/usr/libexec/mcp-servers/mcp-fs", "--root", "${HOME}"]
+  selinux_type: mcpsrv_fs_t
+  isolation: principal          # principal | session
+  network: false
+  run_as: principal             # principal | dynamic | <user>
+  env: { LOG_LEVEL: info }
+  credentials: []
+  sandbox:
+    protect_home: read-write
+  ```
+
+### 5.8 SELinux policy module (`mcp_gateway`)
+
+Types:
+
+| Type | Purpose |
+|---|---|
+| `mcpgw_t` / `mcpgw_exec_t` | gateway process / binary |
+| `mcpgw_sock_t` | client unix socket |
+| `mcpgw_ctl_sock_t` | internal control socket (Cockpit ↔ gateway) |
+| `mcpopa_t` / `mcpopa_exec_t` | OPA sidecar |
+| `mcpopa_sock_t` | OPA socket |
+| `mcpgw_etc_t`, `mcpgw_var_lib_t`, `mcpgw_log_t` | config, state, logs |
+| `mcpsrv_<name>_t` / `mcpsrv_<name>_exec_t` | per-backend domain / binary |
+| `mcpsrv_generic_t` | fallback for backends without a dedicated type |
+| `mcp_port_t` | gateway HTTPS port |
+
+Key rules (sketch):
+
+- `mcpgw_t` may: bind `mcp_port_t`, create/listen on `mcpgw_sock_t`,
+  `connectto` `mcpopa_t` via `mcpopa_sock_t`, talk to systemd over D-Bus,
+  read `mcpgw_etc_t`, manage `mcpgw_var_lib_t`. It may **not** read user
+  home directories or exec backends directly (systemd does).
+- `init_t` (systemd) may transition to `mcpsrv_*_t` only on the
+  corresponding `mcpsrv_*_exec_t` (or via explicit `SELinuxContext=`),
+  constrained by a `typebounds`/`neverallow` set so that no backend domain
+  gains more than `mcpsrv_generic_t` plus its declared extras.
+- `mcpsrv_*_t` may **not** `connectto` `mcpgw_sock_t`, `mcpgw_ctl_sock_t`
+  or `mcpopa_sock_t` (`neverallow`). Backends cannot talk to, or tamper
+  with, the policy path.
+- Per-backend extras via interfaces, e.g.
+  `mcp_backend_home_rw(mcpsrv_fs_t)`, `mcp_backend_net(mcpsrv_git_t, http_port_t)`.
+- `mcpopa_t`: read its bundles, listen on its socket; no network unless a
+  remote bundle server is configured (boolean `mcpopa_can_network`).
+
+**MCS isolation per session** (sVirt-style): the supervisor allocates a
+unique category pair per instance from a configured range (e.g. `c0.c1023`
+minus reserved) and sets it in `SELinuxContext=`. Per-instance scratch
+directories are labelled with the same pair. Two instances running as the
+same Unix account (e.g. dynamic/service user for remote principals) thus
+cannot access each other's processes or files.
+
+**Client label as policy input:** `SO_PEERSEC` delivers the client's
+context; it is part of `input.principal.selinux`, allowing rules such as
+"only `staff_t`/`unconfined_t` clients may use `db__*`" or "clients in a
+sandbox domain get read-only tools". Client domains allowed to `connectto`
+the socket are controlled by an interface `mcp_gateway_client(domain)`.
+
+**Optional kernel-backed check:** a custom class
+`mcp_tool { list call }` can be defined and checked via
+`selinux_check_access(client_ctx, backend_ctx, "mcp_tool", "call")` as a
+coarse, admin-controlled second opinion before OPA. This is off by default
+and aimed at MLS-style deployments.
+
+### 5.9 Audit
+
+- Every enforced message produces a structured audit record (JSON to
+  journald with `SYSLOG_IDENTIFIER=mcp-gateway`, `MCP_SESSION=`,
+  `MCP_DECISION=`, …): principal, action, resource, argument digest,
+  decision, reason, grant id, backend instance/unit, latency.
+- Security-relevant events (deny, approval granted/denied, policy bundle
+  activated, grant revoked) are additionally emitted to the kernel audit
+  subsystem (`audit_log_user_message`, type `USER_AVC`/`USER_ACCT`-style)
+  so they correlate with SELinux AVC records via `ausearch`.
+- OPA decision logs carry the same `decision_id` as the gateway record.
+- Arguments are logged as a keyed hash by default; full values only for
+  tools/fields policy marks as `audit: full`.
+
+### 5.10 Cockpit integration
+
+A Cockpit module (in `cockpit-kit` or a sibling repository) talks to the
+gateway's control socket (`mcpgw_ctl_sock_t`, root/admin only) and offers:
+
+- **Servers:** registry, running instances, start/stop, logs.
+- **Policy:** role bindings and permissions (editing `data.rbac`), bundle
+  status, `opa test` results.
+- **Approvals:** inbox and the target page for URL-mode elicitation; reuses
+  Cockpit's own login, so approvals are bound to a separately authenticated
+  human.
+- **Grants:** list / revoke.
+- **Audit:** filtered view on journald records.
+
+## 6. Policy model
+
+### 6.1 Packages
+
+```
+policy/
+  mcp/authz.rego          # main decision: data.mcp.authz.decision
+  mcp/filter.rego         # batch visibility for */list
+  mcp/elicitation.rego    # rules for backend-initiated elicitation
+  mcp/lib/*.rego          # helpers (arg matching, time windows)
+  data/rbac.json          # roles, permissions, bindings, approvers
+  tests/*_test.rego
+```
+
+### 6.2 Input document
+
+```json
+{
+  "principal": { "...": "see §5.2" },
+  "action": "tools.call",
+  "resource": {
+    "server": "fs",
+    "kind": "tool",
+    "name": "write_file",
+    "annotations": { "destructiveHint": true, "readOnlyHint": false }
+  },
+  "args": { "path": "/home/alice/project/x.txt", "content": "…" },
+  "grants": [ { "...": "see §5.6.1" } ],
+  "context": {
+    "time": "2026-09-27T14:03:11Z",
+    "transport": "unix",
+    "request_id": "42",
+    "client_capabilities": { "elicitation": { "form": {}, "url": {} } }
+  }
+}
+```
+
+Tool annotations are taken from the backend's `tools/list` and are
+**untrusted hints**; policy may use them for defaults (e.g. destructive ⇒
+ask) but never to grant access.
+
+### 6.3 Decision document
+
+`data.mcp.authz.decision`:
+
+```json
+{
+  "effect": "allow | deny | ask",
+  "reason": "human-readable, safe to show to the client",
+  "ask": {
+    "channel": "url | form | oob",
+    "prompt": "Allow alice to write /home/alice/project/x.txt?",
+    "scopes": ["once", "session", "8h"],
+    "fallback": "oob | deny"
+  },
+  "obligations": {
+    "redact_output": ["$.content[*].text~/(?i)password=\\S+/"],
+    "max_output_bytes": 1048576,
+    "rate_limit": "30/m",
+    "arg_constraints": { "path": "^/home/alice/" },
+    "audit": "digest | full"
+  }
+}
+```
+
+`data.mcp.filter.visible` returns, for a principal and a list of
+resources, the subset to show — one OPA query per `*/list`, not one per
+item.
+
+### 6.4 RBAC data
+
+```json
+{
+  "roles": {
+    "viewer":    { "permissions": [ { "server": "*",  "tool": "*", "read_only": true } ] },
+    "developer": { "permissions": [
+        { "server": "git", "tool": "*" },
+        { "server": "fs",  "tool": "read_*" },
+        { "server": "fs",  "tool": "write_file", "require_approval": true,
+          "args": { "path": "^${home}/" } } ] },
+    "admin":     { "permissions": [ { "server": "*", "tool": "*" } ] }
+  },
+  "bindings": {
+    "groups": { "dev": ["developer"], "wheel": ["admin"] },
+    "users":  { "bob": ["viewer"] }
+  },
+  "approvers": { "default": ["self", "role:admin"] }
+}
+```
+
+### 6.5 Example rule
+
+```rego
+package mcp.authz
+
+import rego.v1
+
+default decision := {"effect": "deny", "reason": "no matching permission"}
+
+perms contains p if {
+	some role in data.mcp.roles_of[input.principal.sub]
+	some p in data.rbac.roles[role].permissions
+}
+
+matches(p) if {
+	glob.match(p.server, [], input.resource.server)
+	glob.match(p.tool, [], input.resource.name)
+	args_ok(p)
+}
+
+decision := {"effect": "allow"} if {
+	some p in perms
+	matches(p)
+	not p.require_approval
+}
+
+decision := {
+	"effect": "ask",
+	"ask": {
+		"channel": "url",
+		"prompt": sprintf("Allow %s to call %s/%s?", [input.principal.sub, input.resource.server, input.resource.name]),
+		"scopes": ["once", "session"],
+		"fallback": "deny",
+	},
+} if {
+	some p in perms
+	matches(p)
+	p.require_approval
+	not granted
+}
+
+decision := {"effect": "allow"} if {
+	some p in perms
+	matches(p)
+	p.require_approval
+	granted
+}
+
+granted if {
+	some g in input.grants
+	g.server == input.resource.server
+	g.tool == input.resource.name
+	time.parse_rfc3339_ns(g.expires) > time.now_ns()
+}
+```
+
+(Conflict resolution between multiple matching rules is done in a final
+`decision` rule with explicit precedence deny > ask > allow; omitted here
+for brevity.)
+
+### 6.6 Policy lifecycle
+
+- Rego logic lives in git with `opa test` and `opa check --strict` in CI.
+- RBAC data may be edited through Cockpit; edits produce a new signed
+  bundle revision, keeping git as source of truth for logic.
+- Bundle activation is atomic; the gateway flushes caches and emits
+  `list_changed` notifications.
+
+## 7. Key flows
+
+### 7.1 Local `tools/call` requiring approval
+
+```
+Client        mcp-connect   Gateway/Router   PEP      OPA     Broker    Cockpit   Supervisor  Backend(fs)
+  │ tools/call   │               │            │        │        │          │          │           │
+  │─────────────▶│──────────────▶│ identify (SO_PEERCRED/SO_PEERSEC)       │          │           │
+  │              │               │──input────▶│───────▶│        │          │          │           │
+  │              │               │            │◀─ask───│        │          │          │           │
+  │              │               │            │───────────────▶ │ URL elicitation      │           │
+  │◀───────────── elicitation/create (url) ───────────────────── │          │          │           │
+  │  human opens URL, logs into Cockpit, approves "session" ──────────────▶ │          │           │
+  │              │               │            │        │        │◀─grant───│          │           │
+  │              │               │            │───────▶│(re-query with grant)          │           │
+  │              │               │            │◀─allow─│        │          │          │           │
+  │              │               │─────────── get/start instance (alice, fs) ─────────▶│──spawn───▶│
+  │              │               │─────────────────── tools/call (stdio) ─────────────────────────▶│
+  │              │               │◀───────────────────────── result ───────────────────────────────│
+  │              │               │ apply obligations, audit  │          │          │           │
+  │◀─────────────│◀──────────────│            │        │        │          │          │           │
+```
+
+### 7.2 Remote session setup
+
+1. Client hits `POST /mcp` without token → `401` with
+   `WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource"`.
+2. Client performs OAuth 2.1 (auth code + PKCE, or client credentials for
+   machine agents) against the IdP, with `resource=https://host:8443/mcp`.
+3. Client retries with bearer token; gateway validates and builds the
+   principal, maps to local account if configured.
+4. `initialize`; gateway returns `Mcp-Session-Id`; normal flow continues.
+
+### 7.3 Discovery
+
+1. `tools/list` from client.
+2. Router ensures backend tool lists are cached (fetched once per backend
+   *type*, refreshed on backend `list_changed`), without necessarily
+   starting a per-principal instance.
+3. One batch query to `data.mcp.filter.visible`; filtered, namespaced list
+   returned.
+
+## 8. Threat model (summary)
+
+| Threat | Mitigation |
+|---|---|
+| Agent calls tools it shouldn't | RBAC + OPA per call; discovery filtering; default deny |
+| Agent auto-approves its own elicitation | URL / OOB approvals authenticated outside the agent; `form` only for low-risk |
+| Prompt-injected agent exfiltrates via allowed tool | argument constraints, rate limits, output limits, approvals on destructive/egress tools, audit |
+| Malicious/compromised backend | per-backend SELinux domain, no access to gateway/OPA sockets, systemd sandboxing, no network by default, per-session MCS |
+| Backend phishing the user via elicitation | policy on `elicitation.create`, origin labelling, secret-field blocking |
+| Cross-tenant data leakage | instance per principal (or session), MCS categories, separate Unix users where possible |
+| Token theft / confused deputy | audience-bound tokens, no token passthrough, backend creds via systemd credentials |
+| Policy tampering | signed bundles, OPA in own domain, config/bundle dirs writable only by admin |
+| OPA outage | fail closed |
+| Local user spoofing identity | kernel-provided peer credentials; `clientInfo` never trusted |
+
+## 9. Decisions (proposed)
+
+These resolve the open questions from the initial architecture discussion.
+Each is a proposal to be confirmed.
+
+**D1 — Run-as identity for remote principals.**
+*Proposal:* configurable per deployment, default **mapped local account**
+when a mapping exists (SSSD/IPA: `sub` → Unix user), otherwise
+`DynamicUser=yes` + per-instance MCS pair. Local principals always run as
+their own uid.
+*Rationale:* keeps DAC meaningful where accounts exist, still isolates
+where they don't.
+
+**D2 — Endpoint style.**
+*Proposal:* offer **both**: aggregated `/mcp` (and `mcp-connect --server all`)
+plus per-server `/mcp/<server>`. Same pipeline, only the naming layer
+differs.
+*Rationale:* aggregated suits general agents; per-server keeps original tool
+names for clients configured per server.
+
+**D3 — Default approval channel.**
+*Proposal:* policy chooses per decision; the shipped default policy uses
+**`url`** for anything `require_approval`, with `oob` fallback, and
+`form` only for rules explicitly marked low-risk.
+*Rationale:* the approval must not be answerable by the governed agent.
+
+**D4 — Policy authoring.**
+*Proposal:* Rego logic in git (tests in CI); RBAC data editable through
+Cockpit, which generates signed bundle revisions.
+
+**D5 — Trust in backends.**
+*Proposal:* treat all backends as **untrusted** by default
+(`mcpsrv_generic_t`, no network, read-only home). Vetted backends get a
+dedicated domain and wider sandbox via their registry entry and policy
+interfaces. Output inspection is an obligation hook, not implemented in
+v1.
+
+**D6 — Implementation language.**
+*Proposal:* **Go**. Official MCP Go SDK, native OPA (sidecar now,
+embeddable later), mature SELinux (`github.com/opencontainers/selinux`)
+and systemd D-Bus (`github.com/coreos/go-systemd`) libraries, single
+static binary.
+
+**D7 — OPA deployment.**
+*Proposal:* sidecar over unix socket for v1 (§5.5).
+
+## 10. Repository layout (planned)
+
+```
+cmd/
+  mcp-gateway/            # daemon
+  mcp-connect/            # stdio ↔ unix-socket shim
+internal/
+  transport/              # unix, http (streamable), shim protocol
+  authn/                  # peercred/peersec, OAuth resource server
+  principal/
+  router/                 # MCP session, namespacing, filtering
+  pep/                    # OPA client, decision application, obligations
+  broker/                 # approvals, grants store, elicitation
+  supervisor/             # systemd transient units, instance pool, MCS allocator
+  audit/
+  config/
+policy/                   # default Rego bundle + tests
+selinux/                  # mcp_gateway.te / .fc / .if
+systemd/                  # mcp-gateway.service, mcp-gateway.socket, mcp-opa.service
+packaging/                # RPM spec
+docs/
+```
+
+## 11. Roadmap
+
+1. **Design doc** (this document).
+2. **Skeleton:** Go module, layout above, Makefile, CI (build, `go test`,
+   `opa test`), placeholder SELinux module and systemd units.
+3. **PoC:**
+   - unix-socket transport + `mcp-connect`;
+   - protocol router for one backend (no aggregation yet);
+   - OPA sidecar with the example policy; `allow`/`deny`/`ask`;
+   - `form`-mode elicitation for `ask`;
+   - one backend spawned via systemd in its own SELinux domain.
+4. Aggregation and discovery filtering; audit records.
+5. Streamable HTTP + OAuth resource server.
+6. URL-mode / OOB approvals with Cockpit approval page; grants store.
+7. MCS allocator, per-session isolation, hardening, RPM packaging.
+
+## 12. Open items
+
+- Exact JSON-RPC error codes for policy denials (align with any future
+  MCP-spec guidance).
+- Behaviour of long-running `tools/call` when a grant expires mid-call
+  (proposal: grants are checked at call start only).
+- Handling of `resources/subscribe` notifications after access is revoked
+  (proposal: gateway drops notifications and unsubscribes).
+- Rate-limit state location (in-gateway token buckets vs. OPA data).
+- Whether the MCS category range must be coordinated with other sVirt users
+  (libvirt, podman) on the same host.
