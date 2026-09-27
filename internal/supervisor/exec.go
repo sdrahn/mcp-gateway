@@ -64,14 +64,14 @@ func (e *Exec) Start(_ context.Context, b *config.Backend, p principal.Principal
 		cmd.Env = append(cmd.Env, "CREDENTIALS_DIRECTORY="+credDir)
 		if cred := cmd.SysProcAttr.Credential; cred != nil {
 			if err := chownTree(credDir, int(cred.Uid), int(cred.Gid)); err != nil {
-				_ = os.RemoveAll(credDir)
+				removeCredentials(credDir)
 				return nil, err
 			}
 		}
 	}
 	cleanup := func() {
 		if credDir != "" {
-			_ = os.RemoveAll(credDir)
+			removeCredentials(credDir)
 		}
 	}
 	stdin, err := cmd.StdinPipe()
@@ -149,6 +149,14 @@ func stageCredentials(b *config.Backend) (string, error) {
 		return "", err
 	}
 	return dir, nil
+}
+
+// removeCredentials deletes a staged credentials directory. It is
+// read-only (0500), which would keep an unprivileged gateway from deleting
+// the files in it, so make it writable first.
+func removeCredentials(dir string) {
+	_ = os.Chmod(dir, 0o700)
+	_ = os.RemoveAll(dir)
 }
 
 func chownTree(dir string, uid, gid int) error {
