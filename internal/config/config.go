@@ -28,6 +28,8 @@ const (
 type Gateway struct {
 	// Socket is the unix socket local clients connect to.
 	Socket string `yaml:"socket"`
+	// SocketGroup, if set, owns the socket (mode 0660).
+	SocketGroup string `yaml:"socket_group"`
 	// HTTP configures the remote Streamable HTTP transport. Disabled when
 	// Listen is empty.
 	HTTP HTTP `yaml:"http"`
@@ -35,6 +37,20 @@ type Gateway struct {
 	ServersDir string `yaml:"servers_dir"`
 	StateDir   string `yaml:"state_dir"`
 	Policy     Policy `yaml:"policy"`
+	// Supervisor configures how backend instances are started.
+	Supervisor Supervisor `yaml:"supervisor"`
+	// ApprovalTimeout bounds how long a call waits for a human decision.
+	ApprovalTimeout time.Duration `yaml:"approval_timeout"`
+}
+
+// Supervisor configures backend instance launching.
+type Supervisor struct {
+	// Mode is "systemd" (transient units, confined; the default) or "exec"
+	// (plain child processes, unconfined; development only).
+	Mode string `yaml:"mode"`
+	// SELinux is "auto" (use SELinuxContext= when SELinux is enabled),
+	// "on" or "off".
+	SELinux string `yaml:"selinux"`
 }
 
 // HTTP configures the remote transport.
@@ -86,10 +102,11 @@ type Sandbox struct {
 
 // Defaults applied to empty fields.
 const (
-	DefaultPolicyTimeout = 250 * time.Millisecond
-	DefaultSELinuxType   = "mcpsrv_generic_t"
-	DefaultRunAs         = "principal"
-	DefaultProtectHome   = "read-only"
+	DefaultPolicyTimeout   = 250 * time.Millisecond
+	DefaultApprovalTimeout = 120 * time.Second
+	DefaultSELinuxType     = "mcpsrv_generic_t"
+	DefaultRunAs           = "principal"
+	DefaultProtectHome     = "read-only"
 )
 
 var (
@@ -126,6 +143,15 @@ func (g *Gateway) setDefaults() {
 	if g.Policy.Timeout == 0 {
 		g.Policy.Timeout = DefaultPolicyTimeout
 	}
+	if g.Supervisor.Mode == "" {
+		g.Supervisor.Mode = "systemd"
+	}
+	if g.Supervisor.SELinux == "" {
+		g.Supervisor.SELinux = "auto"
+	}
+	if g.ApprovalTimeout == 0 {
+		g.ApprovalTimeout = DefaultApprovalTimeout
+	}
 }
 
 // Validate checks the configuration for consistency.
@@ -135,6 +161,19 @@ func (g *Gateway) Validate() error {
 	}
 	if g.Policy.Timeout < 0 {
 		return errors.New("policy.timeout: must not be negative")
+	}
+	if g.ApprovalTimeout < 0 {
+		return errors.New("approval_timeout: must not be negative")
+	}
+	switch g.Supervisor.Mode {
+	case "systemd", "exec":
+	default:
+		return fmt.Errorf("supervisor.mode: unknown value %q", g.Supervisor.Mode)
+	}
+	switch g.Supervisor.SELinux {
+	case "auto", "on", "off":
+	default:
+		return fmt.Errorf("supervisor.selinux: unknown value %q", g.Supervisor.SELinux)
 	}
 	if g.HTTP.Listen != "" {
 		if g.HTTP.CertFile == "" || g.HTTP.KeyFile == "" {

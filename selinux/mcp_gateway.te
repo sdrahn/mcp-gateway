@@ -4,10 +4,10 @@ policy_module(mcp_gateway, 0.1.0)
 #
 # Declarations
 #
-# Placeholder policy module for mcp-gateway. It establishes the domains and
-# the isolation invariants from docs/architecture.md, section 5.8; the
-# allow rules each domain needs at runtime are filled in with the proof of
-# concept (run in permissive mode per domain until then).
+# Policy module for mcp-gateway. It establishes the domains and the
+# isolation invariants from docs/architecture.md, section 5.8. The rules
+# below cover the proof-of-concept launch path; run new backend domains
+# permissive (semanage permissive -a) until their rules are complete.
 #
 
 ## <desc>
@@ -59,8 +59,10 @@ mcp_gateway_runtime_file(mcpopa_sock_t)
 mcp_gateway_backend_template(generic)
 corecmd_bin_entry_type(mcpsrv_generic_t)
 
-# Example dedicated backend domain, see config/servers.d/fs.yaml.
+# Example dedicated backend domain, see config/servers.d/fs.yaml and
+# examples/mcp-fs-demo.
 mcp_gateway_backend_template(fs)
+mcp_gateway_backend_home_rw(mcpsrv_fs_t)
 
 ########################################
 #
@@ -93,10 +95,31 @@ append_files_pattern(mcpgw_t, mcpgw_log_t, mcpgw_log_t)
 # Policy decisions.
 stream_connect_pattern(mcpgw_t, mcpgw_runtime_t, mcpopa_sock_t, mcpopa_t)
 
-# Backend instances are started by systemd over D-Bus, never exec'd by
-# the gateway itself.
+# Backend instances are started by systemd over D-Bus as transient units,
+# never exec'd by the gateway itself.
 init_dbus_chat(mcpgw_t)
 dbus_system_bus_client(mcpgw_t)
+ifdef(`init_start_system',`
+	init_start_system(mcpgw_t)
+	init_stop_system(mcpgw_t)
+	init_get_system_status(mcpgw_t)
+')
+
+# The backend's stdio is one end of a socketpair created by the gateway;
+# it travels over D-Bus to systemd, which hands it to the backend.
+gen_require(`
+	type init_t;
+')
+allow init_t mcpgw_t:fd use;
+allow init_t mcpgw_t:unix_stream_socket rw_socket_perms;
+
+optional_policy(`
+	gen_require(`
+		type system_dbusd_t;
+	')
+	allow system_dbusd_t mcpgw_t:fd use;
+	allow system_dbusd_t mcpgw_t:unix_stream_socket rw_socket_perms;
+')
 
 auth_use_nsswitch(mcpgw_t)
 miscfiles_read_localization(mcpgw_t)
@@ -119,4 +142,33 @@ list_dirs_pattern(mcpopa_t, mcpgw_etc_t, mcpgw_etc_t)
 tunable_policy(`mcpopa_can_network',`
 	allow mcpopa_t self:tcp_socket create_stream_socket_perms;
 	corenet_tcp_connect_http_port(mcpopa_t)
+')
+
+########################################
+#
+# Clients
+#
+# Which user domains may connect to the gateway at all. Everything finer
+# grained is decided by OPA, which sees the client's context.
+#
+
+optional_policy(`
+	gen_require(`
+		type unconfined_t;
+	')
+	mcp_gateway_client(unconfined_t)
+')
+
+optional_policy(`
+	gen_require(`
+		type staff_t;
+	')
+	mcp_gateway_client(staff_t)
+')
+
+optional_policy(`
+	gen_require(`
+		type user_t;
+	')
+	mcp_gateway_client(user_t)
 ')

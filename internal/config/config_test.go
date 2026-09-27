@@ -23,7 +23,8 @@ func TestLoadGatewayDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g.Socket != DefaultSocket || g.Policy.OPASocket != DefaultOPASocket || g.Policy.Timeout != DefaultPolicyTimeout {
+	if g.Socket != DefaultSocket || g.Policy.OPASocket != DefaultOPASocket || g.Policy.Timeout != DefaultPolicyTimeout ||
+		g.Supervisor.Mode != "systemd" || g.Supervisor.SELinux != "auto" || g.ApprovalTimeout != DefaultApprovalTimeout {
 		t.Errorf("defaults not applied: %+v", g)
 	}
 }
@@ -44,6 +45,8 @@ func TestLoadGatewayErrors(t *testing.T) {
 		"relative socket": "socket: mcp.sock\n",
 		"http no tls":     "http:\n  listen: ':8443'\n  issuer: x\n  audience: y\n",
 		"http no issuer":  "http:\n  listen: ':8443'\n  cert_file: c\n  key_file: k\n",
+		"bad mode":        "supervisor:\n  mode: docker\n",
+		"bad selinux":     "supervisor:\n  selinux: maybe\n",
 	}
 	for name, content := range tests {
 		t.Run(name, func(t *testing.T) {

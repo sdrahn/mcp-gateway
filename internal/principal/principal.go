@@ -28,6 +28,8 @@ type Principal struct {
 	// local account mapping.
 	UID    *uint32  `json:"uid,omitempty"`
 	Groups []string `json:"groups,omitempty"`
+	// Home is the home directory of the local account, if any.
+	Home string `json:"home,omitempty"`
 	// Roles are derived by policy data; the gateway fills them in only when
 	// it has resolved them, otherwise policy resolves them itself.
 	Roles     []string  `json:"roles,omitempty"`

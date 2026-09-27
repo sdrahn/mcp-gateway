@@ -9,17 +9,21 @@ remote MCP clients, with:
 - [OPA](https://www.openpolicyagent.org/) as the policy engine,
 - SELinux confinement of the gateway, the policy engine and every MCP server.
 
-Status: design phase. See [docs/architecture.md](docs/architecture.md).
+Status: proof of concept, local clients only. See
+[docs/architecture.md](docs/architecture.md) for the design and
+[examples/poc](examples/poc/README.md) to try it.
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `cmd/mcp-gateway` | gateway daemon (currently: configuration validation only) |
-| `cmd/mcp-connect` | stdio ↔ unix-socket shim for local clients (stub) |
-| `internal/` | gateway packages: `config`, `principal`, `pep` (decision types, fail-closed evaluation), and stubs for `transport`, `authn`, `router`, `broker`, `supervisor`, `audit` |
+| `cmd/mcp-gateway` | gateway daemon |
+| `cmd/mcp-connect` | stdio ↔ unix-socket shim for local clients |
+| `internal/` | `transport` (unix socket, peer credentials, hello), `authn`, `router` (MCP proxy core), `pep` (OPA client, fail-closed evaluation), `broker` (approvals, grants), `supervisor` (systemd / exec launchers, MCS allocation), `jsonrpc`, `audit`, `config`, `principal` |
+| `examples/` | `mcp-fs-demo` (demo MCP server) and the PoC walkthrough |
+| `e2e/` | end-to-end test: OPA + gateway + mcp-connect + demo server |
 | `policy/` | default OPA policy bundle (`data.mcp.authz.decision`, `data.mcp.filter.visible`), RBAC data and tests |
-| `selinux/` | `mcp_gateway` SELinux policy module (placeholder: domains, types, isolation invariants) |
+| `selinux/` | `mcp_gateway` SELinux policy module (domains, types, isolation invariants, PoC launch path) |
 | `systemd/` | `mcp-gateway.service`, `mcp-opa.service` |
 | `config/` | example `gateway.yaml` and backend definitions (`servers.d/`) |
 | `packaging/` | sysusers.d and polkit snippets |
@@ -32,8 +36,8 @@ files (`selinux-policy-dev` on Debian/Ubuntu, `selinux-policy-devel` on
 Fedora) plus `checkpolicy`.
 
 ```bash
-make build      # bin/mcp-gateway, bin/mcp-connect
-make check      # gofmt/opa fmt, go vet, go test, opa check, opa test
+make build      # bin/mcp-gateway, bin/mcp-connect, bin/mcp-fs-demo
+make check      # gofmt/opa fmt, go vet, go test (incl. e2e if opa is found), opa check, opa test
 make lint       # golangci-lint
 make selinux    # selinux/mcp_gateway.pp
 

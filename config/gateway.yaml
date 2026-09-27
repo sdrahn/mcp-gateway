@@ -1,8 +1,10 @@
 # mcp-gateway main configuration (installed as /etc/mcp-gateway/gateway.yaml).
-# All values shown are the defaults.
+# All values shown are the defaults, except socket_group (default: empty).
 
 # Unix socket for local clients (directly or via mcp-connect).
 socket: /run/mcp-gateway/mcp.sock
+# Group owning the socket (mode 0660). Empty: the gateway's own group.
+socket_group: mcp-users
 
 # Backend definitions, one *.yaml per MCP server.
 servers_dir: /etc/mcp-gateway/servers.d
@@ -15,6 +17,17 @@ policy:
   opa_socket: /run/mcp-gateway/opa.sock
   # Decisions not received within this time are denied.
   timeout: 250ms
+
+# How long a call waits for a human approval before it is denied.
+approval_timeout: 120s
+
+supervisor:
+  # systemd: each backend instance is a confined transient unit.
+  # exec: plain child processes without confinement (development only).
+  mode: systemd
+  # auto: set SELinuxContext= (backend type + per-instance MCS pair) when
+  # SELinux is enabled. on / off force it.
+  selinux: auto
 
 # Remote access via MCP Streamable HTTP. Disabled unless listen is set.
 # http:

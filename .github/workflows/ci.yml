@@ -16,6 +16,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # For the end-to-end test in e2e/.
+      - uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...

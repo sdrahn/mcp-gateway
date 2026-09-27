@@ -5,7 +5,7 @@ import rego.v1
 import data.mcp.authz
 import data.mcp.filter
 
-alice := {"sub": "alice", "groups": ["dev"], "transport": "unix", "session_id": "s1"}
+alice := {"sub": "alice", "groups": ["dev"], "home": "/home/alice", "transport": "unix", "session_id": "s1"}
 
 call(principal, server, tool, args) := {
 	"principal": principal,
@@ -45,6 +45,23 @@ test_write_in_own_home_asks if {
 test_write_outside_home_denied if {
 	d := authz.decision with input as call(alice, "fs", "write_file", {"path": "/etc/passwd"})
 	d.effect == "deny"
+}
+
+test_write_with_dotdot_denied if {
+	d := authz.decision with input as call(alice, "fs", "write_file", {"path": "/home/alice/../bob/x"})
+	d.effect == "deny"
+}
+
+test_home_constraint_needs_home if {
+	homeless := object.remove(alice, ["home"])
+	d := authz.decision with input as call(homeless, "fs", "write_file", {"path": "/x"})
+	d.effect == "deny"
+}
+
+test_home_is_escaped if {
+	dotted := object.union(alice, {"home": "/home/a.b"})
+	authz.decision.effect == "ask" with input as call(dotted, "fs", "write_file", {"path": "/home/a.b/x"})
+	authz.decision.effect == "deny" with input as call(dotted, "fs", "write_file", {"path": "/home/aXb/x"})
 }
 
 test_write_with_missing_arg_denied if {
