@@ -93,6 +93,30 @@ func (o *OPA) Fingerprint(ctx context.Context) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// Bundles returns the revision of each activated policy bundle, by
+// bundle name; empty when OPA loads the policy from directories.
+func (o *OPA) Bundles(ctx context.Context) (map[string]string, error) {
+	body, err := o.get(ctx, "/v1/data/system/bundles")
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Result map[string]struct {
+			Manifest struct {
+				Revision string `json:"revision"`
+			} `json:"manifest"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("opa: bundles: %w", err)
+	}
+	out := make(map[string]string, len(resp.Result))
+	for name, b := range resp.Result {
+		out[name] = b.Manifest.Revision
+	}
+	return out, nil
+}
+
 func (o *OPA) get(ctx context.Context, path string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, o.timeout)
 	defer cancel()

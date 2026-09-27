@@ -57,6 +57,7 @@ type progressRoute struct {
 type upstream struct {
 	backend *config.Backend
 	id      string
+	unit    string // the instance's name, e.g. its systemd unit
 	conn    *jsonrpc.Conn
 	log     *slog.Logger
 	init    initResult
@@ -76,6 +77,7 @@ func newUpstream(ctx context.Context, b *config.Backend, id string, inst supervi
 	u := &upstream{
 		backend:  b,
 		id:       id,
+		unit:     inst.Name(),
 		conn:     jsonrpc.NewConn(inst),
 		log:      log.With("server", b.Name, "instance", inst.Name()),
 		closed:   make(chan struct{}),

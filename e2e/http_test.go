@@ -58,10 +58,20 @@ func newIdP(t *testing.T) *idp {
 
 func (i *idp) token(t *testing.T, sub, aud string) string {
 	t.Helper()
-	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+	return i.tokenWith(t, sub, aud, nil)
+}
+
+// tokenWith issues a token with extra claims.
+func (i *idp) tokenWith(t *testing.T, sub, aud string, extra jwt.MapClaims) string {
+	t.Helper()
+	claims := jwt.MapClaims{
 		"iss": i.srv.URL, "aud": aud, "sub": sub, "scope": "mcp",
 		"exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(),
-	})
+	}
+	for k, v := range extra {
+		claims[k] = v
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	tok.Header["kid"] = "k1"
 	s, err := tok.SignedString(i.key)
 	if err != nil {

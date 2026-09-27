@@ -83,3 +83,11 @@ supervisor:
 #   # Origins accepted from browser-based clients.
 #   allowed_origins: []
 #   session_idle_timeout: 30m
+#   # mTLS: verify client certificates against these CAs. client_auth:
+#   # optional (verify if presented; default with a CA file) or required.
+#   # Certificate-bound tokens (cnf/x5t#S256, RFC 8705) are then accepted
+#   # only with their certificate; require_bound_tokens refuses others.
+#   # Policy sees the certificate as input.principal.cert.
+#   client_ca_file: /etc/mcp-gateway/tls/client-ca.pem
+#   client_auth: optional
+#   require_bound_tokens: false

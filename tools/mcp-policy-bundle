@@ -1,0 +1,65 @@
+#!/bin/sh
+# mcp-policy-bundle: build a signed OPA bundle from the policy logic
+# shipped with mcp-gateway and the administrator's role data, for
+# mcp-opa.service in signed bundle mode (docs/architecture.md, section
+# 5.5). The bundle replaces the output file atomically; unless -n is
+# given, mcp-opa.service is then restarted, which verifies the signature.
+set -eu
+
+usage() {
+	cat <<USAGE
+Usage: mcp-policy-bundle -k SIGNING_KEY [-o OUTPUT] [-r REVISION] [-n]
+                         [-V VENDOR_POLICY_DIR] [-L LOCAL_POLICY_DIR]
+
+  -k  private key (PEM, RSA) to sign the bundle with; keep it away from
+      the gateway host if you can (default algorithm RS256, see -a)
+  -a  signing algorithm (default: RS256)
+  -o  bundle file (default: /etc/mcp-gateway/bundle/policy.tar.gz)
+  -r  revision recorded in the bundle (default: UTC timestamp)
+  -n  do not restart mcp-opa.service
+  -V  policy logic (default: /usr/share/mcp-gateway/policy)
+  -L  role data (default: /etc/mcp-gateway/policy)
+
+Environment: OPA (default: opa from PATH).
+USAGE
+	exit 2
+}
+
+key= alg=RS256 out=/etc/mcp-gateway/bundle/policy.tar.gz
+revision=$(date -u +%Y%m%dT%H%M%SZ) restart=yes
+vendor=/usr/share/mcp-gateway/policy local=/etc/mcp-gateway/policy
+while getopts k:a:o:r:nV:L:h opt; do
+	case $opt in
+	k) key=$OPTARG ;;
+	a) alg=$OPTARG ;;
+	o) out=$OPTARG ;;
+	r) revision=$OPTARG ;;
+	n) restart=no ;;
+	V) vendor=$OPTARG ;;
+	L) local=$OPTARG ;;
+	*) usage ;;
+	esac
+done
+[ -n "$key" ] || usage
+opa=${OPA:-opa}
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+mkdir "$tmp/src"
+cp -R "$vendor/." "$tmp/src/"
+cp -R "$local/." "$tmp/src/"
+find "$tmp/src" -name '*_test.rego' -exec rm -f {} +
+
+"$opa" check --strict "$tmp/src"
+"$opa" build --bundle "$tmp/src" --signing-key "$key" --signing-alg "$alg" \
+	--revision "$revision" --output "$tmp/bundle.tar.gz"
+
+mkdir -p "$(dirname "$out")"
+cp "$tmp/bundle.tar.gz" "$out.new"
+chmod 0644 "$out.new"
+mv -f "$out.new" "$out"
+echo "wrote $out (revision $revision)"
+
+if [ "$restart" = yes ] && command -v systemctl >/dev/null 2>&1; then
+	systemctl try-restart mcp-opa.service
+fi

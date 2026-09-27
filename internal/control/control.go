@@ -1,6 +1,7 @@
 // Package control serves the gateway's control API to local users over a
-// unix socket: pending approvals (decide on them) and grants (list,
-// revoke). Callers are identified by kernel peer credentials, so a Cockpit
+// unix socket: pending approvals (decide on them), grants (list, revoke),
+// backend servers and their instances (list, stop) and the policy status.
+// Callers are identified by kernel peer credentials, so a Cockpit
 // page talking to the socket through cockpit.http({unix: ...}) acts as
 // the logged-in Cockpit user. What a caller may see and do is decided by
 // policy (data.mcp.approvals: by default their own approvals and grants,
@@ -14,6 +15,9 @@
 //	POST   /v1/approvals/{id}   {"decision": "approve"|"deny", "scope": "session"}
 //	GET    /v1/grants
 //	DELETE /v1/grants/{id}
+//	GET    /v1/servers          registry, with the instances the caller may see
+//	DELETE /v1/instances/{id}   stop an instance
+//	GET    /v1/policy           active policy bundles and their revisions
 package control
 
 import (
@@ -24,19 +28,37 @@ import (
 	"net"
 	"net/http"
 	"os/user"
+	"sort"
 	"strconv"
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
+	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/router"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
 )
+
+// Instances lists and stops backend instances (router.Router).
+type Instances interface {
+	Instances() []router.InstanceInfo
+	StopInstance(id string) bool
+}
+
+// PolicyStatus reports the policy OPA has activated (pep.OPA).
+type PolicyStatus interface {
+	Bundles(ctx context.Context) (map[string]string, error)
+}
 
 type peerKey struct{}
 
 // Server is the control API.
 type Server struct {
 	Broker *broker.Broker
-	Log    *slog.Logger
+	// Backends is the server registry; Instances and Policy are optional.
+	Backends  map[string]*config.Backend
+	Instances Instances
+	Policy    PolicyStatus
+	Log       *slog.Logger
 	// Identify maps peer credentials to an approver; defaults to NSS.
 	Identify func(transport.PeerCred) (broker.Approver, error)
 }
@@ -102,7 +124,78 @@ func (s *Server) Handler() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
+	mux.HandleFunc("GET /v1/servers", s.with(s.servers))
+	mux.HandleFunc("DELETE /v1/instances/{id}", s.with(s.stopInstance))
+	mux.HandleFunc("GET /v1/policy", s.with(s.policy))
 	return mux
+}
+
+// serverInfo is a registry entry as the API shows it (without command
+// and environment, which may carry secrets).
+type serverInfo struct {
+	Name        string                `json:"name"`
+	SELinuxType string                `json:"selinux_type"`
+	Isolation   config.Isolation      `json:"isolation"`
+	Network     bool                  `json:"network"`
+	RunAs       string                `json:"run_as"`
+	Instances   []router.InstanceInfo `json:"instances"`
+}
+
+func (s *Server) servers(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+	byServer := map[string][]router.InstanceInfo{}
+	if s.Instances != nil {
+		for _, in := range s.Instances.Instances() {
+			if s.Broker.MayManageInstance(r.Context(), a, in.Server, in.UID) {
+				byServer[in.Server] = append(byServer[in.Server], in)
+			}
+		}
+	}
+	out := []serverInfo{}
+	for name, b := range s.Backends {
+		insts := byServer[name]
+		if insts == nil {
+			insts = []router.InstanceInfo{}
+		}
+		out = append(out, serverInfo{Name: name, SELinuxType: b.SELinuxType, Isolation: b.Isolation,
+			Network: b.Network, RunAs: b.RunAs, Instances: insts})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) stopInstance(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+	id := r.PathValue("id")
+	if s.Instances != nil {
+		for _, in := range s.Instances.Instances() {
+			if in.ID == id && s.Broker.MayManageInstance(r.Context(), a, in.Server, in.UID) {
+				if s.Instances.StopInstance(id) {
+					if s.Log != nil {
+						s.Log.Info("instance stopped via control API", "instance", id, "server", in.Server, "by", a.Name)
+					}
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+			}
+		}
+	}
+	writeError(w, http.StatusNotFound, "no such instance")
+}
+
+func (s *Server) policy(w http.ResponseWriter, r *http.Request, _ broker.Approver) {
+	if s.Policy == nil {
+		writeError(w, http.StatusNotFound, "no policy status")
+		return
+	}
+	bundles, err := s.Policy.Bundles(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "policy engine unavailable")
+		return
+	}
+	mode := "directories"
+	if len(bundles) > 0 {
+		mode = "bundle"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"mode": mode, "bundles": bundles})
 }
 
 func (s *Server) resolve(w http.ResponseWriter, r *http.Request, a broker.Approver) {

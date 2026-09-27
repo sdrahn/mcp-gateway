@@ -21,7 +21,17 @@ roles contains r if {
 perms contains p if {
 	some role in roles
 	some p in data.rbac.roles[role].permissions
+	cert_ok(p)
 }
+
+# A permission with "require_client_cert": true applies only to remote
+# clients that presented a verified TLS client certificate (mTLS).
+# Explicit denies always apply.
+cert_ok(p) if not p.require_client_cert == true
+
+cert_ok(p) if p.effect == "deny"
+
+cert_ok(_) if is_object(input.principal.cert)
 
 # The permission field naming the target of each action. A permission
 # applies to a request if its "server" glob matches the backend and the

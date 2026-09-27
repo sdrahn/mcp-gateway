@@ -85,3 +85,42 @@ th { color: var(--muted); font-weight: normal; }
     .card dl { grid-template-columns: minmax(0, 1fr); }
     .card dt { margin-top: 0.25rem; }
 }
+
+nav[role=tablist] { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border); margin: 0.5rem 0 0.75rem; }
+nav[role=tablist] button {
+    background: transparent;
+    color: var(--fg);
+    border: 0;
+    border-bottom: 3px solid transparent;
+    border-radius: 0;
+    padding: 0.4rem 0.9rem;
+}
+nav[role=tablist] button[aria-selected=true] { border-bottom-color: var(--accent); color: var(--accent); }
+
+.note { background: var(--highlight); border-left: 3px solid var(--accent); padding: 0.5rem 1rem; margin: 0.5rem 0; }
+code { font-size: 13px; }
+
+form.inline { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0.75rem 0; }
+input, select, textarea {
+    font: inherit;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+}
+textarea { width: 100%; box-sizing: border-box; font-family: monospace; font-size: 13px; }
+
+.instance { border-top: 1px solid var(--border); margin-top: 0.5rem; padding-top: 0.5rem; }
+.instance-head { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; align-items: center; }
+.instance-head .actions { margin: 0 0 0 auto; }
+pre.log { background: var(--bg); border: 1px solid var(--border); padding: 0.5rem; margin-top: 0.5rem; max-height: 20rem; overflow: auto; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+button.chip { padding: 0 0.6rem; border-radius: 1rem; background: transparent; color: var(--fg); border-color: var(--border); }
+ul.permissions { margin: 0.25rem 0; padding-left: 1.25rem; }
+
+.badge { display: inline-block; padding: 0 0.5rem; border-radius: 1rem; border: 1px solid var(--border); }
+.badge-deny { border-color: var(--danger); color: var(--danger); }
+.badge-event { border-color: var(--accent); color: var(--accent); }
+td.details { overflow-wrap: anywhere; color: var(--muted); }

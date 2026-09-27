@@ -7,6 +7,8 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rsa"
+	"crypto/subtle"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -70,7 +72,7 @@ func NewOAuth(cfg config.HTTP, client *http.Client) *OAuth {
 
 // Authenticate validates token and returns the principal it represents.
 // The session id is left empty for the transport to fill in.
-func (o *OAuth) Authenticate(ctx context.Context, token string) (principal.Principal, error) {
+func (o *OAuth) Authenticate(ctx context.Context, token string, cert *x509.Certificate) (principal.Principal, error) {
 	claims := jwt.MapClaims{}
 	_, err := jwt.ParseWithClaims(token, claims,
 		func(t *jwt.Token) (any, error) { return o.key(ctx, t) },
@@ -87,6 +89,9 @@ func (o *OAuth) Authenticate(ctx context.Context, token string) (principal.Princ
 	sub, _ := claims["sub"].(string)
 	if sub == "" {
 		return principal.Principal{}, fmt.Errorf("%w: no subject", ErrInvalidToken)
+	}
+	if err := o.checkBinding(claims, cert); err != nil {
+		return principal.Principal{}, err
 	}
 	scopes := claimStrings(claims, "scope")
 	if len(scopes) == 0 {
@@ -110,6 +115,28 @@ func (o *OAuth) Authenticate(ctx context.Context, token string) (principal.Princ
 		}
 	}
 	return p, nil
+}
+
+// checkBinding enforces certificate-bound tokens (RFC 8705): a token
+// with a x5t#S256 confirmation is only accepted over a TLS connection
+// with that client certificate; with require_bound_tokens, unbound
+// tokens are refused.
+func (o *OAuth) checkBinding(claims jwt.MapClaims, cert *x509.Certificate) error {
+	var want string
+	if cnf, ok := claims["cnf"].(map[string]any); ok {
+		want, _ = cnf["x5t#S256"].(string)
+	}
+	switch {
+	case want == "" && o.cfg.RequireBoundTokens:
+		return fmt.Errorf("%w: token is not certificate-bound", ErrInvalidToken)
+	case want == "":
+		return nil
+	case cert == nil:
+		return fmt.Errorf("%w: certificate-bound token without client certificate", ErrInvalidToken)
+	case subtle.ConstantTimeCompare([]byte(principal.Thumbprint(cert)), []byte(want)) != 1:
+		return fmt.Errorf("%w: token is bound to another client certificate", ErrInvalidToken)
+	}
+	return nil
 }
 
 // mapLocalUser makes p run as the local account name, if it exists

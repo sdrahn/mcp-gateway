@@ -105,6 +105,19 @@ func (r *Router) WatchPolicy(ctx context.Context, interval time.Duration, finger
 	}
 }
 
+// Instances describes the running backend instances.
+func (r *Router) Instances() []InstanceInfo {
+	r.init()
+	return r.pool.list()
+}
+
+// StopInstance stops a running backend instance; sessions using it get a
+// new one on their next call. It reports whether the instance existed.
+func (r *Router) StopInstance(id string) bool {
+	r.init()
+	return r.pool.stop(id)
+}
+
 func (r *Router) init() {
 	r.once.Do(func() {
 		if r.Log == nil {

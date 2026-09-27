@@ -10,6 +10,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,6 +19,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -120,20 +123,6 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 	if !control && gw.Approvals.URLTemplate != "" {
 		log.Warn("approvals.url_template is set but the control socket is disabled; url approvals cannot be decided")
 	}
-	if control {
-		cl, err := transport.ListenUnix(gw.Approvals.ControlSocket, 0o660, gw.SocketGroup)
-		if err != nil {
-			return fmt.Errorf("listening on %s: %w", gw.Approvals.ControlSocket, err)
-		}
-		log.Info("listening", "control", gw.Approvals.ControlSocket)
-		cs := &controlapi.Server{Broker: b, Log: log}
-		go func() {
-			if err := cs.Serve(ctx, cl); err != nil {
-				log.Error("control API failed", "err", err)
-			}
-		}()
-	}
-
 	r := &router.Router{
 		Backends: backends,
 		Launcher: launcher,
@@ -145,10 +134,27 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 		IdleTimeout: gw.Supervisor.IdleTimeout,
 	}
 
+	if control {
+		cl, err := transport.ListenUnix(gw.Approvals.ControlSocket, 0o660, gw.SocketGroup)
+		if err != nil {
+			return fmt.Errorf("listening on %s: %w", gw.Approvals.ControlSocket, err)
+		}
+		log.Info("listening", "control", gw.Approvals.ControlSocket)
+		cs := &controlapi.Server{Broker: b, Backends: backends, Instances: r, Policy: opa, Log: log}
+		go func() {
+			if err := cs.Serve(ctx, cl); err != nil {
+				log.Error("control API failed", "err", err)
+			}
+		}()
+	}
+
 	// Clients learn about policy changes through list_changed.
 	go r.WatchPolicy(ctx, gw.Policy.WatchInterval, opa.Fingerprint, func() {
-		auditLog.Event("mcp-policy-change", true, nil)
+		auditLog.Event("mcp-policy-change", true, map[string]string{"revision": bundleRevisions(ctx, opa)})
 	})
+	if revs := bundleRevisions(ctx, opa); revs != "" {
+		log.Info("policy bundles", "revisions", revs)
+	}
 
 	// Serve returns after ctx ends and all backend instances are stopped;
 	// always wait for it so no instance outlives the gateway.
@@ -182,10 +188,16 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, r *router.Router, errc chan<- 
 		AuthorizationServers: []string{cfg.Issuer},
 		Scopes:               cfg.Scopes,
 		AllowedOrigins:       cfg.AllowedOrigins,
-		KnownServer:          func(name string) bool { return r.Backends[name] != nil },
-		SessionIdle:          cfg.SessionIdleTimeout,
-		Log:                  log,
+		// Clients with a certificate can present certificate-bound tokens.
+		CertificateBoundTokens: cfg.ClientAuth != "none",
+		KnownServer:            func(name string) bool { return r.Backends[name] != nil },
+		SessionIdle:            cfg.SessionIdleTimeout,
+		Log:                    log,
 	}, authn.NewOAuth(cfg, nil), r.ServeClient)
+	if err != nil {
+		return nil, err
+	}
+	tlsConfig, err := serverTLS(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +205,7 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, r *router.Router, errc chan<- 
 		Addr:              cfg.Listen,
 		Handler:           h,
 		ReadHeaderTimeout: 10 * time.Second,
-		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12},
+		TLSConfig:         tlsConfig,
 	}
 	go func() {
 		err := srv.ListenAndServeTLS(cfg.CertFile, cfg.KeyFile)
@@ -235,6 +247,43 @@ func newAudit(log *slog.Logger, gw *config.Gateway) (*audit.Logger, func(), erro
 		}
 	}
 	return audit.New(os.Stderr, opts), closeFn, nil
+}
+
+// bundleRevisions describes the activated policy bundles as
+// "name=revision,…" (empty with directory-loaded policy or on errors).
+func bundleRevisions(ctx context.Context, opa *pep.OPA) string {
+	bundles, err := opa.Bundles(ctx)
+	if err != nil {
+		return ""
+	}
+	var out []string
+	for name, rev := range bundles {
+		out = append(out, name+"="+rev)
+	}
+	sort.Strings(out)
+	return strings.Join(out, ",")
+}
+
+// serverTLS returns the TLS configuration of the remote transport, with
+// client certificate verification (mTLS) as configured.
+func serverTLS(cfg config.HTTP) (*tls.Config, error) {
+	c := &tls.Config{MinVersion: tls.VersionTLS12}
+	if cfg.ClientAuth == "none" {
+		return c, nil
+	}
+	pem, err := os.ReadFile(cfg.ClientCAFile)
+	if err != nil {
+		return nil, fmt.Errorf("http.client_ca_file: %w", err)
+	}
+	c.ClientCAs = x509.NewCertPool()
+	if !c.ClientCAs.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("http.client_ca_file: no certificates in %s", cfg.ClientCAFile)
+	}
+	c.ClientAuth = tls.VerifyClientCertIfGiven
+	if cfg.ClientAuth == "required" {
+		c.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return c, nil
 }
 
 func newLauncher(log *slog.Logger, s config.Supervisor) (supervisor.Launcher, error) {

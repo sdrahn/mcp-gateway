@@ -4,6 +4,12 @@
 // See docs/architecture.md, section 5.2.
 package principal
 
+import (
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+)
+
 // Transport identifies how a client reached the gateway.
 type Transport string
 
@@ -41,4 +47,33 @@ type Principal struct {
 	SELinux   string `json:"selinux,omitempty"`
 	Client    Client `json:"client"`
 	SessionID string `json:"session_id"`
+	// Cert is the verified TLS client certificate of a remote client that
+	// presented one (mTLS).
+	Cert *Cert `json:"cert,omitempty"`
+}
+
+// Cert describes a verified TLS client certificate.
+type Cert struct {
+	Subject string `json:"subject"`
+	// Thumbprint is the certificate's SHA-256 thumbprint, base64url
+	// without padding, as in the x5t#S256 confirmation claim (RFC 8705).
+	Thumbprint string   `json:"x5t#S256"`
+	DNSNames   []string `json:"dns,omitempty"`
+	URIs       []string `json:"uris,omitempty"`
+	Emails     []string `json:"emails,omitempty"`
+}
+
+// Thumbprint returns the x5t#S256 thumbprint of c.
+func Thumbprint(c *x509.Certificate) string {
+	sum := sha256.Sum256(c.Raw)
+	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+// NewCert describes c.
+func NewCert(c *x509.Certificate) *Cert {
+	pc := &Cert{Subject: c.Subject.String(), Thumbprint: Thumbprint(c), DNSNames: c.DNSNames, Emails: c.EmailAddresses}
+	for _, u := range c.URIs {
+		pc.URIs = append(pc.URIs, u.String())
+	}
+	return pc
 }

@@ -3,6 +3,7 @@ package transport
 import (
 	"bufio"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -18,7 +19,7 @@ import (
 // fakeAuth accepts "alice", "bob" and "noscope" as tokens.
 type fakeAuth struct{}
 
-func (fakeAuth) Authenticate(_ context.Context, token string) (principal.Principal, error) {
+func (fakeAuth) Authenticate(_ context.Context, token string, _ *x509.Certificate) (principal.Principal, error) {
 	switch token {
 	case "alice", "bob":
 		return principal.Principal{Sub: token, Issuer: "https://idp", Transport: principal.TransportHTTP}, nil
@@ -370,4 +371,22 @@ func TestIdleSessionsReaped(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("idle session not reaped")
+}
+
+func TestSessionBoundToClientCert(t *testing.T) {
+	p := principal.Principal{Sub: "alice", Issuer: "https://idp", Transport: principal.TransportHTTP,
+		Cert: &principal.Cert{Subject: "CN=a", Thumbprint: "t1"}}
+	s := &httpSession{p: p}
+	if !s.ownedBy(p) {
+		t.Fatal("owner refused")
+	}
+	other := p
+	other.Cert = &principal.Cert{Subject: "CN=a", Thumbprint: "t2"}
+	if s.ownedBy(other) {
+		t.Error("session usable over another client certificate")
+	}
+	other.Cert = nil
+	if s.ownedBy(other) {
+		t.Error("session usable without the client certificate")
+	}
 }

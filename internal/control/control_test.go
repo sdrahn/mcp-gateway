@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
+	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/router"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
 )
 
@@ -201,5 +203,77 @@ func TestServeOverUnixSocket(t *testing.T) {
 	}
 	if a.UID != uint32(os.Getuid()) || a.Name == "" {
 		t.Fatalf("whoami %+v", a)
+	}
+}
+
+type fakeInstances struct {
+	list    []router.InstanceInfo
+	stopped []string
+}
+
+func (f *fakeInstances) Instances() []router.InstanceInfo { return f.list }
+
+func (f *fakeInstances) StopInstance(id string) bool {
+	f.stopped = append(f.stopped, id)
+	return true
+}
+
+type fakePolicy map[string]string
+
+func (f fakePolicy) Bundles(context.Context) (map[string]string, error) { return f, nil }
+
+func TestServersAndInstances(t *testing.T) {
+	s, _, _ := setup(t)
+	alice, bob := uint32(1001), uint32(1002)
+	insts := &fakeInstances{list: []router.InstanceInfo{
+		{ID: "i-alice", Server: "fs", Unit: "mcp-fs-1.service", Sub: "alice", UID: &alice},
+		{ID: "i-bob", Server: "fs", Unit: "mcp-fs-2.service", Sub: "bob", UID: &bob},
+	}}
+	s.Backends = map[string]*config.Backend{
+		"fs":  {Name: "fs", SELinuxType: "mcpsrv_fs_t", Isolation: config.IsolationPrincipal, RunAs: "principal", Command: []string{"/secret", "--token=x"}},
+		"git": {Name: "git", SELinuxType: "mcpsrv_git_t", Network: true},
+	}
+	s.Instances = insts
+
+	rec := call(t, s, 1001, "GET", "/v1/servers", "")
+	var got []serverInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if len(got) != 2 || got[0].Name != "fs" || got[1].Name != "git" {
+		t.Fatalf("servers %+v", got)
+	}
+	if len(got[0].Instances) != 1 || got[0].Instances[0].ID != "i-alice" {
+		t.Fatalf("alice sees instances %+v", got[0].Instances)
+	}
+	if strings.Contains(rec.Body.String(), "secret") {
+		t.Fatal("command line exposed")
+	}
+
+	// Bob cannot stop alice's instance (reported as unknown); alice can.
+	if rec := call(t, s, 1002, "DELETE", "/v1/instances/i-alice", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("bob stop: %d", rec.Code)
+	}
+	if rec := call(t, s, 1001, "DELETE", "/v1/instances/i-alice", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("alice stop: %d", rec.Code)
+	}
+	if rec := call(t, s, 1001, "DELETE", "/v1/instances/nope", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown instance: %d", rec.Code)
+	}
+	if len(insts.stopped) != 1 || insts.stopped[0] != "i-alice" {
+		t.Fatalf("stopped %v", insts.stopped)
+	}
+}
+
+func TestPolicyStatus(t *testing.T) {
+	s, _, _ := setup(t)
+	s.Policy = fakePolicy{"mcp": "r42"}
+	rec := call(t, s, 1001, "GET", "/v1/policy", "")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"mode":"bundle"`) || !strings.Contains(rec.Body.String(), `"mcp":"r42"`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	s.Policy = fakePolicy{}
+	if rec := call(t, s, 1001, "GET", "/v1/policy", ""); !strings.Contains(rec.Body.String(), `"mode":"directories"`) {
+		t.Fatalf("%s", rec.Body)
 	}
 }

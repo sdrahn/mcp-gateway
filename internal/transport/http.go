@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -28,9 +29,10 @@ var (
 	ErrInsufficientScope = errors.New("insufficient scope")
 )
 
-// Authenticator validates bearer tokens.
+// Authenticator validates bearer tokens. cert is the client's verified
+// TLS certificate, if it presented one, for certificate-bound tokens.
 type Authenticator interface {
-	Authenticate(ctx context.Context, token string) (principal.Principal, error)
+	Authenticate(ctx context.Context, token string, cert *x509.Certificate) (principal.Principal, error)
 }
 
 // SessionFunc runs an MCP session over conn; first is the hello selecting
@@ -47,6 +49,9 @@ type HTTPConfig struct {
 	AuthorizationServers []string
 	Scopes               []string
 	AllowedOrigins       []string
+	// CertificateBoundTokens announces support for certificate-bound
+	// access tokens (RFC 8705) in the metadata; set with mTLS.
+	CertificateBoundTokens bool
 	// KnownServer reports whether a per-server endpoint exists.
 	KnownServer func(name string) bool
 	SessionIdle time.Duration
@@ -201,6 +206,9 @@ func (h *HTTPHandler) serveMetadata(w http.ResponseWriter, r *http.Request) {
 	if len(h.cfg.Scopes) > 0 {
 		meta["scopes_supported"] = h.cfg.Scopes
 	}
+	if h.cfg.CertificateBoundTokens {
+		meta["tls_client_certificate_bound_access_tokens"] = true
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(meta)
 }
@@ -216,7 +224,12 @@ func (h *HTTPHandler) authenticate(w http.ResponseWriter, r *http.Request) (prin
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return principal.Principal{}, false
 	}
-	p, err := h.auth.Authenticate(r.Context(), strings.TrimSpace(token))
+	var cert *x509.Certificate
+	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+		// Verified by the TLS layer against the client CAs.
+		cert = r.TLS.PeerCertificates[0]
+	}
+	p, err := h.auth.Authenticate(r.Context(), strings.TrimSpace(token), cert)
 	switch {
 	case errors.Is(err, ErrInsufficientScope):
 		w.Header().Set("WWW-Authenticate", challenge+`, error="insufficient_scope"`)
@@ -227,6 +240,9 @@ func (h *HTTPHandler) authenticate(w http.ResponseWriter, r *http.Request) (prin
 		w.Header().Set("WWW-Authenticate", challenge+`, error="invalid_token"`)
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return principal.Principal{}, false
+	}
+	if cert != nil {
+		p.Cert = principal.NewCert(cert)
 	}
 	return p, true
 }
@@ -422,8 +438,18 @@ func (st *stream) send(m *jsonrpc.Message) bool {
 	}
 }
 
+// ownedBy reports whether p may use the session: the same subject, over
+// the same client certificate (if any), which policy may have relied on.
 func (s *httpSession) ownedBy(p principal.Principal) bool {
-	return s.p.Transport == p.Transport && s.p.Issuer == p.Issuer && s.p.Sub == p.Sub
+	return s.p.Transport == p.Transport && s.p.Issuer == p.Issuer && s.p.Sub == p.Sub &&
+		thumbprint(s.p.Cert) == thumbprint(p.Cert)
+}
+
+func thumbprint(c *principal.Cert) string {
+	if c == nil {
+		return ""
+	}
+	return c.Thumbprint
 }
 
 func (s *httpSession) idleSince(d time.Duration) bool {

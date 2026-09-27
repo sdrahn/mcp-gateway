@@ -58,15 +58,16 @@ servers it starts, including the rule that MCP servers can never reach
 the gateway's or OPA's sockets.
 
 %package cockpit
-Summary:        Cockpit page for mcp-gateway approvals
+Summary:        Cockpit page for mcp-gateway
 Group:          System/Management
 BuildArch:      noarch
 Requires:       %{name} = %{version}
 Requires:       cockpit-bridge
 
 %description cockpit
-A Cockpit page to decide on pending mcp-gateway approvals and to list and
-revoke grants, as the logged-in user.
+A Cockpit page for mcp-gateway, as the logged-in user: decide on pending
+approvals and revoke grants, see MCP servers and stop their instances,
+edit role bindings and view the audit records.
 
 %package demo-server
 Summary:        Demo filesystem MCP server for mcp-gateway
@@ -89,7 +90,7 @@ make selinux
 
 %install
 %make_install install install-selinux install-cockpit install-demo \
-    PREFIX=%{_prefix} BINDIR=%{_bindir} LIBEXECDIR=%{_libexecdir} \
+    PREFIX=%{_prefix} BINDIR=%{_bindir} SBINDIR=%{_sbindir} LIBEXECDIR=%{_libexecdir} \
     DATADIR=%{_datadir} SYSCONFDIR=%{_sysconfdir} DISTCONFDIR=%{_distconfdir} \
     UNITDIR=%{_unitdir} SYSUSERSDIR=%{_sysusersdir} \
     SELINUXDIR=%{_datadir}/selinux/packages/%{selinuxtype}
@@ -129,6 +130,7 @@ fi
 %doc README.md docs/architecture.md
 %{_bindir}/mcp-gateway
 %{_bindir}/mcp-connect
+%{_sbindir}/mcp-policy-bundle
 %dir %{_sysconfdir}/mcp-gateway
 %dir %{_sysconfdir}/mcp-gateway/servers.d
 %dir %attr(0700,root,root) %{_sysconfdir}/mcp-gateway/credentials
@@ -144,6 +146,7 @@ fi
 %dir %{_datadir}/mcp-gateway
 %dir %{_datadir}/mcp-gateway/servers.d
 %{_datadir}/mcp-gateway/policy
+%{_datadir}/mcp-gateway/opa
 %{_unitdir}/mcp-gateway.service
 %{_unitdir}/mcp-opa.service
 %{_sysusersdir}/%{name}.conf
