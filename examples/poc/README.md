@@ -1,6 +1,6 @@
 # Proof of concept
 
-What works (docs/architecture.md, section 11, steps 3 to 6):
+What works (docs/architecture.md, section 11, steps 3 to 7):
 
 - local clients on the gateway's unix socket, identified by kernel peer
   credentials (`SO_PEERCRED`, `SO_PEERSEC`);
@@ -105,19 +105,28 @@ clients the URL `https://gateway.example.com:8443/mcp` (aggregated) or
 
 ## Confined mode (systemd + SELinux)
 
-On a Fedora/RHEL host with SELinux enforcing, as root:
+On openSUSE Tumbleweed or SLES 16 (SELinux enforcing), install the
+packages built from `packaging/suse` (see `packaging/suse/README.md`), as
+root:
+
+```bash
+zypper in mcp-gateway mcp-gateway-selinux mcp-gateway-demo-server mcp-gateway-cockpit
+# Bind users or groups to roles in /etc/mcp-gateway/policy/rbac/data.json,
+# e.g. "bindings": {"users": {"alice": ["developer"]}, ...}
+# (examples/poc/rbac/data.json shows a form-approval variant).
+usermod -aG mcp-users alice
+systemctl enable --now mcp-gateway.service
+```
+
+Without packages, from a checkout (`make install` and the `install-*`
+targets take the usual directory variables):
 
 ```bash
 make build selinux
-semodule -i selinux/mcp_gateway.pp
-make install                        # binaries, units, config, policy bundle
-install -Dm0755 "$(command -v opa)" /usr/libexec/mcp-gateway/opa
-install -Dm0755 bin/mcp-fs-demo /usr/libexec/mcp-servers/mcp-fs
-restorecon -R /usr/bin/mcp-gateway /usr/libexec/mcp-gateway /usr/libexec/mcp-servers \
-    /etc/mcp-gateway
+make install install-selinux install-demo install-cockpit DISTCONFDIR=/usr/etc
+semodule -i /usr/share/selinux/packages/targeted/mcp_gateway.pp.bz2
+restorecon -R /usr/bin/mcp-gateway /usr/libexec/mcp-servers /etc/mcp-gateway /usr/etc/mcp-gateway
 systemd-sysusers
-install -m0644 config/servers.d/fs.yaml /etc/mcp-gateway/servers.d/
-cp examples/poc/rbac/data.json /etc/mcp-gateway/policy/rbac/data.json   # bind users/groups there
 systemctl enable --now mcp-gateway.service
 ```
 
@@ -127,7 +136,7 @@ Connect as a member of `mcp-users`:
 mcp-connect --server fs
 ```
 
-Each session starts `mcp-fs-<session>.service`:
+Each principal gets its own `mcp-fs-<instance>.service`:
 
 ```bash
 systemctl list-units 'mcp-*'
@@ -139,4 +148,5 @@ ausearch -m avc -ts recent  # SELinux denials
 The SELinux module covers the launch path; keep a new backend domain
 permissive (`semanage permissive -a mcpsrv_fs_t`) until its rules are
 complete. The confined mode has not been exercised on a real host yet;
-the end-to-end test (`e2e/`) uses development mode.
+the end-to-end tests (`e2e/`) use development mode, and CI only checks
+that the packages build, pass rpmlint, install and load the module.

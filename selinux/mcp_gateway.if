@@ -21,6 +21,25 @@ interface(`mcp_gateway_runtime_file',`
 
 ########################################
 ## <summary>
+##	Search /run, on both reference policy (files_search_runtime) and
+##	Fedora-derived policy such as openSUSE's (files_search_pids).
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed access.
+##	</summary>
+## </param>
+#
+interface(`mcp_gateway_search_runtime',`
+	ifdef(`files_search_runtime',`
+		files_search_runtime($1)
+	',`
+		files_search_pids($1)
+	')
+')
+
+########################################
+## <summary>
 ##	Create a confined domain for a backend MCP server:
 ##	mcpsrv_PREFIX_t with entry point mcpsrv_PREFIX_exec_t, started by
 ##	systemd on behalf of the gateway, talking to it only over the stdio
@@ -77,7 +96,7 @@ interface(`mcp_gateway_client',`
 		type mcpgw_t, mcpgw_runtime_t, mcpgw_sock_t;
 	')
 
-	files_search_runtime($1)
+	mcp_gateway_search_runtime($1)
 	stream_connect_pattern($1, mcpgw_runtime_t, mcpgw_sock_t, mcpgw_t)
 ')
 
@@ -98,7 +117,7 @@ interface(`mcp_gateway_control_client',`
 		type mcpgw_t, mcpgw_runtime_t, mcpgw_ctl_sock_t;
 	')
 
-	files_search_runtime($1)
+	mcp_gateway_search_runtime($1)
 	stream_connect_pattern($1, mcpgw_runtime_t, mcpgw_ctl_sock_t, mcpgw_t)
 ')
 

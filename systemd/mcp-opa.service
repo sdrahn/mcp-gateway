@@ -7,17 +7,21 @@ Before=mcp-gateway.service
 Type=simple
 User=mcp-opa
 Group=mcp-gateway
-# Shared with mcp-gateway.service, which owns the directory.
+# Shared with mcp-gateway.service.
 RuntimeDirectory=mcp-gateway
 RuntimeDirectoryMode=0750
 RuntimeDirectoryPreserve=yes
-# Private copy of opa, labelled mcpopa_exec_t (see selinux/mcp_gateway.fc).
-ExecStart=/usr/libexec/mcp-gateway/opa run --server \
+# The distribution's opa binary, entered into its own SELinux domain here
+# rather than through a file label ("-": ignored where SELinux is off).
+SELinuxContext=-system_u:system_r:mcpopa_t:s0
+# Policy logic (vendor, /usr/share) and role data (administrator, /etc).
+ExecStart=/usr/bin/opa run --server \
     --addr unix:///run/mcp-gateway/opa.sock \
     --unix-socket-perm 0660 \
-    --bundle /etc/mcp-gateway/policy \
     --watch \
-    --log-format json
+    --log-format json \
+    /usr/share/mcp-gateway/policy \
+    /etc/mcp-gateway/policy
 Restart=on-failure
 
 NoNewPrivileges=yes
@@ -29,9 +33,19 @@ PrivateNetwork=yes
 RestrictAddressFamilies=AF_UNIX
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
+ProtectKernelLogs=yes
 ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
 SystemCallFilter=@system-service
 MemoryDenyWriteExecute=yes
+UMask=0027
 
 [Install]
 WantedBy=multi-user.target

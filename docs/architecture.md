@@ -37,7 +37,8 @@ Access must be governed. The gateway shall
 - Defence in depth: a compromised MCP server, or a bug in the policy, must
   still be contained by the kernel (SELinux, cgroups, namespaces, DAC).
 - No modification of the existing MCP servers.
-- Operable with standard Linux tooling: systemd, journald, auditd, RPM.
+- Operable with standard Linux tooling: systemd, journald, auditd, RPM
+  (openSUSE/SLES packages built with OBS).
 
 ### Non-goals (for now)
 
@@ -281,14 +282,18 @@ Unknown methods are **denied by default**.
 ### 5.5 OPA (Policy Decision Point)
 
 - **Deployment:** sidecar `opa run --server` listening on a unix socket
-  (`/run/mcp-gateway/opa.sock`), in its own SELinux domain `mcpopa_t`.
+  (`/run/mcp-gateway/opa.sock`), in its own SELinux domain `mcpopa_t`. The
+  distribution's `/usr/bin/opa` is used; `mcp-opa.service` enters the
+  domain with `SELinuxContext=` rather than relabelling a shared binary.
   Rationale: hot bundle reload, standard OPA tooling, process isolation,
   language neutrality. Embedding OPA as a Go library remains an option if
   latency requires it; the PEP talks to OPA through an interface so both
   are drop-in.
-- **Policy distribution:** OPA bundles (signed), either from local disk
-  (`/etc/mcp-gateway/policy/`) or a bundle server. Signature verification
-  is mandatory in production.
+- **Policy distribution:** today from local disk: policy logic from the
+  package in `/usr/share/mcp-gateway/policy/`, roles and bindings from the
+  administrator in `/etc/mcp-gateway/policy/` (D4), reloaded on change
+  (`--watch`). Planned: signed OPA bundles from a bundle server, with
+  signature verification mandatory in production.
 - **Decision logs:** enabled, masked (`system.log.mask`) to strip argument
   values flagged as sensitive, shipped to the audit sink (§5.9).
 - **Status API:** gateway polls OPA health; unhealthy ⇒ fail closed.
@@ -384,7 +389,7 @@ The gateway:
   the principal comes back; `isolation: session` instances stop with their
   session.
 - **Spawning** via systemd transient units over D-Bus
-  (`StartTransientUnit`), unit name `mcp-<backend>-<sessionid>.service`,
+  (`StartTransientUnit`), unit name `mcp-<backend>-<instanceid>.service`,
   with properties from the backend definition:
   ```ini
   User=alice                 # or DynamicUser=yes (§9, D1)
@@ -393,14 +398,23 @@ The gateway:
   ProtectSystem=strict
   ProtectHome=read-only      # relaxed per backend
   PrivateTmp=yes
+  PrivateDevices=yes
   PrivateNetwork=yes         # unless backend needs network
   RestrictAddressFamilies=AF_UNIX
+  ProtectKernelTunables=yes, ProtectKernelModules=yes, ProtectKernelLogs=yes
+  ProtectControlGroups=yes, ProtectClock=yes, ProtectHostname=yes
+  LockPersonality=yes, RestrictRealtime=yes, RestrictSUIDSGID=yes
+  CapabilityBoundingSet=     # none
+  SystemCallArchitectures=native
   SystemCallFilter=@system-service
+  UMask=0077
   MemoryMax=512M
   TasksMax=64
   RuntimeMaxSec=8h
-  LoadCredential=db-password:/etc/mcp-gateway/creds/db
+  LoadCredential=db-password:/etc/mcp-gateway/creds/db   # planned
   ```
+  `MemoryDenyWriteExecute=` is deliberately not set: it breaks JIT
+  runtimes such as Node.js, which many MCP servers use.
   stdio is wired by passing one end of a gateway-owned socketpair to
   systemd through the transient-unit properties
   `StandardInputFileDescriptor` / `StandardOutputFileDescriptor`
@@ -411,7 +425,11 @@ The gateway:
 - **Credentials:** the gateway **never forwards client tokens** to
   backends (token passthrough is prohibited by the MCP authorization
   specification). Backend secrets come from systemd credentials.
-- **Backend registry** (`/etc/mcp-gateway/servers.d/*.yaml`):
+- **Backend registry:** one YAML file per backend. Packages install
+  theirs to `/usr/share/mcp-gateway/servers.d/`; files in
+  `/etc/mcp-gateway/servers.d/` override those of the same name, and an
+  empty file (or a symlink to `/dev/null`) disables one, like systemd
+  units. Example:
   ```yaml
   name: fs
   command: ["/usr/libexec/mcp-servers/mcp-fs", "--root", "${HOME}"]
@@ -805,7 +823,7 @@ gateway-originated features (e.g. the aggregated endpoint).
 **D7 — OPA deployment.**
 *Decision (accepted):* sidecar over unix socket for v1 (§5.5).
 
-## 10. Repository layout (planned)
+## 10. Repository layout
 
 ```
 cmd/
@@ -824,7 +842,7 @@ internal/
 policy/                   # default Rego bundle + tests
 selinux/                  # mcp_gateway.te / .fc / .if
 systemd/                  # mcp-gateway.service, mcp-gateway.socket, mcp-opa.service
-packaging/                # RPM spec
+packaging/                # OBS/RPM (suse/), sysusers, polkit, demo server definition
 docs/
 ```
 
@@ -850,9 +868,16 @@ docs/
    server (JWT/JWKS validation, RFC 9728 metadata, local account mapping).
 6. **Approvals** (done): URL-mode and out-of-band approvals, control API,
    Cockpit approvals page, persistent grants.
-7. MCS allocator, per-session isolation, hardening, RPM packaging.
+7. **Packaging and hardening** (done, pending tests on a real host):
+   openSUSE/SLES packages via OBS (`packaging/suse`), vendor/admin file
+   layout, tighter systemd sandboxes; MCS allocation and per-session
+   isolation were done with steps 3 and 4.
 
 ## 12. Open items
+
+- Distribution focus is openSUSE and SLES (packages via OBS,
+  `packaging/suse`). SLES 15 uses AppArmor, not SELinux; an AppArmor
+  profile set would be needed there.
 
 - Path arguments: policy rejects `..` segments, but symlinks inside an
   allowed tree can still point elsewhere. Resolving paths needs knowledge

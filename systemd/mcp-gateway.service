@@ -10,8 +10,8 @@ Type=simple
 User=mcp-gateway
 Group=mcp-gateway
 # Backend instances are started as transient units over D-Bus; the
-# gateway is allowed to manage mcp-*.service units by
-# packaging/polkit/50-mcp-gateway.rules.
+# gateway may manage mcp-*.service units only (polkit rule
+# 50-mcp-gateway.rules).
 ExecStartPre=/usr/bin/mcp-gateway --check
 ExecStart=/usr/bin/mcp-gateway
 Restart=on-failure
@@ -20,7 +20,6 @@ RuntimeDirectoryMode=0750
 RuntimeDirectoryPreserve=yes
 StateDirectory=mcp-gateway
 StateDirectoryMode=0700
-ConfigurationDirectory=mcp-gateway
 
 NoNewPrivileges=yes
 ProtectSystem=strict
@@ -30,9 +29,19 @@ PrivateDevices=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
+ProtectKernelLogs=yes
 ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
 SystemCallFilter=@system-service
 MemoryDenyWriteExecute=yes
+UMask=0027
 
 [Install]
 WantedBy=multi-user.target
