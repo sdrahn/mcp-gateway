@@ -98,9 +98,59 @@ test_grant_does_not_bypass_arg_constraints if {
 	authz.decision.effect == "deny" with input as inp
 }
 
-test_other_actions_denied if {
-	inp := object.union(call(alice, "git", "commit", {}), {"action": "resources.read"})
-	authz.decision.effect == "deny" with input as inp
+req(principal, action, server, kind, name) := {
+	"principal": principal,
+	"action": action,
+	"resource": {"server": server, "kind": kind, "name": name},
+	"grants": [],
+}
+
+test_unknown_action_denied if {
+	authz.decision.effect == "deny" with input as req(alice, "tools.frobnicate", "git", "tool", "commit")
+}
+
+test_resource_in_home_allowed if {
+	authz.decision.effect == "allow" with input as req(alice, "resources.read", "fs", "resource", "file:///home/alice/notes.txt")
+	authz.decision.effect == "allow" with input as req(alice, "resources.subscribe", "fs", "resource", "file:///home/alice/a/b.txt")
+}
+
+test_resource_outside_home_denied if {
+	authz.decision.effect == "deny" with input as req(alice, "resources.read", "fs", "resource", "file:///etc/passwd")
+	authz.decision.effect == "deny" with input as req(alice, "resources.read", "git", "resource", "file:///home/alice/x")
+}
+
+test_resource_dotdot_denied if {
+	authz.decision.effect == "deny" with input as req(alice, "resources.read", "fs", "resource", "file:///home/alice/../bob/x")
+	authz.decision.effect == "deny" with input as req(alice, "resources.read", "fs", "resource", "file:///home/alice/%2E%2e/bob/x")
+}
+
+test_resource_home_glob_escaped if {
+	starry := object.union(alice, {"home": "/home/a*"})
+	authz.decision.effect == "allow" with input as req(starry, "resources.read", "fs", "resource", "file:///home/a*/x")
+	authz.decision.effect == "deny" with input as req(starry, "resources.read", "fs", "resource", "file:///home/abc/x")
+}
+
+test_tool_permission_does_not_grant_resource if {
+	# developers may use every git tool, but no git resource
+	authz.decision.effect == "deny" with input as req(alice, "resources.read", "git", "resource", "git://repo")
+}
+
+test_prompts if {
+	authz.decision.effect == "allow" with input as req(alice, "prompts.get", "git", "prompt", "summarize")
+	authz.decision.effect == "deny" with input as req({"sub": "mallory", "session_id": "s9"}, "prompts.get", "git", "prompt", "summarize")
+}
+
+test_completion if {
+	authz.decision.effect == "allow" with input as req(alice, "completion.complete", "git", "prompt", "summarize")
+	authz.decision.effect == "allow" with input as req(alice, "completion.complete", "fs", "resource_template", "file:///{path}")
+	authz.decision.effect == "deny" with input as req(alice, "completion.complete", "git", "resource_template", "git://{repo}")
+}
+
+test_backend_requests if {
+	admin := object.union(alice, {"groups": ["wheel"]})
+	authz.decision.effect == "allow" with input as req(admin, "roots.list", "fs", "client", "roots/list")
+	authz.decision.effect == "deny" with input as req(alice, "roots.list", "fs", "client", "roots/list")
+	authz.decision.effect == "deny" with input as req(alice, "sampling.create", "fs", "client", "sampling/createMessage")
 }
 
 test_filter_hides_denied_tools if {
@@ -114,5 +164,21 @@ test_filter_hides_denied_tools if {
 	v == {
 		{"server": "git", "kind": "tool", "name": "commit"},
 		{"server": "fs", "kind": "tool", "name": "write_file"},
+	}
+}
+
+test_filter_resources_prompts_templates if {
+	resources := [
+		{"server": "fs", "kind": "resource", "name": "file:///home/alice/a.txt"},
+		{"server": "fs", "kind": "resource", "name": "file:///etc/passwd"},
+		{"server": "fs", "kind": "resource_template", "name": "file:///{path}"},
+		{"server": "git", "kind": "resource_template", "name": "git://{repo}"},
+		{"server": "git", "kind": "prompt", "name": "summarize"},
+	]
+	v := filter.visible with input as {"principal": alice, "resources": resources}
+	v == {
+		{"server": "fs", "kind": "resource", "name": "file:///home/alice/a.txt"},
+		{"server": "fs", "kind": "resource_template", "name": "file:///{path}"},
+		{"server": "git", "kind": "prompt", "name": "summarize"},
 	}
 }

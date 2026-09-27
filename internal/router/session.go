@@ -16,146 +16,101 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/version"
 )
 
-// Client → backend requests forwarded without a policy decision. Their
-// results are either harmless or filtered (the */list methods).
-var passthroughRequests = map[string]bool{
-	"initialize":               true,
-	"ping":                     true,
-	"tools/list":               true,
-	"resources/list":           true,
-	"resources/templates/list": true,
-	"prompts/list":             true,
-	"logging/setLevel":         true,
-}
+// maxListPages bounds how many pages the gateway fetches from one backend
+// for a single */list request.
+const maxListPages = 100
 
-// Client → backend requests that need a policy decision, and their policy
-// action names.
-var enforcedRequests = map[string]string{
-	"tools/call":            "tools.call",
-	"resources/read":        "resources.read",
-	"resources/subscribe":   "resources.subscribe",
-	"resources/unsubscribe": "resources.unsubscribe",
-	"prompts/get":           "prompts.get",
-	"completion/complete":   "completion.complete",
-}
-
-// Backend → client requests and their policy action names. ping is
-// always allowed.
+// Backend → client requests and their policy action names (ping is
+// answered by the gateway itself).
 var backendRequests = map[string]string{
 	"sampling/createMessage": "sampling.create",
 	"elicitation/create":     "elicitation.create",
 	"roots/list":             "roots.list",
 }
 
-var clientNotifications = map[string]bool{
-	"notifications/initialized":        true,
-	"notifications/cancelled":          true,
-	"notifications/progress":           true,
-	"notifications/roots/list_changed": true,
+// listSpec describes a */list method.
+type listSpec struct {
+	field      string // result array field
+	kind       string // policy resource kind
+	key        string // identifying item field
+	capability string // backend capability required
+	uri        bool   // key is a URI (namespaced with exposeURI)
 }
 
-var backendNotifications = map[string]bool{
-	"notifications/message":                true,
-	"notifications/progress":               true,
-	"notifications/cancelled":              true,
-	"notifications/tools/list_changed":     true,
-	"notifications/resources/list_changed": true,
-	"notifications/resources/updated":      true,
-	"notifications/prompts/list_changed":   true,
+var listSpecs = map[string]listSpec{
+	"tools/list":               {field: "tools", kind: "tool", key: "name", capability: "tools"},
+	"prompts/list":             {field: "prompts", kind: "prompt", key: "name", capability: "prompts"},
+	"resources/list":           {field: "resources", kind: "resource", key: "uri", capability: "resources", uri: true},
+	"resources/templates/list": {field: "resourceTemplates", kind: "resource_template", key: "uriTemplate", capability: "resources", uri: true},
 }
 
-// Session proxies one client connection to one backend instance.
+// Session terminates one client's MCP session and routes its requests to
+// backend instances (one backend, or all of them on the aggregated
+// endpoint).
 type Session struct {
-	server   string
-	instance string
-	client   *jsonrpc.Conn
-	backend  *jsonrpc.Conn
-	pdp      pep.PDP
-	broker   *broker.Broker
-	audit    *audit.Logger
-	log      *slog.Logger
+	r      *Router
+	ep     endpoint
+	client *jsonrpc.Conn
+	log    *slog.Logger
+	ctx    context.Context
 
 	nextID atomic.Int64
 
-	mu         sync.Mutex
-	principal  principal.Principal
-	clientCaps map[string]json.RawMessage
-	// Methods of client requests awaiting a backend response, by id key.
-	pending map[string]string
-	// Gateway-originated requests to the client, by id key.
-	outbound map[string]chan *jsonrpc.Message
-	// Backend requests forwarded to the client: gateway id key → backend id.
-	backendIDs map[string]json.RawMessage
-	// Tool annotations from the last tools/list, by tool name.
-	annotations map[string]map[string]any
+	mu          sync.Mutex
+	principal   principal.Principal
+	clientCaps  map[string]json.RawMessage
+	upstreams   map[string]*upstream
+	releases    []func()
+	outbound    map[string]chan *jsonrpc.Message
+	inflight    map[string]context.CancelFunc
+	annotations map[string]map[string]any // by exposed tool name
 }
 
-// SessionConfig holds a Session's collaborators.
-type SessionConfig struct {
-	Principal principal.Principal
-	Server    string
-	Instance  string
-	Client    *jsonrpc.Conn
-	Backend   *jsonrpc.Conn
-	PDP       pep.PDP
-	Broker    *broker.Broker
-	Audit     *audit.Logger
-	Log       *slog.Logger
-}
-
-// NewSession creates a session.
-func NewSession(c SessionConfig) *Session {
-	log := c.Log
-	if log == nil {
-		log = slog.New(slog.DiscardHandler)
-	}
+func newSession(r *Router, ep endpoint, client *jsonrpc.Conn, p principal.Principal) *Session {
 	return &Session{
-		server:      c.Server,
-		instance:    c.Instance,
-		client:      c.Client,
-		backend:     c.Backend,
-		pdp:         c.PDP,
-		broker:      c.Broker,
-		audit:       c.Audit,
-		log:         log.With("session", c.Principal.SessionID, "server", c.Server),
-		principal:   c.Principal,
-		pending:     map[string]string{},
+		r:           r,
+		ep:          ep,
+		client:      client,
+		log:         r.Log.With("session", p.SessionID, "sub", p.Sub),
+		principal:   p,
+		upstreams:   map[string]*upstream{},
 		outbound:    map[string]chan *jsonrpc.Message{},
-		backendIDs:  map[string]json.RawMessage{},
+		inflight:    map[string]context.CancelFunc{},
 		annotations: map[string]map[string]any{},
 	}
 }
 
-// Run proxies until either side closes or ctx ends. It closes both
-// connections before returning.
-func (s *Session) Run(ctx context.Context) error {
+// Run serves the client until it disconnects or ctx ends. first, if not
+// nil, is a message already read from the client.
+func (s *Session) Run(ctx context.Context, first *jsonrpc.Message) error {
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	errc := make(chan error, 2)
-	go func() { errc <- s.pumpClient(ctx) }()
-	go func() { errc <- s.pumpBackend(ctx) }()
-	var err error
-	select {
-	case err = <-errc:
-	case <-ctx.Done():
+	s.ctx = ctx
+	defer func() {
+		cancel()
+		_ = s.client.Close()
+		s.mu.Lock()
+		ups, releases := s.upstreams, s.releases
+		s.upstreams, s.releases = map[string]*upstream{}, nil
+		s.mu.Unlock()
+		for _, u := range ups {
+			u.detach(s)
+		}
+		for _, release := range releases {
+			release()
+		}
+		s.r.Broker.EndSession(s.principal.SessionID)
+	}()
+	go func() {
+		<-ctx.Done()
+		_ = s.client.Close()
+	}()
+
+	if first != nil {
+		s.dispatch(first)
 	}
-	cancel()
-	_ = s.client.Close()
-	_ = s.backend.Close()
-	return err
-}
-
-func (s *Session) snapshotPrincipal() principal.Principal {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.principal
-}
-
-// --- client → gateway ---------------------------------------------------
-
-func (s *Session) pumpClient(ctx context.Context) error {
 	for {
 		m, err := s.client.Read()
 		if err != nil {
@@ -166,191 +121,554 @@ func (s *Session) pumpClient(ctx context.Context) error {
 			}
 			return err
 		}
-		switch {
-		case m.IsResponse():
-			s.clientResponse(m)
-		case m.IsNotification():
-			if clientNotifications[m.Method] {
-				_ = s.backend.Write(m)
-			} else {
-				s.log.Debug("dropped client notification", "method", m.Method)
-			}
-		case m.IsRequest():
-			s.clientRequest(ctx, m)
-		}
+		s.dispatch(m)
 	}
 }
 
-func (s *Session) clientResponse(m *jsonrpc.Message) {
+func (s *Session) snapshotPrincipal() principal.Principal {
 	s.mu.Lock()
-	ch, isOutbound := s.outbound[m.Key()]
-	delete(s.outbound, m.Key())
-	backendID, isBackend := s.backendIDs[m.Key()]
-	delete(s.backendIDs, m.Key())
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	return s.principal
+}
+
+func (s *Session) dispatch(m *jsonrpc.Message) {
 	switch {
-	case isOutbound:
-		ch <- m
-	case isBackend:
-		m.ID = backendID
-		_ = s.backend.Write(m)
-	default:
-		s.log.Debug("dropped unexpected client response", "id", m.Key())
+	case m.IsResponse():
+		s.mu.Lock()
+		ch := s.outbound[m.Key()]
+		delete(s.outbound, m.Key())
+		s.mu.Unlock()
+		if ch != nil {
+			ch <- m
+		}
+	case m.IsNotification():
+		s.clientNotification(m)
+	case m.IsRequest():
+		s.clientRequest(m)
 	}
 }
 
-func (s *Session) clientRequest(ctx context.Context, m *jsonrpc.Message) {
-	if m.Method == "initialize" {
-		s.recordInitialize(m.Params)
+func (s *Session) clientNotification(m *jsonrpc.Message) {
+	switch m.Method {
+	case "notifications/cancelled":
+		var p struct {
+			RequestID json.RawMessage `json:"requestId"`
+		}
+		if json.Unmarshal(m.Params, &p) == nil {
+			s.mu.Lock()
+			cancel := s.inflight[string(p.RequestID)]
+			s.mu.Unlock()
+			if cancel != nil {
+				cancel()
+			}
+		}
+	case "notifications/roots/list_changed":
+		s.mu.Lock()
+		ups := make([]*upstream, 0, len(s.upstreams))
+		for _, u := range s.upstreams {
+			ups = append(ups, u)
+		}
+		s.mu.Unlock()
+		for _, u := range ups {
+			_ = u.notify(m.Method, nil)
+		}
+	default:
+		// notifications/initialized: the gateway initialized its backends
+		// itself. Anything else is dropped.
 	}
-	if passthroughRequests[m.Method] {
-		s.forward(m)
-		return
+}
+
+// handler serves one client request. It returns a result, or an error to
+// send instead.
+type handler func(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error)
+
+func (s *Session) handlers(method string) (handler, bool) {
+	switch method {
+	case "initialize":
+		return s.initialize, true
+	case "ping":
+		return func(context.Context, *jsonrpc.Message) (any, *jsonrpc.Error) { return map[string]any{}, nil }, true
+	case "tools/list", "prompts/list", "resources/list", "resources/templates/list":
+		return s.list, true
+	case "tools/call", "prompts/get", "resources/read", "resources/subscribe",
+		"resources/unsubscribe", "completion/complete":
+		return s.call, true
+	case "logging/setLevel":
+		return s.setLevel, true
 	}
-	action, enforced := enforcedRequests[m.Method]
-	if !enforced {
+	return nil, false
+}
+
+func (s *Session) clientRequest(m *jsonrpc.Message) {
+	h, ok := s.handlers(m.Method)
+	if !ok {
 		p := s.snapshotPrincipal()
-		s.audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: m.Method,
-			Server: s.server, Effect: string(pep.Deny), Reason: "method not permitted"})
+		s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: m.Method,
+			Effect: string(pep.Deny), Reason: "method not permitted"})
 		_ = s.client.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeMethodNotFound, "method not permitted by gateway"))
 		return
 	}
-	// Decisions may wait for a human; keep reading other messages meanwhile.
-	go s.enforce(ctx, m, action)
-}
-
-func (s *Session) forward(m *jsonrpc.Message) {
+	ctx, cancel := context.WithCancel(s.ctx)
 	s.mu.Lock()
-	s.pending[m.Key()] = m.Method
+	s.inflight[m.Key()] = cancel
 	s.mu.Unlock()
-	if err := s.backend.Write(m); err != nil {
-		_ = s.client.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "backend unavailable"))
-	}
+	// Requests may wait for backends or humans; serve them concurrently.
+	go func() {
+		defer func() {
+			cancel()
+			s.mu.Lock()
+			delete(s.inflight, m.Key())
+			s.mu.Unlock()
+		}()
+		result, rpcErr := h(ctx, m)
+		if ctx.Err() != nil {
+			return // cancelled by the client or the session ended
+		}
+		if rpcErr != nil {
+			_ = s.client.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Error: rpcErr})
+			return
+		}
+		resp, err := jsonrpc.NewResult(m.ID, result)
+		if err != nil {
+			resp = jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "internal error")
+		}
+		_ = s.client.Write(resp)
+	}()
 }
 
-func (s *Session) recordInitialize(params json.RawMessage) {
-	var p struct {
-		Capabilities map[string]json.RawMessage `json:"capabilities"`
-		ClientInfo   principal.Client           `json:"clientInfo"`
+func rpcError(code int, msg string) *jsonrpc.Error { return &jsonrpc.Error{Code: code, Message: msg} }
+
+// upstream returns the session's instance of backend name, acquiring it
+// from the pool on first use.
+func (s *Session) upstream(ctx context.Context, name string) (*upstream, error) {
+	s.mu.Lock()
+	u := s.upstreams[name]
+	s.mu.Unlock()
+	if u != nil && !u.isClosed() {
+		return u, nil
 	}
-	if err := json.Unmarshal(params, &p); err != nil {
-		return
+	b := s.ep.backends[name]
+	if b == nil {
+		return nil, fmt.Errorf("unknown server %q", name)
+	}
+	u, release, err := s.r.pool.acquire(ctx, b, s.snapshotPrincipal())
+	if err != nil {
+		s.log.Error("backend unavailable", "server", name, "err", err)
+		return nil, err
+	}
+	s.mu.Lock()
+	if cur := s.upstreams[name]; cur != nil && !cur.isClosed() {
+		s.mu.Unlock()
+		release()
+		return cur, nil
+	}
+	s.upstreams[name] = u
+	s.releases = append(s.releases, release)
+	s.mu.Unlock()
+	u.attach(s)
+	return u, nil
+}
+
+// --- initialize ---------------------------------------------------------
+
+func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error) {
+	var p struct {
+		ProtocolVersion string                     `json:"protocolVersion"`
+		Capabilities    map[string]json.RawMessage `json:"capabilities"`
+		ClientInfo      principal.Client           `json:"clientInfo"`
+	}
+	if err := json.Unmarshal(m.Params, &p); err != nil {
+		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params")
 	}
 	s.mu.Lock()
 	s.clientCaps = p.Capabilities
 	s.principal.Client = p.ClientInfo
 	s.mu.Unlock()
-}
 
-type callParams struct {
-	Name      string         `json:"name"`
-	Arguments map[string]any `json:"arguments"`
-	URI       string         `json:"uri"`
-	Ref       struct {
-		Name string `json:"name"`
-		URI  string `json:"uri"`
-	} `json:"ref"`
-}
-
-// target extracts the resource an enforced request addresses.
-func (s *Session) target(m *jsonrpc.Message) (pep.Resource, map[string]any, error) {
-	var p callParams
-	if err := json.Unmarshal(m.Params, &p); err != nil {
-		return pep.Resource{}, nil, err
+	v := protocolVersion
+	if supportedVersions[p.ProtocolVersion] {
+		v = p.ProtocolVersion
 	}
-	r := pep.Resource{Server: s.server}
-	switch m.Method {
-	case "tools/call":
-		r.Kind, r.Name = "tool", p.Name
+	if !s.ep.aggregated {
+		u, err := s.upstream(ctx, s.ep.order[0])
+		if err != nil {
+			return nil, rpcError(jsonrpc.CodeInternalError, "backend unavailable")
+		}
+		res := map[string]any{"protocolVersion": v, "capabilities": u.init.Capabilities, "serverInfo": u.init.ServerInfo}
+		if u.init.Instructions != "" {
+			res["instructions"] = u.init.Instructions
+		}
+		return res, nil
+	}
+	return map[string]any{
+		"protocolVersion": v,
+		"capabilities": map[string]any{
+			"tools":       map[string]any{"listChanged": true},
+			"prompts":     map[string]any{"listChanged": true},
+			"resources":   map[string]any{"subscribe": true, "listChanged": true},
+			"completions": map[string]any{},
+			"logging":     map[string]any{},
+		},
+		"serverInfo": map[string]any{"name": "mcp-gateway", "version": version.Version},
+		"instructions": "This server aggregates several MCP servers. Tool and prompt names are " +
+			"prefixed with \"<server>" + nameSep + "\", resource URIs with \"" + uriPrefix + "<server>:\".",
+	}, nil
+}
+
+// --- */list -------------------------------------------------------------
+
+type listItem struct {
+	server string
+	name   string
+	raw    map[string]json.RawMessage
+}
+
+func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error) {
+	spec := listSpecs[m.Method]
+	var items []listItem
+	for _, server := range s.ep.order {
+		got, err := s.fetchList(ctx, server, m.Method, spec)
+		if err != nil {
+			if !s.ep.aggregated {
+				return nil, rpcError(jsonrpc.CodeInternalError, "backend unavailable")
+			}
+			s.log.Warn("listing failed; skipping server", "server", server, "method", m.Method, "err", err)
+			continue
+		}
+		items = append(items, got...)
+	}
+
+	resources := make([]pep.Resource, len(items))
+	for i, it := range items {
+		resources[i] = pep.Resource{Server: it.server, Kind: spec.kind, Name: it.name}
+	}
+	type key struct{ server, kind, name string }
+	visible := map[key]bool{}
+	if len(resources) > 0 {
+		vs, err := s.r.PDP.Visible(ctx, s.snapshotPrincipal(), resources)
+		if err != nil {
+			s.log.Warn("filtering failed; hiding everything", "method", m.Method, "err", err)
+		}
+		for _, r := range vs {
+			visible[key{r.Server, r.Kind, r.Name}] = true
+		}
+	}
+
+	out := make([]map[string]json.RawMessage, 0, len(items))
+	annotations := map[string]map[string]any{}
+	for _, it := range items {
+		if !visible[key{it.server, spec.kind, it.name}] {
+			continue
+		}
+		exposed := s.ep.exposeName(it.server, it.name)
+		if spec.uri {
+			exposed = s.ep.exposeURI(it.server, it.name)
+		}
+		b, _ := json.Marshal(exposed)
+		it.raw[spec.key] = b
+		if spec.kind == "tool" {
+			var a map[string]any
+			_ = json.Unmarshal(it.raw["annotations"], &a)
+			annotations[exposed] = a
+		}
+		out = append(out, it.raw)
+	}
+	if spec.kind == "tool" {
 		s.mu.Lock()
-		r.Annotations = s.annotations[p.Name]
+		s.annotations = annotations
 		s.mu.Unlock()
-	case "prompts/get":
-		r.Kind, r.Name = "prompt", p.Name
-	case "completion/complete":
-		r.Kind, r.Name = "completion", p.Ref.Name+p.Ref.URI
-	default: // resources/*
-		r.Kind, r.Name = "resource", p.URI
 	}
-	if r.Name == "" {
-		return pep.Resource{}, nil, errors.New("missing target name")
-	}
-	return r, p.Arguments, nil
+	return map[string]any{spec.field: out}, nil
 }
 
-func (s *Session) enforce(ctx context.Context, m *jsonrpc.Message, action string) {
-	res, args, err := s.target(m)
+// fetchList returns all items of one backend's list, following cursors.
+func (s *Session) fetchList(ctx context.Context, server, method string, spec listSpec) ([]listItem, error) {
+	u, err := s.upstream(ctx, server)
 	if err != nil {
-		_ = s.client.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeInvalidParams, "invalid params"))
-		return
+		return nil, err
 	}
+	if !u.init.has(spec.capability) {
+		return nil, nil
+	}
+	var items []listItem
+	cursor := ""
+	for page := 0; page < maxListPages; page++ {
+		params := map[string]any{}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		resp, err := u.request(ctx, s, method, params)
+		if err != nil {
+			return nil, err
+		}
+		if resp.Error != nil {
+			return nil, resp.Error
+		}
+		var res map[string]json.RawMessage
+		if err := json.Unmarshal(resp.Result, &res); err != nil {
+			return nil, err
+		}
+		var raws []map[string]json.RawMessage
+		if err := json.Unmarshal(res[spec.field], &raws); err != nil && len(res[spec.field]) > 0 {
+			return nil, err
+		}
+		for _, raw := range raws {
+			var name string
+			if json.Unmarshal(raw[spec.key], &name) != nil || name == "" {
+				continue
+			}
+			items = append(items, listItem{server: server, name: name, raw: raw})
+		}
+		cursor = ""
+		_ = json.Unmarshal(res["nextCursor"], &cursor)
+		if cursor == "" {
+			return items, nil
+		}
+	}
+	return items, nil
+}
+
+// --- enforced calls -----------------------------------------------------
+
+// callTarget is what an enforced request addresses.
+type callTarget struct {
+	server   string
+	resource pep.Resource
+	action   string
+	args     map[string]any
+	// rewrite puts the backend's name/URI back into the params.
+	rewrite func(params map[string]json.RawMessage)
+}
+
+func (s *Session) target(method string, params map[string]json.RawMessage) (*callTarget, *jsonrpc.Error) {
+	str := func(raw json.RawMessage) string {
+		var v string
+		_ = json.Unmarshal(raw, &v)
+		return v
+	}
+	set := func(params map[string]json.RawMessage, key, v string) {
+		b, _ := json.Marshal(v)
+		params[key] = b
+	}
+	invalid := rpcError(jsonrpc.CodeInvalidParams, "invalid params")
+	notFound := func(what string) *jsonrpc.Error {
+		return rpcError(jsonrpc.CodeInvalidParams, "unknown "+what)
+	}
+
+	switch method {
+	case "tools/call", "prompts/get":
+		server, name, ok := s.ep.resolveName(str(params["name"]))
+		if !ok {
+			return nil, notFound("tool or prompt")
+		}
+		t := &callTarget{server: server, rewrite: func(p map[string]json.RawMessage) { set(p, "name", name) }}
+		var args map[string]any
+		if raw, ok := params["arguments"]; ok && json.Unmarshal(raw, &args) != nil {
+			return nil, invalid
+		}
+		t.args = args
+		if method == "tools/call" {
+			exposed := str(params["name"])
+			s.mu.Lock()
+			ann := s.annotations[exposed]
+			s.mu.Unlock()
+			t.action, t.resource = "tools.call", pep.Resource{Server: server, Kind: "tool", Name: name, Annotations: ann}
+		} else {
+			t.action, t.resource = "prompts.get", pep.Resource{Server: server, Kind: "prompt", Name: name}
+		}
+		return t, nil
+
+	case "resources/read", "resources/subscribe", "resources/unsubscribe":
+		server, uri, ok := s.ep.resolveURI(str(params["uri"]))
+		if !ok {
+			return nil, notFound("resource")
+		}
+		actions := map[string]string{"resources/read": "resources.read", "resources/subscribe": "resources.subscribe", "resources/unsubscribe": "resources.unsubscribe"}
+		return &callTarget{server: server, action: actions[method],
+			resource: pep.Resource{Server: server, Kind: "resource", Name: uri},
+			rewrite:  func(p map[string]json.RawMessage) { set(p, "uri", uri) }}, nil
+
+	case "completion/complete":
+		var ref map[string]json.RawMessage
+		if json.Unmarshal(params["ref"], &ref) != nil {
+			return nil, invalid
+		}
+		t := &callTarget{action: "completion.complete"}
+		switch str(ref["type"]) {
+		case "ref/prompt":
+			server, name, ok := s.ep.resolveName(str(ref["name"]))
+			if !ok {
+				return nil, notFound("prompt")
+			}
+			t.server, t.resource = server, pep.Resource{Server: server, Kind: "prompt", Name: name}
+			t.rewrite = func(p map[string]json.RawMessage) {
+				set(ref, "name", name)
+				p["ref"], _ = json.Marshal(ref)
+			}
+		case "ref/resource":
+			server, uri, ok := s.ep.resolveURI(str(ref["uri"]))
+			if !ok {
+				return nil, notFound("resource template")
+			}
+			t.server, t.resource = server, pep.Resource{Server: server, Kind: "resource_template", Name: uri}
+			t.rewrite = func(p map[string]json.RawMessage) {
+				set(ref, "uri", uri)
+				p["ref"], _ = json.Marshal(ref)
+			}
+		default:
+			return nil, invalid
+		}
+		return t, nil
+	}
+	return nil, invalid
+}
+
+func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error) {
+	var params map[string]json.RawMessage
+	if err := json.Unmarshal(m.Params, &params); err != nil {
+		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params")
+	}
+	t, rpcErr := s.target(m.Method, params)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+
+	dec, grantID := s.decide(ctx, t)
+	p := s.snapshotPrincipal()
+	s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: t.action, Server: t.server,
+		Name: t.resource.Name, Effect: string(dec.Effect), Reason: dec.Reason, GrantID: grantID, Args: t.args})
+	if dec.Effect != pep.Allow {
+		return s.denial(m.Method, dec.Reason)
+	}
+
+	u, err := s.upstream(ctx, t.server)
+	if err != nil {
+		return nil, rpcError(jsonrpc.CodeInternalError, "backend unavailable")
+	}
+	t.rewrite(params)
+	if gw := s.rewriteProgressToken(u, params); gw != nil {
+		defer u.unregisterProgress(gw)
+	}
+	resp, err := u.request(ctx, s, m.Method, params)
+	if err != nil {
+		return nil, rpcError(jsonrpc.CodeInternalError, "backend unavailable")
+	}
+	if resp.Error != nil {
+		return nil, resp.Error
+	}
+	if m.Method == "resources/read" && s.ep.aggregated {
+		return s.exposeContents(t.server, resp.Result), nil
+	}
+	return resp.Result, nil
+}
+
+// decide evaluates policy for t, obtaining an approval if policy asks.
+func (s *Session) decide(ctx context.Context, t *callTarget) (pep.Decision, string) {
 	p := s.snapshotPrincipal()
 	in := pep.Input{
 		Principal: p,
-		Action:    action,
-		Resource:  res,
-		Args:      args,
-		Grants:    s.broker.Grants(p, res.Server, res.Name),
-		Context:   s.policyContext(m),
+		Action:    t.action,
+		Resource:  t.resource,
+		Args:      t.args,
+		Grants:    s.r.Broker.Grants(p, t.resource.Server, t.resource.Name),
+		Context:   s.policyContext(),
 	}
-	dec := pep.Evaluate(ctx, s.pdp, in)
-	var grantID string
-
+	dec := pep.Evaluate(ctx, s.r.PDP, in)
+	if dec.Effect != pep.Ask {
+		return dec, ""
+	}
+	g, err := s.r.Broker.Approve(ctx, s, in, *dec.Ask)
+	switch {
+	case errors.Is(err, broker.ErrNoChannel):
+		return pep.Decision{Effect: pep.Deny, Reason: fmt.Sprintf("approval via %s required but not available", dec.Ask.Channel)}, ""
+	case err != nil:
+		s.log.Warn("approval failed", "err", err)
+		return pep.Decision{Effect: pep.Deny, Reason: "approval failed"}, ""
+	case g == nil:
+		return pep.Decision{Effect: pep.Deny, Reason: "declined by user"}, ""
+	}
+	// Stored grants now include g, unless it is a "once" grant, which is
+	// only valid for this re-evaluation.
+	in.Grants = s.r.Broker.Grants(p, t.resource.Server, t.resource.Name)
+	if g.Scope == "once" {
+		in.Grants = append(in.Grants, *g)
+	}
+	dec = pep.Evaluate(ctx, s.r.PDP, in)
 	if dec.Effect == pep.Ask {
-		g, err := s.broker.Approve(ctx, s, in, *dec.Ask)
-		switch {
-		case errors.Is(err, broker.ErrNoChannel):
-			dec = pep.Decision{Effect: pep.Deny, Reason: fmt.Sprintf("approval via %s required but not available", dec.Ask.Channel)}
-		case err != nil:
-			s.log.Warn("approval failed", "err", err)
-			dec = pep.Decision{Effect: pep.Deny, Reason: "approval failed"}
-		case g == nil:
-			dec = pep.Decision{Effect: pep.Deny, Reason: "declined by user"}
-		default:
-			grantID = g.ID
-			// Stored grants now include g, unless it is a "once" grant,
-			// which is only valid for this re-evaluation.
-			in.Grants = s.broker.Grants(p, res.Server, res.Name)
-			if g.Scope == "once" {
-				in.Grants = append(in.Grants, *g)
-			}
-			dec = pep.Evaluate(ctx, s.pdp, in)
-			if dec.Effect == pep.Ask {
-				dec = pep.Decision{Effect: pep.Deny, Reason: "policy did not accept the approval"}
-			}
-		}
+		dec = pep.Decision{Effect: pep.Deny, Reason: "policy did not accept the approval"}
 	}
-
-	s.audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: action, Server: res.Server, Name: res.Name,
-		Effect: string(dec.Effect), Reason: dec.Reason, GrantID: grantID, Instance: s.instance, Args: args})
-
-	if dec.Effect == pep.Allow {
-		s.forward(m)
-		return
-	}
-	s.deny(m, dec.Reason)
+	return dec, g.ID
 }
 
-func (s *Session) deny(m *jsonrpc.Message, reason string) {
+func (s *Session) denial(method, reason string) (any, *jsonrpc.Error) {
 	if reason == "" {
 		reason = "denied by policy"
 	}
-	if m.Method == "tools/call" {
+	if method == "tools/call" {
 		// A tool error lets the agent see and reason about the denial.
-		r, err := jsonrpc.NewResult(m.ID, map[string]any{
+		return map[string]any{
 			"content": []map[string]any{{"type": "text", "text": "mcp-gateway: " + reason}},
 			"isError": true,
-		})
-		if err == nil {
-			_ = s.client.Write(r)
-			return
-		}
+		}, nil
 	}
-	_ = s.client.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeForbidden, reason))
+	return nil, rpcError(jsonrpc.CodeForbidden, reason)
 }
 
-func (s *Session) policyContext(m *jsonrpc.Message) pep.Context {
+// rewriteProgressToken replaces params._meta.progressToken with a token
+// unique on u and returns it (nil if there was none).
+func (s *Session) rewriteProgressToken(u *upstream, params map[string]json.RawMessage) json.RawMessage {
+	var meta map[string]json.RawMessage
+	if json.Unmarshal(params["_meta"], &meta) != nil {
+		return nil
+	}
+	token, ok := meta["progressToken"]
+	if !ok {
+		return nil
+	}
+	gw := u.registerProgress(s, token)
+	meta["progressToken"] = gw
+	params["_meta"], _ = json.Marshal(meta)
+	return gw
+}
+
+// exposeContents namespaces the URIs in a resources/read result.
+func (s *Session) exposeContents(server string, result json.RawMessage) json.RawMessage {
+	var res map[string]json.RawMessage
+	if json.Unmarshal(result, &res) != nil {
+		return result
+	}
+	var contents []map[string]json.RawMessage
+	if json.Unmarshal(res["contents"], &contents) != nil {
+		return result
+	}
+	for _, c := range contents {
+		var uri string
+		if json.Unmarshal(c["uri"], &uri) == nil && uri != "" {
+			c["uri"], _ = json.Marshal(s.ep.exposeURI(server, uri))
+		}
+	}
+	res["contents"], _ = json.Marshal(contents)
+	out, err := json.Marshal(res)
+	if err != nil {
+		return result
+	}
+	return out
+}
+
+func (s *Session) setLevel(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error) {
+	for _, server := range s.ep.order {
+		u, err := s.upstream(ctx, server)
+		if err != nil || !u.init.has("logging") {
+			continue
+		}
+		_, _ = u.request(ctx, s, m.Method, m.Params)
+	}
+	return map[string]any{}, nil
+}
+
+func (s *Session) policyContext() pep.Context {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	caps := map[string]any{}
 	for k, v := range s.clientCaps {
 		var x any
@@ -358,17 +676,99 @@ func (s *Session) policyContext(m *jsonrpc.Message) pep.Context {
 			caps[k] = x
 		}
 	}
-	transport := s.principal.Transport
-	s.mu.Unlock()
 	return pep.Context{
 		Time:               time.Now().UTC().Format(time.RFC3339),
-		Transport:          transport,
-		RequestID:          m.Key(),
+		Transport:          s.principal.Transport,
 		ClientCapabilities: caps,
 	}
 }
 
-// --- broker.Elicitor ----------------------------------------------------
+// --- notifications and requests from backends ---------------------------
+
+func (s *Session) upstreamNotification(u *upstream, m *jsonrpc.Message) {
+	switch m.Method {
+	case "notifications/resources/updated":
+		var p map[string]json.RawMessage
+		var uri string
+		if json.Unmarshal(m.Params, &p) != nil || json.Unmarshal(p["uri"], &uri) != nil {
+			return
+		}
+		p["uri"], _ = json.Marshal(s.ep.exposeURI(u.backend.Name, uri))
+		params, _ := json.Marshal(p)
+		_ = s.client.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: m.Method, Params: params})
+	case "notifications/message":
+		if !s.ep.aggregated {
+			_ = s.client.Write(m)
+			return
+		}
+		var p map[string]json.RawMessage
+		if json.Unmarshal(m.Params, &p) != nil {
+			return
+		}
+		logger := u.backend.Name
+		var l string
+		if json.Unmarshal(p["logger"], &l) == nil && l != "" {
+			logger += "/" + l
+		}
+		p["logger"], _ = json.Marshal(logger)
+		params, _ := json.Marshal(p)
+		_ = s.client.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: m.Method, Params: params})
+	default: // */list_changed
+		_ = s.client.Write(m)
+	}
+}
+
+// relayBackendRequest decides and relays a request from backend u to this
+// session's client, and returns the response for the backend.
+func (s *Session) relayBackendRequest(u *upstream, m *jsonrpc.Message) *jsonrpc.Message {
+	p := s.snapshotPrincipal()
+	action, known := backendRequests[m.Method]
+	dec := pep.Decision{Effect: pep.Deny, Reason: "method not permitted"}
+	if known {
+		dec = pep.Evaluate(s.ctx, s.r.PDP, pep.Input{
+			Principal: p,
+			Action:    action,
+			Resource:  pep.Resource{Server: u.backend.Name, Kind: "client", Name: m.Method},
+			Context:   s.policyContext(),
+		})
+	}
+	s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: m.Method, Server: u.backend.Name,
+		Effect: string(dec.Effect), Reason: dec.Reason, Instance: u.id})
+	if dec.Effect != pep.Allow {
+		return jsonrpc.NewError(m.ID, jsonrpc.CodeForbidden, "denied by mcp-gateway policy")
+	}
+	params := m.Params
+	if m.Method == "elicitation/create" {
+		params = labelElicitation(params, u.backend.Name)
+	}
+	resp, err := s.requestClient(s.ctx, m.Method, params)
+	if err != nil {
+		var rpcErr *jsonrpc.Error
+		if errors.As(err, &rpcErr) {
+			return &jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Error: rpcErr}
+		}
+		return jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "client unavailable")
+	}
+	return &jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Result: resp.Result}
+}
+
+// labelElicitation prefixes a backend's elicitation message with the
+// backend's name, so the user always knows who is asking.
+func labelElicitation(params json.RawMessage, server string) json.RawMessage {
+	var p map[string]any
+	if err := json.Unmarshal(params, &p); err != nil {
+		return params
+	}
+	msg, _ := p["message"].(string)
+	p["message"] = fmt.Sprintf("[%s] %s", server, msg)
+	out, err := json.Marshal(p)
+	if err != nil {
+		return params
+	}
+	return out
+}
+
+// --- requests to the client (broker.Elicitor) ---------------------------
 
 // SupportsForm implements broker.Elicitor. Clients that declare an
 // elicitation capability without modes support form mode.
@@ -403,14 +803,10 @@ func (s *Session) Elicit(ctx context.Context, p broker.ElicitParams) (broker.Eli
 	return r, nil
 }
 
-func (s *Session) newID() json.RawMessage {
-	return json.RawMessage(strconv.Quote("mcpgw-" + strconv.FormatInt(s.nextID.Add(1), 10)))
-}
-
-// requestClient sends a gateway-originated request to the client and
-// waits for the response.
+// requestClient sends a gateway-originated request to the client and waits
+// for the response.
 func (s *Session) requestClient(ctx context.Context, method string, params any) (*jsonrpc.Message, error) {
-	id := s.newID()
+	id := json.RawMessage(strconv.Quote("mcpgw-" + strconv.FormatInt(s.nextID.Add(1), 10)))
 	req, err := jsonrpc.NewRequest(id, method, params)
 	if err != nil {
 		return nil, err
@@ -438,167 +834,4 @@ func (s *Session) requestClient(ctx context.Context, method string, params any) 
 		_ = s.client.Write(n)
 		return nil, ctx.Err()
 	}
-}
-
-// --- backend → gateway --------------------------------------------------
-
-func (s *Session) pumpBackend(ctx context.Context) error {
-	for {
-		m, err := s.backend.Read()
-		if err != nil {
-			var rpcErr *jsonrpc.Error
-			if errors.As(err, &rpcErr) {
-				s.log.Warn("invalid message from backend", "err", err)
-				continue
-			}
-			return err
-		}
-		switch {
-		case m.IsResponse():
-			s.backendResponse(ctx, m)
-		case m.IsNotification():
-			if backendNotifications[m.Method] {
-				_ = s.client.Write(m)
-			} else {
-				s.log.Debug("dropped backend notification", "method", m.Method)
-			}
-		case m.IsRequest():
-			go s.backendRequest(ctx, m)
-		}
-	}
-}
-
-func (s *Session) backendResponse(ctx context.Context, m *jsonrpc.Message) {
-	s.mu.Lock()
-	method, ok := s.pending[m.Key()]
-	delete(s.pending, m.Key())
-	s.mu.Unlock()
-	if !ok {
-		s.log.Debug("dropped unexpected backend response", "id", m.Key())
-		return
-	}
-	if method == "tools/list" && m.Error == nil {
-		filtered, err := s.filterTools(ctx, m.Result)
-		if err != nil {
-			s.log.Warn("filtering tools/list failed", "err", err)
-			filtered = json.RawMessage(`{"tools":[]}`)
-		}
-		m.Result = filtered
-	}
-	// Other */list results are not modelled by the policy yet: nothing
-	// there is usable (reads are denied), so hide them entirely.
-	switch method {
-	case "resources/list":
-		m.Result = json.RawMessage(`{"resources":[]}`)
-	case "resources/templates/list":
-		m.Result = json.RawMessage(`{"resourceTemplates":[]}`)
-	case "prompts/list":
-		m.Result = json.RawMessage(`{"prompts":[]}`)
-	}
-	_ = s.client.Write(m)
-}
-
-// filterTools removes tools the principal may not see from a tools/list
-// result and remembers the tools' annotations.
-func (s *Session) filterTools(ctx context.Context, result json.RawMessage) (json.RawMessage, error) {
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(result, &top); err != nil {
-		return nil, err
-	}
-	var tools []json.RawMessage
-	if err := json.Unmarshal(top["tools"], &tools); err != nil {
-		return nil, err
-	}
-	type toolHead struct {
-		Name        string         `json:"name"`
-		Annotations map[string]any `json:"annotations"`
-	}
-	heads := make([]toolHead, len(tools))
-	resources := make([]pep.Resource, len(tools))
-	annotations := map[string]map[string]any{}
-	for i, t := range tools {
-		if err := json.Unmarshal(t, &heads[i]); err != nil {
-			return nil, err
-		}
-		resources[i] = pep.Resource{Server: s.server, Kind: "tool", Name: heads[i].Name}
-		annotations[heads[i].Name] = heads[i].Annotations
-	}
-	s.mu.Lock()
-	s.annotations = annotations
-	s.mu.Unlock()
-
-	visible, err := s.pdp.Visible(ctx, s.snapshotPrincipal(), resources)
-	if err != nil {
-		return nil, err
-	}
-	ok := map[string]bool{}
-	for _, r := range visible {
-		if r.Server == s.server && r.Kind == "tool" {
-			ok[r.Name] = true
-		}
-	}
-	kept := make([]json.RawMessage, 0, len(tools))
-	for i, t := range tools {
-		if ok[heads[i].Name] {
-			kept = append(kept, t)
-		}
-	}
-	top["tools"], err = json.Marshal(kept)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(top)
-}
-
-func (s *Session) backendRequest(ctx context.Context, m *jsonrpc.Message) {
-	if m.Method != "ping" {
-		action, known := backendRequests[m.Method]
-		p := s.snapshotPrincipal()
-		dec := pep.Decision{Effect: pep.Deny, Reason: "method not permitted"}
-		if known {
-			dec = pep.Evaluate(ctx, s.pdp, pep.Input{
-				Principal: p,
-				Action:    action,
-				Resource:  pep.Resource{Server: s.server, Kind: "client", Name: m.Method},
-				Context:   s.policyContext(m),
-			})
-		}
-		s.audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: m.Method, Server: s.server,
-			Effect: string(dec.Effect), Reason: dec.Reason, Instance: s.instance})
-		if dec.Effect != pep.Allow {
-			_ = s.backend.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeForbidden, "denied by mcp-gateway policy"))
-			return
-		}
-		if m.Method == "elicitation/create" {
-			m.Params = labelElicitation(m.Params, s.server)
-		}
-	}
-	id := s.newID()
-	s.mu.Lock()
-	s.backendIDs[string(id)] = m.ID
-	s.mu.Unlock()
-	fwd := *m
-	fwd.ID = id
-	if err := s.client.Write(&fwd); err != nil {
-		s.mu.Lock()
-		delete(s.backendIDs, string(id))
-		s.mu.Unlock()
-		_ = s.backend.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "client unavailable"))
-	}
-}
-
-// labelElicitation prefixes a backend's elicitation message with the
-// backend's name, so the user always knows who is asking.
-func labelElicitation(params json.RawMessage, server string) json.RawMessage {
-	var p map[string]any
-	if err := json.Unmarshal(params, &p); err != nil {
-		return params
-	}
-	msg, _ := p["message"].(string)
-	p["message"] = fmt.Sprintf("[%s] %s", server, msg)
-	out, err := json.Marshal(p)
-	if err != nil {
-		return params
-	}
-	return out
 }

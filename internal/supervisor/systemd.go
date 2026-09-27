@@ -70,7 +70,7 @@ func (s *Systemd) Properties(b *config.Backend, p principal.Principal, fd int, m
 		protectHome = "no"
 	}
 	props := []sddbus.Property{
-		sddbus.PropDescription(fmt.Sprintf("MCP backend %s for %s (session %s)", b.Name, p.Sub, p.SessionID)),
+		sddbus.PropDescription(fmt.Sprintf("MCP backend %s for %s", b.Name, p.Sub)),
 		sddbus.PropExecStart(command(b, p), false),
 		prop("Environment", environment(b, p)),
 		prop("StandardInputFileDescriptor", dbus.UnixFD(fd)),
@@ -117,7 +117,7 @@ func (s *Systemd) Properties(b *config.Backend, p principal.Principal, fd int, m
 }
 
 // Start implements Launcher.
-func (s *Systemd) Start(ctx context.Context, b *config.Backend, p principal.Principal) (Instance, error) {
+func (s *Systemd) Start(ctx context.Context, b *config.Backend, p principal.Principal, id string) (Instance, error) {
 	conn, err := s.bus(ctx)
 	if err != nil {
 		return nil, err
@@ -149,7 +149,7 @@ func (s *Systemd) Start(ctx context.Context, b *config.Backend, p principal.Prin
 	if err != nil {
 		return fail(err)
 	}
-	name := unitName(b, p)
+	name := unitName(b, id)
 	done := make(chan string, 1)
 	if _, err := conn.StartTransientUnitContext(ctx, name, "fail", props, done); err != nil {
 		return fail(fmt.Errorf("supervisor: starting %s: %w", name, err))

@@ -24,7 +24,8 @@ func TestLoadGatewayDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if g.Socket != DefaultSocket || g.Policy.OPASocket != DefaultOPASocket || g.Policy.Timeout != DefaultPolicyTimeout ||
-		g.Supervisor.Mode != "systemd" || g.Supervisor.SELinux != "auto" || g.ApprovalTimeout != DefaultApprovalTimeout {
+		g.Supervisor.Mode != "systemd" || g.Supervisor.SELinux != "auto" || g.ApprovalTimeout != DefaultApprovalTimeout ||
+		g.Supervisor.IdleTimeout != DefaultIdleTimeout {
 		t.Errorf("defaults not applied: %+v", g)
 	}
 }

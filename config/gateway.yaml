@@ -28,6 +28,8 @@ supervisor:
   # auto: set SELinuxContext= (backend type + per-instance MCS pair) when
   # SELinux is enabled. on / off force it.
   selinux: auto
+  # Stop an instance this long after the last session using it ended.
+  idle_timeout: 15m
 
 # Remote access via MCP Streamable HTTP. Disabled unless listen is set.
 # http:

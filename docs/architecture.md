@@ -190,13 +190,27 @@ what policy sees as `input.principal`:
 Responsibilities:
 
 1. **Session handling.** Terminates the MCP `initialize` handshake with the
-   client, advertising the union of capabilities the gateway supports.
-   Opens backend sessions lazily on first use.
+   client itself. The per-server endpoint mirrors the backend's
+   capabilities and server info; the aggregated endpoint advertises the
+   gateway's own. The gateway holds its *own* MCP session with every
+   backend instance (it sends `initialize` as client `mcp-gateway`), opened
+   lazily on first use, so an instance can serve several client sessions
+   of the same principal (§5.7): request ids and progress tokens are
+   remapped per instance, notifications are fanned out to the attached
+   sessions, and a request the backend sends to "its client" goes to a
+   session that has a request in flight on that instance (otherwise it is
+   refused).
 2. **Namespacing / aggregation.** Two endpoint styles (§9, D2):
    - *aggregated*: one virtual server; tools are exposed as
-     `<server>__<tool>`, resources as `mcp+<server>://…`, prompts as
-     `<server>__<prompt>`;
+     `<server>__<tool>`, prompts as `<server>__<prompt>`, resource URIs and
+     URI templates as `mcp+<server>:<original URI>` (e.g.
+     `mcp+fs:file:///home/alice/a.txt`), also inside `resources/read`
+     results and `notifications/resources/updated`; log messages get the
+     server name as logger prefix;
    - *per-server*: one endpoint per backend, names unchanged.
+   Lists from all backends are fetched in full (following cursors) and
+   returned as one page. On the aggregated endpoint a backend that fails
+   is left out of the list instead of failing it.
 3. **Discovery filtering.** `tools/list`, `resources/list`,
    `resources/templates/list`, `prompts/list` responses are filtered per
    principal using a batch policy query (§6.3).
@@ -216,10 +230,10 @@ Enforced methods:
 | Direction | Method | `input.action` |
 |---|---|---|
 | client → backend | `tools/call` | `tools.call` |
-| client → backend | `resources/read`, `resources/subscribe` | `resources.read`, `resources.subscribe` |
+| client → backend | `resources/read`, `resources/subscribe`, `resources/unsubscribe` | `resources.read`, `resources.subscribe`, `resources.unsubscribe` |
 | client → backend | `prompts/get` | `prompts.get` |
 | client → backend | `completion/complete` | `completion.complete` |
-| client → backend | `*/list` | `*.list` (batch filter) |
+| client → backend | `*/list` | batch filter (`data.mcp.filter.visible`) |
 | backend → client | `sampling/createMessage` | `sampling.create` |
 | backend → client | `elicitation/create` | `elicitation.create` |
 | backend → client | `roots/list` | `roots.list` |
@@ -323,10 +337,11 @@ The gateway:
 - **Instance model:** stdio backends are single-client and may keep state,
   so there is **one instance per (principal, backend)** by default, or one
   per *session* for backends marked `isolation: session`. Instances are
-  never shared across principals. (The PoC starts one instance per
-  session for every backend; sharing an instance across a principal's
-  sessions needs the gateway to own the backend's MCP session and
-  multiplex request ids.)
+  never shared across principals. The key of a shared instance is
+  (transport, subject, backend). After its last session ends an instance
+  stays up for `supervisor.idle_timeout` (default 15 min) and is reused if
+  the principal comes back; `isolation: session` instances stop with their
+  session.
 - **Spawning** via systemd transient units over D-Bus
   (`StartTransientUnit`), unit name `mcp-<backend>-<sessionid>.service`,
   with properties from the backend definition:
@@ -521,16 +536,34 @@ item.
 
 ### 6.4 RBAC data
 
+A permission names a backend (`server` glob) and exactly one target: a
+`tool`, `prompt` or `resource` (URI) glob, or `client` for requests a
+backend sends to the client (`roots/list`, `sampling/createMessage`,
+`elicitation/create`). Globs have no separators (`*` matches `/`) and may
+use `${sub}` and `${home}`. Optional fields: `effect: "deny"` (explicit
+deny, wins over everything), `require_approval`, `approval_channel`, and
+`args` (regular expressions per tool/prompt argument).
+
+Completions follow their target: a prompt's like `prompts.get`; a resource
+template's (and its visibility in `resources/templates/list`) wherever the
+principal may read some resource of that backend.
+
 ```json
 {
   "roles": {
-    "viewer":    { "permissions": [ { "server": "*",  "tool": "*", "read_only": true } ] },
+    "viewer":    { "permissions": [ { "server": "*", "tool": "read_*" },
+                                    { "server": "*", "prompt": "*" } ] },
     "developer": { "permissions": [
         { "server": "git", "tool": "*" },
         { "server": "fs",  "tool": "read_*" },
+        { "server": "fs",  "resource": "file://${home}/*" },
         { "server": "fs",  "tool": "write_file", "require_approval": true,
-          "args": { "path": "^${home}/" } } ] },
-    "admin":     { "permissions": [ { "server": "*", "tool": "*" } ] }
+          "args": { "path": "^${home}/" } },
+        { "server": "fs",  "tool": "delete_*", "effect": "deny" } ] },
+    "admin":     { "permissions": [ { "server": "*", "tool": "*" },
+                                    { "server": "*", "resource": "*" },
+                                    { "server": "*", "prompt": "*" },
+                                    { "server": "*", "client": "*" } ] }
   },
   "bindings": {
     "groups": { "dev": ["developer"], "wheel": ["admin"] },
@@ -596,9 +629,9 @@ granted if {
 }
 ```
 
-(Conflict resolution between multiple matching rules is done in a final
-`decision` rule with explicit precedence deny > ask > allow; omitted here
-for brevity.)
+(Simplified. The shipped policy, `policy/mcp/authz.rego`, handles all
+target kinds, explicit denies and precedence: deny > allow > allow with
+grant > ask > default deny.)
 
 ### 6.6 Policy lifecycle
 
@@ -753,8 +786,10 @@ docs/
      confined path is implemented but not yet exercised on a real host;
      the end-to-end test uses the unconfined `exec` supervisor);
    - pulled forward from step 4: `tools/list` filtering, audit records.
-4. Aggregation; filtering of resources and prompts; per-principal
-   instance sharing.
+4. **Aggregation** (done): aggregated endpoint with namespacing; policy
+   and filtering for resources, resource templates, prompts, completions
+   and backend requests; instances shared by a principal's sessions with
+   idle timeout; cancellation and progress mapping.
 5. Streamable HTTP + OAuth resource server.
 6. URL-mode / OOB approvals with Cockpit approval page; grants store.
 7. MCS allocator, per-session isolation, hardening, RPM packaging.
