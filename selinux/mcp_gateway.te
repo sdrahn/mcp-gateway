@@ -33,6 +33,11 @@ files_config_file(mcpgw_etc_t)
 type mcpgw_cred_t;
 files_type(mcpgw_cred_t)
 
+# Policy bundle signing key, if the administrator keeps it on the host
+# (mcp-policy-bundle -G, signing from Cockpit).
+type mcpgw_signing_key_t;
+files_type(mcpgw_signing_key_t)
+
 type mcpgw_var_lib_t;
 files_type(mcpgw_var_lib_t)
 
@@ -91,6 +96,10 @@ neverallow mcpsrv_domain { mcpgw_etc_t mcpgw_var_lib_t }:file { write append cre
 # Backend secrets reach backends only through systemd's credentials
 # directory; neither the gateway nor the backends read the source files.
 neverallow { mcpgw_t mcpsrv_domain } mcpgw_cred_t:file { read open map };
+
+# The bundle signing key is for the administrator only: a compromised
+# gateway, policy engine or backend must not be able to sign policy.
+neverallow { mcpgw_t mcpopa_t mcpsrv_domain } mcpgw_signing_key_t:file { read open map };
 
 ########################################
 #

@@ -1,5 +1,8 @@
-// Stub of the parts of cockpit.js the pages use, with fixtures.
+// Stub of the parts of cockpit.js the pages use, with fixtures. The query
+// string selects variants: ?source=server (bundle from a bundle server),
+// ?nokey (no signing key on the host).
 (function () {
+    const query = new URLSearchParams(window.location.search);
     const log = window.__calls = [];
     let rbac = JSON.stringify({
         roles: { admin: { permissions: [{ server: "*", tool: "*" }] },
@@ -20,7 +23,8 @@
         "/v1/grants": () => [],
         "/v1/servers": () => [{ name: "fs", selinux_type: "mcpsrv_fs_t", isolation: "principal", network: false, run_as: "principal", instances },
                               { name: "git", selinux_type: "", isolation: "principal", network: true, run_as: "principal", instances: [] }],
-        "/v1/policy": () => ({ mode: "bundle", bundles: { "policy.tar.gz": "r42" } }),
+        "/v1/policy": () => ({ mode: "bundle",
+            bundles: query.get("source") === "server" ? { mcp: "r42" } : { "/etc/mcp-gateway/bundle/policy.tar.gz": "r42" } }),
     };
     const listeners = {};
     const location = {
@@ -54,6 +58,12 @@
         spawn(args, opts) {
             log.push(["spawn", args.join(" "), opts.superuser]);
             if (args.includes("mcp-gateway.service")) return Promise.resolve(journal);
+            if (args[0] === "test") {
+                return query.has("nokey") ? Promise.reject(new Error("exit 1")) : Promise.resolve("");
+            }
+            if (args[0] === "mcp-policy-bundle") {
+                return Promise.resolve("wrote /etc/mcp-gateway/bundle/policy.tar.gz (revision " + args[2] + ")\n");
+            }
             return Promise.resolve("2026-09-27T08:00:00 host mcp-fs[1]: started\n");
         },
         file(path, opts) {

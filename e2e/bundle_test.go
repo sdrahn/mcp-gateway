@@ -223,3 +223,54 @@ func TestSignedBundle(t *testing.T) {
 		}
 	})
 }
+
+func TestPolicyBundleKeygen(t *testing.T) {
+	opa := opaBinary(t)
+	if _, err := exec.LookPath("openssl"); err != nil {
+		t.Skip("openssl not found")
+	}
+	dir := t.TempDir()
+	key, bundle := filepath.Join(dir, "keys", "signing.pem"), filepath.Join(dir, "bundle", "policy.tar.gz")
+	writeFile(t, filepath.Join(dir, "data", "rbac", "data.json"), `{"roles": {}, "bindings": {}}`)
+	run := func(args ...string) (string, error) {
+		cmd := exec.Command("sh", append([]string{filepath.Join("..", "tools", "mcp-policy-bundle")}, args...)...)
+		cmd.Env = append(os.Environ(), "OPA="+opa)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	build := func() (string, error) {
+		return run("-k", key, "-o", bundle, "-n", "-V", filepath.Join("..", "policy"), "-L", filepath.Join(dir, "data"))
+	}
+
+	if out, err := build(); err == nil || !strings.Contains(out, "create one with -G") {
+		t.Fatalf("build without a key: %v %s", err, out)
+	}
+	if out, err := run("-G", "-k", key, "-o", bundle); err != nil {
+		t.Fatalf("-G: %v %s", err, out)
+	}
+	for file, mode := range map[string]os.FileMode{key: 0o600, filepath.Join(dir, "bundle", "verify.pem"): 0o644} {
+		st, err := os.Stat(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Mode().Perm() != mode {
+			t.Errorf("%s: mode %v, want %v", file, st.Mode().Perm(), mode)
+		}
+	}
+	if out, err := run("-G", "-k", key, "-o", bundle); err == nil || !strings.Contains(out, "not replacing") {
+		t.Fatalf("second -G: %v %s", err, out)
+	}
+	if out, err := build(); err != nil {
+		t.Fatalf("build with the generated key: %v %s", err, out)
+	}
+	// The bundle verifies with the generated verification key.
+	cmd := exec.Command(opa, "run", "--server", "--addr", "unix://"+filepath.Join(dir, "opa.sock"), "--bundle",
+		"--verification-key", filepath.Join(dir, "bundle", "verify.pem"), bundle)
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	waitFor(t, filepath.Join(dir, "opa.sock"))
+}

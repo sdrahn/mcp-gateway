@@ -86,6 +86,7 @@ install-gateway:
 	install -Dm0644 config/gateway.yaml $(DESTDIR)$(DISTCONFDIR)/mcp-gateway/gateway.yaml
 	install -d $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/servers.d
 	install -d -m0700 $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/credentials
+	install -d $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/bundle
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp
 	install -m0644 $(filter-out %_test.rego,$(wildcard policy/mcp/*.rego)) $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/

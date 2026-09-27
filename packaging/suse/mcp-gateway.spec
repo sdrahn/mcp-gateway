@@ -31,6 +31,8 @@ BuildRequires:  sysuser-tools
 BuildRequires:  systemd-rpm-macros
 Requires:       opa
 Requires:       polkit
+# mcp-policy-bundle -G creates signing keys with openssl.
+Recommends:     openssl
 Requires:       (%{name}-selinux if selinux-policy-%{selinuxtype})
 Suggests:       %{name}-cockpit
 %sysusers_requires
@@ -134,6 +136,7 @@ fi
 %dir %{_sysconfdir}/mcp-gateway
 %dir %{_sysconfdir}/mcp-gateway/servers.d
 %dir %attr(0700,root,root) %{_sysconfdir}/mcp-gateway/credentials
+%dir %{_sysconfdir}/mcp-gateway/bundle
 %dir %{_sysconfdir}/mcp-gateway/policy
 %dir %{_sysconfdir}/mcp-gateway/policy/rbac
 %config(noreplace) %{_sysconfdir}/mcp-gateway/policy/rbac/data.json

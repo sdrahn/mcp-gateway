@@ -9,6 +9,13 @@
 
 const SOCKET = "/run/mcp-gateway/control.sock";
 const RBAC_FILE = "/etc/mcp-gateway/policy/rbac/data.json";
+/* Signed bundle mode with a bundle file (packaging/opa/signed-bundle.conf)
+ * and, optionally, the signing key on this host (mcp-policy-bundle -G). */
+const BUNDLE_FILE = "/etc/mcp-gateway/bundle/policy.tar.gz";
+const SIGNING_KEY = "/etc/mcp-gateway/bundle/signing.pem";
+
+/* The logged-in user as the gateway sees them (set by main.js). */
+let currentUser = null;
 
 const api = cockpit.http({ unix: SOCKET });
 
