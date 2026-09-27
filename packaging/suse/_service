@@ -1,0 +1,25 @@
+<!--
+  OBS source services for mcp-gateway. Run them locally with
+    osc service manualrun
+  to refresh the source tarball, the version and vendor.tar.gz (the Go
+  modules; OBS builds have no network access), then commit.
+-->
+<services>
+  <service name="tar_scm" mode="manual">
+    <param name="url">https://github.com/sdrahn/mcp-gateway.git</param>
+    <param name="scm">git</param>
+    <param name="revision">main</param>
+    <param name="versionformat">0.1.0+git%cd.%h</param>
+    <param name="filename">mcp-gateway</param>
+    <param name="exclude">.git</param>
+    <param name="exclude">.github</param>
+  </service>
+  <service name="recompress" mode="manual">
+    <param name="file">*.tar</param>
+    <param name="compression">gz</param>
+  </service>
+  <service name="set_version" mode="manual">
+    <param name="basename">mcp-gateway</param>
+  </service>
+  <service name="go_modules" mode="manual"/>
+</services>

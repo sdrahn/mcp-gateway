@@ -112,6 +112,37 @@ func TestLoadBackendsDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadBackendsVendorOverrideMask(t *testing.T) {
+	vendor, admin := t.TempDir(), t.TempDir()
+	writeFile(t, vendor, "fs.yaml", "name: fs\ncommand: [/usr/libexec/mcp-servers/fs]\n")
+	writeFile(t, vendor, "git.yaml", "name: git\ncommand: [/usr/libexec/mcp-servers/git]\n")
+	writeFile(t, vendor, "db.yaml", "name: db\ncommand: [/usr/libexec/mcp-servers/db]\n")
+	// Override fs, mask git (empty file) and db (symlink to /dev/null), add local.
+	writeFile(t, admin, "fs.yaml", "name: fs\ncommand: [/opt/fs]\nnetwork: true\n")
+	writeFile(t, admin, "git.yaml", "")
+	if err := os.Symlink("/dev/null", filepath.Join(admin, "db.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, admin, "local.yaml", "name: local\ncommand: [/usr/local/bin/local]\n")
+
+	bs, err := LoadBackends(vendor, admin, filepath.Join(admin, "missing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bs) != 2 || bs["fs"] == nil || bs["local"] == nil {
+		t.Fatalf("backends %v", bs)
+	}
+	if bs["fs"].Command[0] != "/opt/fs" || !bs["fs"].Network {
+		t.Errorf("fs not overridden: %+v", bs["fs"])
+	}
+}
+
+func TestResolveExplicitMissing(t *testing.T) {
+	if _, _, err := Resolve(filepath.Join(t.TempDir(), "nope.yaml")); err == nil {
+		t.Fatal("expected error for a missing explicit config")
+	}
+}
+
 func TestLoadBackendsErrors(t *testing.T) {
 	tests := map[string][]string{
 		"bad name":         {"name: Bad_Name\ncommand: [/usr/bin/a]\n"},

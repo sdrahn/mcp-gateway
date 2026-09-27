@@ -1,0 +1,9 @@
+# polkit rules must be reviewed and whitelisted by the SUSE security team
+# before the package can enter openSUSE:Factory / SLE (bsc request, see
+# packaging/suse/README.md). Until then, keep builds in devel/home
+# projects passing.
+addFilter("polkit-untracked-privilege")
+addFilter("polkit-unauthorized-rules")
+# The package creates its system users through sysusers.
+addFilter("non-standard-uid")
+addFilter("non-standard-gid")

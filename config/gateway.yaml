@@ -1,12 +1,21 @@
-# mcp-gateway main configuration (installed as /etc/mcp-gateway/gateway.yaml).
-# All values shown are the defaults, except socket_group (default: empty).
+# mcp-gateway main configuration.
+#
+# Packages install this file as /usr/etc/mcp-gateway/gateway.yaml (or
+# /etc/mcp-gateway/gateway.yaml on distributions without /usr/etc). To
+# change settings, copy it to /etc/mcp-gateway/gateway.yaml and edit the
+# copy: the gateway reads /etc first, then /usr/etc, else its built-in
+# defaults. All values shown are the defaults, except socket_group
+# (default: empty).
 
 # Unix socket for local clients (directly or via mcp-connect).
 socket: /run/mcp-gateway/mcp.sock
 # Group owning the socket (mode 0660). Empty: the gateway's own group.
 socket_group: mcp-users
 
-# Backend definitions, one *.yaml per MCP server.
+# Backend definitions, one *.yaml per MCP server: packages install theirs
+# to vendor_servers_dir; files in servers_dir override those of the same
+# name, and an empty file (or a symlink to /dev/null) disables one.
+vendor_servers_dir: /usr/share/mcp-gateway/servers.d
 servers_dir: /etc/mcp-gateway/servers.d
 
 # Grants store and other state.

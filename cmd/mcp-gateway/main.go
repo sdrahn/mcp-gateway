@@ -39,7 +39,8 @@ import (
 const mcsLo, mcsHi = 1, 255
 
 func main() {
-	configPath := flag.String("config", config.DefaultConfigPath, "path to the gateway configuration")
+	configPath := flag.String("config", "", "path to the gateway configuration (default: "+
+		config.DefaultConfigPath+", else "+config.DefaultVendorConfigPath+", else built-in defaults)")
 	checkOnly := flag.Bool("check", false, "validate the configuration and backend registry, then exit")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	debug := flag.Bool("debug", false, "log debug messages")
@@ -63,15 +64,18 @@ func main() {
 }
 
 func run(log *slog.Logger, configPath string, checkOnly bool) error {
-	gw, err := config.LoadGateway(configPath)
+	gw, used, err := config.Resolve(configPath)
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
-	backends, err := config.LoadBackends(gw.ServersDir)
+	if used == "" {
+		used = "built-in defaults"
+	}
+	backends, err := config.LoadBackends(gw.VendorServersDir, gw.ServersDir)
 	if err != nil {
 		return fmt.Errorf("loading backend registry: %w", err)
 	}
-	log.Info("configuration valid", "socket", gw.Socket, "backends", len(backends))
+	log.Info("configuration valid", "config", used, "socket", gw.Socket, "backends", len(backends))
 	if checkOnly {
 		return nil
 	}

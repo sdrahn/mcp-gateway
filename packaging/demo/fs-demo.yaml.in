@@ -1,0 +1,12 @@
+# Demo filesystem MCP server (package mcp-gateway-demo-server). It works on
+# the connecting user's home directory, in the mcpsrv_fs_t SELinux domain.
+# To change it, copy this file to /etc/mcp-gateway/servers.d/fs-demo.yaml;
+# an empty file of that name disables it.
+name: fs
+command: ["@LIBEXECDIR@/mcp-servers/mcp-fs-demo", "--root", "${HOME}"]
+selinux_type: mcpsrv_fs_t
+isolation: principal
+network: false
+run_as: principal
+sandbox:
+  protect_home: read-write

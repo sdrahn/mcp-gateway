@@ -18,14 +18,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Default paths.
+// Default paths. Vendor files live below /usr (read-only, owned by
+// packages), administrator files below /etc; see Resolve and LoadBackends.
 const (
-	DefaultConfigPath = "/etc/mcp-gateway/gateway.yaml"
-	DefaultServersDir = "/etc/mcp-gateway/servers.d"
-	DefaultSocket     = "/run/mcp-gateway/mcp.sock"
-	DefaultOPASocket  = "/run/mcp-gateway/opa.sock"
-	DefaultStateDir   = "/var/lib/mcp-gateway"
-	DefaultControl    = "/run/mcp-gateway/control.sock"
+	DefaultConfigPath       = "/etc/mcp-gateway/gateway.yaml"
+	DefaultVendorConfigPath = "/usr/etc/mcp-gateway/gateway.yaml"
+	DefaultServersDir       = "/etc/mcp-gateway/servers.d"
+	DefaultVendorServersDir = "/usr/share/mcp-gateway/servers.d"
+	DefaultSocket           = "/run/mcp-gateway/mcp.sock"
+	DefaultOPASocket        = "/run/mcp-gateway/opa.sock"
+	DefaultStateDir         = "/var/lib/mcp-gateway"
+	DefaultControl          = "/run/mcp-gateway/control.sock"
 )
 
 // Gateway is the main configuration file.
@@ -37,10 +40,14 @@ type Gateway struct {
 	// HTTP configures the remote Streamable HTTP transport. Disabled when
 	// Listen is empty.
 	HTTP HTTP `yaml:"http"`
-	// ServersDir holds one backend definition per *.yaml file.
-	ServersDir string `yaml:"servers_dir"`
-	StateDir   string `yaml:"state_dir"`
-	Policy     Policy `yaml:"policy"`
+	// ServersDir holds the administrator's backend definitions, one per
+	// *.yaml file; VendorServersDir those installed by packages. A file in
+	// ServersDir overrides the vendor file of the same name, and an empty
+	// file (or a symlink to /dev/null) masks it.
+	ServersDir       string `yaml:"servers_dir"`
+	VendorServersDir string `yaml:"vendor_servers_dir"`
+	StateDir         string `yaml:"state_dir"`
+	Policy           Policy `yaml:"policy"`
 	// Supervisor configures how backend instances are started.
 	Supervisor Supervisor `yaml:"supervisor"`
 	// ApprovalTimeout bounds how long a call waits for a human decision.
@@ -174,12 +181,37 @@ func LoadGateway(path string) (*Gateway, error) {
 	return g, nil
 }
 
+// Resolve loads the configuration: from explicit if given (it must
+// exist), else from the first of DefaultConfigPath (administrator) and
+// DefaultVendorConfigPath (package default) that exists, else the built-in
+// defaults. It returns the path used ("" for built-in defaults).
+func Resolve(explicit string) (*Gateway, string, error) {
+	if explicit != "" {
+		g, err := LoadGateway(explicit)
+		return g, explicit, err
+	}
+	for _, p := range []string{DefaultConfigPath, DefaultVendorConfigPath} {
+		if _, err := os.Stat(p); err == nil {
+			g, err := LoadGateway(p)
+			return g, p, err
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, p, err
+		}
+	}
+	g := &Gateway{}
+	g.setDefaults()
+	return g, "", g.Validate()
+}
+
 func (g *Gateway) setDefaults() {
 	if g.Socket == "" {
 		g.Socket = DefaultSocket
 	}
 	if g.ServersDir == "" {
 		g.ServersDir = DefaultServersDir
+	}
+	if g.VendorServersDir == "" {
+		g.VendorServersDir = DefaultVendorServersDir
 	}
 	if g.StateDir == "" {
 		g.StateDir = DefaultStateDir
@@ -294,14 +326,34 @@ func checkURL(s string) error {
 	return fmt.Errorf("%q must be an https URL (http only on loopback)", s)
 }
 
-// LoadBackends reads every *.yaml file in dir, sorted by name, and returns
-// the validated backend definitions keyed by backend name.
-func LoadBackends(dir string) (map[string]*Backend, error) {
-	paths, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
-	if err != nil {
-		return nil, err
+// LoadBackends reads the *.yaml files of dirs (missing dirs are skipped)
+// and returns the validated backend definitions keyed by backend name. A
+// file in a later dir overrides the file with the same name in an earlier
+// one; an empty file, or a symlink to /dev/null, masks it (as with systemd
+// units). Pass the vendor dir first, the administrator's last.
+func LoadBackends(dirs ...string) (map[string]*Backend, error) {
+	byFile := map[string]string{}
+	for _, dir := range dirs {
+		paths, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range paths {
+			byFile[filepath.Base(p)] = p
+		}
 	}
-	sort.Strings(paths)
+	var paths []string
+	for _, p := range byFile {
+		fi, err := os.Stat(p)
+		if err != nil {
+			return nil, err
+		}
+		if fi.Size() == 0 { // masked (empty file or /dev/null)
+			continue
+		}
+		paths = append(paths, p)
+	}
+	sort.Slice(paths, func(i, j int) bool { return filepath.Base(paths[i]) < filepath.Base(paths[j]) })
 	backends := make(map[string]*Backend, len(paths))
 	for _, p := range paths {
 		b := &Backend{}

@@ -86,6 +86,24 @@ func (s *Systemd) Properties(b *config.Backend, p principal.Principal, fd int, m
 		prop("ProtectKernelTunables", true),
 		prop("ProtectKernelModules", true),
 		prop("ProtectControlGroups", true),
+		prop("ProtectKernelLogs", true),
+		prop("ProtectClock", true),
+		prop("ProtectHostname", true),
+		prop("LockPersonality", true),
+		prop("RestrictRealtime", true),
+		prop("RestrictSUIDSGID", true),
+		// No capabilities at all, and only the syscalls of ordinary
+		// services. (MemoryDenyWriteExecute stays off: it breaks JIT
+		// runtimes such as Node.js, which many MCP servers use.)
+		prop("CapabilityBoundingSet", uint64(0)),
+		prop("AmbientCapabilities", uint64(0)),
+		prop("SystemCallArchitectures", []string{"native"}),
+		prop("SystemCallFilter", struct {
+			Allow    bool
+			Syscalls []string
+		}{true, []string{"@system-service"}}),
+		prop("SystemCallErrorNumber", int32(unix.EPERM)),
+		prop("UMask", uint32(0o077)),
 		prop("MemoryMax", uint64(instanceMemoryMax)),
 		prop("TasksMax", uint64(instanceTasksMax)),
 		prop("RuntimeMaxUSec", uint64(instanceRuntimeMax/time.Microsecond)),

@@ -46,3 +46,48 @@ jobs:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y selinux-policy-dev checkpolicy
       - run: make selinux
+
+  # The OBS package (packaging/suse), built the way OBS builds it: real
+  # SUSE rpm macros, offline Go modules, the SELinux module against
+  # openSUSE's policy, rpmlint with the package's rpmlintrc.
+  opensuse:
+    runs-on: ubuntu-24.04
+    container: registry.opensuse.org/opensuse/tumbleweed:latest
+    steps:
+      - name: Install build dependencies
+        run: >
+          zypper -n --gpg-auto-import-keys in --no-recommends
+          git tar gzip bzip2 make gcc rpm-build rpmlint
+          'golang(API) >= 1.24' selinux-policy-devel sysuser-tools systemd-rpm-macros
+      - uses: actions/checkout@v4
+      - name: Prepare sources (tarball and vendor.tar.gz, as the OBS services do)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          version=$(rpmspec -q --srpm --qf '%{version}' packaging/suse/mcp-gateway.spec)
+          mkdir -p ~/rpmbuild/SOURCES
+          git archive --prefix="mcp-gateway-$version/" -o ~/rpmbuild/SOURCES/mcp-gateway-$version.tar.gz HEAD
+          go mod vendor
+          tar czf ~/rpmbuild/SOURCES/vendor.tar.gz vendor
+          rm -rf vendor
+          cp packaging/suse/mcp-gateway-rpmlintrc ~/rpmbuild/SOURCES/
+      - name: rpmbuild
+        run: rpmbuild -ba packaging/suse/mcp-gateway.spec
+      - name: rpmlint
+        # On OBS the .changes file provides the changelog; here it is empty.
+        run: |
+          { cat packaging/suse/mcp-gateway-rpmlintrc; echo 'addFilter("no-changelogname-tag")'; } >/tmp/rpmlintrc
+          rpmlint -r /tmp/rpmlintrc ~/rpmbuild/RPMS/*/*.rpm
+      - name: Install and smoke-test
+        run: |
+          # opa is a runtime dependency only; not needed for this test.
+          rpm -ivh --nodeps ~/rpmbuild/RPMS/x86_64/mcp-gateway-[0-9]*.rpm ~/rpmbuild/RPMS/x86_64/mcp-gateway-demo-server-*.rpm
+          getent passwd mcp-gateway mcp-opa
+          getent group mcp-users
+          mcp-gateway --version
+          mcp-gateway --check 2>&1 | tee /tmp/check.log
+          grep -q 'config=/usr/etc/mcp-gateway/gateway.yaml' /tmp/check.log
+          grep -q 'backends=1' /tmp/check.log
+      - name: Install the SELinux module
+        run: |
+          zypper -n --gpg-auto-import-keys in --allow-unsigned-rpm ~/rpmbuild/RPMS/noarch/mcp-gateway-selinux-*.rpm
+          semodule -l | grep -x mcp_gateway

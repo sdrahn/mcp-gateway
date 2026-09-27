@@ -96,6 +96,15 @@ func TestSystemdProperties(t *testing.T) {
 	if _, ok := m["RestrictAddressFamilies"]; !ok {
 		t.Error("RestrictAddressFamilies missing")
 	}
+	for k, want := range map[string]any{"CapabilityBoundingSet": uint64(0), "NoNewPrivileges": true,
+		"RestrictSUIDSGID": true, "ProtectSystem": "strict", "UMask": uint32(0o077)} {
+		if m[k] != want {
+			t.Errorf("%s = %v, want %v", k, m[k], want)
+		}
+	}
+	if _, ok := m["SystemCallFilter"]; !ok {
+		t.Error("SystemCallFilter missing")
+	}
 
 	b.Network, b.RunAs = true, "dynamic"
 	m = propMap(t, s, b, alice(), "")
