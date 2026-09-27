@@ -602,22 +602,41 @@ socket), HTTP with JSON:
 | `GET /v1/approvals`, `GET /v1/approvals/{id}` | pending approvals the caller may decide on |
 | `POST /v1/approvals/{id}` `{"decision": "approve"\|"deny", "scope": "…"}` | decide |
 | `GET /v1/grants`, `DELETE /v1/grants/{id}` | the caller's grants (all for admins); revoke |
+| `GET /v1/servers` | the server registry (without command and environment) and the running instances the caller may manage |
+| `DELETE /v1/instances/{id}` | stop an instance; its sessions get a new one on their next call |
+| `GET /v1/policy` | policy mode (directories or bundle) and the active bundle revisions |
 
 Callers are identified by the socket's peer credentials, so the API needs
 no tokens: a Cockpit page reaches it with `cockpit.http({unix: …})` as the
 logged-in user, who has authenticated to Cockpit, not to the agent.
-Anything not the caller's is reported as not found.
+Anything not the caller's is reported as not found. Who may see and stop
+an instance is policy (`data.mcp.approvals.manage_instance`, the same
+approver rules as for grants: by default the principal themself and the
+admin role).
 
-The approvals page ships in this repository (`cockpit/mcp-gateway`,
-installed to `/usr/share/cockpit/mcp-gateway`): pending approvals with
-their details and one button per offered scope plus Deny, and the grants
-list with Revoke. Approval links (`#/approvals/<id>`) highlight the
-request. Planned additions to it, or to a Cockpit module in `cockpit-kit`:
+The Cockpit page ships in this repository (`cockpit/mcp-gateway`,
+installed to `/usr/share/cockpit/mcp-gateway`), with four tabs:
 
-- **Servers:** registry, running instances, start/stop, logs.
-- **Policy:** role bindings and permissions (editing `data.rbac`), bundle
-  status, `opa test` results.
-- **Audit:** filtered view on journald records.
+- **Approvals:** pending approvals with their details and one button per
+  offered scope plus Deny, and the grants list with Revoke. Approval links
+  (`#/approvals/<id>`) highlight the request.
+- **Servers:** the registry (SELinux domain, isolation, network, run as)
+  and the running instances the user may manage, with their journal and
+  Stop. Instances start on demand, so there is no Start.
+- **Policy:** the policy mode and bundle revisions; role bindings (add or
+  remove roles of users and groups), roles with their permissions,
+  approver rules, and the whole role data as JSON. Edits are validated
+  (structure, bindings to unknown roles) and written to
+  `/etc/mcp-gateway/policy/rbac/data.json` with Cockpit's administrative
+  access; OPA reloads it by itself, or, with a signed bundle, once
+  `mcp-policy-bundle` rebuilds it.
+- **Audit:** the gateway's audit records from the journal (`journalctl
+  -u mcp-gateway.service`, which needs journal access), newest first,
+  filtered by kind (denials, allowed calls, events) and text.
+
+`cockpit/test/smoke.js` checks the page in headless Chrome against a stub
+of `cockpit.js` (CI job `cockpit`). Policy tests (`opa test`) are not run
+from the page: the Rego tests are not installed.
 
 ## 6. Policy model
 
@@ -985,6 +1004,11 @@ docs/
    openSUSE/SLES packages via OBS (`packaging/suse`), vendor/admin file
    layout, tighter systemd sandboxes; MCS allocation and per-session
    isolation were done with steps 3 and 4.
+8. **Operations** (done): obligations, backend credentials, approver
+   rules, sensitive elicitations; `list_changed` on policy changes; kernel
+   audit, keyed argument digests and correlated OPA decision logs; signed
+   policy bundles; restart backoff; mTLS with certificate-bound tokens;
+   Cockpit tabs for servers, policy and audit.
 
 ## 12. Open items
 

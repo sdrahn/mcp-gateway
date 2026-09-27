@@ -2,36 +2,134 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>MCP Gateway approvals</title>
+    <title>MCP Gateway</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="approvals.css">
+    <link rel="stylesheet" href="gateway.css">
     <script src="../base1/cockpit.js"></script>
+    <script src="common.js" defer></script>
     <script src="approvals.js" defer></script>
+    <script src="servers.js" defer></script>
+    <script src="policy.js" defer></script>
+    <script src="audit.js" defer></script>
+    <script src="main.js" defer></script>
 </head>
 <body>
     <header>
         <h1>MCP Gateway</h1>
         <span id="whoami" class="muted"></span>
     </header>
+    <nav id="tabs" role="tablist">
+        <button role="tab" data-tab="approvals">Approvals</button>
+        <button role="tab" data-tab="servers">Servers</button>
+        <button role="tab" data-tab="policy">Policy</button>
+        <button role="tab" data-tab="audit">Audit</button>
+    </nav>
     <div id="error" class="error" hidden></div>
     <main>
-        <section>
-            <h2>Pending approvals</h2>
-            <p class="muted">Requests from AI agents that need a human decision. Only
-            approve what you expect: the agent cannot see or influence this page.</p>
-            <div id="approvals"></div>
-        </section>
-        <section>
-            <h2>Grants</h2>
-            <p class="muted">Standing approvals. Revoking one makes the next call ask again.</p>
-            <table id="grants">
-                <thead>
-                    <tr><th>Call</th><th>Principal</th><th>Scope</th><th>Expires</th>
-                        <th>Approved by</th><th></th></tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-        </section>
+        <div id="tab-approvals" class="tab" hidden>
+            <section>
+                <h2>Pending approvals</h2>
+                <p class="muted">Requests from AI agents that need a human decision. Only
+                approve what you expect: the agent cannot see or influence this page.</p>
+                <div id="approvals"></div>
+            </section>
+            <section>
+                <h2>Grants</h2>
+                <p class="muted">Standing approvals. Revoking one makes the next call ask again.</p>
+                <table id="grants">
+                    <thead>
+                        <tr><th>Call</th><th>Principal</th><th>Scope</th><th>Expires</th>
+                            <th>Approved by</th><th></th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </section>
+        </div>
+
+        <div id="tab-servers" class="tab" hidden>
+            <section>
+                <h2>MCP servers</h2>
+                <p class="muted">Servers registered with the gateway and the running instances
+                you may manage. Stopping an instance ends the calls in flight; the next call
+                starts a new one.</p>
+                <div id="servers"></div>
+            </section>
+        </div>
+
+        <div id="tab-policy" class="tab" hidden>
+            <section>
+                <h2>Policy status</h2>
+                <div id="policy-status" class="muted"></div>
+            </section>
+            <section>
+                <h2>Role bindings</h2>
+                <p class="muted">Which users and groups hold which roles
+                (<code id="rbac-path"></code>). Saving needs administrative access; the
+                policy engine picks the change up within seconds.</p>
+                <div id="bundle-note" class="note" hidden>The policy is loaded from a signed
+                bundle: changes saved here take effect once the bundle is rebuilt with
+                <code>mcp-policy-bundle</code>.</div>
+                <table id="bindings">
+                    <thead><tr><th>Kind</th><th>Name</th><th>Roles</th><th></th></tr></thead>
+                    <tbody></tbody>
+                </table>
+                <form id="binding-add" class="inline">
+                    <select name="kind" aria-label="Kind">
+                        <option value="users">User</option>
+                        <option value="groups">Group</option>
+                    </select>
+                    <input name="name" placeholder="name" aria-label="User or group name" required>
+                    <select name="role" aria-label="Role"></select>
+                    <button type="submit" class="secondary">Add binding</button>
+                </form>
+            </section>
+            <section>
+                <h2>Roles</h2>
+                <div id="roles"></div>
+            </section>
+            <section>
+                <details id="rbac-raw">
+                    <summary>Edit the role data as JSON</summary>
+                    <p class="muted">Roles, permissions, bindings and approver rules; see
+                    docs/architecture.md, section 6.4.</p>
+                    <textarea id="rbac-json" rows="20" spellcheck="false" aria-label="Role data (JSON)"></textarea>
+                    <div class="actions">
+                        <button id="rbac-save">Save</button>
+                        <button id="rbac-reset" class="secondary">Discard changes</button>
+                    </div>
+                </details>
+            </section>
+        </div>
+
+        <div id="tab-audit" class="tab" hidden>
+            <section>
+                <h2>Audit records</h2>
+                <p class="muted">Enforcement decisions and security events of
+                <code>mcp-gateway.service</code> from the journal (needs access to the
+                system journal). Arguments are shown as keyed digests unless policy asked
+                for a full audit.</p>
+                <form id="audit-filter" class="inline">
+                    <select name="effect" aria-label="Kind of record">
+                        <option value="">All records</option>
+                        <option value="deny">Denials</option>
+                        <option value="allow">Allowed</option>
+                        <option value="event">Approvals, revocations, policy changes</option>
+                    </select>
+                    <input name="text" placeholder="Filter (principal, server, tool, …)" aria-label="Filter">
+                    <select name="lines" aria-label="Number of journal lines">
+                        <option value="200">Last 200</option>
+                        <option value="1000">Last 1000</option>
+                        <option value="5000">Last 5000</option>
+                    </select>
+                    <button type="submit" class="secondary">Refresh</button>
+                </form>
+                <table id="audit">
+                    <thead><tr><th>Time</th><th>Record</th><th>Principal</th><th>Call</th>
+                        <th>Details</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </section>
+        </div>
     </main>
 </body>
 </html>

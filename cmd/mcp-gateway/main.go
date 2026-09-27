@@ -123,20 +123,6 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 	if !control && gw.Approvals.URLTemplate != "" {
 		log.Warn("approvals.url_template is set but the control socket is disabled; url approvals cannot be decided")
 	}
-	if control {
-		cl, err := transport.ListenUnix(gw.Approvals.ControlSocket, 0o660, gw.SocketGroup)
-		if err != nil {
-			return fmt.Errorf("listening on %s: %w", gw.Approvals.ControlSocket, err)
-		}
-		log.Info("listening", "control", gw.Approvals.ControlSocket)
-		cs := &controlapi.Server{Broker: b, Log: log}
-		go func() {
-			if err := cs.Serve(ctx, cl); err != nil {
-				log.Error("control API failed", "err", err)
-			}
-		}()
-	}
-
 	r := &router.Router{
 		Backends: backends,
 		Launcher: launcher,
@@ -146,6 +132,20 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 		Log:      log,
 
 		IdleTimeout: gw.Supervisor.IdleTimeout,
+	}
+
+	if control {
+		cl, err := transport.ListenUnix(gw.Approvals.ControlSocket, 0o660, gw.SocketGroup)
+		if err != nil {
+			return fmt.Errorf("listening on %s: %w", gw.Approvals.ControlSocket, err)
+		}
+		log.Info("listening", "control", gw.Approvals.ControlSocket)
+		cs := &controlapi.Server{Broker: b, Backends: backends, Instances: r, Policy: opa, Log: log}
+		go func() {
+			if err := cs.Serve(ctx, cl); err != nil {
+				log.Error("control API failed", "err", err)
+			}
+		}()
 	}
 
 	// Clients learn about policy changes through list_changed.

@@ -58,15 +58,16 @@ servers it starts, including the rule that MCP servers can never reach
 the gateway's or OPA's sockets.
 
 %package cockpit
-Summary:        Cockpit page for mcp-gateway approvals
+Summary:        Cockpit page for mcp-gateway
 Group:          System/Management
 BuildArch:      noarch
 Requires:       %{name} = %{version}
 Requires:       cockpit-bridge
 
 %description cockpit
-A Cockpit page to decide on pending mcp-gateway approvals and to list and
-revoke grants, as the logged-in user.
+A Cockpit page for mcp-gateway, as the logged-in user: decide on pending
+approvals and revoke grants, see MCP servers and stop their instances,
+edit role bindings and view the audit records.
 
 %package demo-server
 Summary:        Demo filesystem MCP server for mcp-gateway

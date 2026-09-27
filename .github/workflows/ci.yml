@@ -47,6 +47,21 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y selinux-policy-dev checkpolicy
       - run: make selinux
 
+  # The Cockpit pages in headless Chrome (preinstalled on the runner),
+  # against a stub of cockpit.js.
+  cockpit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: for f in cockpit/mcp-gateway/*.js; do node --check "$f"; done
+      - run: npm install --no-save --no-package-lock playwright-core@1
+      - run: node cockpit/test/smoke.js
+        env:
+          CHROME: /usr/bin/google-chrome
+
   # The OBS package (packaging/suse), built the way OBS builds it: real
   # SUSE rpm macros, offline Go modules, the SELinux module against
   # openSUSE's policy, rpmlint with the package's rpmlintrc.

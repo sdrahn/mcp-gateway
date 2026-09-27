@@ -169,3 +169,35 @@ func TestCancelledStartIsNoFailure(t *testing.T) {
 		t.Fatalf("cancelled start delayed the next one: %v", err)
 	}
 }
+
+func TestListAndStopInstances(t *testing.T) {
+	p, l, _ := testPool(t, time.Hour)
+	b := &config.Backend{Name: "fs", Isolation: config.IsolationPrincipal}
+	up, _, err := p.acquire(context.Background(), b, alice())
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := p.list()
+	if len(list) != 1 || list[0].ID != up.id || list[0].Server != "fs" || list[0].Sub != "alice" ||
+		list[0].Sessions != 1 || list[0].Unit == "" || list[0].SessionID != "" {
+		t.Fatalf("list %+v", list)
+	}
+	if p.stop("nope") {
+		t.Fatal("stopped an unknown instance")
+	}
+	if !p.stop(up.id) {
+		t.Fatal("stop failed")
+	}
+	<-up.closed
+	if len(p.list()) != 0 {
+		t.Fatal("stopped instance still listed")
+	}
+	time.Sleep(20 * time.Millisecond) // let the watcher run
+	// A stop on request is no failure: the next call starts a new one.
+	if _, _, err := p.acquire(context.Background(), b, alice()); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(l.started("fs")); n != 2 {
+		t.Fatalf("%d starts", n)
+	}
+}

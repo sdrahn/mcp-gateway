@@ -98,8 +98,9 @@ type BoolPolicy interface {
 
 // Policy paths for approver decisions.
 const (
-	approvePath     = "/v1/data/mcp/approvals/allow"
-	manageGrantPath = "/v1/data/mcp/approvals/manage_grant"
+	approvePath        = "/v1/data/mcp/approvals/allow"
+	manageGrantPath    = "/v1/data/mcp/approvals/manage_grant"
+	manageInstancePath = "/v1/data/mcp/approvals/manage_instance"
 )
 
 // Broker obtains approvals and keeps grants.
@@ -375,6 +376,16 @@ func (b *Broker) mayApprove(ctx context.Context, a Approver, p *Pending) bool {
 }
 
 // mayManage: as policy says; without policy, the principal's own grants.
+// MayManageInstance reports whether a may see and stop a backend
+// instance of server run for the principal with uid (nil: no local
+// account). The same approver rules as for grants apply.
+func (b *Broker) MayManageInstance(ctx context.Context, a Approver, server string, uid *uint32) bool {
+	if b.opts.Policy == nil && a.UID != 0 {
+		return uid != nil && *uid == a.UID
+	}
+	return b.ask(ctx, a, manageInstancePath, map[string]any{"instance": map[string]any{"server": server, "uid": uid}})
+}
+
 func (b *Broker) mayManage(ctx context.Context, a Approver, g pep.Grant) bool {
 	if b.opts.Policy == nil && a.UID != 0 {
 		return g.UID != nil && *g.UID == a.UID

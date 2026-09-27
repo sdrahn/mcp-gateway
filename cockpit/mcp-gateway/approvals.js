@@ -1,72 +1,12 @@
-/* MCP Gateway approvals page for Cockpit.
- *
- * Talks to the gateway's control API on its unix socket through
- * cockpit.http, i.e. as the logged-in Cockpit user: the gateway identifies
- * the caller by the socket's peer credentials and shows only what that
- * user may decide on (their own requests, or everyone's for the admin
- * group). URL-mode approval links point here: #/approvals/<id>.
+/* Approvals tab: pending approvals the user may decide on, and grants.
+ * URL-mode approval links point here: #/approvals/<id>.
  */
 "use strict";
-
-const SOCKET = "/run/mcp-gateway/control.sock";
-const REFRESH_MS = 2000;
-
-const api = cockpit.http({ unix: SOCKET });
 
 const SCOPE_TITLES = { once: "Only this call", session: "For this session" };
 
 function scopeTitle(s) {
     return SCOPE_TITLES[s] || "For " + s;
-}
-
-function el(tag, attrs, ...children) {
-    const e = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs || {})) {
-        if (k === "class") e.className = v;
-        else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
-        else e.setAttribute(k, v);
-    }
-    for (const c of children) {
-        if (c !== null && c !== undefined) e.append(c instanceof Node ? c : String(c));
-    }
-    return e;
-}
-
-function relative(date) {
-    const s = Math.round((new Date(date) - Date.now()) / 1000);
-    if (s <= 0) return "now";
-    if (s < 120) return "in " + s + " s";
-    if (s < 7200) return "in " + Math.round(s / 60) + " min";
-    if (s < 172800) return "in " + Math.round(s / 3600) + " h";
-    return "in " + Math.round(s / 86400) + " days";
-}
-
-function principalText(p) {
-    let t = p.sub;
-    if (p.iss) t += " (" + p.iss + ")";
-    t += " via " + p.transport;
-    if (p.client && p.client.name) t += ", client " + p.client.name + (p.client.version ? " " + p.client.version : "");
-    return t;
-}
-
-function showError(msg) {
-    const box = document.getElementById("error");
-    box.hidden = !msg;
-    box.textContent = msg || "";
-}
-
-function describeFailure(ex) {
-    if (ex && ex.problem === "not-found") {
-        return "mcp-gateway is not running (" + SOCKET + " not found).";
-    }
-    if (ex && ex.problem === "access-denied") {
-        return "No access to " + SOCKET + ". Ask an administrator to add you to the gateway's socket group.";
-    }
-    return "Talking to mcp-gateway failed: " + (ex && (ex.message || ex.problem) || ex);
-}
-
-async function getJSON(path) {
-    return JSON.parse(await api.get(path));
 }
 
 async function decide(id, decision, scope, buttons) {
@@ -81,7 +21,7 @@ async function decide(id, decision, scope, buttons) {
             ? "This request is no longer pending (decided elsewhere, or timed out)."
             : describeFailure(ex));
     }
-    refresh();
+    tabs.approvals.refresh();
 }
 
 async function revoke(id, button) {
@@ -92,7 +32,7 @@ async function revoke(id, button) {
     } catch (ex) {
         showError(describeFailure(ex));
     }
-    refresh();
+    tabs.approvals.refresh();
 }
 
 function highlighted() {
@@ -164,33 +104,11 @@ function renderGrants(grants) {
     }
 }
 
-let refreshing = false;
-
-async function refresh() {
-    if (refreshing) return;
-    refreshing = true;
-    try {
+tabs.approvals = {
+    intervalMs: 2000,
+    async refresh() {
         const [pending, grants] = await Promise.all([getJSON("/v1/approvals"), getJSON("/v1/grants")]);
         renderApprovals(pending);
         renderGrants(grants);
-        showError(null);
-    } catch (ex) {
-        showError(describeFailure(ex));
-    } finally {
-        refreshing = false;
-    }
-}
-
-async function init() {
-    try {
-        const me = await getJSON("/v1/whoami");
-        document.getElementById("whoami").textContent = "Deciding as " + me.name;
-    } catch (ex) {
-        showError(describeFailure(ex));
-    }
-    cockpit.addEventListener("locationchanged", refresh);
-    refresh();
-    setInterval(refresh, REFRESH_MS);
-}
-
-init();
+    },
+};

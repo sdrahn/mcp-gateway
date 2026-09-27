@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -41,6 +42,7 @@ type pool struct {
 
 type poolEntry struct {
 	key       string
+	principal principal.Principal
 	isolation config.Isolation
 	ready     chan struct{}
 	up        *upstream
@@ -99,7 +101,7 @@ func (p *pool) acquire(ctx context.Context, b *config.Backend, pr principal.Prin
 					return nil, nil, &BackoffError{Server: b.Name, RetryIn: wait}
 				}
 			}
-			e = &poolEntry{key: key, isolation: b.Isolation, ready: make(chan struct{}), refs: 1}
+			e = &poolEntry{key: key, principal: pr, isolation: b.Isolation, ready: make(chan struct{}), refs: 1}
 			p.entries[key] = e
 			p.mu.Unlock()
 			e.up, e.err = p.start(ctx, b, pr)
@@ -248,6 +250,79 @@ func (p *pool) release(e *poolEntry) {
 		return
 	}
 	e.timer = time.AfterFunc(p.idle, stop)
+}
+
+// InstanceInfo describes a running backend instance.
+type InstanceInfo struct {
+	ID        string              `json:"id"`
+	Server    string              `json:"server"`
+	Unit      string              `json:"unit"`
+	Sub       string              `json:"sub"`
+	Issuer    string              `json:"iss,omitempty"`
+	UID       *uint32             `json:"uid,omitempty"`
+	Transport principal.Transport `json:"transport"`
+	// SessionID is set for instances of backends with isolation: session.
+	SessionID string           `json:"session_id,omitempty"`
+	Isolation config.Isolation `json:"isolation"`
+	Started   time.Time        `json:"started"`
+	// Sessions is the number of sessions using the instance; 0 while it
+	// waits for the idle timeout.
+	Sessions int `json:"sessions"`
+}
+
+// list describes the running instances, ordered by start.
+func (p *pool) list() []InstanceInfo {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var out []InstanceInfo
+	for _, e := range p.entries {
+		select {
+		case <-e.ready:
+		default:
+			continue // starting
+		}
+		if e.err != nil || e.up.isClosed() {
+			continue
+		}
+		info := InstanceInfo{ID: e.up.id, Server: e.up.backend.Name, Unit: e.up.unit,
+			Sub: e.principal.Sub, Issuer: e.principal.Issuer, UID: e.principal.UID,
+			Transport: e.principal.Transport, Isolation: e.isolation, Started: e.started, Sessions: e.refs}
+		if e.isolation == config.IsolationSession {
+			info.SessionID = e.principal.SessionID
+		}
+		out = append(out, info)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Started.Before(out[j].Started) })
+	return out
+}
+
+// stop stops the instance with the given id; sessions using it get a new
+// instance on their next call.
+func (p *pool) stop(id string) bool {
+	p.mu.Lock()
+	var found *poolEntry
+	for _, e := range p.entries {
+		select {
+		case <-e.ready:
+			if e.err == nil && e.up.id == id {
+				found = e
+			}
+		default:
+		}
+	}
+	if found == nil {
+		p.mu.Unlock()
+		return false
+	}
+	delete(p.entries, found.key)
+	found.stopping = true
+	if found.timer != nil {
+		found.timer.Stop()
+	}
+	p.mu.Unlock()
+	p.log.Info("instance stopped on request", "server", found.up.backend.Name, "instance", found.up.id)
+	found.up.close()
+	return true
 }
 
 // closeAll stops every instance.

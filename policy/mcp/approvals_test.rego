@@ -51,3 +51,15 @@ test_manage_grant if {
 	remote := {"id": "g-2", "sub": "bob", "iss": "https://idp", "server": "fs", "tool": "write_file"}
 	not approvals.manage_grant with input as {"approver": bob, "grant": remote}
 }
+
+test_manage_instance if {
+	own := {"server": "fs", "uid": 1001}
+	approvals.manage_instance with input as {"approver": alice, "instance": own}
+	not approvals.manage_instance with input as {"approver": bob, "instance": own}
+	approvals.manage_instance with input as {"approver": carol, "instance": own}
+
+	# An unmapped remote principal's instance: admins only.
+	remote := {"server": "fs", "uid": null}
+	not approvals.manage_instance with input as {"approver": alice, "instance": remote}
+	approvals.manage_instance with input as {"approver": carol, "instance": remote}
+}
