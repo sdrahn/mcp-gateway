@@ -15,7 +15,7 @@ Name:           mcp-gateway
 Version:        0.1.0
 Release:        0
 Summary:        Policy-enforcing gateway for local MCP servers
-License:        GPL-2.0-or-later
+License:        MIT
 Group:          Productivity/Networking/Security
 URL:            https://github.com/sdrahn/mcp-gateway
 Source0:        %{name}-%{version}.tar.gz

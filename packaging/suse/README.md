@@ -93,13 +93,12 @@ module, servers run in `mcpsrv_generic_t`.
 
 ## Before submitting to openSUSE:Factory or SLE
 
-- **Licenses:** mcp-gateway is GPL-2.0-or-later. The binaries also
-  contain the vendored Go modules: MIT (golang-jwt, yaml.v3), Apache-2.0
-  (go-systemd, parts of yaml.v3), BSD-2-Clause (godbus) and BSD-3-Clause
-  (golang.org/x/sys). Apache-2.0 is compatible with GPLv3 but not GPLv2,
-  so the combined binaries are distributable under GPLv3 terms (which "or
-  later" permits). Reviewers may ask for the bundled licenses in the
-  `License:` tag.
+- **Licenses:** mcp-gateway is MIT. The binaries also contain the
+  vendored Go modules: MIT (golang-jwt, yaml.v3), Apache-2.0 (go-systemd,
+  parts of yaml.v3), BSD-2-Clause (godbus) and BSD-3-Clause
+  (golang.org/x/sys), all permissive and compatible. Reviewers may ask for
+  the bundled licenses in the `License:` tag (e.g. `MIT AND Apache-2.0 AND
+  BSD-2-Clause AND BSD-3-Clause`).
 - **polkit rule:** `50-mcp-gateway.rules` lets the `mcp-gateway` user
   start and stop `mcp-*.service` transient units. polkit rules need review
   and whitelisting by the SUSE security team (open a bug for
