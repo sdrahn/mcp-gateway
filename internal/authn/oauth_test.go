@@ -6,6 +6,8 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -20,6 +22,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/principal"
 )
 
 const audience = "https://gw.example.com/mcp"
@@ -110,7 +113,7 @@ func (idp *testIdP) oauth(mod func(*config.HTTP)) *OAuth {
 
 func TestOAuthValid(t *testing.T) {
 	idp := newIdP(t)
-	p, err := idp.oauth(nil).Authenticate(context.Background(), idp.rsaToken(t, nil))
+	p, err := idp.oauth(nil).Authenticate(context.Background(), idp.rsaToken(t, nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +130,7 @@ func TestOAuthEC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := idp.oauth(nil).Authenticate(context.Background(), s); err != nil {
+	if _, err := idp.oauth(nil).Authenticate(context.Background(), s, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -163,7 +166,7 @@ func TestOAuthRejects(t *testing.T) {
 	}
 	for name, tok := range tests {
 		t.Run(name, func(t *testing.T) {
-			if _, err := o.Authenticate(context.Background(), tok); !errors.Is(err, ErrInvalidToken) {
+			if _, err := o.Authenticate(context.Background(), tok, nil); !errors.Is(err, ErrInvalidToken) {
 				t.Fatalf("want ErrInvalidToken, got %v", err)
 			}
 		})
@@ -173,13 +176,13 @@ func TestOAuthRejects(t *testing.T) {
 func TestOAuthScopes(t *testing.T) {
 	idp := newIdP(t)
 	o := idp.oauth(func(c *config.HTTP) { c.Scopes = []string{"mcp"} })
-	if _, err := o.Authenticate(context.Background(), idp.rsaToken(t, nil)); err != nil {
+	if _, err := o.Authenticate(context.Background(), idp.rsaToken(t, nil), nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := o.Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"scope": "openid"})); !errors.Is(err, ErrInsufficientScope) {
+	if _, err := o.Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"scope": "openid"}), nil); !errors.Is(err, ErrInsufficientScope) {
 		t.Fatalf("want ErrInsufficientScope, got %v", err)
 	}
-	if _, err := o.Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"scope": nil, "scp": []string{"mcp"}})); err != nil {
+	if _, err := o.Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"scope": nil, "scp": []string{"mcp"}}), nil); err != nil {
 		t.Fatalf("scp array: %v", err)
 	}
 }
@@ -188,7 +191,7 @@ func TestOAuthKeyRefresh(t *testing.T) {
 	idp := newIdP(t)
 	idp.publishEC.Store(false)
 	o := idp.oauth(nil)
-	if _, err := o.Authenticate(context.Background(), idp.rsaToken(t, nil)); err != nil {
+	if _, err := o.Authenticate(context.Background(), idp.rsaToken(t, nil), nil); err != nil {
 		t.Fatal(err)
 	}
 	// The IdP rotates in the EC key; an unknown kid triggers a refresh, but
@@ -197,11 +200,11 @@ func TestOAuthKeyRefresh(t *testing.T) {
 	tok := jwt.NewWithClaims(jwt.SigningMethodES256, idp.claims(nil))
 	tok.Header["kid"] = "ec1"
 	s, _ := tok.SignedString(idp.ecKey)
-	if _, err := o.Authenticate(context.Background(), s); err == nil {
+	if _, err := o.Authenticate(context.Background(), s, nil); err == nil {
 		t.Fatal("refresh should be rate limited")
 	}
 	o.now = func() time.Time { return time.Now().Add(keysMinInterval + time.Second) }
-	if _, err := o.Authenticate(context.Background(), s); err != nil {
+	if _, err := o.Authenticate(context.Background(), s, nil); err != nil {
 		t.Fatalf("after refresh: %v", err)
 	}
 	if n := idp.jwksHits.Load(); n != 2 {
@@ -216,15 +219,67 @@ func TestOAuthLocalUserMapping(t *testing.T) {
 	}
 	idp := newIdP(t)
 	o := idp.oauth(func(c *config.HTTP) { c.LocalUserClaim = "preferred_username" })
-	p, err := o.Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"preferred_username": me.Username}))
+	p, err := o.Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"preferred_username": me.Username}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if p.Sub != me.Username || p.UID == nil || p.Home != me.HomeDir {
 		t.Fatalf("mapped principal %+v", p)
 	}
-	p, err = o.Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"preferred_username": "no-such-user-xyz"}))
+	p, err = o.Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"preferred_username": "no-such-user-xyz"}), nil)
 	if err != nil || p.Sub != "u-123" || p.UID != nil {
 		t.Fatalf("unmapped principal %+v %v", p, err)
+	}
+}
+
+func testCert(t *testing.T, cn string) *x509.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: cn},
+		NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestCertificateBoundTokens(t *testing.T) {
+	idp := newIdP(t)
+	mine, other := testCert(t, "mine"), testCert(t, "other")
+	boundToMine := idp.rsaToken(t, map[string]any{"cnf": map[string]any{"x5t#S256": principal.Thumbprint(mine)}})
+	unbound := idp.rsaToken(t, nil)
+
+	o := idp.oauth(nil)
+	for name, tc := range map[string]struct {
+		token string
+		cert  *x509.Certificate
+		ok    bool
+	}{
+		"bound, its certificate":   {boundToMine, mine, true},
+		"bound, other certificate": {boundToMine, other, false},
+		"bound, no certificate":    {boundToMine, nil, false},
+		"unbound, certificate":     {unbound, mine, true},
+		"unbound, no certificate":  {unbound, nil, true},
+	} {
+		_, err := o.Authenticate(context.Background(), tc.token, tc.cert)
+		if tc.ok != (err == nil) || (err != nil && !errors.Is(err, ErrInvalidToken)) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+
+	strict := idp.oauth(func(c *config.HTTP) { c.RequireBoundTokens = true })
+	if _, err := strict.Authenticate(context.Background(), unbound, mine); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("unbound token accepted with require_bound_tokens: %v", err)
+	}
+	if _, err := strict.Authenticate(context.Background(), boundToMine, mine); err != nil {
+		t.Errorf("bound token refused with require_bound_tokens: %v", err)
 	}
 }

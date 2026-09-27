@@ -123,6 +123,16 @@ type HTTP struct {
 	AllowedOrigins []string `yaml:"allowed_origins"`
 	// SessionIdleTimeout closes MCP sessions without traffic.
 	SessionIdleTimeout time.Duration `yaml:"session_idle_timeout"`
+	// ClientCAFile holds the CA certificates (PEM) that client
+	// certificates must chain to (mTLS).
+	ClientCAFile string `yaml:"client_ca_file"`
+	// ClientAuth is "none", "optional" (verify a client certificate if
+	// one is presented) or "required". Default: "optional" with a
+	// client_ca_file, else "none".
+	ClientAuth string `yaml:"client_auth"`
+	// RequireBoundTokens refuses bearer tokens that are not bound to the
+	// client certificate (RFC 8705 cnf/x5t#S256).
+	RequireBoundTokens bool `yaml:"require_bound_tokens"`
 }
 
 // Policy configures the connection to the policy decision point.
@@ -299,6 +309,12 @@ func (g *Gateway) setDefaults() {
 	if g.HTTP.SessionIdleTimeout == 0 {
 		g.HTTP.SessionIdleTimeout = DefaultHTTPSessionIdle
 	}
+	if g.HTTP.ClientAuth == "" {
+		g.HTTP.ClientAuth = "none"
+		if g.HTTP.ClientCAFile != "" {
+			g.HTTP.ClientAuth = "optional"
+		}
+	}
 }
 
 // Validate checks the configuration for consistency.
@@ -350,6 +366,18 @@ func (g *Gateway) Validate() error {
 		}
 		if g.HTTP.Issuer == "" || g.HTTP.Audience == "" {
 			return errors.New("http: issuer and audience are required when listen is set")
+		}
+		switch g.HTTP.ClientAuth {
+		case "none":
+			if g.HTTP.RequireBoundTokens {
+				return errors.New("http.require_bound_tokens: needs client certificates (client_auth)")
+			}
+		case "optional", "required":
+			if g.HTTP.ClientCAFile == "" {
+				return fmt.Errorf("http.client_auth %s: client_ca_file is required", g.HTTP.ClientAuth)
+			}
+		default:
+			return fmt.Errorf("http.client_auth: unknown value %q", g.HTTP.ClientAuth)
 		}
 		for name, v := range map[string]string{"issuer": g.HTTP.Issuer, "audience": g.HTTP.Audience, "jwks_url": g.HTTP.JWKSURL} {
 			if v == "" && name == "jwks_url" {

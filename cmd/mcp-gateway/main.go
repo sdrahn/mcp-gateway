@@ -10,6 +10,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -182,10 +183,16 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, r *router.Router, errc chan<- 
 		AuthorizationServers: []string{cfg.Issuer},
 		Scopes:               cfg.Scopes,
 		AllowedOrigins:       cfg.AllowedOrigins,
-		KnownServer:          func(name string) bool { return r.Backends[name] != nil },
-		SessionIdle:          cfg.SessionIdleTimeout,
-		Log:                  log,
+		// Clients with a certificate can present certificate-bound tokens.
+		CertificateBoundTokens: cfg.ClientAuth != "none",
+		KnownServer:            func(name string) bool { return r.Backends[name] != nil },
+		SessionIdle:            cfg.SessionIdleTimeout,
+		Log:                    log,
 	}, authn.NewOAuth(cfg, nil), r.ServeClient)
+	if err != nil {
+		return nil, err
+	}
+	tlsConfig, err := serverTLS(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +200,7 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, r *router.Router, errc chan<- 
 		Addr:              cfg.Listen,
 		Handler:           h,
 		ReadHeaderTimeout: 10 * time.Second,
-		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12},
+		TLSConfig:         tlsConfig,
 	}
 	go func() {
 		err := srv.ListenAndServeTLS(cfg.CertFile, cfg.KeyFile)
@@ -235,6 +242,28 @@ func newAudit(log *slog.Logger, gw *config.Gateway) (*audit.Logger, func(), erro
 		}
 	}
 	return audit.New(os.Stderr, opts), closeFn, nil
+}
+
+// serverTLS returns the TLS configuration of the remote transport, with
+// client certificate verification (mTLS) as configured.
+func serverTLS(cfg config.HTTP) (*tls.Config, error) {
+	c := &tls.Config{MinVersion: tls.VersionTLS12}
+	if cfg.ClientAuth == "none" {
+		return c, nil
+	}
+	pem, err := os.ReadFile(cfg.ClientCAFile)
+	if err != nil {
+		return nil, fmt.Errorf("http.client_ca_file: %w", err)
+	}
+	c.ClientCAs = x509.NewCertPool()
+	if !c.ClientCAs.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("http.client_ca_file: no certificates in %s", cfg.ClientCAFile)
+	}
+	c.ClientAuth = tls.VerifyClientCertIfGiven
+	if cfg.ClientAuth == "required" {
+		c.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return c, nil
 }
 
 func newLauncher(log *slog.Logger, s config.Supervisor) (supervisor.Launcher, error) {

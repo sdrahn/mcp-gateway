@@ -223,3 +223,29 @@ test_sensitive_elicitation if {
 	perms := {"admin": {"permissions": [{"server": "fs", "client": "elicitation/create", "allow_sensitive": true}]}}
 	authz.decision.effect == "allow" with input as secret with data.rbac.roles as perms
 }
+
+cert_rbac := {
+	"roles": {"ops": {"permissions": [
+		{"server": "fs", "tool": "read_*"},
+		{"server": "fs", "tool": "write_*", "require_client_cert": true},
+		# Nonsensical, but an explicit deny must never depend on it.
+		{"server": "fs", "tool": "read_secret", "effect": "deny", "require_client_cert": true},
+	]}},
+	"bindings": {"users": {"u-remote": ["ops"]}, "groups": {}},
+}
+
+remote := {"sub": "u-remote", "iss": "https://idp", "transport": "http", "session_id": "r1"}
+
+remote_with_cert := object.union(remote, {"cert": {"subject": "CN=agent", "x5t#S256": "abc"}})
+
+test_require_client_cert if {
+	authz.decision.effect == "allow" with input as call(remote_with_cert, "fs", "write_file", {}) with data.rbac as cert_rbac
+	d := authz.decision with input as call(remote, "fs", "write_file", {}) with data.rbac as cert_rbac
+	d.effect == "deny"
+	d.reason == "no matching permission"
+}
+
+test_deny_applies_without_client_cert if {
+	d := authz.decision with input as call(remote, "fs", "read_secret", {}) with data.rbac as cert_rbac
+	d.reason == "denied by policy"
+}

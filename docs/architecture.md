@@ -163,6 +163,23 @@ own backends.
   - Every request carries the token and is validated; the metadata lives
     at `/.well-known/oauth-protected-resource<path>` and every `401`
     points to it.
+- **mTLS (optional):** with `http.client_ca_file`, the TLS layer verifies
+  client certificates against those CAs; `http.client_auth` is
+  `optional` (the default then: a certificate is verified if presented)
+  or `required` (no handshake without one). A client certificate does not
+  replace the token; it adds:
+  - **certificate-bound tokens (RFC 8705):** a token with a
+    `cnf.x5t#S256` confirmation is accepted only over a connection with
+    that certificate, so a stolen token is useless without the client's
+    key. `http.require_bound_tokens` refuses unbound tokens; the metadata
+    announces `tls_client_certificate_bound_access_tokens`.
+  - **policy input:** the certificate's subject, SANs and thumbprint are
+    `input.principal.cert`; permissions with `"require_client_cert":
+    true` apply only to clients that presented one (§6.4).
+  - a session is bound to the certificate as well as to the subject.
+
+  TLS must terminate at the gateway for this; a reverse proxy in front
+  would hide the client certificate.
 - Streamable HTTP details: the resource URL's path (e.g. `/mcp`) is the
   aggregated endpoint, `<path>/<server>` the per-server ones. `POST`
   carries one client message (no batches); requests are answered as JSON
@@ -172,7 +189,8 @@ own backends.
   stream for everything else; messages with no open stream are queued
   (bounded). `DELETE` ends the session. `initialize` creates the
   session and returns `Mcp-Session-Id`; a session is bound to its
-  principal (issuer + subject), and requests from anyone else get `404`.
+  principal (issuer + subject, and client certificate if any), and
+  requests from anyone else get `404`.
   Sessions without traffic are closed after `http.session_idle_timeout`.
   Browser `Origin`s must be allow-listed (DNS rebinding).
 - Transports hand the router a message connection
@@ -193,9 +211,14 @@ what policy sees as `input.principal`:
   "transport": "unix",
   "selinux": "staff_u:staff_r:staff_t:s0-s0:c0.c1023",
   "client": { "name": "kit", "version": "0.9.1" },
-  "session_id": "3f0c…"
+  "session_id": "3f0c…",
+  "cert": { "subject": "CN=agent-1", "x5t#S256": "q3Zp…", "dns": ["agent-1.example.com"] }
 }
 ```
+
+(`cert` only for remote clients that presented a verified client
+certificate; `uid`, `home` and `selinux` only for local principals and
+mapped remote ones.)
 
 - **Local:** `uid` → user name and groups via NSS (works with SSSD/IPA).
 - **Remote:** `sub`, `iss` and `groups` (claim name configurable) from the
@@ -670,7 +693,9 @@ backend sends to the client (`roots/list`, `sampling/createMessage`,
 use `${sub}` and `${home}`. Optional fields: `effect: "deny"` (explicit
 deny, wins over everything), `require_approval`, `approval_channel`,
 `args` (regular expressions per tool/prompt argument, deciding whether the
-permission applies), `obligations` (§6.3, conditions on an allowed call),
+permission applies), `require_client_cert` (applies only to remote
+clients with a verified TLS client certificate, §5.1; ignored for explicit
+denies, which always apply), `obligations` (§6.3, conditions on an allowed call),
 and for `client` permissions `allow_sensitive` (backend elicitations that
 look like they ask for secrets, §5.6.2).
 
