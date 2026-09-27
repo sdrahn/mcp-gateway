@@ -48,8 +48,17 @@ template(`mcp_gateway_backend_template',`
 
 	# stdio: the gateway-owned socketpair passed in by systemd.
 	allow mcpsrv_$1_t mcpgw_t:fd use;
-	allow mcpsrv_$1_t mcpgw_t:unix_stream_socket { read write getattr ioctl };
+	allow mcpsrv_$1_t mcpgw_t:unix_stream_socket rw_socket_perms;
 
+	# Baseline for a typical (possibly interpreted) stdio server; stderr
+	# goes to the journal.
+	libs_use_ld_so(mcpsrv_$1_t)
+	libs_use_shared_libs(mcpsrv_$1_t)
+	kernel_read_system_state(mcpsrv_$1_t)
+	corecmd_search_bin(mcpsrv_$1_t)
+	files_read_etc_files(mcpsrv_$1_t)
+	init_use_fds(mcpsrv_$1_t)
+	logging_send_syslog_msg(mcpsrv_$1_t)
 	miscfiles_read_localization(mcpsrv_$1_t)
 ')
 

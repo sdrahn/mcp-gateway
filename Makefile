@@ -10,7 +10,7 @@ SYSCONFDIR ?= /etc
 UNITDIR    ?= $(PREFIX)/lib/systemd/system
 DESTDIR    ?=
 
-BINARIES := bin/mcp-gateway bin/mcp-connect
+BINARIES := bin/mcp-gateway bin/mcp-connect bin/mcp-fs-demo
 
 .PHONY: all build test vet lint fmt-check policy-check policy-test selinux check install clean
 
@@ -18,11 +18,15 @@ all: build
 
 build: $(BINARIES)
 
+bin/mcp-fs-demo: FORCE
+	$(GO) build -trimpath -o $@ ./examples/mcp-fs-demo
+
 bin/%: FORCE
 	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $@ ./cmd/$*
 
 FORCE:
 
+# e2e/ runs when opa is on PATH (or $$OPA is set), and is skipped otherwise.
 test:
 	$(GO) test -race ./...
 
@@ -53,8 +57,9 @@ install: build
 	install -Dm0755 bin/mcp-connect $(DESTDIR)$(PREFIX)/bin/mcp-connect
 	install -Dm0644 config/gateway.yaml $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/gateway.yaml
 	install -d $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/servers.d
-	install -d $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/policy
-	cp -r policy/. $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/policy/
+	install -d $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/policy/mcp $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/policy/rbac
+	install -m0644 policy/mcp/authz.rego policy/mcp/filter.rego $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/policy/mcp/
+	install -m0644 policy/rbac/data.json $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/policy/rbac/
 	install -Dm0644 systemd/mcp-gateway.service $(DESTDIR)$(UNITDIR)/mcp-gateway.service
 	install -Dm0644 systemd/mcp-opa.service $(DESTDIR)$(UNITDIR)/mcp-opa.service
 	install -Dm0644 packaging/sysusers.d/mcp-gateway.conf $(DESTDIR)$(PREFIX)/lib/sysusers.d/mcp-gateway.conf

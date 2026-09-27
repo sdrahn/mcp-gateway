@@ -36,7 +36,7 @@
           "require_approval": true,
           "approval_channel": "url",
           "args": {
-            "path": "^/home/${sub}/"
+            "path": "^${home}/"
           }
         },
         {

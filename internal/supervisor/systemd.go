@@ -1,0 +1,216 @@
+package supervisor
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"os"
+	"sync"
+	"time"
+
+	sddbus "github.com/coreos/go-systemd/v22/dbus"
+	"github.com/godbus/dbus/v5"
+	"golang.org/x/sys/unix"
+
+	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/principal"
+)
+
+// Resource limits applied to every instance.
+const (
+	instanceMemoryMax  = 512 << 20
+	instanceTasksMax   = 64
+	instanceRuntimeMax = 8 * time.Hour
+)
+
+// Systemd starts each backend instance as a transient systemd service,
+// with stdin/stdout on one end of a socketpair owned by the gateway, a
+// hardened sandbox, and, when SELinux is used, its own domain and MCS
+// category pair (docs/architecture.md, sections 5.7 and 5.8).
+type Systemd struct {
+	Log *slog.Logger
+	// SELinux enables SELinuxContext= on the units.
+	SELinux bool
+	MCS     *MCSAllocator
+
+	mu   sync.Mutex
+	conn *sddbus.Conn
+}
+
+// SELinuxEnabled reports whether SELinux is enabled on this host.
+func SELinuxEnabled() bool {
+	_, err := os.Stat("/sys/fs/selinux/enforce")
+	return err == nil
+}
+
+func (s *Systemd) bus(ctx context.Context) (*sddbus.Conn, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn != nil && s.conn.Connected() {
+		return s.conn, nil
+	}
+	c, err := sddbus.NewSystemConnectionContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("supervisor: connecting to systemd: %w", err)
+	}
+	s.conn = c
+	return c, nil
+}
+
+// Properties returns the transient unit properties for an instance whose
+// stdio is fd. mcs is the category pair ("" without SELinux).
+func (s *Systemd) Properties(b *config.Backend, p principal.Principal, fd int, mcs string) ([]sddbus.Property, error) {
+	prop := func(name string, v any) sddbus.Property {
+		return sddbus.Property{Name: name, Value: dbus.MakeVariant(v)}
+	}
+	protectHome := b.Sandbox.ProtectHome
+	if protectHome == "read-write" {
+		protectHome = "no"
+	}
+	props := []sddbus.Property{
+		sddbus.PropDescription(fmt.Sprintf("MCP backend %s for %s (session %s)", b.Name, p.Sub, p.SessionID)),
+		sddbus.PropExecStart(command(b, p), false),
+		prop("Environment", environment(b, p)),
+		prop("StandardInputFileDescriptor", dbus.UnixFD(fd)),
+		prop("StandardOutputFileDescriptor", dbus.UnixFD(fd)),
+		prop("StandardError", "journal"),
+		prop("CollectMode", "inactive-or-failed"),
+		prop("NoNewPrivileges", true),
+		prop("ProtectSystem", "strict"),
+		prop("ProtectHome", protectHome),
+		prop("PrivateTmp", true),
+		prop("PrivateDevices", true),
+		prop("PrivateNetwork", !b.Network),
+		prop("ProtectKernelTunables", true),
+		prop("ProtectKernelModules", true),
+		prop("ProtectControlGroups", true),
+		prop("MemoryMax", uint64(instanceMemoryMax)),
+		prop("TasksMax", uint64(instanceTasksMax)),
+		prop("RuntimeMaxUSec", uint64(instanceRuntimeMax/time.Microsecond)),
+	}
+	if !b.Network {
+		props = append(props, prop("RestrictAddressFamilies", struct {
+			Allow    bool
+			Families []string
+		}{true, []string{"AF_UNIX"}}))
+	}
+	switch b.RunAs {
+	case "principal":
+		if p.UID == nil {
+			return nil, fmt.Errorf("supervisor: backend %s runs as the principal, but %s has no local account", b.Name, p.Sub)
+		}
+		props = append(props, prop("User", p.Sub))
+		if p.Home != "" {
+			props = append(props, prop("WorkingDirectory", p.Home))
+		}
+	case "dynamic":
+		props = append(props, prop("DynamicUser", true))
+	default:
+		props = append(props, prop("User", b.RunAs))
+	}
+	if mcs != "" {
+		props = append(props, prop("SELinuxContext", fmt.Sprintf("system_u:system_r:%s:s0:%s", b.SELinuxType, mcs)))
+	}
+	return props, nil
+}
+
+// Start implements Launcher.
+func (s *Systemd) Start(ctx context.Context, b *config.Backend, p principal.Principal) (Instance, error) {
+	conn, err := s.bus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	gwFile := os.NewFile(uintptr(fds[0]), "mcp-backend")
+	childFD := fds[1]
+	defer func() { _ = unix.Close(childFD) }()
+
+	var mcs string
+	if s.SELinux {
+		if mcs, err = s.MCS.Allocate(); err != nil {
+			_ = gwFile.Close()
+			return nil, err
+		}
+	}
+	fail := func(err error) (Instance, error) {
+		_ = gwFile.Close()
+		if mcs != "" {
+			s.MCS.Release(mcs)
+		}
+		return nil, err
+	}
+
+	props, err := s.Properties(b, p, childFD, mcs)
+	if err != nil {
+		return fail(err)
+	}
+	name := unitName(b, p)
+	done := make(chan string, 1)
+	if _, err := conn.StartTransientUnitContext(ctx, name, "fail", props, done); err != nil {
+		return fail(fmt.Errorf("supervisor: starting %s: %w", name, err))
+	}
+	select {
+	case res := <-done:
+		if res != "done" {
+			return fail(fmt.Errorf("supervisor: starting %s: job %s", name, res))
+		}
+	case <-ctx.Done():
+		return fail(ctx.Err())
+	}
+
+	gwConn, err := net.FileConn(gwFile)
+	_ = gwFile.Close()
+	if err != nil {
+		return fail(err)
+	}
+	if s.Log != nil {
+		s.Log.Info("backend started", "instance", name, "selinux_mcs", mcs)
+	}
+	return &unitInstance{Conn: gwConn, name: name, mcs: mcs, s: s}, nil
+}
+
+type unitInstance struct {
+	net.Conn
+	name string
+	mcs  string
+	s    *Systemd
+	once sync.Once
+}
+
+func (i *unitInstance) Name() string { return i.name }
+
+// Close closes the stdio socket (ending a well-behaved server) and stops
+// the unit.
+func (i *unitInstance) Close() error {
+	var err error
+	i.once.Do(func() {
+		err = i.Conn.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if conn, bErr := i.s.bus(ctx); bErr == nil {
+			done := make(chan string, 1)
+			if _, sErr := conn.StopUnitContext(ctx, i.name, "replace", done); sErr == nil {
+				select {
+				case <-done:
+				case <-ctx.Done():
+				}
+			} else if !isNoSuchUnit(sErr) {
+				err = errors.Join(err, sErr)
+			}
+		}
+		if i.mcs != "" {
+			i.s.MCS.Release(i.mcs)
+		}
+	})
+	return err
+}
+
+func isNoSuchUnit(err error) bool {
+	var dErr dbus.Error
+	return errors.As(err, &dErr) && dErr.Name == "org.freedesktop.systemd1.NoSuchUnit"
+}

@@ -142,7 +142,13 @@ own backends.
   ```json
   { "command": "mcp-connect", "args": ["--server", "git"] }
   ```
-  `--server all` (default) connects to the aggregated endpoint.
+  To select a backend it first sends a JSON-RPC notification on the
+  socket, then the client's MCP traffic:
+  ```json
+  {"jsonrpc":"2.0","method":"mcp-gateway/hello","params":{"version":1,"server":"git"}}
+  ```
+  A connection whose first message is an MCP message instead (as with
+  `--server all`, the default) wants the aggregated endpoint.
 - HTTP follows the MCP authorization specification: the gateway is an
   OAuth **resource server**, publishes Protected Resource Metadata
   (RFC 9728) pointing at the configured authorization server, validates
@@ -161,6 +167,7 @@ what policy sees as `input.principal`:
   "sub": "alice",
   "uid": 1001,
   "groups": ["dev", "mcp-users"],
+  "home": "/home/alice",
   "roles": ["developer"],
   "transport": "unix",
   "selinux": "staff_u:staff_r:staff_t:s0-s0:c0.c1023",
@@ -316,7 +323,10 @@ The gateway:
 - **Instance model:** stdio backends are single-client and may keep state,
   so there is **one instance per (principal, backend)** by default, or one
   per *session* for backends marked `isolation: session`. Instances are
-  never shared across principals.
+  never shared across principals. (The PoC starts one instance per
+  session for every backend; sharing an instance across a principal's
+  sessions needs the gateway to own the backend's MCP session and
+  multiplex request ids.)
 - **Spawning** via systemd transient units over D-Bus
   (`StartTransientUnit`), unit name `mcp-<backend>-<sessionid>.service`,
   with properties from the backend definition:
@@ -697,6 +707,11 @@ v1.
 embeddable later), mature SELinux (`github.com/opencontainers/selinux`)
 and systemd D-Bus (`github.com/coreos/go-systemd`) libraries, single
 static binary.
+*Implementation note:* the proxy core uses its own minimal JSON-RPC
+framing (`internal/jsonrpc`) instead of the SDK's server abstractions,
+because it forwards messages it does not need to understand and must keep
+ids, params and results byte-exact. The SDK remains an option for
+gateway-originated features (e.g. the aggregated endpoint).
 
 **D7 — OPA deployment.**
 *Decision (accepted):* sidecar over unix socket for v1 (§5.5).
@@ -729,19 +744,27 @@ docs/
 1. **Design doc** (this document).
 2. **Skeleton:** Go module, layout above, Makefile, CI (build, `go test`,
    `opa test`), placeholder SELinux module and systemd units.
-3. **PoC:**
+3. **PoC** (done, see `examples/poc/README.md`):
    - unix-socket transport + `mcp-connect`;
    - protocol router for one backend (no aggregation yet);
    - OPA sidecar with the example policy; `allow`/`deny`/`ask`;
    - `form`-mode elicitation for `ask`;
-   - one backend spawned via systemd in its own SELinux domain.
-4. Aggregation and discovery filtering; audit records.
+   - one backend spawned via systemd in its own SELinux domain (the
+     confined path is implemented but not yet exercised on a real host;
+     the end-to-end test uses the unconfined `exec` supervisor);
+   - pulled forward from step 4: `tools/list` filtering, audit records.
+4. Aggregation; filtering of resources and prompts; per-principal
+   instance sharing.
 5. Streamable HTTP + OAuth resource server.
 6. URL-mode / OOB approvals with Cockpit approval page; grants store.
 7. MCS allocator, per-session isolation, hardening, RPM packaging.
 
 ## 12. Open items
 
+- Path arguments: policy rejects `..` segments, but symlinks inside an
+  allowed tree can still point elsewhere. Resolving paths needs knowledge
+  of the backend's filesystem view; until then DAC and SELinux are the
+  backstop.
 - Exact JSON-RPC error codes for policy denials (align with any future
   MCP-spec guidance).
 - Behaviour of long-running `tools/call` when a grant expires mid-call

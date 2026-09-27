@@ -34,8 +34,12 @@ matching contains p if {
 }
 
 # Every argument constraint of p is a regular expression the argument must
-# match; "${sub}" is replaced by the principal's subject. Path arguments
-# are expected to be normalised by the gateway before evaluation.
+# match. "${sub}" and "${home}" are replaced by the principal's (escaped)
+# subject and home directory; a constraint using "${home}" never matches
+# for a principal without one. String arguments containing a ".." path
+# segment never satisfy a constraint, so "^${home}/" cannot be escaped with
+# "/home/alice/../bob". (Symlinks are left to DAC and SELinux.)
+#
 # During discovery filtering (input.discovery) arguments are not known yet
 # and constraints are not applied.
 args_ok(_) if input.discovery == true
@@ -45,9 +49,23 @@ args_ok(p) if {
 	every name, pattern in object.get(p, "args", {}) {
 		value := input.args[name]
 		is_string(value)
-		regex.match(replace(pattern, "${sub}", input.principal.sub), value)
+		not regex.match(`(^|/)\.\.(/|$)`, value)
+		regex.match(expand(pattern), value)
 	}
 }
+
+expand(pattern) := replace(pattern, "${sub}", escape(input.principal.sub)) if {
+	not contains(pattern, "${home}")
+}
+
+expand(pattern) := replace(replace(pattern, "${home}", escape(home)), "${sub}", escape(input.principal.sub)) if {
+	contains(pattern, "${home}")
+	home := input.principal.home
+	home != ""
+}
+
+# Escapes regular expression metacharacters.
+escape(s) := regex.replace(s, `[.+*?()|\[\]{}^$\\]`, `\$0`)
 
 denied if {
 	some p in matching

@@ -1,0 +1,22 @@
+{
+  "roles": {
+    "developer": {
+      "permissions": [
+        { "server": "fs", "tool": "list_*" },
+        { "server": "fs", "tool": "read_*" },
+        {
+          "server": "fs",
+          "tool": "write_file",
+          "require_approval": true,
+          "approval_channel": "form",
+          "args": { "path": "^${home}/" }
+        },
+        { "server": "fs", "tool": "delete_*", "effect": "deny" }
+      ]
+    }
+  },
+  "bindings": {
+    "groups": {},
+    "users": {}
+  }
+}
