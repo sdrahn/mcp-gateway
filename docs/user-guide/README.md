@@ -24,6 +24,7 @@ their agents to it. The design rationale lives in
 | [9. Security](09-security.md) | SELinux, MCS isolation, sandboxing, credentials, audit trail, hardening checklist |
 | [10. Operations](10-operations.md) | Logs, monitoring, state, upgrades, troubleshooting |
 | [11. Reference](11-reference.md) | Commands, control API, audit records, paths, SELinux types and booleans |
+| [12. Custom policy (Rego)](12-custom-policy.md) | The policy contract (queries, inputs, decisions), extending or replacing the shipped logic, writing policy from scratch, testing and deploying |
 
 ## Quick start (openSUSE Tumbleweed)
 

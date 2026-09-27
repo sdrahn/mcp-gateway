@@ -276,19 +276,15 @@ are examples.
 The shipped logic covers roles, approvals with the scopes "once" and
 "session", obligations and approver rules. For more (time windows,
 approval for a fixed duration, decisions on SELinux contexts or
-client certificates, …), write your own Rego:
+client certificates, managers approving for their team, …), write your
+own Rego: add rules to the shipped logic from files in
+`/etc/mcp-gateway/policy/`, replace it with a modified copy, or write a
+policy from scratch. Never edit the files below `/usr`, which package
+updates overwrite.
 
-- The gateway queries `data.mcp.authz.decision`, `data.mcp.filter.visible`,
-  `data.mcp.approvals.allow`, `…manage_grant`, `…manage_instance` and
-  `…notify`; `system.log` masks the decision log. The input and decision
-  documents are described in [docs/architecture.md](../architecture.md),
-  section 6.
-- An `ask` decision may offer durations as scopes, e.g.
-  `"scopes": ["once", "session", "1h", "24h"]` (at most 30 days); the
-  approval page then offers them and the resulting grant is valid for
-  that time.
-- Put modified logic into a signed bundle (below), rather than editing
-  files below `/usr`, which package updates overwrite.
+[Chapter 12](12-custom-policy.md) describes the contract between the
+gateway and the policy, all three approaches with tested examples,
+testing and deployment.
 
 ## Signed policy bundles
 

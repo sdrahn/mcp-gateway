@@ -15,7 +15,8 @@ the Open Build Service; see [packaging/suse](packaging/suse/README.md).
 Status: proof of concept; local clients (unix socket) and remote clients
 (MCP Streamable HTTP with OAuth bearer tokens). The
 [user guide](docs/user-guide/README.md) covers installation,
-configuration, MCP servers, clients, policy, approvals and operations;
+configuration, MCP servers, clients, policy (including custom Rego),
+approvals and operations;
 see [docs/architecture.md](docs/architecture.md) for the design and
 [examples/poc](examples/poc/README.md) to try it.
 
