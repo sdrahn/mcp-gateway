@@ -23,7 +23,8 @@ Status: proof of concept; local clients (unix socket) and remote clients
 |---|---|
 | `cmd/mcp-gateway` | gateway daemon |
 | `cmd/mcp-connect` | stdio ↔ unix-socket shim for local clients |
-| `internal/` | `transport` (unix socket, peer credentials, hello; Streamable HTTP), `authn` (peer credentials; OAuth/JWT), `router` (MCP proxy core), `pep` (OPA client, fail-closed evaluation), `broker` (approvals via form/URL/out-of-band, grants), `control` (approvals, grants, servers and policy status API on a unix socket), `supervisor` (systemd / exec launchers, MCS allocation), `jsonrpc`, `audit`, `config`, `principal` |
+| `cmd/mcp-gateway-notify` | desktop notifications for approvals (per-user agent) |
+| `internal/` | `transport` (unix socket, peer credentials, hello; Streamable HTTP), `authn` (peer credentials; OAuth/JWT), `router` (MCP proxy core), `pep` (OPA client, fail-closed evaluation), `broker` (approvals via form/URL/out-of-band, grants), `control` (approvals, grants, servers and policy status API on a unix socket), `supervisor` (systemd / exec launchers, MCS allocation), `notify` (approval mail), `notifyagent` (desktop notifications), `jsonrpc`, `audit`, `config`, `principal` |
 | `cockpit/` | Cockpit page (approvals and grants, servers and instances, role bindings, audit records) and its smoke test |
 | `examples/` | `mcp-fs-demo` (demo MCP server) and the PoC walkthrough |
 | `e2e/` | end-to-end tests: OPA + gateway + mcp-connect or an HTTPS client with a test IdP + demo servers |

@@ -17,6 +17,14 @@ policy_module(mcp_gateway, 0.1.0)
 ## </desc>
 gen_tunable(mcpopa_can_network, false)
 
+## <desc>
+## <p>
+## Allow mcp-gateway to send approval mail to a mail server
+## (notifications.email).
+## </p>
+## </desc>
+gen_tunable(mcpgw_can_send_mail, false)
+
 # All backend MCP server domains.
 attribute mcpsrv_domain;
 
@@ -154,6 +162,13 @@ optional_policy(`
 
 auth_use_nsswitch(mcpgw_t)
 miscfiles_read_localization(mcpgw_t)
+
+# Approval mail (notifications.email): SMTP when enabled, and getent to
+# expand approver groups through NSS.
+tunable_policy(`mcpgw_can_send_mail',`
+	corenet_tcp_connect_smtp_port(mcpgw_t)
+')
+corecmd_exec_bin(mcpgw_t)
 
 # MCS coordination (supervisor.mcs_avoid): read the contexts of containers,
 # virtual machines and libvirt daemons to skip the category pairs they hold

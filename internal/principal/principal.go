@@ -16,6 +16,9 @@ type Transport string
 const (
 	TransportUnix Transport = "unix"
 	TransportHTTP Transport = "http"
+	// TransportInternal marks the gateway's own principals (e.g. the one
+	// shared discovery instances run for).
+	TransportInternal Transport = "internal"
 )
 
 // Client is the self-asserted clientInfo from the MCP initialize request.

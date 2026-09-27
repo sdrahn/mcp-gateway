@@ -18,12 +18,15 @@
 //	GET    /v1/servers          registry, with the instances the caller may see
 //	DELETE /v1/instances/{id}   stop an instance
 //	GET    /v1/policy           active policy bundles and their revisions
+//	GET    /v1/events           server-sent events: approvals the caller may decide on
 package control
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -61,10 +64,13 @@ type Server struct {
 	Log       *slog.Logger
 	// Identify maps peer credentials to an approver; defaults to NSS.
 	Identify func(transport.PeerCred) (broker.Approver, error)
+
+	stopping <-chan struct{} // closed when Serve's context ends
 }
 
 // Serve serves the API on l until ctx ends.
 func (s *Server) Serve(ctx context.Context, l *transport.UnixListener) error {
+	s.stopping = ctx.Done() // ends event streams, which would delay Shutdown
 	srv := &http.Server{
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -127,6 +133,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/servers", s.with(s.servers))
 	mux.HandleFunc("DELETE /v1/instances/{id}", s.with(s.stopInstance))
 	mux.HandleFunc("GET /v1/policy", s.with(s.policy))
+	mux.HandleFunc("GET /v1/events", s.with(s.events))
 	return mux
 }
 
@@ -196,6 +203,82 @@ func (s *Server) policy(w http.ResponseWriter, r *http.Request, _ broker.Approve
 		mode = "bundle"
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"mode": mode, "bundles": bundles})
+}
+
+// eventKeepAlive is the interval of SSE comments that keep idle event
+// streams (and proxies) alive.
+var eventKeepAlive = 25 * time.Second
+
+// approvalEvent is one event of GET /v1/events.
+type approvalEvent struct {
+	Type    string          `json:"type"` // "pending" or "resolved"
+	ID      string          `json:"id"`
+	New     bool            `json:"new,omitempty"`
+	Pending *broker.Pending `json:"pending,omitempty"`
+	URL     string          `json:"url,omitempty"` // the approval page
+}
+
+// events streams the approvals the caller may decide on as server-sent
+// events: first the pending ones, then changes. Desktop notification
+// agents (mcp-gateway-notify) use it.
+func (s *Server) events(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+	ch, stop := s.Broker.Subscribe() // before listing: nothing is missed
+	defer stop()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	sent := map[string]bool{}
+	write := func(ev approvalEvent) bool {
+		data, err := json.Marshal(ev)
+		if err != nil {
+			return true
+		}
+		if _, err := fmt.Fprintf(w, "event: approval\ndata: %s\n\n", data); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+	for _, p := range s.Broker.ListPending(r.Context(), a) {
+		sent[p.ID] = true
+		if !write(approvalEvent{Type: "pending", ID: p.ID, Pending: &p, URL: s.Broker.ApprovalURL(p.ID)}) {
+			return
+		}
+	}
+	flusher.Flush()
+	ping := time.NewTicker(eventKeepAlive)
+	defer ping.Stop()
+	for {
+		select {
+		case ev := <-ch:
+			switch {
+			case ev.Type == "pending" && s.Broker.MayApprove(r.Context(), a, *ev.Pending):
+				sent[ev.ID] = true
+				if !write(approvalEvent{Type: ev.Type, ID: ev.ID, New: ev.New, Pending: ev.Pending, URL: s.Broker.ApprovalURL(ev.ID)}) {
+					return
+				}
+			case ev.Type == "resolved" && sent[ev.ID]:
+				delete(sent, ev.ID)
+				if !write(approvalEvent{Type: ev.Type, ID: ev.ID}) {
+					return
+				}
+			}
+		case <-ping.C:
+			if _, err := io.WriteString(w, ": ping\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		case <-s.stopping:
+			return
+		}
+	}
 }
 
 func (s *Server) resolve(w http.ResponseWriter, r *http.Request, a broker.Approver) {

@@ -615,3 +615,40 @@ func TestTimeoutDropsApproval(t *testing.T) {
 		t.Fatal("timed-out approval persisted")
 	}
 }
+
+func TestEvents(t *testing.T) {
+	b := newBroker(t, nil)
+	events, stop := b.Subscribe()
+	defer stop()
+	next := func() Event {
+		t.Helper()
+		select {
+		case ev := <-events:
+			return ev
+		case <-time.After(3 * time.Second):
+			t.Fatal("no event")
+		}
+		return Event{}
+	}
+
+	p := orphaned(t, b) // pending (new), then pending (no waiting call)
+	if ev := next(); ev.Type != "pending" || !ev.New || ev.ID != p.ID || !ev.Pending.Waiting {
+		t.Fatalf("first %+v", ev)
+	}
+	if ev := next(); ev.Type != "pending" || ev.New || ev.Pending.Waiting {
+		t.Fatalf("orphaned %+v", ev)
+	}
+	if _, err := b.Resolve(context.Background(), aliceApprover, p.ID, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if ev := next(); ev.Type != "resolved" || ev.ID != p.ID {
+		t.Fatalf("resolved %+v", ev)
+	}
+	stop()
+	orphaned(t, b)
+	select {
+	case ev := <-events:
+		t.Fatalf("event after unsubscribing: %+v", ev)
+	default:
+	}
+}

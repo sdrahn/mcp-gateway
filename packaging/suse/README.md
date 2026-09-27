@@ -35,6 +35,7 @@ so `mcp-gateway-selinux` does not apply there.
 | `mcp-gateway` | `mcp-gateway`, `mcp-connect`, `mcp-policy-bundle`, systemd units and OPA drop-ins, sysusers config, default configuration, policy, polkit rule |
 | `mcp-gateway-selinux` | SELinux module `mcp_gateway` (installed with the `%selinux_*` macros); pulled in automatically where `selinux-policy-targeted` is installed |
 | `mcp-gateway-cockpit` | the Cockpit page (`/usr/share/cockpit/mcp-gateway`): approvals and grants, servers and instances, role bindings, audit records |
+| `mcp-gateway-desktop` | `mcp-gateway-notify`: desktop notifications for approvals the logged-in user may decide on (XDG autostart) |
 | `mcp-gateway-demo-server` | demo filesystem MCP server, registered as server `fs` |
 
 `mcp-gateway` requires `opa` (the Open Policy Agent binary at

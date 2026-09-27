@@ -5,6 +5,10 @@ selinux_type: mcpsrv_fs_t
 isolation: principal
 network: false
 run_as: principal
+# shared (default): tool/prompt lists come from one gateway-owned instance
+# and are cached; instance: from each principal's own instance (for
+# servers whose tools depend on the user).
+discovery: shared
 env:
   LOG_LEVEL: info
 sandbox:

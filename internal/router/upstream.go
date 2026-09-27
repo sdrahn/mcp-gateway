@@ -57,10 +57,16 @@ type progressRoute struct {
 type upstream struct {
 	backend *config.Backend
 	id      string
-	unit    string // the instance's name, e.g. its systemd unit
-	conn    *jsonrpc.Conn
-	log     *slog.Logger
-	init    initResult
+	// internal: the instance runs for the gateway's own principal (shared
+	// discovery), not for a user.
+	internal bool
+	// onListChanged, if set, is told about the backend's */list_changed
+	// notifications (the router invalidates cached lists).
+	onListChanged func(*upstream, *jsonrpc.Message)
+	unit          string // the instance's name, e.g. its systemd unit
+	conn          *jsonrpc.Conn
+	log           *slog.Logger
+	init          initResult
 
 	nextID    atomic.Int64
 	closed    chan struct{}
@@ -73,17 +79,19 @@ type upstream struct {
 }
 
 // newUpstream performs the MCP handshake with a freshly started instance.
-func newUpstream(ctx context.Context, b *config.Backend, id string, inst supervisor.Instance, log *slog.Logger) (*upstream, error) {
+func newUpstream(ctx context.Context, b *config.Backend, id string, inst supervisor.Instance, log *slog.Logger, hooks upstreamHooks) (*upstream, error) {
 	u := &upstream{
-		backend:  b,
-		id:       id,
-		unit:     inst.Name(),
-		conn:     jsonrpc.NewConn(inst),
-		log:      log.With("server", b.Name, "instance", inst.Name()),
-		closed:   make(chan struct{}),
-		pending:  map[string]chan *jsonrpc.Message{},
-		sessions: map[*Session]int{},
-		progress: map[string]progressRoute{},
+		backend:       b,
+		id:            id,
+		internal:      hooks.internal,
+		onListChanged: hooks.onListChanged,
+		unit:          inst.Name(),
+		conn:          jsonrpc.NewConn(inst),
+		log:           log.With("server", b.Name, "instance", inst.Name()),
+		closed:        make(chan struct{}),
+		pending:       map[string]chan *jsonrpc.Message{},
+		sessions:      map[*Session]int{},
+		progress:      map[string]progressRoute{},
 	}
 	go u.readLoop()
 
@@ -218,6 +226,20 @@ func (u *upstream) unregisterProgress(gw json.RawMessage) {
 	u.mu.Unlock()
 }
 
+// upstreamHooks configure a new upstream.
+type upstreamHooks struct {
+	internal      bool
+	onListChanged func(*upstream, *jsonrpc.Message)
+}
+
+// isAttached reports whether s uses u.
+func (u *upstream) isAttached(s *Session) bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	_, ok := u.sessions[s]
+	return ok
+}
+
 func (u *upstream) attached() []*Session {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -292,11 +314,16 @@ func (u *upstream) notification(m *jsonrpc.Message) {
 			return
 		}
 		_ = r.s.client.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: m.Method, Params: params})
-	case "notifications/message",
-		"notifications/tools/list_changed",
+	case "notifications/tools/list_changed",
 		"notifications/resources/list_changed",
-		"notifications/resources/updated",
 		"notifications/prompts/list_changed":
+		if u.onListChanged != nil {
+			u.onListChanged(u, m)
+		}
+		for _, s := range u.attached() {
+			s.upstreamNotification(u, m)
+		}
+	case "notifications/message", "notifications/resources/updated":
 		for _, s := range u.attached() {
 			s.upstreamNotification(u, m)
 		}

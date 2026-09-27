@@ -137,6 +137,16 @@ func (o *OPA) get(ctx context.Context, path string) ([]byte, error) {
 
 // Bool queries a boolean rule; an undefined or non-boolean result is an
 // error.
+// Strings evaluates a policy rule that yields a set or list of strings
+// (undefined yields none).
+func (o *OPA) Strings(ctx context.Context, path string, input any) ([]string, error) {
+	var out []string
+	if err := o.query(ctx, path, input, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (o *OPA) Bool(ctx context.Context, path string, input any) (bool, error) {
 	var b bool
 	if err := o.query(ctx, path, input, &b); err != nil {

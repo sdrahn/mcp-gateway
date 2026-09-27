@@ -476,6 +476,39 @@ The gateway:
    with `"allow_sensitive": true`;
 4. relays to the client and returns the answer to the backend.
 
+#### 5.6.3 Push channels for out-of-band approvals
+
+Approvers learn about pending approvals without watching the inbox:
+
+- **Desktop:** `mcp-gateway-notify` (package `mcp-gateway-desktop`,
+  started with graphical sessions by XDG autostart) follows `GET
+  /v1/events` on the control socket as the logged-in user: the pending
+  approvals that user may decide on (the approver policy filters the
+  stream), then changes. It shows one notification per approval over
+  `org.freedesktop.Notifications`, updates it when the call stops waiting
+  and closes it when the approval is decided or times out. Its action
+  opens the approval page (`approvals.url_template`, else the Cockpit
+  page). Notifications deliberately offer no Approve button: any program
+  in the user's session, the agent included, can talk to the session bus,
+  while the approval page needs the human's own login. The agent is
+  single-instance per session, accepts `ActionInvoked` only from the
+  notification server, escapes markup, opens http(s) URLs only,
+  reconnects after gateway restarts and exits for users without access to
+  the control socket.
+- **E-mail** (`notifications.email`): for each new approval, the gateway
+  asks `data.mcp.approvals.notify` whom to tell: the approvers the
+  server's rules name, as local users and groups (`self` is the
+  principal's account, `role:<r>` the users and groups bound to it).
+  Groups are expanded through NSS (`getent group`; members by primary
+  group are not listed), users become addresses by the `to` template
+  (`{user}` for local delivery, `{user}@example.com` otherwise), and one
+  mail goes to all of them (`To: undisclosed-recipients:;`). The mail
+  names the call and links the approval page; arguments are left out
+  unless `include_args` is set, since mail may leave the host. SMTP with
+  STARTTLS when offered (`starttls: auto|always|never`), optional
+  PLAIN authentication (password from a file, e.g. a systemd
+  credential). SELinux: `setsebool -P mcpgw_can_send_mail on`.
+
 ### 5.7 Instance supervisor
 
 - **Instance model:** stdio backends are single-client and may keep state,
@@ -672,6 +705,7 @@ socket), HTTP with JSON:
 | `GET /v1/servers` | the server registry (without command and environment) and the running instances the caller may manage |
 | `DELETE /v1/instances/{id}` | stop an instance; its sessions get a new one on their next call |
 | `GET /v1/policy` | policy mode (directories or bundle) and the active bundle revisions |
+| `GET /v1/events` | server-sent events: the pending approvals the caller may decide on, then changes (§5.6.3) |
 
 Callers are identified by the socket's peer credentials, so the API needs
 no tokens: a Cockpit page reaches it with `cockpit.http({unix: …})` as the
@@ -952,11 +986,27 @@ Client        mcp-connect   Gateway/Router   PEP      OPA     Broker    Cockpit 
 ### 7.3 Discovery
 
 1. `tools/list` from client.
-2. Router ensures backend tool lists are cached (fetched once per backend
-   *type*, refreshed on backend `list_changed`), without necessarily
-   starting a per-principal instance.
+2. For backends with `discovery: shared` (the default), the list comes
+   from a cache filled by one **discovery instance** per backend, which the
+   gateway runs for its own principal (`mcp-discovery`, no local account:
+   a dynamic user under systemd, home `/`) and which only ever receives
+   list requests. The cache holds `tools/list`, `prompts/list` and
+   `resources/templates/list`; it is dropped when any instance of the
+   backend sends the matching `list_changed` (sessions that did not get it
+   from their own instance are told too) and when the discovery instance
+   stops (idle timeout). A single-server endpoint's `initialize` also
+   answers from the discovery instance. Connecting and listing thus start
+   no per-principal instance, and no user's view of a server is shown to
+   another. If the discovery instance cannot run, the session's own
+   instance answers.
 3. One batch query to `data.mcp.filter.visible`; filtered, namespaced list
-   returned.
+   returned: visibility stays per principal.
+
+`resources/list` is user data (e.g. the files in the user's home) and
+always comes from the principal's own instance, as do calls. Servers
+whose tool or prompt lists depend on the user set `discovery: instance`.
+`logging/setLevel` reaches running instances and is replayed to
+instances started later, without starting any.
 
 ## 8. Threat model (summary)
 
@@ -1099,8 +1149,9 @@ docs/
   streams as one session, so this is harmless, but not precise. Replay is
   bounded (256 events per stream) and lives in memory: a gateway restart
   ends all HTTP sessions anyway.
-- There is no push channel (mail, desktop notification) for out-of-band
-  approvals yet; the inbox is polled.
+- Approval mail expands groups through NSS, which does not list users
+  whose primary group it is; name such approvers as `user:` or bind them
+  by user.
 - A token that expires during a long SSE stream keeps that stream alive;
   every new request needs a valid token.
 - Exact JSON-RPC error codes for policy denials (align with any future

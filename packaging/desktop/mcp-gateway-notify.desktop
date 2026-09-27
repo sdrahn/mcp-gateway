@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=MCP Gateway notifications
+Comment=Desktop notifications for MCP gateway approvals you may decide on
+Exec=mcp-gateway-notify
+Icon=dialog-password
+NoDisplay=true
+Terminal=false
+X-GNOME-Autostart-enabled=true
+X-KDE-autostart-after=panel
