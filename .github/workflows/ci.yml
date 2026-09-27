@@ -54,8 +54,13 @@ jobs:
     runs-on: ubuntu-24.04
     container: registry.opensuse.org/opensuse/tumbleweed:latest
     steps:
-      - name: Install tools
-        run: zypper -n --gpg-auto-import-keys in --no-recommends git tar gzip rpm-build rpmlint
+      # The packages providing rpm macros the spec uses must be there before
+      # rpmspec can parse it (OBS knows them from its project config).
+      - name: Install tools and rpm macro packages
+        run: >
+          zypper -n --gpg-auto-import-keys in --no-recommends
+          git tar gzip rpm-build rpmlint
+          sysuser-tools systemd-rpm-macros selinux-policy-devel
       - uses: actions/checkout@v4
       - name: Install build dependencies (from the spec, as OBS does)
         run: |
