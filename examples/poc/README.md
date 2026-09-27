@@ -1,17 +1,24 @@
 # Proof of concept
 
-What works (docs/architecture.md, section 11, step 3):
+What works (docs/architecture.md, section 11, steps 3 and 4):
 
 - local clients on the gateway's unix socket, identified by kernel peer
   credentials (`SO_PEERCRED`, `SO_PEERSEC`);
 - `mcp-connect` as the stdio shim, selecting a backend with a
   `mcp-gateway/hello` notification;
-- one backend per connection, proxied by the protocol-aware router:
-  - `tools/call` decided by OPA (`allow` / `deny` / `ask`),
-  - `tools/list` filtered by OPA, other `*/list` results hidden,
-  - resources, prompts, completions and unknown methods denied,
+- a per-server endpoint (`--server fs`) and the aggregated endpoint
+  (default), where tools and prompts appear as `<server>__<name>` and
+  resource URIs as `mcp+<server>:<uri>`;
+- the protocol-aware router:
+  - `tools/call`, `prompts/get`, `resources/read|subscribe|unsubscribe`
+    and `completion/complete` decided by OPA (`allow` / `deny` / `ask`),
+  - all `*/list` results filtered by OPA, unknown methods denied,
   - backend requests to the client (`sampling`, `elicitation`, `roots`)
-    decided by OPA, backend elicitations labelled with the backend name;
+    decided by OPA, backend elicitations labelled with the backend name,
+  - cancellation and progress notifications mapped;
+- one backend instance per principal, shared by their sessions and
+  stopped after an idle timeout (`isolation: session` for one per
+  session);
 - `ask` answered through form-mode elicitation to the client, with
   `once` / `session` grants;
 - fail closed when OPA is slow, unreachable or returns garbage;
@@ -20,8 +27,8 @@ What works (docs/architecture.md, section 11, step 3):
   domain with a per-instance MCS pair, or as plain child processes in
   development mode.
 
-Not yet: aggregated endpoint, remote access (HTTP/OAuth), URL/OOB
-approvals, persistent grants, obligations, per-principal instance sharing.
+Not yet: remote access (HTTP/OAuth), URL/OOB approvals, persistent
+grants, obligations, list_changed on policy changes.
 
 ## Development mode
 
@@ -31,7 +38,8 @@ Runs as your user, without systemd or SELinux. Needs Go and `opa`.
 examples/poc/run-dev.sh
 ```
 
-It prints an MCP client configuration. Point any MCP client (Kit,
+It prints an MCP client configuration for the `fs` endpoint (drop
+`--server fs` for the aggregated endpoint). Point any MCP client (Kit,
 Claude Code, an IDE, the MCP Inspector) at it, or talk to it by hand:
 
 ```bash
@@ -44,7 +52,8 @@ Claude Code, an IDE, the MCP Inspector) at it, or talk to it by hand:
 ```
 
 `tools/list` shows `list_dir`, `read_file` and `write_file` (not
-`delete_file`); the `delete_file` call comes back as a tool error
+`delete_file`); `resources/list` shows the files in `$HOME`; the
+`delete_file` call comes back as a tool error
 "mcp-gateway: denied by policy". A `write_file` below `$HOME` triggers an
 `elicitation/create` request; the example role data uses the `form`
 channel so the PoC can demonstrate it (the shipped default policy asks for

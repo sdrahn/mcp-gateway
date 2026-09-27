@@ -1,7 +1,9 @@
 // Command mcp-fs-demo is a minimal stdio MCP server used to demonstrate and
-// test mcp-gateway. It offers list_dir, read_file, write_file and
-// delete_file below --root. It does no access control of its own beyond
-// staying inside the root: that is the gateway's job.
+// test mcp-gateway. Below --root it offers the tools list_dir, read_file,
+// write_file and delete_file, the files in the root as resources (plus a
+// file:// template), and a summarize_file prompt. It does no access
+// control of its own beyond staying inside the root: that is the gateway's
+// job.
 package main
 
 import (
@@ -77,7 +79,7 @@ func handle(method string, params json.RawMessage) (any, *rpcError) {
 		}
 		return map[string]any{
 			"protocolVersion": p.ProtocolVersion,
-			"capabilities":    map[string]any{"tools": map[string]any{}},
+			"capabilities":    map[string]any{"tools": map[string]any{}, "resources": map[string]any{}, "prompts": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "mcp-fs-demo", "version": "0.1.0"},
 		}, nil
 	case "ping":
@@ -106,6 +108,57 @@ func handle(method string, params json.RawMessage) (any, *rpcError) {
 			return toolResult(err.Error(), true), nil
 		}
 		return toolResult(text, false), nil
+	case "resources/list":
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			return nil, &rpcError{-32603, err.Error()}
+		}
+		resources := []map[string]any{}
+		for _, e := range entries {
+			if e.Type().IsRegular() {
+				resources = append(resources, map[string]any{
+					"uri": "file://" + filepath.Join(root, e.Name()), "name": e.Name(), "mimeType": "text/plain",
+				})
+			}
+		}
+		return map[string]any{"resources": resources}, nil
+	case "resources/templates/list":
+		return map[string]any{"resourceTemplates": []map[string]any{
+			{"uriTemplate": "file://" + root + "/{path}", "name": "file", "mimeType": "text/plain"},
+		}}, nil
+	case "resources/read":
+		var p struct {
+			URI string `json:"uri"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil || !strings.HasPrefix(p.URI, "file://") {
+			return nil, &rpcError{-32602, "invalid params"}
+		}
+		path, err := resolve(strings.TrimPrefix(p.URI, "file://"))
+		if err != nil {
+			return nil, &rpcError{-32002, "resource not found"}
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return nil, &rpcError{-32002, "resource not found"}
+		}
+		return map[string]any{"contents": []map[string]any{{"uri": p.URI, "mimeType": "text/plain", "text": string(b)}}}, nil
+	case "prompts/list":
+		return map[string]any{"prompts": []map[string]any{{
+			"name": "summarize_file", "description": "Summarize a file",
+			"arguments": []map[string]any{{"name": "path", "required": true}},
+		}}}, nil
+	case "prompts/get":
+		var p struct {
+			Name      string            `json:"name"`
+			Arguments map[string]string `json:"arguments"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil || p.Name != "summarize_file" {
+			return nil, &rpcError{-32602, "unknown prompt"}
+		}
+		return map[string]any{"messages": []map[string]any{{
+			"role":    "user",
+			"content": map[string]any{"type": "text", "text": "Summarize the file at " + p.Arguments["path"] + "."},
+		}}}, nil
 	}
 	return nil, &rpcError{-32601, "method not found"}
 }

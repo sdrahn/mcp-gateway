@@ -38,7 +38,7 @@ func TestCommandAndEnvironment(t *testing.T) {
 	if !slices.IsSorted(env) {
 		t.Errorf("environment not sorted: %q", env)
 	}
-	if n := unitName(b, alice()); n != "mcp-fs-0123456789abcdef.service" {
+	if n := unitName(b, "0123456789abcdef"); n != "mcp-fs-0123456789abcdef.service" {
 		t.Errorf("unit name %q", n)
 	}
 }
@@ -122,7 +122,7 @@ func TestExecLauncher(t *testing.T) {
 	uid := uint32(os.Getuid())
 	p := principal.Principal{Sub: "me", UID: &uid, SessionID: "feedfacefeedface"}
 	b := &config.Backend{Name: "cat", Command: []string{"/bin/cat"}, RunAs: "gateway"}
-	inst, err := (&Exec{}).Start(context.Background(), b, p)
+	inst, err := (&Exec{}).Start(context.Background(), b, p, "feedfacefeedface")
 	if err != nil {
 		t.Fatal(err)
 	}

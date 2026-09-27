@@ -2,74 +2,32 @@
   "roles": {
     "viewer": {
       "permissions": [
-        {
-          "server": "*",
-          "tool": "list_*"
-        },
-        {
-          "server": "*",
-          "tool": "read_*"
-        },
-        {
-          "server": "*",
-          "tool": "get_*"
-        }
+        {"server": "*", "tool": "list_*"},
+        {"server": "*", "tool": "read_*"},
+        {"server": "*", "tool": "get_*"},
+        {"server": "*", "prompt": "*"}
       ]
     },
     "developer": {
       "permissions": [
-        {
-          "server": "git",
-          "tool": "*"
-        },
-        {
-          "server": "fs",
-          "tool": "read_*"
-        },
-        {
-          "server": "fs",
-          "tool": "list_*"
-        },
-        {
-          "server": "fs",
-          "tool": "write_file",
-          "require_approval": true,
-          "approval_channel": "url",
-          "args": {
-            "path": "^${home}/"
-          }
-        },
-        {
-          "server": "fs",
-          "tool": "delete_*",
-          "effect": "deny"
-        }
+        {"server": "git", "tool": "*"},
+        {"server": "fs", "tool": "read_*"},
+        {"server": "fs", "tool": "list_*"},
+        {"server": "fs", "resource": "file://${home}/*"},
+        {"server": "fs", "tool": "write_file", "require_approval": true, "approval_channel": "url", "args": {"path": "^${home}/"}},
+        {"server": "fs", "tool": "delete_*", "effect": "deny"},
+        {"server": "*", "prompt": "*"}
       ]
     },
     "admin": {
       "permissions": [
-        {
-          "server": "*",
-          "tool": "*"
-        }
+        {"server": "*", "tool": "*"},
+        {"server": "*", "prompt": "*"},
+        {"server": "*", "resource": "*"},
+        {"server": "*", "client": "*"}
       ]
     }
   },
-  "bindings": {
-    "groups": {
-      "dev": [
-        "developer"
-      ],
-      "wheel": [
-        "admin"
-      ]
-    },
-    "users": {}
-  },
-  "approvers": {
-    "default": [
-      "self",
-      "role:admin"
-    ]
-  }
+  "bindings": {"groups": {"dev": ["developer"], "wheel": ["admin"]}, "users": {}},
+  "approvers": {"default": ["self", "role:admin"]}
 }

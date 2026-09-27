@@ -1,8 +1,9 @@
 // Command mcp-gateway is the policy-enforcing MCP gateway daemon.
 //
-// Proof-of-concept scope (docs/architecture.md, section 11): local clients
-// on the unix socket, one backend per connection, OPA decisions,
-// form-mode approvals, backends as systemd transient units.
+// Current scope (docs/architecture.md, section 11): local clients on the
+// unix socket, per-server and aggregated endpoints, OPA decisions,
+// form-mode approvals, backends as systemd transient units shared by a
+// principal's sessions.
 package main
 
 import (
@@ -88,6 +89,8 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 		Broker:   broker.New(gw.ApprovalTimeout),
 		Audit:    audit.New(os.Stderr),
 		Log:      log,
+
+		IdleTimeout: gw.Supervisor.IdleTimeout,
 	}
 	return r.Serve(ctx, l)
 }

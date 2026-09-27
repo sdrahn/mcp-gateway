@@ -33,7 +33,7 @@ type execInstance struct {
 }
 
 // Start implements Launcher.
-func (e *Exec) Start(_ context.Context, b *config.Backend, p principal.Principal) (Instance, error) {
+func (e *Exec) Start(_ context.Context, b *config.Backend, p principal.Principal, id string) (Instance, error) {
 	argv := command(b, p)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Env = environment(b, p)
@@ -64,7 +64,7 @@ func (e *Exec) Start(_ context.Context, b *config.Backend, p principal.Principal
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	inst := &execInstance{name: unitName(b, p), cmd: cmd, stdin: stdin, stdout: stdout, done: make(chan struct{})}
+	inst := &execInstance{name: unitName(b, id), cmd: cmd, stdin: stdin, stdout: stdout, done: make(chan struct{})}
 	go func() {
 		err := cmd.Wait()
 		if e.Log != nil {

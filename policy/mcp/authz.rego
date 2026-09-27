@@ -23,15 +23,74 @@ perms contains p if {
 	some p in data.rbac.roles[role].permissions
 }
 
-# Permissions that apply to this request. Only tools.call is modelled so
-# far; every other action falls through to the default deny.
+# The permission field naming the target of each action. A permission
+# applies to a request if its "server" glob matches the backend and the
+# glob in this field matches the target: a tool or prompt name, a resource
+# URI, or the method of a request a backend sends to the client
+# ("roots/list", ...). Actions not listed here are denied.
+target_field := {
+	"tools.call": "tool",
+	"prompts.get": "prompt",
+	"resources.read": "resource",
+	"resources.subscribe": "resource",
+	"resources.unsubscribe": "resource",
+	"sampling.create": "client",
+	"elicitation.create": "client",
+	"roots.list": "client",
+}
+
 matching contains p if {
-	input.action == "tools.call"
+	field := target_field[input.action]
 	some p in perms
-	glob.match(p.server, [], input.resource.server)
-	glob.match(p.tool, [], input.resource.name)
+	server_ok(p)
+	glob.match(expand_glob(p[field]), null, input.resource.name)
+	target_ok(field)
 	args_ok(p)
 }
+
+# Completions follow what they complete: a prompt like prompts.get, a
+# resource template wherever the principal may read some resource of that
+# server. The same rules decide the visibility of resource templates.
+matching contains p if {
+	input.action == "completion.complete"
+	input.resource.kind == "prompt"
+	some p in perms
+	server_ok(p)
+	glob.match(expand_glob(p.prompt), null, input.resource.name)
+}
+
+matching contains p if {
+	input.action == "completion.complete"
+	input.resource.kind == "resource_template"
+	some p in perms
+	server_ok(p)
+	is_string(p.resource)
+}
+
+server_ok(p) if glob.match(p.server, null, input.resource.server)
+
+# Resource URIs with ".." segments (plain or percent-encoded) never match,
+# so "file://${home}/*" cannot be escaped.
+target_ok(field) if field != "resource"
+
+target_ok("resource") if {
+	not regex.match(`(^|/)\.\.(/|$)`, input.resource.name)
+	not regex.match(`(?i)%2e%2e`, input.resource.name)
+}
+
+# expand_glob substitutes "${sub}" and "${home}" in a glob; a glob using
+# "${home}" is undefined (never matches) for a principal without one.
+expand_glob(pattern) := replace(pattern, "${sub}", glob_escape(input.principal.sub)) if {
+	not contains(pattern, "${home}")
+}
+
+expand_glob(pattern) := replace(replace(pattern, "${home}", glob_escape(home)), "${sub}", glob_escape(input.principal.sub)) if {
+	contains(pattern, "${home}")
+	home := input.principal.home
+	home != ""
+}
+
+glob_escape(s) := regex.replace(s, `[*?\[\]{}\\]`, `\$0`)
 
 # Every argument constraint of p is a regular expression the argument must
 # match. "${sub}" and "${home}" are replaced by the principal's (escaped)
@@ -116,7 +175,7 @@ decision := {"effect": "deny", "reason": "denied by policy"} if {
 	"effect": "ask",
 	"ask": {
 		"channel": ask_channel,
-		"prompt": sprintf("Allow %s to call %s/%s?", [input.principal.sub, input.resource.server, input.resource.name]),
+		"prompt": sprintf("Allow %s: %s %s/%s?", [input.principal.sub, input.action, input.resource.server, input.resource.name]),
 		"scopes": ["once", "session"],
 		"fallback": "oob",
 	},

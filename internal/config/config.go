@@ -51,6 +51,9 @@ type Supervisor struct {
 	// SELinux is "auto" (use SELinuxContext= when SELinux is enabled),
 	// "on" or "off".
 	SELinux string `yaml:"selinux"`
+	// IdleTimeout stops an instance this long after its last session
+	// ended.
+	IdleTimeout time.Duration `yaml:"idle_timeout"`
 }
 
 // HTTP configures the remote transport.
@@ -104,6 +107,7 @@ type Sandbox struct {
 const (
 	DefaultPolicyTimeout   = 250 * time.Millisecond
 	DefaultApprovalTimeout = 120 * time.Second
+	DefaultIdleTimeout     = 15 * time.Minute
 	DefaultSELinuxType     = "mcpsrv_generic_t"
 	DefaultRunAs           = "principal"
 	DefaultProtectHome     = "read-only"
@@ -152,6 +156,9 @@ func (g *Gateway) setDefaults() {
 	if g.ApprovalTimeout == 0 {
 		g.ApprovalTimeout = DefaultApprovalTimeout
 	}
+	if g.Supervisor.IdleTimeout == 0 {
+		g.Supervisor.IdleTimeout = DefaultIdleTimeout
+	}
 }
 
 // Validate checks the configuration for consistency.
@@ -164,6 +171,9 @@ func (g *Gateway) Validate() error {
 	}
 	if g.ApprovalTimeout < 0 {
 		return errors.New("approval_timeout: must not be negative")
+	}
+	if g.Supervisor.IdleTimeout < 0 {
+		return errors.New("supervisor.idle_timeout: must not be negative")
 	}
 	switch g.Supervisor.Mode {
 	case "systemd", "exec":

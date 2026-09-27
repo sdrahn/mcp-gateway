@@ -204,12 +204,18 @@ func toolResult(t *testing.T, m msg) (string, bool) {
 	return r.Content[0].Text, r.IsError
 }
 
-func TestEndToEnd(t *testing.T) {
+// env is a running gateway with OPA.
+type env struct {
+	tmp, connect, gwSock string
+	opa                  *exec.Cmd
+	gwLogs               *syncBuffer
+}
+
+// setup starts OPA with the shipped policy and rbac as role data, and the
+// gateway with one mcp-fs-demo backend per entry of roots (name → root).
+func setup(t *testing.T, rbac string, roots map[string]string) *env {
+	t.Helper()
 	opa := opaBinary(t)
-	me, err := user.Current()
-	if err != nil {
-		t.Skip(err)
-	}
 	// Unix socket paths are limited to 108 bytes; keep them short.
 	tmp, err := os.MkdirTemp("", "mcpgw")
 	if err != nil {
@@ -222,7 +228,71 @@ func TestEndToEnd(t *testing.T) {
 	connect := build(t, bin, "./cmd/mcp-connect")
 	demo := build(t, bin, "./examples/mcp-fs-demo")
 
-	home := filepath.Join(tmp, "home")
+	writeFile(t, filepath.Join(tmp, "data", "rbac", "data.json"), rbac)
+	opaSock := filepath.Join(tmp, "opa.sock")
+	opaCmd, _ := start(t, opa, "run", "--server", "--addr", "unix://"+opaSock,
+		filepath.Join("..", "policy", "mcp"), filepath.Join(tmp, "data"))
+	waitFor(t, opaSock)
+
+	for name, root := range roots {
+		writeFile(t, filepath.Join(tmp, "servers.d", name+".yaml"), fmt.Sprintf(
+			"name: %s\ncommand: [%q, --root, %q]\nrun_as: gateway\n", name, demo, root))
+	}
+	gwSock := filepath.Join(tmp, "mcp.sock")
+	writeFile(t, filepath.Join(tmp, "gateway.yaml"), fmt.Sprintf(`
+socket: %s
+servers_dir: %s
+policy:
+  opa_socket: %s
+  timeout: 2s
+approval_timeout: 5s
+supervisor:
+  mode: exec
+  idle_timeout: 1h
+`, gwSock, filepath.Join(tmp, "servers.d"), opaSock))
+	_, gwLogs := start(t, gateway, "--config", filepath.Join(tmp, "gateway.yaml"))
+	waitFor(t, gwSock)
+	return &env{tmp: tmp, connect: connect, gwSock: gwSock, opa: opaCmd, gwLogs: gwLogs}
+}
+
+func (c *client) initialize(caps map[string]any) msg {
+	c.t.Helper()
+	c.request(1, "initialize", map[string]any{
+		"protocolVersion": "2025-06-18",
+		"capabilities":    caps,
+		"clientInfo":      map[string]any{"name": "e2e", "version": "1"},
+	})
+	m := c.read()
+	if m.Error != nil {
+		c.t.Fatalf("initialize: %+v", m)
+	}
+	c.send(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"})
+	return m
+}
+
+func listNames(t *testing.T, m msg, field, key string) string {
+	t.Helper()
+	var res map[string][]map[string]any
+	if err := json.Unmarshal(m.Result, &res); err != nil {
+		t.Fatalf("%s: %v (%s)", field, err, m.Result)
+	}
+	var out []string
+	for _, it := range res[field] {
+		out = append(out, fmt.Sprint(it[key]))
+	}
+	return strings.Join(out, ",")
+}
+
+func TestEndToEnd(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	home, err := os.MkdirTemp("", "mcpgw-home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	writeFile(t, filepath.Join(home, "hello.txt"), "hello world")
 
 	// Policy data for this test: the current user is a developer, and
@@ -237,28 +307,8 @@ func TestEndToEnd(t *testing.T) {
 	  ]}},
 	  "bindings": {"groups": {}, "users": {%q: ["developer"]}}
 	}`, "^"+regexp.QuoteMeta(home)+"/", me.Username)
-	writeFile(t, filepath.Join(tmp, "data", "rbac", "data.json"), rbac)
-
-	opaSock := filepath.Join(tmp, "opa.sock")
-	opaCmd, _ := start(t, opa, "run", "--server", "--addr", "unix://"+opaSock,
-		filepath.Join("..", "policy", "mcp"), filepath.Join(tmp, "data"))
-	waitFor(t, opaSock)
-
-	writeFile(t, filepath.Join(tmp, "servers.d", "fs.yaml"), fmt.Sprintf(
-		"name: fs\ncommand: [%q, --root, %q]\nrun_as: gateway\n", demo, home))
-	gwSock := filepath.Join(tmp, "mcp.sock")
-	writeFile(t, filepath.Join(tmp, "gateway.yaml"), fmt.Sprintf(`
-socket: %s
-servers_dir: %s
-policy:
-  opa_socket: %s
-  timeout: 2s
-approval_timeout: 5s
-supervisor:
-  mode: exec
-`, gwSock, filepath.Join(tmp, "servers.d"), opaSock))
-	_, gwLogs := start(t, gateway, "--config", filepath.Join(tmp, "gateway.yaml"))
-	waitFor(t, gwSock)
+	e := setup(t, rbac, map[string]string{"fs": home})
+	connect, gwSock, gwLogs, opaCmd := e.connect, e.gwSock, e.gwLogs, e.opa
 
 	c := newClient(t, connect, gwSock, "fs")
 
@@ -358,6 +408,97 @@ supervisor:
 		text, isErr := toolResult(t, c.call(9, "read_file", map[string]any{"path": filepath.Join(home, "hello.txt")}))
 		if !isErr || !strings.Contains(text, "policy evaluation failed") {
 			t.Fatalf("got %q isError=%v", text, isErr)
+		}
+	})
+}
+
+func TestAggregatedEndpoint(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	base, err := os.MkdirTemp("", "mcpgw-roots")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	home, notes := filepath.Join(base, "home"), filepath.Join(base, "notes")
+	writeFile(t, filepath.Join(home, "hello.txt"), "hello world")
+	writeFile(t, filepath.Join(notes, "todo.txt"), "buy milk")
+
+	rbac := fmt.Sprintf(`{
+	  "roles": {"developer": {"permissions": [
+	    {"server": "*", "tool": "read_*"},
+	    {"server": "fs", "tool": "list_*"},
+	    {"server": "fs", "resource": %q},
+	    {"server": "*", "prompt": "*"}
+	  ]}},
+	  "bindings": {"groups": {}, "users": {%q: ["developer"]}}
+	}`, "file://"+home+"/*", me.Username)
+	e := setup(t, rbac, map[string]string{"fs": home, "notes": notes})
+
+	// No --server: the aggregated endpoint.
+	c := newClient(t, e.connect, e.gwSock, "all")
+	init := c.initialize(map[string]any{})
+	if !strings.Contains(string(init.Result), `"name":"mcp-gateway"`) {
+		t.Fatalf("initialize: %s", init.Result)
+	}
+
+	t.Run("tools are namespaced and filtered", func(t *testing.T) {
+		c.request(2, "tools/list", map[string]any{})
+		if got := listNames(t, c.read(), "tools", "name"); got != "fs__list_dir,fs__read_file,notes__read_file" {
+			t.Fatalf("tools = %s", got)
+		}
+	})
+
+	t.Run("calls are routed", func(t *testing.T) {
+		text, isErr := toolResult(t, c.call(3, "notes__read_file", map[string]any{"path": "todo.txt"}))
+		if isErr || text != "buy milk" {
+			t.Fatalf("got %q isError=%v", text, isErr)
+		}
+		text, isErr = toolResult(t, c.call(4, "notes__write_file", map[string]any{"path": "x", "content": "x"}))
+		if !isErr || !strings.Contains(text, "no matching permission") {
+			t.Fatalf("got %q isError=%v", text, isErr)
+		}
+	})
+
+	fsURI := "mcp+fs:file://" + filepath.Join(home, "hello.txt")
+	t.Run("resources are namespaced and filtered", func(t *testing.T) {
+		c.request(5, "resources/list", map[string]any{})
+		if got := listNames(t, c.read(), "resources", "uri"); got != fsURI {
+			t.Fatalf("resources = %s (notes resources must be hidden)", got)
+		}
+		c.request(6, "resources/read", map[string]any{"uri": fsURI})
+		m := c.read()
+		if !strings.Contains(string(m.Result), "hello world") || !strings.Contains(string(m.Result), fsURI) {
+			t.Fatalf("read: %s %+v", m.Result, m.Error)
+		}
+		c.request(7, "resources/read", map[string]any{"uri": "mcp+notes:file://" + filepath.Join(notes, "todo.txt")})
+		if m := c.read(); m.Error == nil || m.Error.Code != -32001 {
+			t.Fatalf("notes read: %+v", m)
+		}
+	})
+
+	t.Run("prompts are namespaced", func(t *testing.T) {
+		c.request(8, "prompts/list", map[string]any{})
+		if got := listNames(t, c.read(), "prompts", "name"); got != "fs__summarize_file,notes__summarize_file" {
+			t.Fatalf("prompts = %s", got)
+		}
+		c.request(9, "prompts/get", map[string]any{"name": "notes__summarize_file", "arguments": map[string]any{"path": "todo.txt"}})
+		if m := c.read(); !strings.Contains(string(m.Result), "Summarize the file at todo.txt") {
+			t.Fatalf("prompts/get: %s %+v", m.Result, m.Error)
+		}
+	})
+
+	t.Run("instances are shared by the principal's sessions", func(t *testing.T) {
+		c2 := newClient(t, e.connect, e.gwSock, "fs")
+		c2.initialize(map[string]any{})
+		text, _ := toolResult(t, c2.call(2, "read_file", map[string]any{"path": filepath.Join(home, "hello.txt")}))
+		if text != "hello world" {
+			t.Fatalf("got %q", text)
+		}
+		if n := strings.Count(e.gwLogs.String(), `msg="instance started" server=fs`); n != 1 {
+			t.Fatalf("fs instance started %d times, want 1\n%s", n, e.gwLogs.String())
 		}
 	})
 }

@@ -20,9 +20,10 @@ type Instance interface {
 	Name() string
 }
 
-// Launcher starts backend instances.
+// Launcher starts backend instances. id identifies the instance (lower-case
+// hex); it appears in unit names.
 type Launcher interface {
-	Start(ctx context.Context, b *config.Backend, p principal.Principal) (Instance, error)
+	Start(ctx context.Context, b *config.Backend, p principal.Principal, id string) (Instance, error)
 }
 
 // expandVars substitutes ${HOME} and ${USER} (the principal's) in s and
@@ -74,6 +75,6 @@ func environment(b *config.Backend, p principal.Principal) []string {
 
 // unitName returns the transient unit name for an instance; it must match
 // the polkit rule in packaging/polkit/50-mcp-gateway.rules.
-func unitName(b *config.Backend, p principal.Principal) string {
-	return fmt.Sprintf("mcp-%s-%s.service", b.Name, strings.ToLower(p.SessionID))
+func unitName(b *config.Backend, id string) string {
+	return fmt.Sprintf("mcp-%s-%s.service", b.Name, strings.ToLower(id))
 }
