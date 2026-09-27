@@ -77,7 +77,8 @@ jobs:
           rm -rf vendor
           cp packaging/suse/mcp-gateway-rpmlintrc ~/rpmbuild/SOURCES/
       - name: rpmbuild
-        run: rpmbuild -ba packaging/suse/mcp-gateway.spec
+        # openSUSE's default topdir is /usr/src/packages.
+        run: rpmbuild -ba --define "_topdir $HOME/rpmbuild" packaging/suse/mcp-gateway.spec
       - name: rpmlint
         # On OBS the .changes file provides the changelog; here it is empty.
         run: |
