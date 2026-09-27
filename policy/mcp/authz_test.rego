@@ -1,0 +1,101 @@
+package mcp.authz_test
+
+import rego.v1
+
+import data.mcp.authz
+import data.mcp.filter
+
+alice := {"sub": "alice", "groups": ["dev"], "transport": "unix", "session_id": "s1"}
+
+call(principal, server, tool, args) := {
+	"principal": principal,
+	"action": "tools.call",
+	"resource": {"server": server, "kind": "tool", "name": tool},
+	"args": args,
+	"grants": [],
+}
+
+future := "2200-01-01T00:00:00Z"
+
+past := "2000-01-01T00:00:00Z"
+
+test_developer_may_use_git if {
+	authz.decision.effect == "allow" with input as call(alice, "git", "commit", {})
+}
+
+test_unknown_user_denied if {
+	d := authz.decision with input as call({"sub": "mallory", "session_id": "s9"}, "git", "commit", {})
+	d.effect == "deny"
+	d.reason == "no matching permission"
+}
+
+test_explicit_deny_wins if {
+	admin_dev := object.union(alice, {"groups": ["dev", "wheel"]})
+	d := authz.decision with input as call(admin_dev, "fs", "delete_file", {"path": "/home/alice/x"})
+	d.effect == "deny"
+	d.reason == "denied by policy"
+}
+
+test_write_in_own_home_asks if {
+	d := authz.decision with input as call(alice, "fs", "write_file", {"path": "/home/alice/x.txt"})
+	d.effect == "ask"
+	d.ask.channel == "url"
+}
+
+test_write_outside_home_denied if {
+	d := authz.decision with input as call(alice, "fs", "write_file", {"path": "/etc/passwd"})
+	d.effect == "deny"
+}
+
+test_write_with_missing_arg_denied if {
+	authz.decision.effect == "deny" with input as call(alice, "fs", "write_file", {})
+}
+
+test_session_grant_allows if {
+	g := {"sub": "alice", "server": "fs", "tool": "write_file", "scope": "session", "session_id": "s1", "expires": future}
+	inp := object.union(call(alice, "fs", "write_file", {"path": "/home/alice/x.txt"}), {"grants": [g]})
+	authz.decision.effect == "allow" with input as inp
+}
+
+test_grant_from_other_session_ignored if {
+	g := {"sub": "alice", "server": "fs", "tool": "write_file", "scope": "session", "session_id": "s2", "expires": future}
+	inp := object.union(call(alice, "fs", "write_file", {"path": "/home/alice/x.txt"}), {"grants": [g]})
+	authz.decision.effect == "ask" with input as inp
+}
+
+test_expired_grant_ignored if {
+	g := {"sub": "alice", "server": "fs", "tool": "write_file", "scope": "duration", "expires": past}
+	inp := object.union(call(alice, "fs", "write_file", {"path": "/home/alice/x.txt"}), {"grants": [g]})
+	authz.decision.effect == "ask" with input as inp
+}
+
+test_grant_of_other_user_ignored if {
+	g := {"sub": "bob", "server": "fs", "tool": "write_file", "scope": "duration", "expires": future}
+	inp := object.union(call(alice, "fs", "write_file", {"path": "/home/alice/x.txt"}), {"grants": [g]})
+	authz.decision.effect == "ask" with input as inp
+}
+
+test_grant_does_not_bypass_arg_constraints if {
+	g := {"sub": "alice", "server": "fs", "tool": "write_file", "scope": "duration", "expires": future}
+	inp := object.union(call(alice, "fs", "write_file", {"path": "/etc/passwd"}), {"grants": [g]})
+	authz.decision.effect == "deny" with input as inp
+}
+
+test_other_actions_denied if {
+	inp := object.union(call(alice, "git", "commit", {}), {"action": "resources.read"})
+	authz.decision.effect == "deny" with input as inp
+}
+
+test_filter_hides_denied_tools if {
+	resources := [
+		{"server": "git", "kind": "tool", "name": "commit"},
+		{"server": "fs", "kind": "tool", "name": "write_file"},
+		{"server": "fs", "kind": "tool", "name": "delete_file"},
+		{"server": "db", "kind": "tool", "name": "query"},
+	]
+	v := filter.visible with input as {"principal": alice, "resources": resources}
+	v == {
+		{"server": "git", "kind": "tool", "name": "commit"},
+		{"server": "fs", "kind": "tool", "name": "write_file"},
+	}
+}

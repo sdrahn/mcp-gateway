@@ -1,0 +1,25 @@
+# mcp-gateway main configuration (installed as /etc/mcp-gateway/gateway.yaml).
+# All values shown are the defaults.
+
+# Unix socket for local clients (directly or via mcp-connect).
+socket: /run/mcp-gateway/mcp.sock
+
+# Backend definitions, one *.yaml per MCP server.
+servers_dir: /etc/mcp-gateway/servers.d
+
+# Grants store and other state.
+state_dir: /var/lib/mcp-gateway
+
+policy:
+  # OPA sidecar (mcp-opa.service).
+  opa_socket: /run/mcp-gateway/opa.sock
+  # Decisions not received within this time are denied.
+  timeout: 250ms
+
+# Remote access via MCP Streamable HTTP. Disabled unless listen is set.
+# http:
+#   listen: ":8443"
+#   cert_file: /etc/mcp-gateway/tls/cert.pem
+#   key_file: /etc/mcp-gateway/tls/key.pem
+#   issuer: https://idp.example.com/realms/mcp
+#   audience: https://gateway.example.com:8443/mcp

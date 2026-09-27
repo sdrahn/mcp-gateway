@@ -1,0 +1,12 @@
+/usr/bin/mcp-gateway				--	gen_context(system_u:object_r:mcpgw_exec_t,s0)
+/usr/libexec/mcp-gateway/opa			--	gen_context(system_u:object_r:mcpopa_exec_t,s0)
+/usr/libexec/mcp-servers/mcp-fs			--	gen_context(system_u:object_r:mcpsrv_fs_exec_t,s0)
+
+/etc/mcp-gateway(/.*)?					gen_context(system_u:object_r:mcpgw_etc_t,s0)
+/var/lib/mcp-gateway(/.*)?				gen_context(system_u:object_r:mcpgw_var_lib_t,s0)
+/var/log/mcp-gateway(/.*)?				gen_context(system_u:object_r:mcpgw_log_t,s0)
+
+/run/mcp-gateway				-d	gen_context(system_u:object_r:mcpgw_runtime_t,s0)
+/run/mcp-gateway/mcp\.sock			-s	gen_context(system_u:object_r:mcpgw_sock_t,s0)
+/run/mcp-gateway/control\.sock			-s	gen_context(system_u:object_r:mcpgw_ctl_sock_t,s0)
+/run/mcp-gateway/opa\.sock			-s	gen_context(system_u:object_r:mcpopa_sock_t,s0)

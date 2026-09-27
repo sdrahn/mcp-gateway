@@ -450,8 +450,8 @@ policy/
   mcp/filter.rego         # batch visibility for */list
   mcp/elicitation.rego    # rules for backend-initiated elicitation
   mcp/lib/*.rego          # helpers (arg matching, time windows)
-  data/rbac.json          # roles, permissions, bindings, approvers
-  tests/*_test.rego
+  mcp/*_test.rego         # policy tests (opa test)
+  rbac/data.json          # data.rbac: roles, permissions, bindings, approvers
 ```
 
 ### 6.2 Input document
