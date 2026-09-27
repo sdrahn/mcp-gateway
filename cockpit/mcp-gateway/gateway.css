@@ -26,6 +26,9 @@
     }
 }
 
+/* The hidden attribute must win over display rules such as .actions. */
+[hidden] { display: none !important; }
+
 body {
     margin: 0;
     padding: 1rem 1.5rem;

@@ -66,9 +66,13 @@
                 <p class="muted">Which users and groups hold which roles
                 (<code id="rbac-path"></code>). Saving needs administrative access; the
                 policy engine picks the change up within seconds.</p>
-                <div id="bundle-note" class="note" hidden>The policy is loaded from a signed
-                bundle: changes saved here take effect once the bundle is rebuilt with
-                <code>mcp-policy-bundle</code>.</div>
+                <div id="bundle-note" class="note" hidden>
+                    <p id="bundle-note-text"></p>
+                    <div class="actions" id="bundle-sign-actions" hidden>
+                        <button id="bundle-sign">Sign and apply</button>
+                    </div>
+                    <pre id="bundle-sign-output" class="log" hidden></pre>
+                </div>
                 <table id="bindings">
                     <thead><tr><th>Kind</th><th>Name</th><th>Roles</th><th></th></tr></thead>
                     <tbody></tbody>

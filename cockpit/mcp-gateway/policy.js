@@ -1,11 +1,16 @@
 /* Policy tab: what OPA has loaded, and the role data (roles, bindings,
  * approver rules) in /etc/mcp-gateway/policy/rbac/data.json, edited with
  * administrative access. OPA picks changes up by itself (--watch); with a
- * signed bundle they take effect once the bundle is rebuilt.
+ * signed bundle file they take effect once the bundle is rebuilt, which
+ * the page does with mcp-policy-bundle if the signing key is on this host.
  */
 "use strict";
 
 let rbac = null; // parsed role data as last read or saved
+// "directories", "bundle-file" (our bundle file), or "bundle-server"
+let policySource = "directories";
+let signingKey = false; // the signing key exists on this host
+let unsigned = false; // role data saved since the active bundle was built
 
 function rbacFile() {
     return cockpit.file(RBAC_FILE, { superuser: "try" });
@@ -66,8 +71,63 @@ async function saveRBAC(data) {
     }
     rbac = data;
     showError(null);
+    if (policySource === "bundle-file") unsigned = true;
+    renderBundleNote();
     renderRBAC();
     return true;
+}
+
+function renderBundleNote() {
+    const note = document.getElementById("bundle-note");
+    const text = document.getElementById("bundle-note-text");
+    const actions = document.getElementById("bundle-sign-actions");
+    note.hidden = policySource === "directories";
+    actions.hidden = true;
+    if (policySource === "bundle-server") {
+        text.textContent = "The policy comes from a bundle server: changes saved here do not apply " +
+            "until the bundle published there includes them.";
+    } else if (signingKey) {
+        text.textContent = unsigned
+            ? "Saved changes are not active yet: sign a new bundle to apply them."
+            : "The policy is loaded from a signed bundle. After changing the role data, sign a new " +
+              "bundle to apply it (this restarts the policy engine; requests are denied for a moment).";
+        actions.hidden = false;
+    } else {
+        text.textContent = "The policy is loaded from a signed bundle: changes saved here take effect " +
+            "once the bundle is rebuilt with mcp-policy-bundle. To sign from here, create a signing " +
+            "key on this host with \"mcp-policy-bundle -G\".";
+    }
+}
+
+/* signRevision names the bundle revision after the user and time, which the
+ * gateway's policy change audit events record. */
+function signRevision() {
+    const who = currentUser ? currentUser.name.replace(/[^A-Za-z0-9_.-]/g, "_") : "unknown";
+    return "cockpit-" + who + "-" + new Date().toISOString().replace(/[-:]|\.\d+/g, "");
+}
+
+async function signBundle() {
+    const button = document.getElementById("bundle-sign");
+    const output = document.getElementById("bundle-sign-output");
+    button.disabled = true;
+    output.hidden = false;
+    output.textContent = "Signing…";
+    try {
+        output.textContent = (await cockpit.spawn(["mcp-policy-bundle", "-r", signRevision()],
+                                                  { superuser: "require", err: "out" })).trim();
+        unsigned = false;
+        showError(null);
+        renderBundleNote();
+        // OPA restarts with the new bundle; give it a moment.
+        setTimeout(() => tabs.policy.refresh().catch(() => {}), 1500);
+    } catch (ex) {
+        output.textContent = ((ex && ex.message) || "").trim();
+        showError(ex && ex.problem === "access-denied"
+            ? "Signing needs administrative access (turn it on in Cockpit's top bar)."
+            : "Signing the bundle failed; see the output below.");
+    } finally {
+        button.disabled = false;
+    }
 }
 
 function copyRBAC() {
@@ -174,6 +234,7 @@ tabs.policy = {
             }
             saveRBAC(d);
         });
+        document.getElementById("bundle-sign").addEventListener("click", signBundle);
         document.getElementById("rbac-reset").addEventListener("click", () => {
             if (rbac) document.getElementById("rbac-json").value = JSON.stringify(rbac, null, 2);
         });
@@ -182,11 +243,22 @@ tabs.policy = {
         const status = document.getElementById("policy-status");
         try {
             const st = await getJSON("/v1/policy");
-            const revs = Object.entries(st.bundles || {}).map(([n, r]) => n + " (revision " + (r || "none") + ")");
+            const bundles = st.bundles || {};
+            const revs = Object.entries(bundles).map(([n, r]) => n + " (revision " + (r || "none") + ")");
             status.textContent = st.mode === "bundle"
                 ? "Loaded from signed bundle " + revs.join(", ") + "."
                 : "Loaded from the policy directories (/usr/share/mcp-gateway/policy, /etc/mcp-gateway/policy).";
-            document.getElementById("bundle-note").hidden = st.mode !== "bundle";
+            policySource = st.mode !== "bundle" ? "directories" : BUNDLE_FILE in bundles ? "bundle-file" : "bundle-server";
+            signingKey = false;
+            if (policySource === "bundle-file") {
+                try {
+                    await cockpit.spawn(["test", "-e", SIGNING_KEY], { err: "ignore" });
+                    signingKey = true;
+                } catch (ex) {
+                    // no key on this host
+                }
+            }
+            renderBundleNote();
         } catch (ex) {
             status.textContent = "Policy status unavailable: " + describeFailure(ex);
         }

@@ -56,7 +56,7 @@ the administrator's (below `/etc`), which suits transactional systems
 | `/usr/share/mcp-gateway/policy/` | policy logic (Rego) | package |
 | `/etc/mcp-gateway/policy/rbac/data.json` | roles, bindings and approver rules (`%config(noreplace)`) | admin |
 | `/usr/share/mcp-gateway/opa/` | `mcp-opa.service` drop-ins for signed bundles (`signed-bundle.conf`, `bundle-server.conf`) and an OPA configuration example | package |
-| `/etc/mcp-gateway/bundle/` | signed policy bundle (`policy.tar.gz`, from `mcp-policy-bundle`) and its verification key (`verify.pem`) | admin |
+| `/etc/mcp-gateway/bundle/` | signed policy bundle (`policy.tar.gz`, from `mcp-policy-bundle`), its verification key (`verify.pem`) and, if signing happens on the host, the signing key (`signing.pem`, 0600, `mcpgw_signing_key_t`; `mcp-policy-bundle -G`) | admin |
 | `/etc/mcp-gateway/credentials/` | secrets for MCP servers (`credentials:` in their definitions), mode 0700, label `mcpgw_cred_t`; read by systemd, never by the gateway | admin |
 | `/var/lib/mcp-gateway/` | persistent grants (`StateDirectory=`) | service |
 | `/run/mcp-gateway/` | sockets (`RuntimeDirectory=`) | service |

@@ -46,8 +46,8 @@ async function init() {
         if (t.init) t.init();
     }
     try {
-        const me = await getJSON("/v1/whoami");
-        document.getElementById("whoami").textContent = "Signed in as " + me.name;
+        currentUser = await getJSON("/v1/whoami");
+        document.getElementById("whoami").textContent = "Signed in as " + currentUser.name;
     } catch (ex) {
         showError(describeFailure(ex));
     }

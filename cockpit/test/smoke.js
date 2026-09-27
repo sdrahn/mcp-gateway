@@ -79,6 +79,28 @@ function site() {
     check((await page.textContent("#error")).includes("unknown role"), "validation error shown");
     check((await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length === before, "invalid data not saved");
 
+    // Signing from the page: the key is on the host (stub default).
+    check(await page.isVisible("#bundle-sign"), "sign button with a local key");
+    check((await page.textContent("#bundle-note-text")).includes("not active yet"), "unsigned changes noted");
+    await page.click("#bundle-sign");
+    await page.waitForFunction(() => document.querySelector("#bundle-sign-output").textContent.includes("wrote"));
+    const sign = (await page.evaluate(() => __calls)).find(c => c[0] === "spawn" && c[1].startsWith("mcp-policy-bundle"));
+    check(sign && sign[2] === "require" && /^mcp-policy-bundle -r cockpit-carol-\d{8}T\d{6}Z$/.test(sign[1]),
+          "signs as administrator with a named revision: " + (sign && sign[1]));
+    check(!(await page.textContent("#bundle-note-text")).includes("not active yet"), "signed changes no longer noted");
+
+    const policyPage = url.replace("index.html", "index.html?source=server");
+    await page.goto(policyPage + "#/policy");
+    await page.waitForSelector("#bindings tbody tr td");
+    await page.waitForFunction(() => document.querySelector("#bundle-note-text").textContent !== "");
+    check(!(await page.isVisible("#bundle-sign")) && (await page.textContent("#bundle-note-text")).includes("bundle server"),
+          "no signing for bundles from a bundle server");
+    await page.goto(url.replace("index.html", "index.html?nokey") + "#/policy");
+    await page.waitForSelector("#bindings tbody tr td");
+    await page.waitForFunction(() => document.querySelector("#bundle-note-text").textContent !== "");
+    check(!(await page.isVisible("#bundle-sign")) && (await page.textContent("#bundle-note-text")).includes("-G"),
+          "without a key: hint to create one");
+
     await page.goto(url + "#/audit");
     await page.click("#audit-filter button[type=submit]");
     await page.waitForSelector("#audit tbody tr td");

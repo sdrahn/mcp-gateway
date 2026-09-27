@@ -331,8 +331,14 @@ Unknown methods are **denied by default**.
     writes `/etc/mcp-gateway/bundle/policy.tar.gz` and restarts OPA,
     which verifies it against `/etc/mcp-gateway/bundle/verify.pem` and
     refuses to start with an unsigned or tampered bundle (the gateway
-    then denies everything). The signing key belongs off the host, e.g.
-    in CI, which builds bundles from the policy repository.
+    then denies everything). The signing key is safest off the host,
+    e.g. in CI, which builds bundles from the policy repository. For
+    signing on the host (and from Cockpit, §5.10), `mcp-policy-bundle -G`
+    creates the key pair: `/etc/mcp-gateway/bundle/signing.pem` (root,
+    0600, `mcpgw_signing_key_t`, which the gateway, OPA and backends may
+    never read) and `verify.pem` next to the bundle. Signing then protects
+    against changes by anyone who can write the bundle or role data but
+    is not root; root can always sign.
   - **bundle server** (`bundle-server.conf`, `opa-config.yaml.example`):
     OPA polls a bundle server and verifies every download (`signing`
     in its configuration); a bundle that does not verify is rejected and
@@ -520,6 +526,8 @@ Types:
 | `mcpopa_t` / `mcpopa_exec_t` | OPA sidecar |
 | `mcpopa_sock_t` | OPA socket |
 | `mcpgw_etc_t`, `mcpgw_var_lib_t`, `mcpgw_log_t` | config, state, logs |
+| `mcpgw_cred_t` | backend secrets (`/etc/mcp-gateway/credentials`), read only by systemd |
+| `mcpgw_signing_key_t` | policy bundle signing key on the host (`/etc/mcp-gateway/bundle/signing.pem`); `neverallow` for the gateway, OPA and backends |
 | `mcpsrv_<name>_t` / `mcpsrv_<name>_exec_t` | per-backend domain / binary |
 | `mcpsrv_generic_t` | fallback for backends without a dedicated type |
 | `mcp_port_t` | gateway HTTPS port |
@@ -628,8 +636,13 @@ installed to `/usr/share/cockpit/mcp-gateway`), with four tabs:
   approver rules, and the whole role data as JSON. Edits are validated
   (structure, bindings to unknown roles) and written to
   `/etc/mcp-gateway/policy/rbac/data.json` with Cockpit's administrative
-  access; OPA reloads it by itself, or, with a signed bundle, once
-  `mcp-policy-bundle` rebuilds it.
+  access; OPA reloads it by itself. With a signed bundle file and the
+  signing key on the host, **Sign and apply** runs `mcp-policy-bundle`
+  as root, which signs a new bundle with the revision
+  `cockpit-<user>-<time>` (recorded in the gateway's policy change audit
+  event) and restarts OPA. Without the key the page explains how to
+  create one; with a bundle server, changes must go into the bundle
+  published there.
 - **Audit:** the gateway's audit records from the journal (`journalctl
   -u mcp-gateway.service`, which needs journal access), newest first,
   filtered by kind (denials, allowed calls, events) and text.
@@ -931,8 +944,9 @@ names for clients configured per server.
 *Decision (accepted):* Rego logic in git (tests in CI); RBAC data editable through
 Cockpit, which generates signed bundle revisions.
 *Implementation:* bundles are built and signed by `mcp-policy-bundle`
-(§5.5); signing from Cockpit needs the key on the host and is left to the
-administrator's choice.
+(§5.5). Cockpit signs when the administrator keeps the signing key on the
+host (`mcp-policy-bundle -G`); keeping it off the host (CI) is the
+stronger setup, then Cockpit only edits the role data.
 
 **D5 — Trust in backends.**
 *Decision (accepted):* treat all backends as **untrusted** by default

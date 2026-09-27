@@ -4,15 +4,20 @@
 # mcp-opa.service in signed bundle mode (docs/architecture.md, section
 # 5.5). The bundle replaces the output file atomically; unless -n is
 # given, mcp-opa.service is then restarted, which verifies the signature.
+# With -G it creates a signing key pair on this host instead.
 set -eu
 
 usage() {
 	cat <<USAGE
-Usage: mcp-policy-bundle -k SIGNING_KEY [-o OUTPUT] [-r REVISION] [-n]
+Usage: mcp-policy-bundle [-k SIGNING_KEY] [-o OUTPUT] [-r REVISION] [-n]
                          [-V VENDOR_POLICY_DIR] [-L LOCAL_POLICY_DIR]
+       mcp-policy-bundle -G [-k SIGNING_KEY] [-o OUTPUT]
 
-  -k  private key (PEM, RSA) to sign the bundle with; keep it away from
-      the gateway host if you can (default algorithm RS256, see -a)
+  -k  private key (PEM, RSA) to sign the bundle with
+      (default: /etc/mcp-gateway/bundle/signing.pem); keeping it off the
+      gateway host is safer, keeping it here allows signing from Cockpit
+  -G  create a signing key pair: the private key at the -k path (mode
+      0600) and the verification key as verify.pem next to OUTPUT
   -a  signing algorithm (default: RS256)
   -o  bundle file (default: /etc/mcp-gateway/bundle/policy.tar.gz)
   -r  revision recorded in the bundle (default: UTC timestamp)
@@ -20,17 +25,19 @@ Usage: mcp-policy-bundle -k SIGNING_KEY [-o OUTPUT] [-r REVISION] [-n]
   -V  policy logic (default: /usr/share/mcp-gateway/policy)
   -L  role data (default: /etc/mcp-gateway/policy)
 
-Environment: OPA (default: opa from PATH).
+Environment: OPA (default: opa from PATH). -G needs openssl.
 USAGE
 	exit 2
 }
 
-key= alg=RS256 out=/etc/mcp-gateway/bundle/policy.tar.gz
-revision=$(date -u +%Y%m%dT%H%M%SZ) restart=yes
+key=/etc/mcp-gateway/bundle/signing.pem alg=RS256
+out=/etc/mcp-gateway/bundle/policy.tar.gz
+revision=$(date -u +%Y%m%dT%H%M%SZ) restart=yes genkey=no
 vendor=/usr/share/mcp-gateway/policy local=/etc/mcp-gateway/policy
-while getopts k:a:o:r:nV:L:h opt; do
+while getopts k:a:o:r:nGV:L:h opt; do
 	case $opt in
 	k) key=$OPTARG ;;
+	G) genkey=yes ;;
 	a) alg=$OPTARG ;;
 	o) out=$OPTARG ;;
 	r) revision=$OPTARG ;;
@@ -40,8 +47,35 @@ while getopts k:a:o:r:nV:L:h opt; do
 	*) usage ;;
 	esac
 done
-[ -n "$key" ] || usage
 opa=${OPA:-opa}
+
+# relabel gives new files their SELinux label (e.g. mcpgw_signing_key_t).
+relabel() {
+	if command -v restorecon >/dev/null 2>&1; then
+		restorecon -F "$@" 2>/dev/null || true
+	fi
+}
+
+if [ "$genkey" = yes ]; then
+	pub="$(dirname "$out")/verify.pem"
+	if [ -e "$key" ]; then
+		echo "mcp-policy-bundle: $key exists; not replacing it" >&2
+		exit 1
+	fi
+	mkdir -p "$(dirname "$key")" "$(dirname "$pub")"
+	(umask 077 && openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$key" 2>/dev/null)
+	openssl pkey -in "$key" -pubout -out "$pub.new"
+	chmod 0644 "$pub.new"
+	mv -f "$pub.new" "$pub"
+	relabel "$key" "$pub"
+	echo "created signing key $key and verification key $pub"
+	exit 0
+fi
+
+if [ ! -r "$key" ]; then
+	echo "mcp-policy-bundle: cannot read signing key $key (create one with -G, or pass -k)" >&2
+	exit 1
+fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -58,6 +92,7 @@ mkdir -p "$(dirname "$out")"
 cp "$tmp/bundle.tar.gz" "$out.new"
 chmod 0644 "$out.new"
 mv -f "$out.new" "$out"
+relabel "$out"
 echo "wrote $out (revision $revision)"
 
 if [ "$restart" = yes ] && command -v systemctl >/dev/null 2>&1; then
