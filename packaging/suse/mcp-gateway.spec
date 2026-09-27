@@ -71,6 +71,18 @@ A Cockpit page for mcp-gateway, as the logged-in user: decide on pending
 approvals and revoke grants, see MCP servers and stop their instances,
 edit role bindings and view the audit records.
 
+%package desktop
+Summary:        Desktop notifications for mcp-gateway approvals
+Group:          System/Management
+Requires:       %{name} = %{version}
+Requires:       xdg-utils
+
+%description desktop
+Shows a desktop notification in graphical sessions for every mcp-gateway
+approval the logged-in user may decide on, with an action opening the
+approval page. Started with the session (XDG autostart); does nothing for
+users without access to the gateway.
+
 %package demo-server
 Summary:        Demo filesystem MCP server for mcp-gateway
 Group:          Development/Tools/Other
@@ -91,7 +103,7 @@ make selinux
 %sysusers_generate_pre packaging/sysusers.d/mcp-gateway.conf %{name} %{name}.conf
 
 %install
-%make_install install install-selinux install-cockpit install-demo \
+%make_install install install-selinux install-cockpit install-desktop install-demo \
     PREFIX=%{_prefix} BINDIR=%{_bindir} SBINDIR=%{_sbindir} LIBEXECDIR=%{_libexecdir} \
     DATADIR=%{_datadir} SYSCONFDIR=%{_sysconfdir} DISTCONFDIR=%{_distconfdir} \
     UNITDIR=%{_unitdir} SYSUSERSDIR=%{_sysusersdir} \
@@ -163,6 +175,10 @@ fi
 %files cockpit
 %dir %{_datadir}/cockpit
 %{_datadir}/cockpit/mcp-gateway
+
+%files desktop
+%{_bindir}/mcp-gateway-notify
+%config %{_sysconfdir}/xdg/autostart/mcp-gateway-notify.desktop
 
 %files demo-server
 %dir %{_libexecdir}/mcp-servers

@@ -28,10 +28,10 @@ COCKPITDIR  ?= $(DATADIR)/cockpit/mcp-gateway
 SELINUXDIR  ?= $(DATADIR)/selinux/packages/$(SELINUXTYPE)
 DESTDIR     ?=
 
-BINARIES := bin/mcp-gateway bin/mcp-connect bin/mcp-fs-demo
+BINARIES := bin/mcp-gateway bin/mcp-connect bin/mcp-gateway-notify bin/mcp-fs-demo
 
 .PHONY: all build test vet lint fmt-check policy-check policy-test selinux check \
-	install install-gateway install-selinux install-cockpit install-demo clean
+	install install-gateway install-selinux install-cockpit install-desktop install-demo clean
 
 all: build
 
@@ -108,6 +108,12 @@ install-selinux: selinux/mcp_gateway.pp
 install-cockpit:
 	install -d $(DESTDIR)$(COCKPITDIR)
 	install -m0644 cockpit/mcp-gateway/* $(DESTDIR)$(COCKPITDIR)/
+
+# Desktop notification agent, started with graphical sessions (XDG
+# autostart); it exits for users without access to the control socket.
+install-desktop:
+	install -Dm0755 bin/mcp-gateway-notify $(DESTDIR)$(BINDIR)/mcp-gateway-notify
+	install -Dm0644 packaging/desktop/mcp-gateway-notify.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/mcp-gateway-notify.desktop
 
 install-demo:
 	install -Dm0755 bin/mcp-fs-demo $(DESTDIR)$(LIBEXECDIR)/mcp-servers/mcp-fs-demo

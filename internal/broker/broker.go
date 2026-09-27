@@ -120,6 +120,67 @@ type Broker struct {
 
 	mu      sync.Mutex
 	pending map[string]*Pending
+	subs    map[chan Event]struct{}
+}
+
+// Event is a change of the pending approvals, for subscribers (the control
+// API's event stream, e-mail notifications).
+type Event struct {
+	// Type is "pending" (an approval appeared, was taken over by a new
+	// attempt, or lost its waiting call) or "resolved" (decided, timed
+	// out, declined, expired).
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	// New marks the first announcement of an approval.
+	New     bool     `json:"new,omitempty"`
+	Pending *Pending `json:"pending,omitempty"` // a copy, for "pending"
+}
+
+// Subscribe returns a channel of pending approval events and a function
+// ending the subscription. Events that a slow subscriber does not take in
+// time are dropped.
+func (b *Broker) Subscribe() (<-chan Event, func()) {
+	ch := make(chan Event, 64)
+	b.mu.Lock()
+	if b.subs == nil {
+		b.subs = map[chan Event]struct{}{}
+	}
+	b.subs[ch] = struct{}{}
+	b.mu.Unlock()
+	var once sync.Once
+	return ch, func() {
+		once.Do(func() {
+			b.mu.Lock()
+			delete(b.subs, ch)
+			b.mu.Unlock()
+		})
+	}
+}
+
+// publish sends ev to the subscribers. Caller holds b.mu.
+func (b *Broker) publish(ev Event) {
+	for ch := range b.subs {
+		select {
+		case ch <- ev:
+		default:
+			b.log.Warn("approval event dropped for a slow subscriber", "id", ev.ID)
+		}
+	}
+}
+
+// publishPending announces p. Caller holds b.mu.
+func (b *Broker) publishPending(p *Pending, isNew bool) {
+	c := *p
+	b.publish(Event{Type: "pending", ID: p.ID, New: isNew, Pending: &c})
+}
+
+// ApprovalURL returns the approval page URL for id ("" without
+// approvals.url_template).
+func (b *Broker) ApprovalURL(id string) string {
+	if b.opts.URLTemplate == "" {
+		return ""
+	}
+	return b.approvalURL(id)
 }
 
 // Pending is an approval waiting for a human decision.
@@ -238,6 +299,7 @@ func (b *Broker) pruneExpired() {
 	for id, p := range b.pending {
 		if p.result == nil && !p.Expires.After(b.now()) {
 			delete(b.pending, id)
+			b.publish(Event{Type: "resolved", ID: id})
 			changed = true
 		}
 	}
@@ -446,6 +508,7 @@ func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel) *Pendi
 			p.result = make(chan *pep.Grant, 1)
 			p.Waiting = true
 			b.persistPending()
+			b.publishPending(p, false)
 			b.mu.Unlock()
 			b.log.Info("approval taken over by a new attempt", "id", p.ID, "sub", p.Principal.Sub, "server", p.Server, "name", p.Name)
 			return p
@@ -470,6 +533,7 @@ func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel) *Pendi
 	b.mu.Lock()
 	b.pending[p.ID] = p
 	b.persistPending()
+	b.publishPending(p, true)
 	b.mu.Unlock()
 	b.log.Info("approval pending", "id", p.ID, "channel", c, "sub", p.Principal.Sub, "server", p.Server, "name", p.Name)
 	return p
@@ -490,8 +554,10 @@ func (b *Broker) endWait(p *Pending, err error) {
 	if errors.Is(err, context.Canceled) && p.Expires.After(b.now()) {
 		orphan(p)
 		b.log.Info("approval kept without a waiting call", "id", p.ID)
+		b.publishPending(p, false)
 	} else {
 		delete(b.pending, p.ID)
+		b.publish(Event{Type: "resolved", ID: p.ID})
 	}
 	b.persistPending()
 }
@@ -532,6 +598,11 @@ func (b *Broker) ask(ctx context.Context, a Approver, path string, input map[str
 }
 
 // mayApprove: as policy says; without policy, the principal themself.
+// MayApprove reports whether a may decide on p.
+func (b *Broker) MayApprove(ctx context.Context, a Approver, p Pending) bool {
+	return b.mayApprove(ctx, a, &p)
+}
+
 func (b *Broker) mayApprove(ctx context.Context, a Approver, p *Pending) bool {
 	if b.opts.Policy == nil && a.UID != 0 {
 		return p.Principal.UID != nil && *p.Principal.UID == a.UID
@@ -627,6 +698,7 @@ func (b *Broker) Resolve(ctx context.Context, a Approver, id string, approve boo
 	}
 	delete(b.pending, id)
 	b.persistPending()
+	b.publish(Event{Type: "resolved", ID: id})
 	b.mu.Unlock()
 
 	var g *pep.Grant

@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -275,5 +276,66 @@ func TestPolicyStatus(t *testing.T) {
 	s.Policy = fakePolicy{}
 	if rec := call(t, s, 1001, "GET", "/v1/policy", ""); !strings.Contains(rec.Body.String(), `"mode":"directories"`) {
 		t.Fatalf("%s", rec.Body)
+	}
+}
+
+func TestEvents(t *testing.T) {
+	s, id, _ := setup(t)
+	srv := httptest.NewUnstartedServer(s.Handler())
+	srv.Config.ConnContext = func(ctx context.Context, _ net.Conn) context.Context {
+		return WithPeer(ctx, transport.PeerCred{UID: 1001}) // alice
+	}
+	srv.Start()
+	defer srv.Close()
+
+	resp, err := srv.Client().Get(srv.URL + "/v1/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("content type %q", resp.Header.Get("Content-Type"))
+	}
+	events := make(chan approvalEvent, 8)
+	go func() {
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			if data, ok := strings.CutPrefix(sc.Text(), "data: "); ok {
+				var ev approvalEvent
+				if json.Unmarshal([]byte(data), &ev) == nil {
+					events <- ev
+				}
+			}
+		}
+		close(events)
+	}()
+	next := func() approvalEvent {
+		t.Helper()
+		select {
+		case ev := <-events:
+			return ev
+		case <-time.After(3 * time.Second):
+			t.Fatal("no event")
+		}
+		return approvalEvent{}
+	}
+	// The pending approval of alice's comes first.
+	if ev := next(); ev.Type != "pending" || ev.ID != id || ev.Pending == nil || ev.Pending.Name != "write_file" {
+		t.Fatalf("initial %+v", ev)
+	}
+	// Bob's approvals are not alice's to see.
+	uid := uint32(1002)
+	go func() {
+		_, _ = s.Broker.Approve(context.Background(), nopElicitor{}, pep.Input{
+			Principal: principal.Principal{Sub: "bob", UID: &uid, SessionID: "s2"}, Action: "tools.call",
+			Resource: pep.Resource{Server: "fs", Kind: "tool", Name: "delete_file"},
+		}, pep.AskSpec{Channel: pep.ChannelOOB, Scopes: []string{"once"}})
+	}()
+	// Deciding alice's shows as resolved.
+	if rec := call(t, s, 1001, "POST", "/v1/approvals/"+id, `{"decision":"deny"}`); rec.Code != 204 {
+		t.Fatalf("deny: %d", rec.Code)
+	}
+	if ev := next(); ev.Type != "resolved" || ev.ID != id {
+		t.Fatalf("got %+v (bob's approval must not show)", ev)
 	}
 }
