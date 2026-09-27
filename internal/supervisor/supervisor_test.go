@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
@@ -185,5 +186,25 @@ func TestExecCredentials(t *testing.T) {
 	_ = inst.Close()
 	if _, err := os.Stat(lines[1]); !os.IsNotExist(err) {
 		t.Fatalf("credentials directory %s not removed: %v", lines[1], err)
+	}
+}
+
+// Output written right before the process exits must not be lost (Wait
+// used to close the pipe under the reader).
+func TestExecOutputBeforeExit(t *testing.T) {
+	uid := uint32(os.Getuid())
+	p := principal.Principal{Sub: "me", UID: &uid, SessionID: "beef"}
+	b := &config.Backend{Name: "sh", Command: []string{"/bin/sh", "-c", "seq 1 20000"}, RunAs: "gateway"}
+	for range 20 {
+		inst, err := (&Exec{}).Start(context.Background(), b, p, "beefbeefbeefbeef")
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(20 * time.Millisecond) // let the process exit first
+		out, _ := io.ReadAll(inst)
+		_ = inst.Close()
+		if !strings.HasSuffix(string(out), "\n20000\n") {
+			t.Fatalf("output truncated to %d bytes", len(out))
+		}
 	}
 }

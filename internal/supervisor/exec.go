@@ -74,17 +74,25 @@ func (e *Exec) Start(_ context.Context, b *config.Backend, p principal.Principal
 			removeCredentials(credDir)
 		}
 	}
-	stdin, err := cmd.StdinPipe()
+	// Own pipes rather than cmd.StdoutPipe: Wait (which runs as soon as
+	// the process exits) closes those, and output not yet read is lost.
+	childIn, stdin, err := os.Pipe()
 	if err != nil {
 		cleanup()
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
+	stdout, childOut, err := os.Pipe()
 	if err != nil {
+		_, _ = childIn.Close(), stdin.Close()
 		cleanup()
 		return nil, err
 	}
-	if err := cmd.Start(); err != nil {
+	cmd.Stdin, cmd.Stdout = childIn, childOut
+	err = cmd.Start()
+	// The child has its own copies; the gateway keeps only its ends.
+	_, _ = childIn.Close(), childOut.Close()
+	if err != nil {
+		_, _ = stdin.Close(), stdout.Close()
 		cleanup()
 		return nil, err
 	}
@@ -114,6 +122,7 @@ func (i *execInstance) Close() error {
 		_ = syscall.Kill(-i.cmd.Process.Pid, syscall.SIGKILL)
 		<-i.done
 	}
+	_ = i.stdout.Close()
 	if errors.Is(err, os.ErrClosed) {
 		err = nil
 	}
