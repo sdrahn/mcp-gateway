@@ -1,0 +1,122 @@
+policy_module(mcp_gateway, 0.1.0)
+
+########################################
+#
+# Declarations
+#
+# Placeholder policy module for mcp-gateway. It establishes the domains and
+# the isolation invariants from docs/architecture.md, section 5.8; the
+# allow rules each domain needs at runtime are filled in with the proof of
+# concept (run in permissive mode per domain until then).
+#
+
+## <desc>
+## <p>
+## Allow the OPA sidecar to connect to a remote bundle server.
+## </p>
+## </desc>
+gen_tunable(mcpopa_can_network, false)
+
+# All backend MCP server domains.
+attribute mcpsrv_domain;
+
+# Gateway daemon.
+type mcpgw_t;
+type mcpgw_exec_t;
+init_daemon_domain(mcpgw_t, mcpgw_exec_t)
+
+type mcpgw_etc_t;
+files_config_file(mcpgw_etc_t)
+
+type mcpgw_var_lib_t;
+files_type(mcpgw_var_lib_t)
+
+type mcpgw_log_t;
+logging_log_file(mcpgw_log_t)
+
+# /run/mcp-gateway and the client socket in it.
+type mcpgw_runtime_t;
+mcp_gateway_runtime_file(mcpgw_runtime_t)
+
+type mcpgw_sock_t;
+mcp_gateway_runtime_file(mcpgw_sock_t)
+
+# Control socket (Cockpit <-> gateway), administrators only.
+type mcpgw_ctl_sock_t;
+mcp_gateway_runtime_file(mcpgw_ctl_sock_t)
+
+# OPA sidecar.
+type mcpopa_t;
+type mcpopa_exec_t;
+init_daemon_domain(mcpopa_t, mcpopa_exec_t)
+
+type mcpopa_sock_t;
+mcp_gateway_runtime_file(mcpopa_sock_t)
+
+# Fallback domain for backends without a dedicated type. Their binaries
+# keep their usual label (e.g. bin_t); systemd enters the domain through
+# SELinuxContext= in the transient unit.
+mcp_gateway_backend_template(generic)
+corecmd_bin_entry_type(mcpsrv_generic_t)
+
+# Example dedicated backend domain, see config/servers.d/fs.yaml.
+mcp_gateway_backend_template(fs)
+
+########################################
+#
+# Isolation invariants
+#
+
+# Backends must never reach the gateway's sockets or the policy engine.
+neverallow mcpsrv_domain { mcpgw_t mcpopa_t }:unix_stream_socket connectto;
+neverallow mcpsrv_domain { mcpgw_sock_t mcpgw_ctl_sock_t mcpopa_sock_t }:sock_file write;
+
+# Backends must never modify policy, configuration or gateway state.
+neverallow mcpsrv_domain { mcpgw_etc_t mcpgw_var_lib_t }:file { write append create unlink setattr };
+
+########################################
+#
+# Gateway local policy
+#
+
+allow mcpgw_t self:unix_stream_socket create_stream_socket_perms;
+
+manage_dirs_pattern(mcpgw_t, mcpgw_runtime_t, mcpgw_runtime_t)
+manage_sock_files_pattern(mcpgw_t, mcpgw_runtime_t, { mcpgw_sock_t mcpgw_ctl_sock_t })
+filetrans_pattern(mcpgw_t, mcpgw_runtime_t, mcpgw_sock_t, sock_file, "mcp.sock")
+filetrans_pattern(mcpgw_t, mcpgw_runtime_t, mcpgw_ctl_sock_t, sock_file, "control.sock")
+
+read_files_pattern(mcpgw_t, mcpgw_etc_t, mcpgw_etc_t)
+manage_files_pattern(mcpgw_t, mcpgw_var_lib_t, mcpgw_var_lib_t)
+append_files_pattern(mcpgw_t, mcpgw_log_t, mcpgw_log_t)
+
+# Policy decisions.
+stream_connect_pattern(mcpgw_t, mcpgw_runtime_t, mcpopa_sock_t, mcpopa_t)
+
+# Backend instances are started by systemd over D-Bus, never exec'd by
+# the gateway itself.
+init_dbus_chat(mcpgw_t)
+dbus_system_bus_client(mcpgw_t)
+
+auth_use_nsswitch(mcpgw_t)
+miscfiles_read_localization(mcpgw_t)
+
+########################################
+#
+# OPA local policy
+#
+
+allow mcpopa_t self:unix_stream_socket create_stream_socket_perms;
+manage_sock_files_pattern(mcpopa_t, mcpgw_runtime_t, mcpopa_sock_t)
+filetrans_pattern(mcpopa_t, mcpgw_runtime_t, mcpopa_sock_t, sock_file, "opa.sock")
+
+# Policy bundles live below /etc/mcp-gateway/policy.
+read_files_pattern(mcpopa_t, mcpgw_etc_t, mcpgw_etc_t)
+list_dirs_pattern(mcpopa_t, mcpgw_etc_t, mcpgw_etc_t)
+
+# Remote bundle server. Name resolution (sysnet_dns_name_resolve) cannot
+# live inside a conditional and is added with bundle server support.
+tunable_policy(`mcpopa_can_network',`
+	allow mcpopa_t self:tcp_socket create_stream_socket_perms;
+	corenet_tcp_connect_http_port(mcpopa_t)
+')

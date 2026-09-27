@@ -1,0 +1,37 @@
+[Unit]
+Description=MCP gateway policy engine (OPA)
+Documentation=https://github.com/sdrahn/mcp-gateway/blob/main/docs/architecture.md
+Before=mcp-gateway.service
+
+[Service]
+Type=simple
+User=mcp-opa
+Group=mcp-gateway
+# Shared with mcp-gateway.service, which owns the directory.
+RuntimeDirectory=mcp-gateway
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+# Private copy of opa, labelled mcpopa_exec_t (see selinux/mcp_gateway.fc).
+ExecStart=/usr/libexec/mcp-gateway/opa run --server \
+    --addr unix:///run/mcp-gateway/opa.sock \
+    --unix-socket-perm 0660 \
+    --bundle /etc/mcp-gateway/policy \
+    --watch \
+    --log-format json
+Restart=on-failure
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+SystemCallFilter=@system-service
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target

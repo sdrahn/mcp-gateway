@@ -1,0 +1,89 @@
+## <summary>Policy-enforcing gateway for MCP servers.</summary>
+
+########################################
+## <summary>
+##	Mark a type as a runtime file below /run, on both reference policy
+##	(files_runtime_file) and older/Fedora policy (files_pid_file).
+## </summary>
+## <param name="type">
+##	<summary>
+##	Type to mark.
+##	</summary>
+## </param>
+#
+interface(`mcp_gateway_runtime_file',`
+	ifdef(`files_runtime_file',`
+		files_runtime_file($1)
+	',`
+		files_pid_file($1)
+	')
+')
+
+########################################
+## <summary>
+##	Create a confined domain for a backend MCP server:
+##	mcpsrv_PREFIX_t with entry point mcpsrv_PREFIX_exec_t, started by
+##	systemd on behalf of the gateway, talking to it only over the stdio
+##	socketpair the gateway created.
+## </summary>
+## <param name="prefix">
+##	<summary>
+##	Backend name, e.g. fs gives mcpsrv_fs_t.
+##	</summary>
+## </param>
+#
+template(`mcp_gateway_backend_template',`
+	gen_require(`
+		attribute mcpsrv_domain;
+		type mcpgw_t;
+		type init_t;
+	')
+
+	type mcpsrv_$1_t, mcpsrv_domain;
+	type mcpsrv_$1_exec_t;
+	init_system_domain(mcpsrv_$1_t, mcpsrv_$1_exec_t)
+
+	# systemd enters the domain through SELinuxContext= as well.
+	allow init_t mcpsrv_$1_t:process transition;
+
+	# stdio: the gateway-owned socketpair passed in by systemd.
+	allow mcpsrv_$1_t mcpgw_t:fd use;
+	allow mcpsrv_$1_t mcpgw_t:unix_stream_socket { read write getattr ioctl };
+
+	miscfiles_read_localization(mcpsrv_$1_t)
+')
+
+########################################
+## <summary>
+##	Allow a client domain to connect to the gateway's MCP socket.
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed access.
+##	</summary>
+## </param>
+#
+interface(`mcp_gateway_client',`
+	gen_require(`
+		type mcpgw_t, mcpgw_runtime_t, mcpgw_sock_t;
+	')
+
+	files_search_runtime($1)
+	stream_connect_pattern($1, mcpgw_runtime_t, mcpgw_sock_t, mcpgw_t)
+')
+
+########################################
+## <summary>
+##	Allow a backend domain to read and write the content of user home
+##	directories (subject to its MCS categories).
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Backend domain.
+##	</summary>
+## </param>
+#
+interface(`mcp_gateway_backend_home_rw',`
+	userdom_manage_user_home_content_files($1)
+	userdom_manage_user_home_content_dirs($1)
+')

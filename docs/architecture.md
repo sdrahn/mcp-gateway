@@ -1,6 +1,6 @@
 # mcp-gateway — Architecture
 
-Status: **Draft / proposal**
+Status: **Draft** — decisions D1–D7 accepted (2026-09-27)
 Scope: design of a policy-enforcing proxy that exposes local stdio-only MCP
 servers on a Linux host to local and remote MCP clients.
 
@@ -450,8 +450,8 @@ policy/
   mcp/filter.rego         # batch visibility for */list
   mcp/elicitation.rego    # rules for backend-initiated elicitation
   mcp/lib/*.rego          # helpers (arg matching, time windows)
-  data/rbac.json          # roles, permissions, bindings, approvers
-  tests/*_test.rego
+  mcp/*_test.rego         # policy tests (opa test)
+  rbac/data.json          # data.rbac: roles, permissions, bindings, approvers
 ```
 
 ### 6.2 Input document
@@ -655,13 +655,13 @@ Client        mcp-connect   Gateway/Router   PEP      OPA     Broker    Cockpit 
 | OPA outage | fail closed |
 | Local user spoofing identity | kernel-provided peer credentials; `clientInfo` never trusted |
 
-## 9. Decisions (proposed)
+## 9. Decisions
 
 These resolve the open questions from the initial architecture discussion.
-Each is a proposal to be confirmed.
+All decisions below were accepted on 2026-09-27.
 
 **D1 — Run-as identity for remote principals.**
-*Proposal:* configurable per deployment, default **mapped local account**
+*Decision (accepted):* configurable per deployment, default **mapped local account**
 when a mapping exists (SSSD/IPA: `sub` → Unix user), otherwise
 `DynamicUser=yes` + per-instance MCS pair. Local principals always run as
 their own uid.
@@ -669,37 +669,37 @@ their own uid.
 where they don't.
 
 **D2 — Endpoint style.**
-*Proposal:* offer **both**: aggregated `/mcp` (and `mcp-connect --server all`)
+*Decision (accepted):* offer **both**: aggregated `/mcp` (and `mcp-connect --server all`)
 plus per-server `/mcp/<server>`. Same pipeline, only the naming layer
 differs.
 *Rationale:* aggregated suits general agents; per-server keeps original tool
 names for clients configured per server.
 
 **D3 — Default approval channel.**
-*Proposal:* policy chooses per decision; the shipped default policy uses
+*Decision (accepted):* policy chooses per decision; the shipped default policy uses
 **`url`** for anything `require_approval`, with `oob` fallback, and
 `form` only for rules explicitly marked low-risk.
 *Rationale:* the approval must not be answerable by the governed agent.
 
 **D4 — Policy authoring.**
-*Proposal:* Rego logic in git (tests in CI); RBAC data editable through
+*Decision (accepted):* Rego logic in git (tests in CI); RBAC data editable through
 Cockpit, which generates signed bundle revisions.
 
 **D5 — Trust in backends.**
-*Proposal:* treat all backends as **untrusted** by default
+*Decision (accepted):* treat all backends as **untrusted** by default
 (`mcpsrv_generic_t`, no network, read-only home). Vetted backends get a
 dedicated domain and wider sandbox via their registry entry and policy
 interfaces. Output inspection is an obligation hook, not implemented in
 v1.
 
 **D6 — Implementation language.**
-*Proposal:* **Go**. Official MCP Go SDK, native OPA (sidecar now,
+*Decision (accepted):* **Go**. Official MCP Go SDK, native OPA (sidecar now,
 embeddable later), mature SELinux (`github.com/opencontainers/selinux`)
 and systemd D-Bus (`github.com/coreos/go-systemd`) libraries, single
 static binary.
 
 **D7 — OPA deployment.**
-*Proposal:* sidecar over unix socket for v1 (§5.5).
+*Decision (accepted):* sidecar over unix socket for v1 (§5.5).
 
 ## 10. Repository layout (planned)
 
