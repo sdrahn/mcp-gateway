@@ -660,3 +660,68 @@ func TestOnceGrantFromApprovalWithoutWaitingCall(t *testing.T) {
 		t.Fatal("once grant not used up")
 	}
 }
+
+func TestPseudonymization(t *testing.T) {
+	r, l := testRouter(t, 0)
+	var logs strings.Builder
+	r.Audit = audit.New(&syncWriter{w: &logs})
+	c := connect(t, r, alice(), "fs", map[string]any{"sampling": map[string]any{}})
+	call := func(c *client, id int, name string, args map[string]any) (string, bool) {
+		return toolText(t, c.roundTrip(id, "tools/call", map[string]any{"name": name, "arguments": args}))
+	}
+
+	// Field rules and detectors, also inside JSON returned as text.
+	text, isErr := call(c, 1, "read_customer", nil)
+	want := `{"email":"[EMAIL_1]","id":"[CUSTOMER_1]","manager":"[EMAIL_2]","name":"[PERSON_1]"}`
+	if isErr || text != want {
+		t.Fatalf("pseudonymized result:\n got %s\nwant %s", text, want)
+	}
+
+	// Named arguments are re-identified (with their type), others not.
+	if _, isErr := call(c, 2, "update_customer", map[string]any{"id": "[CUSTOMER_1]", "note": "write to [EMAIL_1]", "name": "[PERSON_1]"}); isErr {
+		t.Fatal("update refused")
+	}
+	fs := l.started("fs")[0]
+	if got := fs.updateArgs(); got != `{"id":4711,"name":"[PERSON_1]","note":"write to alice@example.com"}` {
+		t.Errorf("backend got %s", got)
+	}
+
+	// Policy decides again on the real values.
+	text, isErr = call(c, 3, "update_customer", map[string]any{"id": "[CUSTOMER_1]", "note": "[EMAIL_2]"})
+	if !isErr || !strings.Contains(text, "policy did not accept the re-identified arguments") {
+		t.Errorf("second decision: %q %v", text, isErr)
+	}
+
+	// Another session's tokens mean nothing here.
+	c2 := connect(t, r, alice(), "fs", nil)
+	if _, isErr := call(c2, 1, "update_customer", map[string]any{"id": "[CUSTOMER_1]"}); isErr {
+		t.Fatal("update in second session refused")
+	}
+	if got := fs.updateArgs(); got != `{"id":"[CUSTOMER_1]"}` {
+		t.Errorf("token of another session re-identified: %s", got)
+	}
+
+	// Sampling requests are pseudonymized before they reach the client's model.
+	c.send(4, "tools/call", map[string]any{"name": "ask_llm"})
+	req := c.read()
+	if req.Method != "sampling/createMessage" {
+		t.Fatalf("want sampling request, got %+v", req)
+	}
+	if s := string(req.Params); strings.Contains(s, "carol@") || !strings.Contains(s, "the mail from [EMAIL_3]") {
+		t.Errorf("sampling request not pseudonymized: %s", s)
+	}
+	c.write(result(t, req.ID, map[string]any{"role": "assistant", "content": map[string]any{"type": "text", "text": "fine"}}))
+	if text, _ := toolText(t, c.read()); !strings.Contains(text, "fine") {
+		t.Errorf("sampling result: %q", text)
+	}
+
+	out := logs.String()
+	for _, want := range []string{`"event":"mcp-pseudonymize"`, `"values":"CUSTOMER:1 EMAIL:2 PERSON:1"`, `"reidentified":2`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("audit lacks %s: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "alice@example.com") || strings.Contains(out, "Alice Doe") {
+		t.Errorf("audit contains personal data: %s", out)
+	}
+}

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sdrahn/mcp-gateway/internal/pseudo"
 )
 
 func TestCompileRejectsMalformed(t *testing.T) {
@@ -16,6 +18,9 @@ func TestCompileRejectsMalformed(t *testing.T) {
 		"zero rate":      {RateLimit: StringList{"0/m"}},
 		"bad constraint": {ArgConstraints: map[string]StringList{"path": {"["}}},
 		"bad audit":      {Audit: "loud"},
+		"bad detector":   {Pseudonymize: &pseudo.Spec{Detect: []string{"passport"}}},
+		"bad pattern":    {Pseudonymize: &pseudo.Spec{Patterns: map[string]string{"x": "("}}},
+		"empty reident.": {Reidentify: StringList{""}},
 	} {
 		if _, err := o.Compile(); err == nil {
 			t.Errorf("%s: expected error", name)
@@ -47,7 +52,7 @@ func TestRedactAndSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	in := json.RawMessage(`{"content":[{"type":"text","text":"user=bob password=hunter2 key AKIAABCDEFGHIJKLMNOP"}],"isError":false}`)
-	out, err := c.ApplyOutput(in)
+	out, _, err := c.ApplyOutput(in, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +63,7 @@ func TestRedactAndSize(t *testing.T) {
 		t.Fatalf("structure changed: %s", out)
 	}
 	big := json.RawMessage(`{"text":"` + strings.Repeat("x", 300) + `"}`)
-	if _, err := c.ApplyOutput(big); err == nil {
+	if _, _, err := c.ApplyOutput(big, nil); err == nil {
 		t.Fatal("size limit not enforced")
 	}
 }
@@ -103,5 +108,35 @@ func TestLimiter(t *testing.T) {
 	now = now.Add(time.Minute)
 	if !l.Allow("k", rates) {
 		t.Fatal("per-minute window did not slide")
+	}
+}
+
+func TestApplyOutputPseudonymizes(t *testing.T) {
+	var o Obligations
+	if err := json.Unmarshal([]byte(`{"pseudonymize":{"detect":["email"]},"reidentify":"to","redact_output":["secret"]}`), &o); err != nil {
+		t.Fatal(err)
+	}
+	c, err := o.Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Reidentify) != 1 || c.Reidentify[0] != "to" {
+		t.Errorf("reidentify: %v", c.Reidentify)
+	}
+	in := json.RawMessage(`{"content":[{"type":"text","text":"secret from a@x.org"}]}`)
+	out, st, err := c.ApplyOutput(in, pseudo.NewVault(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), Redacted+" from [EMAIL_1]") || st["EMAIL"] != 1 {
+		t.Errorf("got %s %v", out, st)
+	}
+	if _, _, err := c.ApplyOutput(in, nil); err == nil {
+		t.Error("pseudonymization without a vault must fail")
+	}
+	// The size limit applies to the pseudonymized result.
+	c.MaxOutputBytes = int64(len(out))
+	if _, _, err := c.ApplyOutput(in, pseudo.NewVault(0)); err != nil {
+		t.Errorf("limit on the pseudonymized size: %v", err)
 	}
 }

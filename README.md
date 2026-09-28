@@ -7,6 +7,7 @@ remote MCP clients, with:
 - access control / RBAC,
 - permission elicitation (human approval of sensitive actions),
 - [OPA](https://www.openpolicyagent.org/) as the policy engine,
+- pseudonymization of personal data before it reaches external LLMs,
 - SELinux confinement of the gateway, the policy engine and every MCP server.
 
 Target distributions: openSUSE (Tumbleweed, Leap) and SLES, packaged with

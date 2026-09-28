@@ -142,7 +142,7 @@ makes an expression undefined, so the rule simply does not apply).
 |---|---|
 | `effect` | `allow`, `deny` or `ask`; anything else is invalid (deny) |
 | `reason` | free text; shown to the agent (`mcp-gateway: <reason>`) and in the audit record |
-| `obligations` | as in chapter 6: `redact_output`, `max_output_bytes`, `rate_limit`, `arg_constraints`, `audit`; a malformed obligation makes the decision invalid (deny) |
+| `obligations` | as in chapter 6: `redact_output`, `max_output_bytes`, `rate_limit`, `arg_constraints`, `audit`, `pseudonymize` (`{"detect": [...], "patterns": {...}, "fields": {...}}`), `reidentify` (argument names); a malformed obligation makes the decision invalid (deny) |
 | `ask.channel` | `form`, `url` or `oob`; required with `ask` |
 | `ask.prompt` | the question shown to the approver |
 | `ask.scopes` | what the approver may choose: `once`, `session`, or durations like `30m`, `1h`, `24h` (at most 30 days); default `["once"]` |

@@ -22,6 +22,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/pseudo"
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
 
@@ -74,6 +75,10 @@ type Session struct {
 	outbound    map[string]chan *jsonrpc.Message
 	inflight    map[string]context.CancelFunc
 	annotations map[string]map[string]any // by exposed tool name
+
+	// vault holds the session's pseudonyms (obligation "pseudonymize");
+	// they end with the session.
+	vault *pseudo.Vault
 }
 
 func newSession(r *Router, ep endpoint, client jsonrpc.MessageConn, p principal.Principal) *Session {
@@ -87,6 +92,7 @@ func newSession(r *Router, ep endpoint, client jsonrpc.MessageConn, p principal.
 		outbound:    map[string]chan *jsonrpc.Message{},
 		inflight:    map[string]context.CancelFunc{},
 		annotations: map[string]map[string]any{},
+		vault:       pseudo.NewVault(0),
 	}
 }
 
@@ -590,13 +596,18 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	}
 
 	decisionID := newDecisionID()
-	dec, grantID := s.decide(ctx, t, decisionID)
+	dec, grantID, in := s.decide(ctx, t, decisionID)
 	p := s.snapshotPrincipal()
 	// Obligations were validated by pep.Evaluate; a compile error here
 	// cannot happen, but would deny.
 	ob, err := dec.Obligations.Compile()
 	if err != nil {
 		dec = pep.Decision{Effect: pep.Deny, Reason: "invalid obligations"}
+	}
+	var reidentified []string
+	nReidentified := 0
+	if dec.Effect == pep.Allow && len(ob.Reidentify) > 0 {
+		dec, ob, reidentified, nReidentified = s.reidentify(ctx, t, in, dec, ob)
 	}
 	if dec.Effect == pep.Allow {
 		if err := ob.CheckArgs(t.args); err != nil {
@@ -607,9 +618,14 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	}
 	s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: t.action, Server: t.server,
 		Name: t.resource.Name, Effect: string(dec.Effect), Reason: dec.Reason, GrantID: grantID,
-		DecisionID: decisionID, Args: t.args, FullArgs: ob != nil && ob.FullAudit})
+		DecisionID: decisionID, Args: t.args, FullArgs: ob != nil && ob.FullAudit, Reidentified: nReidentified})
 	if dec.Effect != pep.Allow {
 		return s.denial(m.Method, dec.Reason)
+	}
+	if len(reidentified) > 0 {
+		if err := setArguments(params, t.args, reidentified); err != nil {
+			return nil, rpcError(jsonrpc.CodeInternalError, "internal error")
+		}
 	}
 
 	u, err := s.upstream(ctx, t.server)
@@ -627,7 +643,10 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	if resp.Error != nil {
 		return nil, resp.Error
 	}
-	result, err := ob.ApplyOutput(resp.Result)
+	result, stats, err := ob.ApplyOutput(resp.Result, s.vault)
+	if len(stats) > 0 {
+		s.auditPseudonymized(p, t.server, t.resource.Name, decisionID, stats)
+	}
 	if err != nil {
 		s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: t.action, Server: t.server,
 			Name: t.resource.Name, Effect: string(pep.Deny), Reason: "output withheld: " + err.Error(),
@@ -649,7 +668,9 @@ func rateKey(p principal.Principal, t *callTarget) string {
 // decide evaluates policy for t, obtaining an approval if policy asks.
 // decisionID goes into the policy input to correlate OPA's decision log
 // with the audit record.
-func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) (pep.Decision, string) {
+// It also returns the policy input of the final decision (with the grants
+// it was made with).
+func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) (pep.Decision, string, pep.Input) {
 	p := s.snapshotPrincipal()
 	in := pep.Input{
 		Principal: p,
@@ -669,23 +690,23 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 	dec := pep.Evaluate(ctx, s.r.PDP, in)
 	if haveOnce {
 		if dec.Effect == pep.Allow {
-			return dec, once.ID
+			return dec, once.ID, in
 		}
 		s.r.Broker.ReturnOnce(once)
 		in.Grants = in.Grants[:len(in.Grants)-1]
 	}
 	if dec.Effect != pep.Ask {
-		return dec, ""
+		return dec, "", in
 	}
 	g, err := s.r.Broker.Approve(ctx, s, in, *dec.Ask)
 	switch {
 	case errors.Is(err, broker.ErrNoChannel):
-		return pep.Decision{Effect: pep.Deny, Reason: fmt.Sprintf("approval via %s required but not available", dec.Ask.Channel)}, ""
+		return pep.Decision{Effect: pep.Deny, Reason: fmt.Sprintf("approval via %s required but not available", dec.Ask.Channel)}, "", in
 	case err != nil:
 		s.log.Warn("approval failed", "err", err)
-		return pep.Decision{Effect: pep.Deny, Reason: "approval failed"}, ""
+		return pep.Decision{Effect: pep.Deny, Reason: "approval failed"}, "", in
 	case g == nil:
-		return pep.Decision{Effect: pep.Deny, Reason: "declined by user"}, ""
+		return pep.Decision{Effect: pep.Deny, Reason: "declined by user"}, "", in
 	}
 	// Stored grants now include g, unless it is a "once" grant, which is
 	// only valid for this re-evaluation.
@@ -697,7 +718,65 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 	if dec.Effect == pep.Ask {
 		dec = pep.Decision{Effect: pep.Deny, Reason: "policy did not accept the approval"}
 	}
-	return dec, g.ID
+	return dec, g.ID, in
+}
+
+// reidentify replaces the session's pseudonyms in the arguments that the
+// obligation "reidentify" names by the original values, and asks policy
+// again with the arguments as they will be forwarded: the decision (and
+// its obligations) must hold for the real values too. It returns the
+// decision to enforce, its obligations, the arguments changed and the
+// number of pseudonyms replaced.
+func (s *Session) reidentify(ctx context.Context, t *callTarget, in pep.Input, dec pep.Decision, ob *pep.Compiled) (pep.Decision, *pep.Compiled, []string, int) {
+	args, changed, n := s.vault.Reidentify(t.args, ob.Reidentify)
+	if n == 0 {
+		return dec, ob, nil, 0
+	}
+	in.Args = args
+	dec2 := pep.Evaluate(ctx, s.r.PDP, in)
+	if dec2.Effect != pep.Allow {
+		reason := "policy did not accept the re-identified arguments"
+		if dec2.Effect == pep.Deny && dec2.Reason != "" {
+			reason += ": " + dec2.Reason
+		}
+		return pep.Decision{Effect: pep.Deny, Reason: reason}, ob, nil, 0
+	}
+	ob2, err := dec2.Obligations.Compile()
+	if err != nil {
+		return pep.Decision{Effect: pep.Deny, Reason: "invalid obligations"}, ob, nil, 0
+	}
+	t.args = args
+	return dec2, ob2, changed, n
+}
+
+// setArguments writes the named arguments of args into params.
+func setArguments(params map[string]json.RawMessage, args map[string]any, names []string) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(params["arguments"], &raw); err != nil {
+		return err
+	}
+	for _, name := range names {
+		b, err := json.Marshal(args[name])
+		if err != nil {
+			return err
+		}
+		raw[name] = b
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	params["arguments"] = b
+	return nil
+}
+
+// auditPseudonymized records what was pseudonymized (classes and counts,
+// never values).
+func (s *Session) auditPseudonymized(p principal.Principal, server, name, decisionID string, st pseudo.Stats) {
+	s.r.Audit.Note("mcp-pseudonymize", map[string]string{
+		"session": p.SessionID, "sub": p.Sub, "server": server, "name": name,
+		"decision_id": decisionID, "values": st.String(),
+	})
 }
 
 // unavailable is the client's error for a backend that cannot be
@@ -885,10 +964,21 @@ func (s *Session) relayBackendRequest(u *upstream, m *jsonrpc.Message) *jsonrpc.
 	}
 	s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: m.Method, Server: u.backend.Name,
 		Effect: string(dec.Effect), Reason: dec.Reason, Instance: u.id, DecisionID: decisionID, Args: args})
+	params := m.Params
+	if dec.Effect == pep.Allow && m.Method == "sampling/createMessage" {
+		// What a backend sends for sampling goes to the client's model:
+		// redaction, pseudonymization and the size limit apply to it as to
+		// results.
+		var err error
+		if params, err = s.releaseToModel(p, u.backend.Name, decisionID, dec, params); err != nil {
+			s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: m.Method, Server: u.backend.Name,
+				Effect: string(pep.Deny), Reason: "request withheld: " + err.Error(), Instance: u.id, DecisionID: decisionID})
+			dec = pep.Decision{Effect: pep.Deny}
+		}
+	}
 	if dec.Effect != pep.Allow {
 		return jsonrpc.NewError(m.ID, jsonrpc.CodeForbidden, "denied by mcp-gateway policy")
 	}
-	params := m.Params
 	if m.Method == "elicitation/create" {
 		params = labelElicitation(params, u.backend.Name)
 	}
@@ -945,6 +1035,19 @@ func elicitationArgs(params json.RawMessage) map[string]any {
 		args["url"] = p.URL
 	}
 	return args
+}
+
+// releaseToModel applies the output obligations of dec to params.
+func (s *Session) releaseToModel(p principal.Principal, server, decisionID string, dec pep.Decision, params json.RawMessage) (json.RawMessage, error) {
+	ob, err := dec.Obligations.Compile()
+	if err != nil {
+		return nil, err
+	}
+	out, stats, err := ob.ApplyOutput(params, s.vault)
+	if len(stats) > 0 {
+		s.auditPseudonymized(p, server, "sampling/createMessage", decisionID, stats)
+	}
+	return out, err
 }
 
 // labelElicitation prefixes a backend's elicitation message with the

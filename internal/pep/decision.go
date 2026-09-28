@@ -11,6 +11,7 @@ import (
 	"fmt"
 
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/pseudo"
 )
 
 // Effect is the outcome of a policy decision.
@@ -107,6 +108,12 @@ type Obligations struct {
 	ArgConstraints map[string]StringList `json:"arg_constraints,omitempty"`
 	// Audit is "digest" (default) or "full" (arguments logged verbatim).
 	Audit string `json:"audit,omitempty"`
+	// Pseudonymize replaces personal or confidential values in the result
+	// (and in sampling requests) by per-session pseudonyms.
+	Pseudonymize *pseudo.Spec `json:"pseudonymize,omitempty"`
+	// Reidentify names the arguments in which the gateway replaces
+	// pseudonyms by the original values before forwarding the call.
+	Reidentify StringList `json:"reidentify,omitempty"`
 }
 
 // Decision is the policy decision document (docs/architecture.md, section

@@ -31,6 +31,10 @@ mcp-gateway sits between agents and MCP servers:
   given on an approval page the agent cannot influence (Cockpit), or
   through the agent's own dialog for low-risk confirmations. Approvals can
   be remembered for the session or for a time.
+- **Pseudonymization.** Personal or confidential values in what servers
+  return can be replaced by consistent pseudonyms before they reach the
+  agent and its (possibly external) model; chosen tools receive the real
+  values back.
 - **Confinement.** Each server runs as a transient systemd service, as the
   requesting user (or a throwaway user), in a hardened sandbox, in its own
   SELinux domain with a unique MCS category pair per instance.

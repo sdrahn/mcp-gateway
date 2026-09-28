@@ -34,6 +34,9 @@ type Record struct {
 	// policy's audit: full obligation).
 	Args     map[string]any
 	FullArgs bool
+	// Reidentified counts the pseudonyms replaced by original values in
+	// the arguments (Args are then the arguments as forwarded).
+	Reidentified int
 }
 
 // KernelSender delivers messages to the kernel audit subsystem.
@@ -86,6 +89,9 @@ func (a *Logger) Log(r Record) {
 			attrs = append(attrs, kv[0], kv[1])
 		}
 	}
+	if r.Reidentified > 0 {
+		attrs = append(attrs, "reidentified", r.Reidentified)
+	}
 	if r.Args != nil {
 		if r.FullArgs {
 			attrs = append(attrs, "args", r.Args)
@@ -116,6 +122,20 @@ func (a *Logger) Event(op string, ok bool, fields map[string]string) {
 	}
 	a.l.Info("mcp", attrs...)
 	a.kernel(op, ok, fields)
+}
+
+// Note records an audit event in the journal only: routine events that
+// matter for review but not for the kernel audit trail (for example what
+// was pseudonymized in a result).
+func (a *Logger) Note(op string, fields map[string]string) {
+	if a == nil {
+		return
+	}
+	attrs := []any{"event", op}
+	for _, k := range sortedKeys(fields) {
+		attrs = append(attrs, k, fields[k])
+	}
+	a.l.Info("mcp", attrs...)
 }
 
 func (a *Logger) kernel(op string, ok bool, fields map[string]string) {

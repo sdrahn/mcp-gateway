@@ -47,12 +47,12 @@ function recordRow(r) {
     const kind = recordKind(r);
     const label = r.event ? r.event + (r.ok === false ? " (failed)" : "") : r.effect;
     const call = r.event
-        ? [r.server, r.target].filter(Boolean).join(" / ")
+        ? [r.server, r.target || r.name].filter(Boolean).join(" / ")
         : [r.server, r.name].filter(Boolean).join(" / ") + (r.action ? " (" + r.action + ")" : "");
     const details = [];
     for (const [k, title] of [["reason", "reason"], ["grant", "grant"], ["id", "id"], ["by", "by"],
         ["scope", "scope"], ["channel", "via"], ["revision", "revision"], ["instance", "instance"],
-        ["decision_id", "decision"]]) {
+        ["decision_id", "decision"], ["values", "pseudonymized"], ["reidentified", "re-identified"]]) {
         if (r[k]) details.push(title + ": " + r[k]);
     }
     if (r.args !== undefined) details.push("args: " + JSON.stringify(r.args));

@@ -306,9 +306,10 @@ Unknown methods are **denied by default**.
 
 - Builds the OPA input document (§6.2), queries OPA, and applies the
   decision:
-  - `allow` → check the obligations' argument constraints and rate limits,
-    forward, then apply redaction and the output size limit to the result
-    (§6.3);
+  - `allow` → re-identify pseudonyms in the arguments the obligations name
+    (and decide again on the real values), check the argument constraints
+    and rate limits, forward, then apply redaction, pseudonymization and
+    the output size limit to the result (§6.3);
   - `deny` → JSON-RPC error `-32001` ("Forbidden") with a policy-provided,
     non-sensitive `reason`; for `tools/call`, respond with a tool result
     `isError: true` so agents can reason about it;
@@ -806,7 +807,13 @@ ask) but never to grant access.
     "max_output_bytes": 1048576,
     "rate_limit": ["30/m"],
     "arg_constraints": { "path": ["^/home/alice/"] },
-    "audit": "digest | full"
+    "audit": "digest | full",
+    "pseudonymize": {
+      "detect": ["email", "iban", "credit_card", "phone", "ipv4", "ipv6"],
+      "patterns": { "customer": "CUST-[0-9]{6}" },
+      "fields": { "name": "person" }
+    },
+    "reidentify": ["customer"]
   }
 }
 ```
@@ -820,12 +827,54 @@ Obligations, as the gateway enforces them:
 | `rate_limit` | `N/s`, `N/m` or `N/h`, one or a list; each counts calls per principal, action and target; exceeding denies |
 | `arg_constraints` | per argument, regular expressions that must all match; a missing or non-string argument fails |
 | `audit` | `full` logs the arguments verbatim instead of a digest |
+| `pseudonymize` | values found by built-in detectors, named patterns or JSON field rules are replaced by per-session pseudonyms (`[EMAIL_1]`) in results and in sampling requests to the client's model (§6.3.1) |
+| `reidentify` | argument names in which the session's pseudonyms are replaced by the original values before forwarding; OPA is asked again with the real arguments, and that decision must allow |
 
-A malformed obligation (bad regex, bad rate) makes the whole decision
-invalid, which fails closed. The shipped policy takes obligations from the
-matching permissions' `obligations` objects and merges them. Redactions,
-rate limits and argument constraints add up, the smallest output limit
-wins, and `full` audit wins.
+A malformed obligation (bad regex, bad rate, unknown detector) makes the
+whole decision invalid, which fails closed. The shipped policy takes
+obligations from the matching permissions' `obligations` objects and
+merges them. Redactions, rate limits, argument constraints, detectors,
+patterns, field rules and arguments to re-identify add up, the smallest
+output limit wins, and `full` audit wins.
+
+#### 6.3.1 Pseudonymization
+
+Customers who use external models want their internal data to stay
+inside. The gateway sees everything MCP servers return, so it can replace
+personal or confidential values before the agent (and with it the model
+provider) sees them.
+
+- **Reversible and consistent.** Each MCP session has a vault (in memory,
+  `internal/pseudo`) mapping values to tokens of the form
+  `[<CLASS>_<n>]`. The same value always gets the same token within the
+  session, so the model can relate records and refer to them. The vault
+  ends with the session and is never persisted; its size is bounded
+  (10,000 values, then values are replaced irreversibly).
+- **Deterministic detection.** Field rules (JSON keys, also inside JSON
+  returned as text), validated detectors (e-mail, IBAN with checksum,
+  payment cards with Luhn check, international phone numbers, IP
+  addresses) and named regular expressions. Statistical recognition of
+  names in free text (e.g. Presidio as a confined sidecar) is left open;
+  it would be another detector behind the same obligation.
+- **Controlled re-identification.** Only arguments named by `reidentify`
+  are translated back, and only with this session's tokens. Because any
+  re-identifying tool can turn a token back into its value, the gateway
+  asks OPA again with the arguments as forwarded, so that `args`
+  conditions and approvals see real values.
+- **Scope.** Results of calls, prompts, resource reads and completions,
+  and `sampling/createMessage` requests from backends (which go to the
+  client's model). Not covered: lists, notifications, what the user types
+  and tools outside the gateway. Approvals show the arguments with tokens;
+  the model's answer contains tokens, which the gateway cannot translate
+  for the user since it never sees the answer.
+- **Audit.** `mcp-pseudonymize` journal events with classes and counts,
+  never values; `reidentified` counts on decision records.
+
+Pseudonymized data remains personal data under the GDPR (Art. 4(5)): the
+feature reduces risk, it does not replace agreements with the model
+provider. Policy can combine it with client identity (e.g. client
+certificates of agent hosts that use an internal model) to pseudonymize
+only for external models.
 
 `data.mcp.filter.visible` returns, for a principal and a list of
 resources, the subset to show — one OPA query per `*/list`, not one per
@@ -1090,6 +1139,7 @@ internal/
   principal/
   router/                 # MCP session, namespacing, filtering
   pep/                    # OPA client, decision application, obligations
+  pseudo/                 # pseudonymization: detectors, per-session vault
   broker/                 # approvals, grants store, elicitation
   supervisor/             # systemd transient units, instance pool, MCS allocator
   audit/
@@ -1132,6 +1182,9 @@ docs/
    audit, keyed argument digests and correlated OPA decision logs; signed
    policy bundles; restart backoff; mTLS with certificate-bound tokens;
    Cockpit tabs for servers, policy and audit.
+9. **Data protection** (done): pseudonymization of results and sampling
+   requests with per-session reversible tokens, policy-controlled
+   re-identification (§6.3.1).
 
 ## 12. Open items
 
