@@ -1075,7 +1075,7 @@ instances started later, without starting any.
 ## 9. Decisions
 
 These resolve the open questions from the initial architecture discussion.
-All decisions below were accepted on 2026-09-27.
+D1–D7 were accepted on 2026-09-27, D8 on 2026-09-28.
 
 **D1 — Run-as identity for remote principals.**
 *Decision (accepted):* configurable per deployment, default **mapped local account**
@@ -1110,8 +1110,9 @@ stronger setup, then Cockpit only edits the role data.
 *Decision (accepted):* treat all backends as **untrusted** by default
 (`mcpsrv_generic_t`, no network, read-only home). Vetted backends get a
 dedicated domain and wider sandbox via their registry entry and policy
-interfaces. Output inspection is an obligation hook, not implemented in
-v1.
+interfaces. Output inspection is an obligation hook: redaction, size
+limits and pseudonymization (§6.3.1) are implemented; content-safety
+filtering (prompt-injection detection) is not.
 
 **D6 — Implementation language.**
 *Decision (accepted):* **Go**. Official MCP Go SDK, native OPA (sidecar now,
@@ -1126,6 +1127,60 @@ gateway-originated features (e.g. the aggregated endpoint).
 
 **D7 — OPA deployment.**
 *Decision (accepted):* sidecar over unix socket for v1 (§5.5).
+
+**D8 — Policy engine: OPA rather than Cedar.**
+*Decision (accepted 2026-09-28):* **OPA with Rego** is the only policy
+engine. No second engine (such as Cedar) is planned; the engine stays
+behind the `pep.Decider` and `Filterer` interfaces, so the option remains.
+*Rationale:*
+- **One tool on all levels of the stack.** OPA is the policy engine of
+  the cloud-native world (CNCF graduated; Kubernetes admission with
+  Gatekeeper, Envoy/Istio external authorization, Conftest for
+  infrastructure code and CI). Using it for MCP as well means one
+  language, one test and lint toolchain (`opa test`, Regal), one bundle
+  pipeline and one decision-log pipeline for platform and security teams.
+  Red Hat's MCP gateway (Kuadrant/Authorino) also uses OPA, so mixed
+  estates see a single policy language.
+- **Rich decisions.** The gateway's contract is a decision document
+  (§6.3): `ask` with channel, prompt and scopes, merged obligations
+  (redaction, limits, pseudonymization, re-identification), the visible
+  subset for listings, approver rules and mail recipients. Rego returns
+  these directly.
+- **Expressiveness where needed.** Argument patterns, `${home}`
+  substitution and path checks need regular expressions and string
+  functions.
+- **Operations included.** Signed bundles, bundle servers and OCI
+  registries, decision logs with masking.
+
+*Alternative considered:* **Cedar** (policies over principal, action,
+resource and context; `forbid` overrides `permit`). Its strengths are
+readable policies, schema validation, guaranteed termination, a formally
+verified core and solver-based analysis ("does this change grant new
+access?"); it is used by ToolHive, ContextForge and AWS. It was not
+chosen because it only answers allow or deny (ask and obligations would
+have to be carried as policy annotations and merged in Go), has no
+regular expressions, cannot compute result sets such as the visible
+tools, and brings no bundle distribution or decision logging.
+
+*Consequences:*
+- Rego's weak points stay: "undefined" versus "false", rules defined
+  twice fail only at evaluation time, and there is no static proof of a
+  policy's effect. Mitigations to add: a JSON Schema for the role data
+  (checked by `mcp-gateway --check` and Cockpit), Regal in CI, and a
+  "what changes?" check comparing decisions before and after a role-data
+  change.
+- Integration with an existing OPA estate becomes a requirement:
+  - **Bundle roots.** `mcp-policy-bundle` currently builds bundles
+    claiming the whole data tree (`"roots": [""]`), so they cannot share
+    an OPA with other teams' bundles. It should declare its roots
+    (`mcp`, `rbac`, `system/log`), and the role data may need a
+    namespaced root.
+  - **Decision logs** can go to the estate's collector through OPA's
+    decision-log service (OPA configuration file, SELinux boolean
+    `mcpopa_can_network`); masking and decision ids carry over.
+  - **Versions.** The policy is Rego v1 and needs OPA 1.x.
+  - **Shared libraries.** Custom policy may import company-wide Rego
+    packages; a namespace convention keeps them apart from `mcp.*`.
 
 ## 10. Repository layout
 
