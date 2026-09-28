@@ -13,6 +13,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/pseudo"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 )
 
@@ -27,6 +28,10 @@ func (fakePDP) Decide(_ context.Context, in pep.Input) (pep.Decision, error) {
 	deny := pep.Decision{Effect: pep.Deny, Reason: "not yours"}
 	switch in.Action {
 	case "tools.call":
+		// Policy on the arguments as forwarded (after re-identification).
+		if note, _ := in.Args["note"].(string); in.Resource.Name == "update_customer" && strings.Contains(note, "forbidden@") {
+			return deny, nil
+		}
 		if o, ok := testObligations[in.Resource.Name]; ok {
 			return pep.Decision{Effect: pep.Allow, Obligations: &o}, nil
 		}
@@ -50,6 +55,8 @@ func (fakePDP) Decide(_ context.Context, in pep.Input) (pep.Decision, error) {
 		return allow, nil
 	case "roots.list":
 		return allow, nil
+	case "sampling.create":
+		return pep.Decision{Effect: pep.Allow, Obligations: &pep.Obligations{Pseudonymize: &pseudo.Spec{Detect: []string{"email"}}}}, nil
 	case "elicitation.create":
 		if in.Args["sensitive"] == true {
 			return deny, nil
@@ -72,13 +79,17 @@ func (f fakePDP) Visible(ctx context.Context, p principal.Principal, rs []pep.Re
 
 // testObligations are attached to allows of these tools.
 var testObligations = map[string]pep.Obligations{
-	"read_secret":  {RedactOutput: []string{`token=\S+`}},
-	"read_big":     {MaxOutputBytes: 64},
-	"read_limited": {RateLimit: pep.StringList{"2/m"}},
-	"read_path":    {ArgConstraints: map[string]pep.StringList{"path": {"^/ok/"}}},
-	"read_audited": {Audit: "full"},
-	"read_broken":  {RedactOutput: []string{"("}},
+	"read_secret":     {RedactOutput: []string{`token=\S+`}},
+	"read_big":        {MaxOutputBytes: 64},
+	"read_limited":    {RateLimit: pep.StringList{"2/m"}},
+	"read_path":       {ArgConstraints: map[string]pep.StringList{"path": {"^/ok/"}}},
+	"read_audited":    {Audit: "full"},
+	"read_broken":     {RedactOutput: []string{"("}},
+	"read_customer":   {Pseudonymize: customerSpec},
+	"update_customer": {Pseudonymize: customerSpec, Reidentify: pep.StringList{"id", "note"}},
 }
+
+var customerSpec = &pseudo.Spec{Detect: []string{"email"}, Fields: map[string]string{"name": "person", "id": "customer"}}
 
 // fakeLauncher starts in-process fake backends and records them.
 type fakeLauncher struct {
@@ -132,6 +143,15 @@ type fakeInstance struct {
 	closeOnce sync.Once
 	closed    chan struct{}
 	cancelled chan string // request ids the backend was told to cancel
+
+	argsMu   sync.Mutex
+	lastArgs json.RawMessage // arguments of the last update_customer call
+}
+
+func (f *fakeInstance) updateArgs() string {
+	f.argsMu.Lock()
+	defer f.argsMu.Unlock()
+	return string(f.lastArgs)
 }
 
 func (f *fakeInstance) Name() string { return "fake-" + f.name + "-" + f.id }
@@ -216,6 +236,7 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 			Name   string          `json:"name"`
 			URI    string          `json:"uri"`
 			Cursor string          `json:"cursor"`
+			Args   json.RawMessage `json:"arguments"`
 			Meta   json.RawMessage `json:"_meta"`
 		}
 		_ = json.Unmarshal(m.Params, &p)
@@ -271,6 +292,23 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 						return
 					}
 					respond(m, text("answer: "+string(resp.Result)))
+				}(m)
+			case "read_customer":
+				respond(m, text(`{"id":4711,"name":"Alice Doe","email":"alice@example.com","manager":"forbidden@example.com"}`))
+			case "update_customer":
+				f.argsMu.Lock()
+				f.lastArgs = p.Args
+				f.argsMu.Unlock()
+				respond(m, text("updated"))
+			case "ask_llm":
+				go func(m *jsonrpc.Message) {
+					resp := ask("sampling/createMessage", map[string]any{"maxTokens": 100, "messages": []map[string]any{
+						{"role": "user", "content": map[string]any{"type": "text", "text": "Summarize the mail from carol@example.com"}}}})
+					if resp.Error != nil {
+						respond(m, text("sampling error: "+resp.Error.Message))
+						return
+					}
+					respond(m, text("llm: "+string(resp.Result)))
 				}(m)
 			case "read_secret":
 				respond(m, text("user=bob token=abc123 done"))

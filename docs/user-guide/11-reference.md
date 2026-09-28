@@ -99,9 +99,13 @@ Decision records (journal of `mcp-gateway.service`, `"audit": true`):
 | `decision_id` | correlates with OPA's decision log |
 | `args_hmac` | HMAC-SHA256 of the arguments (key: `/var/lib/mcp-gateway/audit.key`) |
 | `args` | the arguments, instead of `args_hmac`, with the obligation `audit: "full"` |
+| `reidentified` | number of pseudonyms replaced by original values in the arguments (obligation `reidentify`); `args`/`args_hmac` then describe the arguments as forwarded |
 
 Event records carry `event` (the operation below), `ok` and fields of
-the event.
+the event. The event `mcp-pseudonymize` is recorded in the journal only
+(not in the kernel audit log): `session`, `sub`, `server`, `name`
+(tool, prompt or `sampling/createMessage`), `decision_id` and `values`,
+the classes and counts replaced (`"EMAIL:2 PERSON:1"`).
 
 Kernel audit (`TRUSTED_APP`) operations:
 

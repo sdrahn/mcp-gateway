@@ -190,6 +190,18 @@ decision log's input (`input.context.decision_id`), linking the two.
 Forward both journals to your log management; keep `audit.key` to
 compare digests later.
 
+## Data sent to external models
+
+Agents pass what MCP servers return to their model. Where that model is
+an external service, the obligation `pseudonymize` replaces personal or
+confidential values by per-session pseudonyms before the agent sees them,
+and `reidentify` gives chosen tools the real values back (chapter 6,
+"Pseudonymization"). The mapping stays in the gateway's memory for the
+session only, and the audit trail records classes and counts, never
+values. The gateway covers only data that flows through it from MCP
+servers; detection is rule-based and pseudonymized data is still
+personal data under the GDPR.
+
 ## Hardening checklist
 
 - [ ] SELinux enforcing, `mcp-gateway-selinux` installed, no AVC denials
@@ -203,6 +215,9 @@ compare digests later.
       needed, `protect_home: read-only` or `yes` unless needed,
       `run_as: dynamic` where it need not act as the user.
 - [ ] Secrets only through `credentials:`, never in `command` or `env`.
+- [ ] Servers returning personal or confidential data pseudonymized for
+      agents that use external models; `reidentify` only on the tools
+      and arguments that need real values.
 - [ ] libvirt MCS drop-in installed on virtualization hosts.
 - [ ] Remote access: `http.scopes` set, token lifetimes short in the
       IdP, mTLS with bound tokens for agent machines, `allowed_origins`

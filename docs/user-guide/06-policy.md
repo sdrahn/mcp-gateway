@@ -151,17 +151,121 @@ Obligations attach conditions to an allowed call:
 | `rate_limit` | `N/s`, `N/m` or `N/h` (a string or a list); per principal, server and tool, sliding window; excess calls are denied ("rate limit exceeded") |
 | `arg_constraints` | argument name → regular expressions the (string) argument must all match, otherwise the call is denied |
 | `audit: "full"` | the audit record contains the arguments verbatim instead of a keyed digest, and OPA's decision log keeps them |
+| `pseudonymize` | replace personal or confidential values in the result by per-session pseudonyms such as `[EMAIL_1]`, see [Pseudonymization](#pseudonymization) |
+| `reidentify` | argument names (a string or a list) in which pseudonyms are replaced by the original values before the call is forwarded |
 
 When several matching permissions carry obligations, they are merged:
 redaction patterns, rate limits and argument constraints add up (all
 apply), the smallest `max_output_bytes` wins, and `audit: "full"` wins.
-A malformed obligation (an invalid regular expression, a bad rate)
-denies the call.
+Pseudonymization detectors, patterns and field rules add up, and so do
+the arguments to re-identify. A malformed obligation (an invalid
+regular expression, a bad rate, an unknown detector) denies the call.
 
 `args` and `arg_constraints` differ: `args` decides whether a
 permission applies (so a non-matching write can fall through to another
 permission or to "no matching permission"), `arg_constraints` is checked
 after the decision and denies.
+
+### Pseudonymization
+
+When agents use an external LLM, everything an MCP server returns ends up
+at the model provider. The obligation `pseudonymize` replaces personal
+or confidential values in results by pseudonyms before the agent sees
+them; `reidentify` lets chosen tools receive the real values again when
+the agent refers to a pseudonym.
+
+```json
+{"server": "crm", "tool": "*",
+ "obligations": {"pseudonymize": {
+   "detect": ["email", "phone", "iban"],
+   "patterns": {"customer": "CUST-[0-9]{6}"},
+   "fields": {"name": "person", "email": "email", "birthday": "date"}
+ }}},
+{"server": "crm", "tool": "update_customer",
+ "obligations": {"reidentify": ["customer", "email"]}}
+```
+
+A customer record the server returns as
+
+```json
+{"customer": "CUST-004711", "name": "Alice Doe", "email": "alice@example.com", "note": "call +49 911 1234567"}
+```
+
+reaches the agent as
+
+```json
+{"customer": "[CUSTOMER_1]", "email": "[EMAIL_1]", "name": "[PERSON_1]", "note": "call [PHONE_1]"}
+```
+
+and a later call `update_customer` with `{"customer": "[CUSTOMER_1]",
+"email": "[EMAIL_1]"}` reaches the server with the real values.
+
+**What is found.** Only what the rules describe:
+
+| Rule | Finds |
+|---|---|
+| `detect` | built-in detectors: `email`; `iban` (with checksum); `credit_card` (13–19 digits, Luhn checksum); `phone` (international format, starting with `+`); `ipv4`; `ipv6` |
+| `patterns` | name → regular expression; the upper-cased name is the pseudonym's class (`customer` → `[CUSTOMER_1]`) |
+| `fields` | JSON key → class: the value of that key anywhere in the result, including JSON that a tool returns as text; for an object or list value, every value in it |
+
+Names and classes are lower case letters, digits and `_`. Binary content
+(images, audio, resource blobs) and the MCP fields `type` and
+`mimeType` are left alone. Free text such as names in prose is only found
+by field rules and patterns; there is no statistical name recognition.
+
+**How pseudonyms behave.**
+
+- Within one MCP session the same value always gets the same pseudonym,
+  so the model can still relate records and refer to them. The mapping
+  exists only in the gateway's memory and ends with the session; another
+  session cannot resolve it.
+- A session holds at most 10,000 pseudonyms; further values are replaced
+  irreversibly (`[EMAIL_REDACTED]`).
+- Pseudonymization applies to results of tool calls, prompts, resource
+  reads and completions, and to sampling requests MCP servers send to the
+  agent's model (decided with `client` permissions, see below; redaction
+  and the size limit apply to those too). It runs after `redact_output`
+  and before `max_output_bytes`.
+- Tool and resource lists, server log messages and progress
+  notifications are not pseudonymized.
+
+**Re-identification.** For the arguments named by `reidentify`, the
+gateway replaces pseudonyms of this session by the original values: an
+argument that is exactly one pseudonym gets the original value with its
+type (a number stays a number), pseudonyms inside longer text are
+replaced by the value's text. Then it asks the policy **again**, with the
+arguments as they will be forwarded: the call runs only if that decision
+also allows it ("policy did not accept the re-identified arguments"
+otherwise), and its obligations apply. Name only the arguments of tools
+that need real values; every re-identifying tool can be used to turn a
+pseudonym back into its value.
+
+**Merging.** All matching permissions contribute: pseudonymization set
+on `"tool": "*"` applies even when another permission for the same tool
+has no obligations. The same pattern or field name with two different
+definitions is a conflict that makes the decision fail, so the call is
+denied.
+
+**Audit.** Each pseudonymized result is recorded as an event
+`mcp-pseudonymize` with the classes and counts (`"values":"EMAIL:2
+PERSON:1"`), never the values; decision records carry `reidentified`
+with the number of pseudonyms replaced in the arguments.
+
+**Limits.**
+
+- Pseudonymization covers what flows through the gateway from MCP
+  servers. What the user types, files the agent reads by itself and
+  tools outside the gateway are not covered.
+- Detection is rule-based. Values that the rules do not describe, or
+  that a tool returns in another form (upper case, split, encoded), pass
+  unchanged.
+- Approvals show the arguments as the agent sent them, that is with
+  pseudonyms.
+- The model's answer contains pseudonyms; the gateway does not see the
+  answer and cannot translate it back for the user.
+- Under the GDPR, pseudonymized data is still personal data (Art. 4(5)):
+  pseudonymization reduces risk but does not replace a data processing
+  agreement with the model provider.
 
 ### Requests from MCP servers
 

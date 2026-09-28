@@ -200,6 +200,25 @@ test_obligations_merged if {
 	}
 }
 
+test_pseudonymize_merged if {
+	perms := {"developer": {"permissions": [
+		{"server": "crm", "tool": "*", "obligations": {"pseudonymize": {"detect": ["email"], "fields": {"name": "person"}}}},
+		{"server": "crm", "tool": "update_*", "obligations": {"pseudonymize": {"detect": "iban", "patterns": {"customer": "CUST-[0-9]+"}}, "reidentify": ["id", "note"]}},
+		{"server": "crm", "tool": "update_customer", "obligations": {"reidentify": "id"}},
+		{"server": "crm", "tool": "update_customer"},
+	]}}
+	d := authz.decision with input as call(alice, "crm", "update_customer", {}) with data.rbac.roles as perms
+	d.effect == "allow"
+	d.obligations == {
+		"pseudonymize": {
+			"detect": ["email", "iban"],
+			"patterns": {"customer": "CUST-[0-9]+"},
+			"fields": {"name": "person"},
+		},
+		"reidentify": ["id", "note"],
+	}
+}
+
 test_no_obligations_no_field if {
 	d := authz.decision with input as call(alice, "git", "commit", {})
 	d == {"effect": "allow"}

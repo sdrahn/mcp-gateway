@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sdrahn/mcp-gateway/internal/pseudo"
 )
 
 // StringList unmarshals from a JSON string or a list of strings.
@@ -45,6 +47,9 @@ type Compiled struct {
 	Rates          []Rate
 	ArgConstraints map[string][]*regexp.Regexp
 	FullAudit      bool
+	// Pseudo is nil when nothing is to be pseudonymized.
+	Pseudo     *pseudo.Compiled
+	Reidentify []string
 }
 
 // Compile validates o. Any malformed obligation makes the whole decision
@@ -80,6 +85,17 @@ func (o *Obligations) Compile() (*Compiled, error) {
 			}
 			c.ArgConstraints[name] = append(c.ArgConstraints[name], re)
 		}
+	}
+	pc, err := pseudo.Compile(o.Pseudonymize)
+	if err != nil {
+		return nil, fmt.Errorf("obligation %w", err)
+	}
+	c.Pseudo = pc
+	for _, name := range o.Reidentify {
+		if name == "" {
+			return nil, errors.New("obligation reidentify: empty argument name")
+		}
+		c.Reidentify = append(c.Reidentify, name)
 	}
 	switch o.Audit {
 	case "", "digest":
@@ -121,25 +137,37 @@ func (c *Compiled) CheckArgs(args map[string]any) error {
 	return nil
 }
 
-// ApplyOutput redacts result and enforces the size limit. It returns the
-// new result, or an error if the result is too large.
-func (c *Compiled) ApplyOutput(result json.RawMessage) (json.RawMessage, error) {
+// ApplyOutput redacts result, pseudonymizes it with the session's vault
+// and enforces the size limit, in this order. It returns the new result
+// and what was pseudonymized, or an error if the result cannot be
+// released (too large, or pseudonymization impossible).
+func (c *Compiled) ApplyOutput(result json.RawMessage, vault *pseudo.Vault) (json.RawMessage, pseudo.Stats, error) {
 	if len(c.Redact) > 0 {
 		var v any
 		if err := json.Unmarshal(result, &v); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		v = c.redact(v)
 		b, err := json.Marshal(v)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		result = b
 	}
-	if c.MaxOutputBytes > 0 && int64(len(result)) > c.MaxOutputBytes {
-		return nil, fmt.Errorf("result of %d bytes exceeds the limit of %d", len(result), c.MaxOutputBytes)
+	var stats pseudo.Stats
+	if c.Pseudo != nil {
+		if vault == nil {
+			return nil, nil, errors.New("pseudonymization required but not available")
+		}
+		var err error
+		if result, stats, err = vault.Apply(c.Pseudo, result); err != nil {
+			return nil, nil, err
+		}
 	}
-	return result, nil
+	if c.MaxOutputBytes > 0 && int64(len(result)) > c.MaxOutputBytes {
+		return nil, nil, fmt.Errorf("result of %d bytes exceeds the limit of %d", len(result), c.MaxOutputBytes)
+	}
+	return result, stats, nil
 }
 
 func (c *Compiled) redact(v any) any {

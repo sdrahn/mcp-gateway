@@ -229,6 +229,41 @@ obligation_entries contains ["audit", "full"] if {
 	p.obligations.audit == "full"
 }
 
+# Pseudonymization: detectors add up, and so do named patterns and field
+# rules (the same name with two different definitions is a conflict, and
+# the decision fails, which denies). Arguments to re-identify add up too.
+pseudo_detect contains d if {
+	some p in applicable
+	some d in as_list(object.get(p, ["obligations", "pseudonymize", "detect"], []))
+}
+
+pseudo_patterns[name] := re if {
+	some p in applicable
+	some name, re in object.get(p, ["obligations", "pseudonymize", "patterns"], {})
+}
+
+pseudo_fields[key] := class if {
+	some p in applicable
+	some key, class in object.get(p, ["obligations", "pseudonymize", "fields"], {})
+}
+
+# Each part is present only when some permission sets it (an object
+# comprehension with a condition yields an empty object otherwise).
+pseudonymize := object.union_n([
+	{"detect": sort(pseudo_detect) | count(pseudo_detect) > 0},
+	{"patterns": pseudo_patterns | count(pseudo_patterns) > 0},
+	{"fields": pseudo_fields | count(pseudo_fields) > 0},
+])
+
+obligation_entries contains ["pseudonymize", pseudonymize] if count(pseudonymize) > 0
+
+reidentify_args contains name if {
+	some p in applicable
+	some name in as_list(object.get(p, ["obligations", "reidentify"], []))
+}
+
+obligation_entries contains ["reidentify", sort(reidentify_args)] if count(reidentify_args) > 0
+
 obligations := {e[0]: e[1] | some e in obligation_entries}
 
 as_list(x) := x if is_array(x)

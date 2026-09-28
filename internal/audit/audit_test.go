@@ -100,3 +100,21 @@ func TestNetlink(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNoteAndReidentified(t *testing.T) {
+	var out bytes.Buffer
+	k := &fakeKernel{}
+	a := New(&out, Options{Kernel: k})
+	a.Note("mcp-pseudonymize", map[string]string{"values": "EMAIL:2", "server": "crm"})
+	a.Log(Record{Session: "s1", Sub: "alice", Action: "tools.call", Server: "crm", Effect: "allow", Reidentified: 2})
+	logs := out.String()
+	if !strings.Contains(logs, `"event":"mcp-pseudonymize","server":"crm","values":"EMAIL:2"`) {
+		t.Errorf("note: %s", logs)
+	}
+	if !strings.Contains(logs, `"reidentified":2`) {
+		t.Errorf("reidentified count missing: %s", logs)
+	}
+	if len(k.msgs) != 0 {
+		t.Errorf("notes must not reach the kernel: %v", k.msgs)
+	}
+}
