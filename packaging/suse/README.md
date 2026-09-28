@@ -23,6 +23,18 @@ puts that version into the spec, and `go_modules` creates `vendor.tar.gz`,
 because OBS builds have no network access. Re-run `osc service manualrun` to
 update, then `osc vc` and commit.
 
+### Releases
+
+Each release has a branch `release-X.Y` and tags `vX.Y.Z`. Pushing a tag
+publishes a GitHub release with `mcp-gateway-X.Y.Z.tar.gz`,
+`vendor.tar.gz` and `SHA256SUMS` (`.github/workflows/release.yml`). On a
+release branch, `_service` fetches that branch and takes the version from
+its latest tag (`@PARENT_TAG@` without the leading `v`), so the package
+version is `X.Y.Z`. For an OBS project that follows a release, use the
+`_service` of that branch, run `osc service manualrun`, then
+`osc vc -m "Update to X.Y.Z"` with the release's CHANGELOG.md section, and
+commit.
+
 Build targets: openSUSE Tumbleweed, Leap 16 and SLES 16 out of the box. For
 Leap/SLES 15 the build needs Go ≥ 1.24 (`golang(API) >= 1.24`, e.g. from
 `devel:languages:go`); note that SLES 15 uses AppArmor rather than SELinux,

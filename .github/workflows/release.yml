@@ -1,0 +1,55 @@
+name: Release
+
+# Pushing a tag vX.Y.Z publishes a GitHub release with the source tarball
+# and vendor.tar.gz (the Go modules), named as the OBS package expects
+# them (packaging/suse), and the tag's section of CHANGELOG.md as notes.
+# Binary packages come from OBS.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: open-policy-agent/setup-opa@v2
+      - name: Check
+        run: make check build
+      - name: Sources
+        run: |
+          set -eu
+          version=${GITHUB_REF_NAME#v}
+          mkdir dist
+          git archive --prefix="mcp-gateway-$version/" -o "dist/mcp-gateway-$version.tar.gz" HEAD
+          go mod vendor
+          tar czf dist/vendor.tar.gz vendor
+          (cd dist && sha256sum -- * > SHA256SUMS)
+      - name: Release notes
+        run: |
+          set -eu
+          # The section of CHANGELOG.md headed "## <tag> ...", up to the next "## ".
+          awk -v tag="$GITHUB_REF_NAME" '
+            /^## / { if (found) exit; if ($2 == tag) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no section for $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          prerelease=""
+          # Pre-releases: everything before 1.0, and tags like v1.2.0-rc1.
+          case "$GITHUB_REF_NAME" in v0.*|*-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "mcp-gateway ${GITHUB_REF_NAME}" --notes-file notes.md --verify-tag $prerelease
