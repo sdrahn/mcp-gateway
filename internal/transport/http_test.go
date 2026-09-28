@@ -643,12 +643,15 @@ func TestResumeErrors(t *testing.T) {
 	h.mu.Lock()
 	s := h.sessions[sid]
 	h.mu.Unlock()
+	// Wait until the stream is done and the server has noticed the dropped
+	// connection: only detached streams expire.
 	for range 300 {
 		s.mu.Lock()
 		num, _, _ := parseEventID(elID)
-		done := s.streams[num] != nil && s.streams[num].done
+		st := s.streams[num]
+		ready := st != nil && st.done && !st.attached
 		s.mu.Unlock()
-		if done {
+		if ready {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
