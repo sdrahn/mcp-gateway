@@ -51,5 +51,13 @@ jobs:
           prerelease=""
           # Pre-releases: everything before 1.0, and tags like v1.2.0-rc1.
           case "$GITHUB_REF_NAME" in v0.*|*-*) prerelease="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "mcp-gateway ${GITHUB_REF_NAME}" --notes-file notes.md --verify-tag $prerelease
+          title="mcp-gateway ${GITHUB_REF_NAME}"
+          # A release published in the web interface creates the tag and
+          # exists already: attach the sources and set title and notes.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            gh release edit "$GITHUB_REF_NAME" --title "$title" --notes-file notes.md $prerelease
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "$title" --notes-file notes.md --verify-tag $prerelease
+          fi
