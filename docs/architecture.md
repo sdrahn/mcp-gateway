@@ -364,7 +364,11 @@ Unknown methods are **denied by default**.
   requests for that second). The gateway logs the active revisions at
   start and records them in `mcp-policy-change` audit events.
 - **Decision logs:** enabled, masked (`mcp.log.mask`) to strip argument
-  values flagged as sensitive, shipped to the audit sink (§5.9).
+  values flagged as sensitive, written to the journal and, with the
+  `decision-logs.conf` drop-in, shipped to a collector through OPA's
+  decision-log service (§5.9). The drop-in sets `OPA_EXTRA_ARGS`, which
+  every `mcp-opa.service` variant passes to OPA, so it combines with any
+  policy distribution mode.
 - **Status API:** gateway polls OPA health; unhealthy ⇒ fail closed.
 
 ### 5.6 Approval broker (permission elicitation)
@@ -1184,9 +1188,10 @@ tools, and brings no bundle distribution or decision logging.
     decision-log mask all live below `data.mcp`, and `mcp-policy-bundle`
     declares the single root `mcp` (§6.1), so the bundle can share an
     OPA with other teams' bundles.
-  - **Decision logs** can go to the estate's collector through OPA's
-    decision-log service (OPA configuration file, SELinux boolean
-    `mcpopa_can_network`); masking and decision ids carry over.
+  - **Decision logs** (done in 0.2) go to the estate's collector
+    through OPA's decision-log service: the `decision-logs.conf`
+    drop-in, an OPA configuration file and the SELinux boolean
+    `mcpopa_can_network`; masking and decision ids carry over.
   - **Versions.** The policy is Rego v1 and needs OPA 1.x.
   - **Shared libraries.** Custom policy may import company-wide Rego
     packages; a namespace convention keeps them apart from `mcp.*`.

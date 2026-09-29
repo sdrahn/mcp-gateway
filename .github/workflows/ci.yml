@@ -115,6 +115,7 @@ jobs:
           mcp-gateway --check-policy-data
           test -x /usr/sbin/mcp-policy-bundle
           test -f /usr/share/mcp-gateway/opa/signed-bundle.conf
+          test -f /usr/share/mcp-gateway/opa/decision-logs.conf
           test -f /usr/share/mcp-gateway/mcs/virtqemud.conf
           test "$(stat -c %a /etc/mcp-gateway/credentials)" = 700
       - name: Install the SELinux module

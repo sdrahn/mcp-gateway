@@ -26,6 +26,14 @@ import (
 // shipped mcp-opa.service drop-in, with paths replaced.
 func dropInArgs(t *testing.T, file string, replace ...string) []string {
 	t.Helper()
+	return unitArgs(t, file, nil, replace...)
+}
+
+// unitArgs is dropInArgs with environment variables for the command line:
+// like systemd, an unquoted $NAME becomes the words of its value (none if
+// it is unset).
+func unitArgs(t *testing.T, file string, env map[string]string, replace ...string) []string {
+	t.Helper()
 	b, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
@@ -36,11 +44,35 @@ func dropInArgs(t *testing.T, file string, replace ...string) []string {
 		if !ok {
 			continue
 		}
-		cmd = strings.NewReplacer(replace...).Replace(cmd)
-		return strings.Fields(cmd)
+		var args []string
+		for _, f := range strings.Fields(strings.NewReplacer(replace...).Replace(cmd)) {
+			if name, ok := strings.CutPrefix(f, "$"); ok {
+				args = append(args, strings.Fields(env[name])...)
+				continue
+			}
+			args = append(args, f)
+		}
+		return args
 	}
 	t.Fatalf("no opa ExecStart= in %s", file)
 	return nil
+}
+
+// unitEnv returns the Environment= settings of a unit file or drop-in.
+func unitEnv(t *testing.T, file string, replace ...string) map[string]string {
+	t.Helper()
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{}
+	for _, line := range strings.Split(string(b), "\n") {
+		if kv, ok := strings.CutPrefix(line, "Environment="); ok {
+			k, v, _ := strings.Cut(kv, "=")
+			env[k] = strings.NewReplacer(replace...).Replace(v)
+		}
+	}
+	return env
 }
 
 func signingKey(t *testing.T, dir string) (key, pub string) {

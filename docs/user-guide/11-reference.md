@@ -138,7 +138,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/usr/share/mcp-gateway/schema/rbac.schema.json` | JSON Schema (draft-07) of the role data |
 | `/etc/mcp-gateway/credentials/` | MCP server secrets (0700, `mcpgw_cred_t`) |
 | `/etc/mcp-gateway/bundle/` | `policy.tar.gz`, `verify.pem`, `signing.pem` |
-| `/usr/share/mcp-gateway/opa/` | OPA drop-ins: `signed-bundle.conf`, `bundle-server.conf`, `opa-config.yaml.example` |
+| `/usr/share/mcp-gateway/opa/` | OPA drop-ins: `signed-bundle.conf`, `bundle-server.conf`, `decision-logs.conf`; examples `opa-config.yaml.example`, `decision-logs.yaml.example` |
 | `/usr/share/mcp-gateway/mcs/` | libvirt drop-ins: `virtqemud.conf`, `libvirtd.conf` |
 | `/var/lib/mcp-gateway/` | `grants.json`, `pending.json`, `audit.key` |
 | `/run/mcp-gateway/mcp.sock` | MCP socket |

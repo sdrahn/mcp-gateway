@@ -423,6 +423,7 @@ ExecStart=/usr/bin/opa run --server \
     --log-format json \
     --set=decision_logs.console=true \
     --set=decision_logs.mask_decision=/mcp/log/mask \
+    $OPA_EXTRA_ARGS \
     /etc/mcp-gateway/policy-logic \
     mcp:/etc/mcp-gateway/policy
 ```

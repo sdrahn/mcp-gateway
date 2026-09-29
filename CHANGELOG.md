@@ -35,6 +35,11 @@ change configuration, policy data or APIs.
   name a role that does not exist. Cockpit runs the check before saving
   the role data, `mcp-policy-bundle` before signing. Roles and
   permissions may carry a `description`.
+- **Shipping decision logs to a collector** through OPA's decision-log
+  service: drop-in `decision-logs.conf` and `decision-logs.yaml.example`
+  in `/usr/share/mcp-gateway/opa/` (chapter 9). All `mcp-opa.service`
+  variants pass `$OPA_EXTRA_ARGS` to OPA, so the drop-in combines with
+  every policy mode.
 
 ### Changed
 

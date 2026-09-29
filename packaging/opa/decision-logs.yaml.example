@@ -1,0 +1,26 @@
+# OPA configuration for shipping decision logs (decision-logs.conf). Copy
+# to /etc/mcp-gateway/opa-config.yaml. With a bundle server, the same file
+# also configures the bundle (opa-config.yaml.example): combine the two.
+services:
+  logs:
+    url: https://opa-logs.example.com
+    # Authentication towards the collector, e.g. a bearer token in a file
+    # only OPA can read:
+    #   install -m 0600 -o mcp-opa /dev/stdin /etc/mcp-gateway/opa-logs.token
+    # credentials:
+    #   bearer:
+    #     token_path: /etc/mcp-gateway/opa-logs.token
+
+decision_logs:
+  # OPA POSTs gzip-compressed JSON arrays of decisions to <url>/logs.
+  service: logs
+  # Keep the journal copy as well.
+  console: true
+  reporting:
+    min_delay_seconds: 10
+    max_delay_seconds: 30
+    # Decisions buffered while the collector is unreachable; the oldest
+    # are dropped beyond this.
+    buffer_size_limit_bytes: 33554432
+  # Masking (data.mcp.log.mask) is set on the command line by
+  # mcp-opa.service (decision_logs.mask_decision) and applies here too.

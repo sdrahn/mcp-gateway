@@ -12,7 +12,8 @@ policy_module(mcp_gateway, 0.1.0)
 
 ## <desc>
 ## <p>
-## Allow the OPA sidecar to connect to a remote bundle server.
+## Allow the OPA sidecar to connect to a remote bundle server or a
+## decision log collector (HTTP ports).
 ## </p>
 ## </desc>
 gen_tunable(mcpopa_can_network, false)
@@ -258,7 +259,8 @@ allow mcpopa_t { mcpgw_etc_t usr_t }:dir watch;
 # Signed bundles (mcp-policy-bundle) in /etc/mcp-gateway/bundle are
 # mcpgw_etc_t, readable above.
 
-# Remote bundle server (bundle-server.conf drop-in). Name resolution and
+# Remote bundle server (bundle-server.conf drop-in) and decision log
+# collector (decision-logs.conf). Name resolution and
 # the CA certificates cannot live inside a conditional; without the
 # tunable (and with the default unit's PrivateNetwork=) they are unused.
 tunable_policy(`mcpopa_can_network',`

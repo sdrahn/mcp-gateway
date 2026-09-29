@@ -22,6 +22,9 @@ SELinuxContext=-system_u:system_r:mcpopa_t:s0
 # Every decision is logged to the journal; policy/mcp/log.rego masks
 # tool arguments, and input.context.decision_id links an entry to the
 # gateway's audit record.
+# OPA_EXTRA_ARGS adds options in every mode, e.g. an OPA configuration file
+# for shipping decision logs (decision-logs.conf in /usr/share/mcp-gateway/opa/).
+Environment=OPA_EXTRA_ARGS=
 ExecStart=/usr/bin/opa run --server \
     --addr unix:///run/mcp-gateway/opa.sock \
     --unix-socket-perm 0660 \
@@ -29,6 +32,7 @@ ExecStart=/usr/bin/opa run --server \
     --log-format json \
     --set=decision_logs.console=true \
     --set=decision_logs.mask_decision=/mcp/log/mask \
+    $OPA_EXTRA_ARGS \
     /usr/share/mcp-gateway/policy \
     mcp:/etc/mcp-gateway/policy
 Restart=on-failure
