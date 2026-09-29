@@ -12,7 +12,7 @@
 %{!?_distconfdir: %global _distconfdir %{_sysconfdir}}
 
 Name:           mcp-gateway
-Version:        0.1.0
+Version:        0.1.1
 Release:        0
 Summary:        Policy-enforcing gateway for local MCP servers
 License:        MIT

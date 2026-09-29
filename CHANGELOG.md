@@ -4,12 +4,17 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
-## Unreleased
+## v0.1.1 — 2026-09-29
+
+Makes 0.1.0 work on openSUSE with SELinux enforcing, where the gateway
+could not serve requests. Upgrading from 0.1.0 needs no configuration
+changes; the packages create `/run/mcp-gateway` anew (tmpfiles.d) and
+restart the services.
 
 ### Fixed
 
-Found by the new VM test (test/vm), which installs the packages on
-openSUSE Tumbleweed with SELinux enforcing:
+Found by the new VM test, which installs the packages on openSUSE
+Tumbleweed with SELinux enforcing:
 
 - The gateway failed to start: it could not give its client socket to
   the `mcp-users` group because it was not a member of that group
@@ -35,6 +40,13 @@ openSUSE Tumbleweed with SELinux enforcing:
 - The demo MCP server was labelled `bin_t` instead of `mcpsrv_fs_exec_t`:
   its file context entry lost to the base policy's more specific
   `/usr/libexec` entries.
+
+### Added
+
+- CI job `vm`: the packages on an openSUSE Tumbleweed VM (QEMU/KVM) with
+  SELinux enforcing: labels, domains, per-user instances with distinct
+  MCS pairs, policy decisions, polkit, credentials, kernel audit, and no
+  SELinux denials (`test/vm`).
 
 ## v0.1.0 — 2026-09-28
 
