@@ -4,6 +4,22 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## Unreleased
+
+### Fixed
+
+Found by the new VM test (test/vm), which installs the packages on
+openSUSE Tumbleweed with SELinux enforcing:
+
+- The gateway failed to start: it could not give its client socket to
+  the `mcp-users` group because it was not a member of that group
+  (`SupplementaryGroups=mcp-users` in `mcp-gateway.service`).
+- OPA failed to start with `--watch`: the SELinux policy lacked the
+  `watch` permission on the policy directories.
+- The gateway did not detect SELinux from inside its domain and started
+  backends without their SELinux domain and MCS categories; it now
+  checks the mount table.
+
 ## v0.1.0 — 2026-09-28
 
 First release. mcp-gateway makes stdio MCP servers on a Linux host

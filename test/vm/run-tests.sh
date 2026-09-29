@@ -27,6 +27,7 @@ die() {
 # --- helpers ---------------------------------------------------------------
 
 label() { ps -o label= -p "$1" 2>/dev/null | tr -d ' '; }     # context of a process
+proc_user() { ps -o user= -p "$1" 2>/dev/null | tr -d ' '; }  # owner of a process
 file_label() { stat -c %C "$1" 2>/dev/null; }                  # context of a file
 has_type() { [[ $1 == *":$2:"* ]]; }                           # has_type <context> <type>
 proc_has_type() { has_type "$(label "$1")" "$2"; }             # proc_has_type <pid> <type>
@@ -52,7 +53,8 @@ call() {
 }
 tool() { call "$1" --method tools/call --params "{\"name\":\"$2\",\"arguments\":$3}"; }
 succeeded_with() { [ "$rc" = 0 ] && grep -qF -- "$1" <<<"$out"; }
-failed_without() { [ "$rc" != 0 ] && ! grep -qF -- "$1" <<<"$out"; }
+# A refusal by the gateway, not a failure to reach it.
+failed_without() { [ "$rc" != 0 ] && ! grep -qF -- "$1" <<<"$out" && ! grep -q "dial unix" <<<"$out"; }
 tool_error_with() { [ "$rc" = 2 ] && grep -qF -- "$1" <<<"$out"; }
 
 # instance_pid <user>: main PID of the running fs instance of <user>.
@@ -60,7 +62,7 @@ instance_pid() {
 	local unit pid
 	for unit in $(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-fs-*' | awk '{print $1}'); do
 		pid=$(systemctl show -p MainPID --value "$unit")
-		if [ "$pid" != 0 ] && [ "$(ps -o user= -p "$pid" | tr -d ' ')" = "$1" ]; then
+		if [ "$pid" != 0 ] && [ "$(proc_user "$pid")" = "$1" ]; then
 			echo "$pid"
 			return
 		fi
@@ -68,7 +70,15 @@ instance_pid() {
 }
 
 as_gateway_user_fails() { ! runuser -u mcp-gateway -- "$@" >/dev/null 2>&1; }
-audited() { ausearch -m TRUSTED_APP -ts "$since_date" "$since_time" 2>/dev/null | grep -q "op=$1"; }
+# audit_since <types>: raw kernel audit records of <types> since the
+# packages were installed ($since, epoch seconds). ausearch -ts takes
+# locale-formatted dates; filtering on the record timestamps avoids that.
+audit_since() {
+	ausearch -m "$1" -ts yesterday --raw 2>/dev/null |
+		awk -F'msg=audit\\(' -v s="$since" 'NF > 1 && $2 + 0 >= s'
+}
+audited() { audit_since TRUSTED_APP | grep -q "op=$1"; }
+audit_log_works() { audit_since SERVICE_START | grep -q 'unit=mcp-gateway'; }
 journal_has_audit() { journalctl -u mcp-gateway.service -o cat | grep -qF '"audit":true'; }
 no_mcp_denials() { ! grep -E 'mcpgw_|mcpopa_|mcpsrv_|mcp_port_t' <<<"$avc" | grep -q .; }
 
@@ -93,8 +103,7 @@ else
 	echo "  opa: release binary ($(opa version | head -1))"
 fi
 install -m 0755 "$dir/mcpcall" /usr/local/bin/mcpcall
-since_date=$(date +%x)
-since_time=$(date +%T)
+since=$(date +%s)
 rpm -Uvh --nodeps "$dir"/rpms/mcp-gateway-[0-9]*.rpm "$dir"/rpms/mcp-gateway-selinux-*.rpm \
 	"$dir"/rpms/mcp-gateway-demo-server-*.rpm || die "installing the packages failed"
 check "SELinux module mcp_gateway is loaded" bash -c 'semodule -l | grep -qx mcp_gateway'
@@ -138,7 +147,7 @@ echo "  gateway: $(label "$gw_pid")"
 echo "  opa:     $(label "$opa_pid")"
 check "gateway runs in mcpgw_t" proc_has_type "$gw_pid" mcpgw_t
 check "OPA runs in mcpopa_t" proc_has_type "$opa_pid" mcpopa_t
-check "gateway runs as mcp-gateway" test "$(ps -o user= -p "$gw_pid" | tr -d ' ')" = mcp-gateway
+check "gateway runs as mcp-gateway" test "$(proc_user "$gw_pid")" = mcp-gateway
 ls -Z /run/mcp-gateway/ | sed 's/^/  /'
 
 section "Calls"
@@ -207,20 +216,21 @@ check "credentials are labeled mcpgw_cred_t" file_has_type /etc/mcp-gateway/cred
 check "the gateway user cannot read credentials" as_gateway_user_fails cat /etc/mcp-gateway/credentials/probe
 
 section "Kernel audit"
-ausearch -m TRUSTED_APP -ts "$since_date" "$since_time" 2>/dev/null |
+audit_since TRUSTED_APP |
 	grep -o 'op=mcp-[a-z-]*' | sort | uniq -c | sed 's/^/  /'
+check "the audit log has the gateway's service start" audit_log_works
 check "the gateway start is audited" audited mcp-gateway-start
 check "the denial is audited" audited mcp-decision
 check "decisions are in the journal" journal_has_audit
 
 section "SELinux denials"
-avc=$(ausearch -m AVC,USER_AVC,SELINUX_ERR -ts "$since_date" "$since_time" 2>/dev/null)
+avc=$(audit_since AVC,USER_AVC,SELINUX_ERR)
 grep -E 'avc:|type=SELINUX_ERR' <<<"$avc" | sed 's/^/  /' | head -100
 check "no denials involving the gateway, OPA or MCP servers" no_mcp_denials
 
 section "Logs"
 journalctl -u mcp-gateway.service -u mcp-opa.service --no-pager -o short-precise | tail -60
-journalctl -u 'mcp-fs-*' --no-pager -o short-precise | tail -20
+journalctl -u 'mcp-fs-*' --no-pager -o short-precise 2>/dev/null | tail -20
 
 section "Result"
 if [ "$failed" = 0 ]; then echo "all checks passed"; else echo "some checks FAILED"; fi

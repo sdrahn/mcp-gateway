@@ -170,6 +170,10 @@ tunable_policy(`mcpgw_can_send_mail',`
 ')
 corecmd_exec_bin(mcpgw_t)
 
+# SELinux detection (supervisor.SELinuxEnabled).
+selinux_get_fs_mount(mcpgw_t)
+selinux_get_enforce_mode(mcpgw_t)
+
 # MCS coordination (supervisor.mcs_avoid): read the contexts of containers,
 # virtual machines and libvirt daemons to skip the category pairs they hold
 # and to check libvirt's range. Only these domains, not all processes.
@@ -229,6 +233,11 @@ filetrans_pattern(mcpopa_t, mcpgw_runtime_t, mcpopa_sock_t, sock_file, "opa.sock
 read_files_pattern(mcpopa_t, mcpgw_etc_t, mcpgw_etc_t)
 list_dirs_pattern(mcpopa_t, mcpgw_etc_t, mcpgw_etc_t)
 files_read_usr_files(mcpopa_t)
+# opa run --watch (inotify) on both policy directories.
+gen_require(`
+	type usr_t;
+')
+allow mcpopa_t { mcpgw_etc_t usr_t }:dir watch;
 
 # Signed bundles (mcp-policy-bundle) in /etc/mcp-gateway/bundle are
 # mcpgw_etc_t, readable above.

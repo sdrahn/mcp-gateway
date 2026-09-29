@@ -1,12 +1,15 @@
 package supervisor
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,10 +45,30 @@ type Systemd struct {
 	stop func(*unitInstance)
 }
 
-// SELinuxEnabled reports whether SELinux is enabled on this host.
+// SELinuxEnabled reports whether SELinux is enabled on this host: whether
+// selinuxfs is mounted. It reads the mount table rather than selinuxfs
+// itself, which a confined process may not be allowed to look at.
 func SELinuxEnabled() bool {
-	_, err := os.Stat("/sys/fs/selinux/enforce")
-	return err == nil
+	f, err := os.Open("/proc/self/mountinfo")
+	if err != nil {
+		_, err := os.Stat("/sys/fs/selinux/enforce")
+		return err == nil
+	}
+	defer func() { _ = f.Close() }()
+	return hasSELinuxFS(f)
+}
+
+// hasSELinuxFS reports whether a mountinfo table lists a selinuxfs mount.
+func hasSELinuxFS(r io.Reader) bool {
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		// ... mount-point options [optional fields] - fstype source super-options
+		_, after, ok := strings.Cut(sc.Text(), " - ")
+		if ok && strings.HasPrefix(after, "selinuxfs ") {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Systemd) bus(ctx context.Context) (*sddbus.Conn, error) {
