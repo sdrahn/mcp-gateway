@@ -236,8 +236,8 @@ test_obligations_on_approved if {
 test_sensitive_elicitation if {
 	admin := object.union(alice, {"groups": ["wheel"]})
 	plain := object.union(req(admin, "elicitation.create", "fs", "client", "elicitation/create"), {"args": {"mode": "form", "fields": ["color"], "sensitive": false}})
-	secret := object.union(plain, {"args": {"mode": "form", "fields": ["password"], "sensitive": true}})
 	authz.decision.effect == "allow" with input as plain
+	secret := object.union(plain, {"args": {"mode": "form", "fields": ["password"], "sensitive": true}})
 	authz.decision.effect == "deny" with input as secret
 	perms := {"admin": {"permissions": [{"server": "fs", "client": "elicitation/create", "allow_sensitive": true}]}}
 	authz.decision.effect == "allow" with input as secret with data.mcp.rbac.roles as perms

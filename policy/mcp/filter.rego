@@ -17,8 +17,14 @@ use_action := {
 	"resource_template": "completion.complete",
 }
 
+# METADATA
+# description: The resources of input.resources the principal may see.
+# entrypoint: true
 visible contains r if {
 	some r in input.resources
+
+	# The decision each resource would get if it were used.
+	# regal ignore:with-outside-test-context
 	d := data.mcp.authz.decision with input as {
 		"principal": input.principal,
 		"action": use_action[r.kind],

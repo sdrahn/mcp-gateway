@@ -14,6 +14,9 @@ package mcp.approvals
 
 import rego.v1
 
+# METADATA
+# description: May the approver decide on the pending request?
+# entrypoint: true
 default allow := false
 
 allow if {
@@ -21,6 +24,9 @@ allow if {
 	grants(rule, input.request.principal)
 }
 
+# METADATA
+# description: May the caller see and revoke the grant?
+# entrypoint: true
 default manage_grant := false
 
 manage_grant if {
@@ -28,6 +34,9 @@ manage_grant if {
 	grants(rule, input.grant)
 }
 
+# METADATA
+# description: May the caller see and stop the backend instance?
+# entrypoint: true
 default manage_instance := false
 
 manage_instance if {
@@ -35,9 +44,26 @@ manage_instance if {
 	grants(rule, input.instance)
 }
 
+# METADATA
+# description: >-
+#   May the caller see how a role data change would change decisions
+#   (everyone's)? Those whom the default approver rules name other than
+#   "self": with the shipped data, the admin role.
+# entrypoint: true
+default review_policy := false
+
+review_policy if {
+	some rule in rules_for("default")
+	rule != "self"
+	grants(rule, {})
+}
+
 # Whom to tell about a pending approval (e-mail notifications): the
 # approvers its server's rules name, as "user:<name>" and "group:<name>".
 # "self" is the principal's local account, if it has one.
+# METADATA
+# description: Who to notify of a pending request, as "user:<name>" and "group:<name>".
+# entrypoint: true
 notify contains sprintf("user:%s", [input.request.principal.sub]) if {
 	"self" in rules_for(input.request.server)
 	is_number(input.request.principal.uid)

@@ -49,7 +49,17 @@
         http() {
             return {
                 get(path) { log.push(["GET", path]); return Promise.resolve(JSON.stringify(routes[path]())); },
-                post(path, body) { log.push(["POST", path, body]); return Promise.resolve(""); },
+                post(path, body) {
+                    log.push(["POST", path, body]);
+                    if (path === "/v1/policy/whatif") {
+                        // Binding alice changes her access; anything else changes nothing.
+                        const changes = JSON.parse(body).bindings.users.alice
+                            ? [{ principal: "user:alice", server: "fs", kind: "tool", name: "write_file", before: "deny", after: "ask" }]
+                            : [];
+                        return Promise.resolve(JSON.stringify({ changes, principals: 3, resources: 12, unchecked: { db: "per-user discovery" } }));
+                    }
+                    return Promise.resolve("");
+                },
                 request(opts) {
                     log.push([opts.method, opts.path]);
                     if (opts.method === "DELETE" && opts.path.startsWith("/v1/instances/")) instances = [];

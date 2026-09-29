@@ -339,3 +339,82 @@ func TestEvents(t *testing.T) {
 		t.Fatalf("got %+v (bob's approval must not show)", ev)
 	}
 }
+
+type fakeReview struct {
+	current json.RawMessage
+	got     pep.WhatIfInput
+}
+
+func (f *fakeReview) RoleData(context.Context) (json.RawMessage, error) { return f.current, nil }
+
+func (f *fakeReview) WhatIf(_ context.Context, in pep.WhatIfInput) ([]pep.Change, error) {
+	f.got = in
+	return []pep.Change{
+		{Principal: "user:zed", Server: "fs", Kind: "tool", Name: "write_file", Before: "deny", After: "ask"},
+		{Principal: "group:dev", Server: "fs", Kind: "tool", Name: "read_file", Before: "deny", After: "allow"},
+	}, nil
+}
+
+type fakeCatalog struct{}
+
+func (fakeCatalog) Catalog(context.Context) router.Catalog {
+	return router.Catalog{
+		Resources: []pep.Resource{{Server: "fs", Kind: "tool", Name: "read_file"}},
+		Unchecked: map[string]string{"db": "tools and prompts are listed per user (discovery: per-user)"},
+	}
+}
+
+func TestWhatIf(t *testing.T) {
+	s, _, _ := setup(t)
+	review := &fakeReview{current: json.RawMessage(`{"roles": {}, "bindings": {"users": {"zed-no-such-user": ["r"]}}}`)}
+	s.Review, s.Catalog = review, fakeCatalog{}
+	proposed := `{"roles": {}, "bindings": {"users": {"zed": ["r"]}, "groups": {"dev": ["r"]}}}`
+
+	// Without approver policy, only root may review.
+	if rec := call(t, s, 1001, "POST", "/v1/policy/whatif", proposed); rec.Code != http.StatusForbidden {
+		t.Fatalf("alice: %d %s", rec.Code, rec.Body)
+	}
+	s.Identify = func(transport.PeerCred) (broker.Approver, error) { return broker.Approver{Name: "root", UID: 0}, nil }
+	req := httptest.NewRequest("POST", "/v1/policy/whatif", strings.NewReader(proposed))
+	req = req.WithContext(WithPeer(req.Context(), transport.PeerCred{UID: 0}))
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("root: %d %s", rec.Code, rec.Body)
+	}
+	var out struct {
+		Changes    []pep.Change      `json:"changes"`
+		Principals int               `json:"principals"`
+		Resources  int               `json:"resources"`
+		Unchecked  map[string]string `json:"unchecked"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	// Sorted by principal; the principals of both role data, users first.
+	if len(out.Changes) != 2 || out.Changes[0].Principal != "group:dev" || out.Resources != 1 || out.Unchecked["db"] == "" {
+		t.Fatalf("%+v", out)
+	}
+	var labels []string
+	for _, p := range review.got.Principals {
+		labels = append(labels, p.Label)
+	}
+	if strings.Join(labels, " ") != "user:zed user:zed-no-such-user group:dev" || out.Principals != 3 {
+		t.Fatalf("principals %v", labels)
+	}
+	// An unknown user is a remote principal without a local account.
+	if p := review.got.Principals[1].Principal; p.UID != nil || p.Transport != principal.TransportHTTP {
+		t.Fatalf("unknown user: %+v", p)
+	}
+	if string(review.got.Proposed) != proposed {
+		t.Fatalf("proposed %s", review.got.Proposed)
+	}
+
+	req = httptest.NewRequest("POST", "/v1/policy/whatif", strings.NewReader(`[1, 2]`))
+	req = req.WithContext(WithPeer(req.Context(), transport.PeerCred{UID: 0}))
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("not an object: %d", rec.Code)
+	}
+}

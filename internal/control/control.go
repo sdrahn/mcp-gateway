@@ -18,6 +18,7 @@
 //	GET    /v1/servers          registry, with the instances the caller may see
 //	DELETE /v1/instances/{id}   stop an instance
 //	GET    /v1/policy           active policy bundles and their revisions
+//	POST   /v1/policy/whatif    role data → the decisions it would change
 //	GET    /v1/events           server-sent events: approvals the caller may decide on
 package control
 
@@ -37,6 +38,8 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/pep"
+	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/router"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
 )
@@ -52,6 +55,17 @@ type PolicyStatus interface {
 	Bundles(ctx context.Context) (map[string]string, error)
 }
 
+// PolicyReview answers "what changes?" for proposed role data (pep.OPA).
+type PolicyReview interface {
+	RoleData(ctx context.Context) (json.RawMessage, error)
+	WhatIf(ctx context.Context, in pep.WhatIfInput) ([]pep.Change, error)
+}
+
+// Catalog lists what the MCP servers offer (router.Router).
+type Catalog interface {
+	Catalog(ctx context.Context) router.Catalog
+}
+
 type peerKey struct{}
 
 // Server is the control API.
@@ -61,7 +75,10 @@ type Server struct {
 	Backends  map[string]*config.Backend
 	Instances Instances
 	Policy    PolicyStatus
-	Log       *slog.Logger
+	// Review and Catalog serve POST /v1/policy/whatif; both optional.
+	Review  PolicyReview
+	Catalog Catalog
+	Log     *slog.Logger
 	// Identify maps peer credentials to an approver; defaults to NSS.
 	Identify func(transport.PeerCred) (broker.Approver, error)
 
@@ -133,6 +150,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/servers", s.with(s.servers))
 	mux.HandleFunc("DELETE /v1/instances/{id}", s.with(s.stopInstance))
 	mux.HandleFunc("GET /v1/policy", s.with(s.policy))
+	mux.HandleFunc("POST /v1/policy/whatif", s.with(s.whatIf))
 	mux.HandleFunc("GET /v1/events", s.with(s.events))
 	return mux
 }
@@ -203,6 +221,141 @@ func (s *Server) policy(w http.ResponseWriter, r *http.Request, _ broker.Approve
 		mode = "bundle"
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"mode": mode, "bundles": bundles})
+}
+
+// maxRoleData bounds the proposed role data of POST /v1/policy/whatif.
+const maxRoleData = 4 << 20
+
+// whatIf answers which decisions proposed role data (the request body, as
+// in rbac/data.json) would change, for the users and groups the current
+// and the proposed bindings name, over what the MCP servers offer.
+func (s *Server) whatIf(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+	if s.Review == nil || s.Catalog == nil {
+		writeError(w, http.StatusNotFound, "no policy review")
+		return
+	}
+	if !s.Broker.MayReviewPolicy(r.Context(), a) {
+		writeError(w, http.StatusForbidden, "not allowed to review policy changes")
+		return
+	}
+	proposed, err := io.ReadAll(io.LimitReader(r.Body, maxRoleData+1))
+	if err != nil || len(proposed) > maxRoleData {
+		writeError(w, http.StatusBadRequest, "role data missing or too large")
+		return
+	}
+	var next roleBindings
+	if err := json.Unmarshal(proposed, &next); err != nil {
+		writeError(w, http.StatusBadRequest, "role data is not a JSON object: "+err.Error())
+		return
+	}
+	current, err := s.Review.RoleData(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "policy engine unavailable")
+		return
+	}
+	var cur roleBindings
+	if len(current) > 0 {
+		_ = json.Unmarshal(current, &cur)
+	}
+	catalog := s.Catalog.Catalog(r.Context())
+	in := pep.WhatIfInput{
+		Principals: whatIfPrincipals(cur, next),
+		Resources:  catalog.Resources,
+		Proposed:   proposed,
+	}
+	changes, err := s.Review.WhatIf(r.Context(), in)
+	if err != nil {
+		if s.Log != nil {
+			s.Log.Warn("policy review failed", "err", err)
+		}
+		writeError(w, http.StatusBadGateway, "policy review failed")
+		return
+	}
+	sort.Slice(changes, func(i, j int) bool {
+		ci, cj := changes[i], changes[j]
+		if ci.Principal != cj.Principal {
+			return ci.Principal < cj.Principal
+		}
+		if ci.Server != cj.Server {
+			return ci.Server < cj.Server
+		}
+		if ci.Kind != cj.Kind {
+			return ci.Kind < cj.Kind
+		}
+		return ci.Name < cj.Name
+	})
+	if changes == nil {
+		changes = []pep.Change{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"changes":    changes,
+		"principals": len(in.Principals),
+		"resources":  len(in.Resources),
+		"unchecked":  catalog.Unchecked,
+	})
+}
+
+// roleBindings is the part of the role data that names principals.
+type roleBindings struct {
+	Bindings struct {
+		Users  map[string]json.RawMessage `json:"users"`
+		Groups map[string]json.RawMessage `json:"groups"`
+	} `json:"bindings"`
+}
+
+// whatIfPrincipals are the users and groups bound in either role data:
+// users as the gateway would see them (local account: uid, groups and home
+// from NSS; else a remote principal), groups as a member bound to nothing
+// else.
+func whatIfPrincipals(datas ...roleBindings) []pep.WhatIfPrincipal {
+	users, groups := map[string]bool{}, map[string]bool{}
+	for _, d := range datas {
+		for u := range d.Bindings.Users {
+			users[u] = true
+		}
+		for g := range d.Bindings.Groups {
+			groups[g] = true
+		}
+	}
+	var out []pep.WhatIfPrincipal
+	for _, name := range sortedSet(users) {
+		out = append(out, pep.WhatIfPrincipal{Label: "user:" + name, Principal: lookupPrincipal(name)})
+	}
+	for _, g := range sortedSet(groups) {
+		out = append(out, pep.WhatIfPrincipal{Label: "group:" + g, Principal: principal.Principal{
+			Groups: []string{g}, Transport: principal.TransportUnix,
+		}})
+	}
+	return out
+}
+
+func lookupPrincipal(name string) principal.Principal {
+	u, err := user.Lookup(name)
+	if err != nil {
+		return principal.Principal{Sub: name, Transport: principal.TransportHTTP}
+	}
+	p := principal.Principal{Sub: name, Home: u.HomeDir, Transport: principal.TransportUnix}
+	if id, err := strconv.ParseUint(u.Uid, 10, 32); err == nil {
+		uid := uint32(id)
+		p.UID = &uid
+	}
+	if gids, err := u.GroupIds(); err == nil {
+		for _, gid := range gids {
+			if g, err := user.LookupGroupId(gid); err == nil {
+				p.Groups = append(p.Groups, g.Name)
+			}
+		}
+	}
+	return p
+}
+
+func sortedSet(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // eventKeepAlive is the interval of SSE comments that keep idle event

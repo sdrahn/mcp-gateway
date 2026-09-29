@@ -348,11 +348,27 @@ saving, and `mcp-policy-bundle` before signing. Editors that support JSON
 Schema can use the schema file while you edit. A `description` is allowed
 on roles and permissions, for your notes.
 
+To see which decisions an edit would change before it takes effect
+(Cockpit shows this before saving, chapter 8), send the edited copy to
+the control API, as root or an admin:
+
+```bash
+cp /etc/mcp-gateway/policy/rbac/data.json /tmp/rbac.json && vi /tmp/rbac.json
+curl -s --unix-socket /run/mcp-gateway/control.sock \
+    --data-binary @/tmp/rbac.json http://localhost/v1/policy/whatif |
+    jq -r '.changes[] | "\(.principal) \(.server) \(.kind) \(.name): \(.before) -> \(.after)"'
+```
+
+```
+user:alice fs tool write_file: deny -> ask
+group:dev git tool push: allow -> deny
+```
+
 A syntax error in a Rego file makes OPA keep the previous policy and log
 an error:
 
 ```bash
-opa check /usr/share/mcp-gateway/policy /etc/mcp-gateway/policy
+opa check /usr/share/mcp-gateway/policy mcp:/etc/mcp-gateway/policy
 journalctl -u mcp-opa.service -n 20
 ```
 
@@ -372,7 +388,7 @@ cat >/tmp/input.json <<'EOF'
 }
 EOF
 opa eval -f pretty \
-    -d /usr/share/mcp-gateway/policy -d /etc/mcp-gateway/policy \
+    -d /usr/share/mcp-gateway/policy -d mcp:/etc/mcp-gateway/policy \
     -i /tmp/input.json 'data.mcp.authz.decision'
 ```
 

@@ -35,7 +35,47 @@ const (
 	VisiblePath      = "/v1/data/mcp/filter/visible"
 	ApproveAllowPath = "/v1/data/mcp/approvals/allow"
 	ManageGrantPath  = "/v1/data/mcp/approvals/manage_grant"
+	WhatIfPath       = "/v1/data/mcp/whatif/changes"
 )
+
+// whatIfTimeout bounds a "what changes?" query, which evaluates two
+// decisions for every principal and resource.
+const whatIfTimeout = 30 * time.Second
+
+// WhatIfPrincipal is a principal to evaluate, with its label in the
+// result ("user:alice", "group:dev").
+type WhatIfPrincipal struct {
+	Label     string              `json:"label"`
+	Principal principal.Principal `json:"principal"`
+}
+
+// WhatIfInput is the input of the "what changes?" query (policy/mcp/whatif.rego).
+type WhatIfInput struct {
+	Principals []WhatIfPrincipal `json:"principals"`
+	// Resources include kind "client" for requests MCP servers send.
+	Resources []Resource      `json:"resources"`
+	Proposed  json.RawMessage `json:"proposed"`
+}
+
+// Change is a decision that differs with the proposed role data.
+type Change struct {
+	Principal string `json:"principal"`
+	Server    string `json:"server"`
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Before    string `json:"before"`
+	After     string `json:"after"`
+}
+
+// WhatIf returns the decisions that change if the proposed role data
+// replaces the current one.
+func (o *OPA) WhatIf(ctx context.Context, in WhatIfInput) ([]Change, error) {
+	var out []Change
+	if err := o.queryWithin(ctx, whatIfTimeout, WhatIfPath, in, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
 // OPA queries an OPA server over its REST API on a unix socket.
 type OPA struct {
@@ -125,6 +165,22 @@ func (o *OPA) Fingerprint(ctx context.Context) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// RoleData returns the role data OPA has loaded (data.mcp.rbac); empty if
+// there is none.
+func (o *OPA) RoleData(ctx context.Context) (json.RawMessage, error) {
+	body, err := o.get(ctx, "/v1/data/mcp/rbac")
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("opa: role data: %w", err)
+	}
+	return resp.Result, nil
+}
+
 // Bundles returns the revision of each activated policy bundle, by
 // bundle name; empty when OPA loads the policy from directories.
 func (o *OPA) Bundles(ctx context.Context) (map[string]string, error) {
@@ -188,7 +244,11 @@ func (o *OPA) Bool(ctx context.Context, path string, input any) (bool, error) {
 }
 
 func (o *OPA) query(ctx context.Context, path string, input, result any) error {
-	ctx, cancel := context.WithTimeout(ctx, o.timeout)
+	return o.queryWithin(ctx, o.timeout, path, input, result)
+}
+
+func (o *OPA) queryWithin(ctx context.Context, timeout time.Duration, path string, input, result any) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	body, err := json.Marshal(struct {
 		Input any `json:"input"`

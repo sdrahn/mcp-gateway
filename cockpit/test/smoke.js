@@ -64,8 +64,18 @@ function site() {
     check((await page.textContent("#roles")).includes("approval via url"), "permission flags");
     await page.fill("#binding-add input[name=name]", "alice");
     await page.selectOption("#binding-add select[name=role]", "developer");
+    const replacesBefore = (await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length;
     await page.click("#binding-add button[type=submit]");
+    // What changes: shown first, saved on confirmation.
+    await page.waitForSelector("#whatif:not([hidden])");
+    const preview = await page.textContent("#whatif");
+    check(preview.includes("alters 1 decision") && preview.includes("write_file") && preview.includes("needs approval") &&
+          preview.includes("Not checked: db"), "changes previewed: " + preview.replace(/\s+/g, " ").slice(0, 200));
+    check((await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length === replacesBefore,
+          "not saved before confirmation");
+    await page.click("#whatif-save");
     await page.waitForFunction(() => document.querySelector("#bindings").textContent.includes("alice"));
+    check(await page.isHidden("#whatif"), "preview closed after saving");
     let saved = (await page.evaluate(() => __calls)).filter(c => c[0] === "replace").pop();
     check(saved && JSON.parse(saved[2]).bindings.users.alice[0] === "developer", "binding saved to file");
     await page.click("#bindings button[aria-label='Remove role developer from alice']");

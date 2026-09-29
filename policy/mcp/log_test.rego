@@ -25,3 +25,12 @@ test_args_masked_for_filter_results if {
 test_approval_request_args_masked if {
 	"/input/request/args" in log.mask with input as {"input": {"request": {"args": {"x": 1}}}, "result": true}
 }
+
+test_whatif_catalog_masked if {
+	"/input/resources" in log.mask with input as {
+		"path": "mcp/whatif/changes",
+		"input": {"principals": [], "resources": [{"server": "fs"}], "proposed": {}},
+		"result": [],
+	}
+	not "/input/resources" in log.mask with input as {"path": "mcp/filter/visible", "input": {"resources": []}, "result": []}
+}

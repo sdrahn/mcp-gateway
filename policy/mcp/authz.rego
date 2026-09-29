@@ -51,20 +51,12 @@ target_field := {
 
 matching contains p if {
 	field := target_field[input.action]
+	target_ok(field)
 	some p in perms
 	server_ok(p)
 	glob.match(expand_glob(p[field]), null, input.resource.name)
-	target_ok(field)
 	args_ok(p)
 	not sensitive_blocked(field, p)
-}
-
-# A backend's elicitation that looks like it asks for secrets (the gateway
-# sets input.args.sensitive) is only covered by permissions that say
-# "allow_sensitive": true.
-sensitive_blocked("client", p) if {
-	input.args.sensitive == true
-	not p.allow_sensitive == true
 }
 
 # Completions follow what they complete: a prompt like prompts.get, a
@@ -86,6 +78,14 @@ matching contains p if {
 	is_string(p.resource)
 }
 
+# A backend's elicitation that looks like it asks for secrets (the gateway
+# sets input.args.sensitive) is only covered by permissions that say
+# "allow_sensitive": true.
+sensitive_blocked("client", p) if {
+	input.args.sensitive == true
+	not p.allow_sensitive == true
+}
+
 server_ok(p) if glob.match(p.server, null, input.resource.server)
 
 # Resource URIs with ".." segments (plain or percent-encoded) never match,
@@ -103,10 +103,11 @@ expand_glob(pattern) := replace(pattern, "${sub}", glob_escape(input.principal.s
 	not contains(pattern, "${home}")
 }
 
-expand_glob(pattern) := replace(replace(pattern, "${home}", glob_escape(home)), "${sub}", glob_escape(input.principal.sub)) if {
+expand_glob(pattern) := replace(with_home, "${sub}", glob_escape(input.principal.sub)) if {
 	contains(pattern, "${home}")
 	home := input.principal.home
 	home != ""
+	with_home := replace(pattern, "${home}", glob_escape(home))
 }
 
 glob_escape(s) := regex.replace(s, `[*?\[\]{}\\]`, `\$0`)
@@ -229,6 +230,10 @@ obligation_entries contains ["audit", "full"] if {
 	p.obligations.audit == "full"
 }
 
+obligation_entries contains ["pseudonymize", pseudonymize] if count(pseudonymize) > 0
+
+obligation_entries contains ["reidentify", sort(reidentify_args)] if count(reidentify_args) > 0
+
 # Pseudonymization: detectors add up, and so do named patterns and field
 # rules (the same name with two different definitions is a conflict, and
 # the decision fails, which denies). Arguments to re-identify add up too.
@@ -255,16 +260,12 @@ pseudonymize := object.union_n([
 	{"fields": pseudo_fields | count(pseudo_fields) > 0},
 ])
 
-obligation_entries contains ["pseudonymize", pseudonymize] if count(pseudonymize) > 0
-
 reidentify_args contains name if {
 	some p in applicable
 	some name in as_list(object.get(p, ["obligations", "reidentify"], []))
 }
 
-obligation_entries contains ["reidentify", sort(reidentify_args)] if count(reidentify_args) > 0
-
-obligations := {e[0]: e[1] | some e in obligation_entries}
+obligations[e[0]] := e[1] if some e in obligation_entries
 
 as_list(x) := x if is_array(x)
 
@@ -274,6 +275,11 @@ as_list(x) := [x] if is_string(x)
 allow_with(d) := object.union(d, {"obligations": obligations}) if count(obligations) > 0
 
 else := d
+
+# METADATA
+# description: The decision on a request (docs/architecture.md, section 6.3).
+# entrypoint: true
+default decision := {"effect": "deny", "reason": "no matching permission"}
 
 decision := {"effect": "deny", "reason": "denied by policy"} if {
 	denied
@@ -286,10 +292,13 @@ decision := {"effect": "deny", "reason": "denied by policy"} if {
 	"effect": "ask",
 	"ask": {
 		"channel": ask_channel,
-		"prompt": sprintf("Allow %s: %s %s/%s?", [input.principal.sub, input.action, input.resource.server, input.resource.name]),
+		"prompt": sprintf("Allow %s: %s %s/%s?", [
+			input.principal.sub, input.action,
+			input.resource.server, input.resource.name,
+		]),
 		"scopes": ["once", "session"],
 		"fallback": "oob",
 	},
 } if {
 	count(approvable) > 0
-} else := {"effect": "deny", "reason": "no matching permission"}
+}

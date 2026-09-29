@@ -69,12 +69,62 @@ async function schemaProblems(data) {
     }
 }
 
-async function saveRBAC(data) {
+/* previewChanges asks the gateway which decisions the role data would
+ * change (POST /v1/policy/whatif); null if it cannot tell (not running,
+ * or the user may not review policy changes). */
+async function previewChanges(data) {
+    try {
+        return JSON.parse(await api.post("/v1/policy/whatif", JSON.stringify(data)));
+    } catch (ex) {
+        return null;
+    }
+}
+
+const EFFECT_TEXT = { allow: "allowed", ask: "needs approval", deny: "denied" };
+const KIND_TEXT = { tool: "tool", prompt: "prompt", resource_template: "resource template", client: "request to the agent" };
+
+/* showPreview lists the changes and saves on confirmation. */
+function showPreview(preview, data) {
+    const n = preview.changes.length;
+    document.getElementById("whatif-text").textContent =
+        "This change alters " + n + " decision" + (n === 1 ? "" : "s") + " (without arguments; " +
+        preview.principals + " users and groups, " + preview.resources + " tools, prompts and requests checked):";
+    document.querySelector("#whatif-changes tbody").replaceChildren(...preview.changes.map(c =>
+        el("tr", null,
+           el("td", null, c.principal.replace(/^user:/, "").replace(/^group:/, "group ")),
+           el("td", null, c.server),
+           el("td", null, (KIND_TEXT[c.kind] || c.kind) + " " + c.name),
+           el("td", null, EFFECT_TEXT[c.before] || c.before),
+           el("td", null, EFFECT_TEXT[c.after] || c.after))));
+    const unchecked = Object.entries(preview.unchecked || {});
+    const note = document.getElementById("whatif-unchecked");
+    note.hidden = unchecked.length === 0;
+    note.textContent = "Not checked: " + unchecked.map(([s, why]) => s + " (" + why + ")").join("; ") + ".";
+    const box = document.getElementById("whatif");
+    box.hidden = false;
+    box.scrollIntoView({ block: "nearest" });
+    const save = document.getElementById("whatif-save");
+    const cancel = document.getElementById("whatif-cancel");
+    save.onclick = () => { box.hidden = true; saveRBAC(data, true) };
+    cancel.onclick = () => { box.hidden = true; renderRBAC() };
+}
+
+/* saveRBAC checks the role data and, unless confirmed, shows which
+ * decisions it would change before writing it. */
+async function saveRBAC(data, confirmed) {
     let problems = validateRBAC(data);
     if (problems.length === 0) problems = await schemaProblems(data);
     if (problems.length > 0) {
         showError("Not saved: " + problems.join(" "));
         return false;
+    }
+    if (!confirmed) {
+        const preview = await previewChanges(data);
+        if (preview && preview.changes.length > 0) {
+            showError(null);
+            showPreview(preview, data);
+            return false;
+        }
     }
     try {
         await rbacFile().replace(JSON.stringify(data, null, 2) + "\n");

@@ -684,20 +684,28 @@ test_colleague_may_not_approve if {
 Run them together with the policy exactly as OPA loads it:
 
 ```bash
-P="/usr/share/mcp-gateway/policy /etc/mcp-gateway/policy"   # approach B/C: /etc/mcp-gateway/policy-logic instead of /usr/share/…
+P="/usr/share/mcp-gateway/policy mcp:/etc/mcp-gateway/policy"   # approach B/C: /etc/mcp-gateway/policy-logic instead of /usr/share/…
 opa fmt --list /etc/mcp-gateway/policy /etc/mcp-gateway/policy-tests   # lists files that need formatting
 opa check --strict $P                                                  # what mcp-policy-bundle requires
 opa test -v $P /etc/mcp-gateway/policy-tests
 ```
 
+`mcp:` in front of `/etc/mcp-gateway/policy` loads its data files below
+`data.mcp`, as `mcp-opa.service` does; without it the role data would be
+`data.rbac` and the shipped rules would find none.
+
 `opa check` does not catch rules defined twice with different values
 (see approach A); only evaluation does, so test the cases where your
 rules apply.
 
+The shipped policy is also linted with [Regal](https://www.openpolicyagent.org/projects/regal)
+in CI; its configuration, `.regal/config.yaml` in the source repository,
+suits custom policy as well (`regal lint /etc/mcp-gateway/policy`).
+
 ### Single decisions
 
 ```bash
-opa eval -f pretty -d /usr/share/mcp-gateway/policy -d /etc/mcp-gateway/policy \
+opa eval -f pretty -d /usr/share/mcp-gateway/policy -d mcp:/etc/mcp-gateway/policy \
     -i input.json 'data.mcp.authz.decision'
 opa eval -f pretty … -i input.json --explain=notes 'data.mcp.authz.decision'   # with trace() notes
 opa eval … -i input.json --profile 'data.mcp.authz.decision'                   # where the time goes
@@ -724,8 +732,8 @@ with arguments masked; the gateway's audit record with the same
 install -D -m0644 office_hours.rego /etc/mcp-gateway/policy/custom/office_hours.rego.new
 mv /etc/mcp-gateway/policy/custom/office_hours.rego.new /etc/mcp-gateway/policy/custom/office_hours.rego
 restorecon -R /etc/mcp-gateway/policy
-opa check --strict /usr/share/mcp-gateway/policy /etc/mcp-gateway/policy \
-  && opa test /usr/share/mcp-gateway/policy /etc/mcp-gateway/policy /etc/mcp-gateway/policy-tests
+opa check --strict /usr/share/mcp-gateway/policy mcp:/etc/mcp-gateway/policy \
+  && opa test /usr/share/mcp-gateway/policy mcp:/etc/mcp-gateway/policy /etc/mcp-gateway/policy-tests
 journalctl -u mcp-opa.service -n 5 -o cat          # a load error shows up as "Processed file watch event." with "err"
 journalctl -u mcp-gateway.service -o cat | grep mcp-policy-change | tail -1
 ```

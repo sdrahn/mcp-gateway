@@ -70,6 +70,20 @@ principal, unit name, sessions, start time. For each instance:
 - **Edit the role data as JSON**: the whole `data.json`, including
   roles and approver rules; **Save** writes it (validated as JSON).
 
+Before any change is saved, the page checks it against the role data's
+schema (chapter 6) and asks the gateway **what it changes**: for every
+user and group the old or new bindings name, and every tool, prompt and
+resource template the MCP servers offer (plus the requests servers send
+to the agent), it compares the decision now and after the change. If
+any differs, the page lists them ("alice, fs, tool write_file: denied →
+needs approval") and saves only after **Save**. Decisions are made
+without arguments, as for tool lists: a permission limited to certain
+arguments counts as allowing the tool. Servers with `discovery:
+per-user` are listed as not checked. The comparison is available to
+those the default approver rules name besides `self` (with the shipped
+data: the `admin` role) and to root; for others the page saves without
+it.
+
 In directory mode (the default), OPA picks up saved changes within
 seconds and agents are told to list their tools again. In signed bundle
 mode, saving changes only the source file; a note says so and, if the
