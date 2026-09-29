@@ -3,13 +3,18 @@
     osc service manualrun
   to refresh the source tarball, the version and vendor.tar.gz (the Go
   modules; OBS builds have no network access), then commit.
+
+  Release branch: fetches release-0.2 and takes the version from its
+  latest tag (v0.2.0 -> 0.2.0).
 -->
 <services>
   <service name="tar_scm" mode="manual">
     <param name="url">https://github.com/sdrahn/mcp-gateway.git</param>
     <param name="scm">git</param>
-    <param name="revision">main</param>
-    <param name="versionformat">0.1.0+git%cd.%h</param>
+    <param name="revision">release-0.2</param>
+    <param name="versionformat">@PARENT_TAG@</param>
+    <param name="versionrewrite-pattern">v(.*)</param>
+    <param name="versionrewrite-replacement">\1</param>
     <param name="filename">mcp-gateway</param>
     <param name="exclude">.git</param>
     <param name="exclude">.github</param>
