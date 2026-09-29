@@ -78,3 +78,14 @@ test_notify if {
 	approvals.notify == {"user:carol", "group:ops", "user:dave", "group:sec"} with input as {"request": alice_req}
 		with data.mcp.rbac as rbac
 }
+
+test_review_policy if {
+	# policy/mcp/rbac/data.json: default ["self", "role:admin"], wheel → admin
+	approvals.review_policy with input as {"approver": carol}
+	not approvals.review_policy with input as {"approver": alice}
+
+	# "self" alone names nobody.
+	not approvals.review_policy with input as {"approver": carol} with data.mcp.rbac as {}
+	approvals.review_policy with input as {"approver": bob}
+		with data.mcp.rbac.approvers as {"default": ["self", "user:bob"]}
+}

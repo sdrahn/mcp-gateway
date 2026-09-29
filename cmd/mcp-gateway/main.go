@@ -209,7 +209,8 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 			return fmt.Errorf("listening on %s: %w", gw.Approvals.ControlSocket, err)
 		}
 		log.Info("listening", "control", gw.Approvals.ControlSocket)
-		cs := &controlapi.Server{Broker: b, Backends: backends, Instances: r, Policy: opa, Log: log}
+		cs := &controlapi.Server{Broker: b, Backends: backends, Instances: r, Policy: opa,
+			Review: opa, Catalog: r, Log: log}
 		go func() {
 			if err := cs.Serve(ctx, cl); err != nil {
 				log.Error("control API failed", "err", err)

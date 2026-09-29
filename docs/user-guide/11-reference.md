@@ -73,6 +73,7 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `GET /v1/servers` | registered servers `{"name", "selinux_type", "isolation", "network", "run_as", "instances"}` with the instances the caller may manage `{"id", "server", "unit", "sub", "iss", "uid", "transport", "session_id", "isolation", "started", "sessions"}` |
 | `DELETE /v1/instances/{id}` | stop an instance; `204` |
 | `GET /v1/policy` | `{"mode": "directories"\|"bundle", "bundles": {name: revision}}`; `502` if OPA is unavailable |
+| `POST /v1/policy/whatif` | body: proposed role data (as `data.json`); returns `{"changes": [{"principal", "server", "kind", "name", "before", "after"}], "principals", "resources", "unchecked": {server: reason}}`: the decisions that would change, for the users (`user:<name>`) and groups (`group:<name>`) either role data binds; `403` unless `data.mcp.approvals.review_policy` allows the caller |
 | `GET /v1/events` | server-sent events (`event: approval`) for the approvals the caller may decide on: first all pending, then changes; `data` is `{"type": "pending"\|"resolved", "id", "new", "pending", "url"}` |
 
 Errors are `{"error": "…"}` with a matching status.

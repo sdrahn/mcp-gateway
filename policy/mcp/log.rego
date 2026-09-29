@@ -19,4 +19,9 @@ mask contains "/input/args" if not full_audit
 # Approver checks include the arguments of the pending request.
 mask contains "/input/request/args"
 
+# "What changes?" reviews: the catalog of every server's tools is bulky and
+# says nothing about the review; the proposed role data and the resulting
+# changes stay.
+mask contains "/input/resources" if input.path == "mcp/whatif/changes"
+
 full_audit if input.result.obligations.audit == "full"

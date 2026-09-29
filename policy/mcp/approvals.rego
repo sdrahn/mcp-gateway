@@ -44,6 +44,20 @@ manage_instance if {
 	grants(rule, input.instance)
 }
 
+# METADATA
+# description: >-
+#   May the caller see how a role data change would change decisions
+#   (everyone's)? Those whom the default approver rules name other than
+#   "self": with the shipped data, the admin role.
+# entrypoint: true
+default review_policy := false
+
+review_policy if {
+	some rule in rules_for("default")
+	rule != "self"
+	grants(rule, {})
+}
+
 # Whom to tell about a pending approval (e-mail notifications): the
 # approvers its server's rules name, as "user:<name>" and "group:<name>".
 # "self" is the principal's local account, if it has one.

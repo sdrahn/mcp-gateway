@@ -41,6 +41,14 @@ change configuration, policy data or APIs.
   variants pass `$OPA_EXTRA_ARGS` to OPA, so the drop-in combines with
   every policy mode.
 
+- **"What changes?" before saving role data.** `POST /v1/policy/whatif`
+  on the control API evaluates the decision for every user and group the
+  current or proposed bindings name, over every tool, prompt, resource
+  template and client request the MCP servers offer, with the current
+  and with the proposed role data (policy package `mcp.whatif`), and
+  returns those that differ. Cockpit shows them and saves only after
+  confirmation. Allowed to those the default approver rules name besides
+  `self` (new rule `mcp.approvals.review_policy`) and to root.
 - **Regal** (the Rego linter) in CI, pinned to v0.42.0, with the
   repository's configuration in `.regal/config.yaml`. The policy follows
   it: the rules the gateway and OPA query are annotated as entrypoints,

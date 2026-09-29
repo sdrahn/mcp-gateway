@@ -710,6 +710,7 @@ socket), HTTP with JSON:
 | `GET /v1/servers` | the server registry (without command and environment) and the running instances the caller may manage |
 | `DELETE /v1/instances/{id}` | stop an instance; its sessions get a new one on their next call |
 | `GET /v1/policy` | policy mode (directories or bundle) and the active bundle revisions |
+| `POST /v1/policy/whatif` | "what changes?": the decisions proposed role data would change (`data.mcp.whatif.changes`, for reviewers per `data.mcp.approvals.review_policy`) |
 | `GET /v1/events` | server-sent events: the pending approvals the caller may decide on, then changes (§5.6.3) |
 
 Callers are identified by the socket's peer credentials, so the API needs
@@ -1182,9 +1183,14 @@ tools, and brings no bundle distribution or decision logging.
   `--check-policy-data`, Cockpit before saving and `mcp-policy-bundle`
   before signing, together with regular expressions and role
   references); Regal in CI (0.2, pinned version, `.regal/config.yaml`;
-  the queries the gateway makes are marked as entrypoints); still to
-  add: a "what changes?" check comparing decisions before and after a
-  role-data change.
+  the queries the gateway makes are marked as entrypoints); a "what
+  changes?" check (0.2, `POST /v1/policy/whatif`, shown by Cockpit
+  before saving): OPA evaluates, with the current and with the proposed
+  role data, the decision for every principal the bindings name and
+  every tool, prompt, resource template and client request the servers
+  offer, and returns those that differ. It is a comparison over what
+  exists, not a proof: arguments are not known (decisions are made as
+  for discovery), and servers with per-user discovery are not covered.
 - Integration with an existing OPA estate becomes a requirement:
   - **Bundle roots** (done in 0.2): the policy, the role data and the
     decision-log mask all live below `data.mcp`, and `mcp-policy-bundle`

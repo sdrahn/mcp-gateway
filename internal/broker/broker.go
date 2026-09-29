@@ -109,6 +109,7 @@ const (
 	approvePath        = "/v1/data/mcp/approvals/allow"
 	manageGrantPath    = "/v1/data/mcp/approvals/manage_grant"
 	manageInstancePath = "/v1/data/mcp/approvals/manage_instance"
+	reviewPolicyPath   = "/v1/data/mcp/approvals/review_policy"
 )
 
 // Broker obtains approvals and keeps grants.
@@ -610,6 +611,13 @@ func (b *Broker) mayApprove(ctx context.Context, a Approver, p *Pending) bool {
 	return b.ask(ctx, a, approvePath, map[string]any{"request": map[string]any{
 		"principal": p.Principal, "server": p.Server, "name": p.Name, "action": p.Action,
 	}})
+}
+
+// MayReviewPolicy reports whether a may see how a role data change would
+// change decisions ("what changes?"), which shows every principal's
+// access: as policy says; without policy, root only.
+func (b *Broker) MayReviewPolicy(ctx context.Context, a Approver) bool {
+	return b.ask(ctx, a, reviewPolicyPath, map[string]any{})
 }
 
 // mayManage: as policy says; without policy, the principal's own grants.
