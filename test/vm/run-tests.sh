@@ -54,7 +54,7 @@ call() {
 tool() { call "$1" --method tools/call --params "{\"name\":\"$2\",\"arguments\":$3}"; }
 succeeded_with() { [ "$rc" = 0 ] && grep -qF -- "$1" <<<"$out"; }
 # A refusal by the gateway, not a failure to reach it.
-failed_without() { [ "$rc" != 0 ] && ! grep -qF -- "$1" <<<"$out" && ! grep -q "dial unix" <<<"$out"; }
+failed_without() { [ "$rc" != 0 ] && ! grep -qF -- "$1" <<<"$out" && ! grep -qE "dial unix|backend unavailable" <<<"$out"; }
 tool_error_with() { [ "$rc" = 2 ] && grep -qF -- "$1" <<<"$out"; }
 
 # instance_pid <user>: main PID of the running fs instance of <user>.
@@ -73,9 +73,10 @@ as_gateway_user_fails() { ! runuser -u mcp-gateway -- "$@" >/dev/null 2>&1; }
 # audit_since <types>: raw kernel audit records of <types> since the
 # packages were installed ($since, epoch seconds). ausearch -ts takes
 # locale-formatted dates; filtering on the record timestamps avoids that.
+# --input-logs: without a terminal, ausearch would read stdin instead.
 audit_since() {
 	local line ts
-	ausearch -m "$1" -ts yesterday --raw 2>/dev/null | while IFS= read -r line; do
+	ausearch --input-logs -m "$1" -ts yesterday --raw 2>/dev/null | while IFS= read -r line; do
 		ts=${line#*msg=audit(}
 		ts=${ts%%.*}
 		[[ $ts =~ ^[0-9]+$ ]] && [ "$ts" -ge "$since" ] && printf '%s\n' "$line"

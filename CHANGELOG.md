@@ -24,6 +24,9 @@ openSUSE Tumbleweed with SELinux enforcing:
   `RuntimeDirectory=`, so systemd handed the directory, sockets included,
   to whichever started last. It is now created by tmpfiles.d
   (mode 0771, group `mcp-gateway`).
+- On openSUSE, the gateway could not start any MCP server instance:
+  systemd denied StartTransientUnit because the policy rule for it came
+  from a reference-policy-only interface.
 - The demo MCP server was labelled `bin_t` instead of `mcpsrv_fs_exec_t`:
   its file context entry lost to the base policy's more specific
   `/usr/libexec` entries.

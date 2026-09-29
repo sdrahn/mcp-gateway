@@ -141,11 +141,14 @@ stream_connect_pattern(mcpgw_t, mcpgw_runtime_t, mcpopa_sock_t, mcpopa_t)
 # never exec'd by the gateway itself.
 init_dbus_chat(mcpgw_t)
 dbus_system_bus_client(mcpgw_t)
-ifdef(`init_start_system',`
-	init_start_system(mcpgw_t)
-	init_stop_system(mcpgw_t)
-	init_get_system_status(mcpgw_t)
+# systemd checks StartTransientUnit as system:start on its own context
+# (the unit has no file yet). Plain rules: init_start_system and friends
+# exist in reference policy only.
+gen_require(`
+	type init_t;
+	class system { start stop status };
 ')
+allow mcpgw_t init_t:system { start stop status };
 
 # The backend's stdio is one end of a socketpair created by the gateway;
 # it travels over D-Bus to systemd, which hands it to the backend.
