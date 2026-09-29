@@ -41,6 +41,12 @@ change configuration, policy data or APIs.
   variants pass `$OPA_EXTRA_ARGS` to OPA, so the drop-in combines with
   every policy mode.
 
+- **Regal** (the Rego linter) in CI, pinned to v0.42.0, with the
+  repository's configuration in `.regal/config.yaml`. The policy follows
+  it: the rules the gateway and OPA query are annotated as entrypoints,
+  `decision` has a `default`, and rules of the same name are kept
+  together.
+
 ### Changed
 
 - The gateway's policy fingerprint (which triggers `list_changed`

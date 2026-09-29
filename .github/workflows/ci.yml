@@ -39,6 +39,18 @@ jobs:
       - run: opa fmt --fail --list policy
       - run: opa check --strict policy
       - run: opa test policy -v
+      # Regal, the Rego linter (configuration: .regal/config.yaml). Pinned,
+      # so that new rules arrive with a deliberate update.
+      - name: regal lint
+        env:
+          REGAL_VERSION: v0.42.0
+          REGAL_SHA256: 2ebd3c93e4b325b735dbc4851a033e4d7830e88a79c47c8d087ea75c061cec67
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/regal" \
+            "https://github.com/open-policy-agent/regal/releases/download/$REGAL_VERSION/regal_Linux_x86_64"
+          echo "$REGAL_SHA256  $RUNNER_TEMP/regal" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/regal"
+          "$RUNNER_TEMP/regal" lint --format github policy
 
   selinux:
     runs-on: ubuntu-24.04

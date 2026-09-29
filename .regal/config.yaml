@@ -1,0 +1,20 @@
+# Regal (Rego linter), run in CI: regal lint policy
+rules:
+  idiomatic:
+    # The flat layout (mcp/authz.rego for package mcp.authz) is the
+    # installed one that the documentation and custom policies refer to.
+    directory-package-mismatch:
+      level: ignore
+  imports:
+    unresolved-reference:
+      # The role data comes from data.json files, which Regal does not see.
+      except-paths:
+        - data.mcp.rbac
+        - data.mcp.rbac.**
+  style:
+    line-length:
+      # Tests are tables of inputs and expectations; wrapping hurts more
+      # than it helps.
+      ignore:
+        files:
+          - "*_test.rego"

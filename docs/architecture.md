@@ -1181,8 +1181,10 @@ tools, and brings no bundle distribution or decision logging.
   (`rbac.schema.json`, done in 0.2: checked by `mcp-gateway --check` and
   `--check-policy-data`, Cockpit before saving and `mcp-policy-bundle`
   before signing, together with regular expressions and role
-  references); still to add: Regal in CI and a "what changes?" check
-  comparing decisions before and after a role-data change.
+  references); Regal in CI (0.2, pinned version, `.regal/config.yaml`;
+  the queries the gateway makes are marked as entrypoints); still to
+  add: a "what changes?" check comparing decisions before and after a
+  role-data change.
 - Integration with an existing OPA estate becomes a requirement:
   - **Bundle roots** (done in 0.2): the policy, the role data and the
     decision-log mask all live below `data.mcp`, and `mcp-policy-bundle`

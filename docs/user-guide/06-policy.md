@@ -352,7 +352,7 @@ A syntax error in a Rego file makes OPA keep the previous policy and log
 an error:
 
 ```bash
-opa check /usr/share/mcp-gateway/policy /etc/mcp-gateway/policy
+opa check /usr/share/mcp-gateway/policy mcp:/etc/mcp-gateway/policy
 journalctl -u mcp-opa.service -n 20
 ```
 
@@ -372,7 +372,7 @@ cat >/tmp/input.json <<'EOF'
 }
 EOF
 opa eval -f pretty \
-    -d /usr/share/mcp-gateway/policy -d /etc/mcp-gateway/policy \
+    -d /usr/share/mcp-gateway/policy -d mcp:/etc/mcp-gateway/policy \
     -i /tmp/input.json 'data.mcp.authz.decision'
 ```
 
