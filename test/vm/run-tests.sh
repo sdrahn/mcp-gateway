@@ -241,7 +241,10 @@ check "decisions are in the journal" journal_has_audit
 
 section "SELinux denials"
 avc=$(audit_since AVC,USER_AVC,SELINUX_ERR)
-grep -E 'avc:|type=SELINUX_ERR' <<<"$avc" | sed 's/^/  /' | head -100
+# One line per distinct denial (pids, inodes and /proc names removed).
+grep -E 'avc:|type=SELINUX_ERR' <<<"$avc" |
+	sed -E 's/^.*(avc: |type=SELINUX_ERR)/\1/; s/ (pid|ino)=[0-9]+//g; s/ name="[0-9]+"//' |
+	sort | uniq -c | sort -rn | sed 's/^/  /' | head -60
 check "no denials involving the gateway, OPA or MCP servers" no_mcp_denials
 
 section "Logs"
