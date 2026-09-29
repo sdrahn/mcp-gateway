@@ -23,6 +23,7 @@ SYSCONFDIR  ?= /etc
 DISTCONFDIR ?= $(SYSCONFDIR)
 UNITDIR     ?= $(PREFIX)/lib/systemd/system
 SYSUSERSDIR ?= $(PREFIX)/lib/sysusers.d
+TMPFILESDIR ?= $(PREFIX)/lib/tmpfiles.d
 POLKITDIR   ?= $(DATADIR)/polkit-1/rules.d
 COCKPITDIR  ?= $(DATADIR)/cockpit/mcp-gateway
 SELINUXDIR  ?= $(DATADIR)/selinux/packages/$(SELINUXTYPE)
@@ -98,6 +99,7 @@ install-gateway:
 	install -Dm0644 systemd/mcp-gateway.service $(DESTDIR)$(UNITDIR)/mcp-gateway.service
 	install -Dm0644 systemd/mcp-opa.service $(DESTDIR)$(UNITDIR)/mcp-opa.service
 	install -Dm0644 packaging/sysusers.d/mcp-gateway.conf $(DESTDIR)$(SYSUSERSDIR)/mcp-gateway.conf
+	install -Dm0644 packaging/tmpfiles.d/mcp-gateway.conf $(DESTDIR)$(TMPFILESDIR)/mcp-gateway.conf
 	install -Dm0644 packaging/polkit/50-mcp-gateway.rules $(DESTDIR)$(POLKITDIR)/50-mcp-gateway.rules
 
 install-selinux: selinux/mcp_gateway.pp

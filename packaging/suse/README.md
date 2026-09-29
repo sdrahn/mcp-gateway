@@ -73,7 +73,7 @@ the administrator's (below `/etc`), which suits transactional systems
 | `/etc/mcp-gateway/bundle/` | signed policy bundle (`policy.tar.gz`, from `mcp-policy-bundle`), its verification key (`verify.pem`) and, if signing happens on the host, the signing key (`signing.pem`, 0600, `mcpgw_signing_key_t`; `mcp-policy-bundle -G`) | admin |
 | `/etc/mcp-gateway/credentials/` | secrets for MCP servers (`credentials:` in their definitions), mode 0700, label `mcpgw_cred_t`; read by systemd, never by the gateway | admin |
 | `/var/lib/mcp-gateway/` | persistent grants and pending approvals, audit key (`StateDirectory=`) | service |
-| `/run/mcp-gateway/` | sockets (`RuntimeDirectory=`) | service |
+| `/run/mcp-gateway/` | sockets; created by `tmpfiles.d/mcp-gateway.conf` (0771, shared by both services) | service |
 
 After installation:
 

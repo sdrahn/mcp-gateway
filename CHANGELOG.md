@@ -4,6 +4,38 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## Unreleased
+
+### Fixed
+
+Found by the new VM test (test/vm), which installs the packages on
+openSUSE Tumbleweed with SELinux enforcing:
+
+- The gateway failed to start: it could not give its client socket to
+  the `mcp-users` group because it was not a member of that group
+  (`SupplementaryGroups=mcp-users` in `mcp-gateway.service`).
+- OPA failed to start with `--watch`: the SELinux policy lacked the
+  `watch` permission on the policy directories.
+- The gateway did not detect SELinux from inside its domain and started
+  backends without their SELinux domain and MCS categories; it now
+  checks the mount table.
+- Clients could not connect after OPA restarted, and OPA could fail to
+  start: both services declared `/run/mcp-gateway` as their
+  `RuntimeDirectory=`, so systemd handed the directory, sockets included,
+  to whichever started last. It is now created by tmpfiles.d
+  (mode 0771, group `mcp-gateway`).
+- On openSUSE, the gateway could not start any MCP server instance:
+  systemd denied StartTransientUnit because the policy rule for it came
+  from a reference-policy-only interface.
+- The filesystem MCP server could not create files directly in the
+  user's home directory (SELinux).
+- SELinux denials from the gateway and OPA in normal operation: the MCS
+  scan's walk over /proc (now silenced), the Go runtime reading sysctls
+  and cgroup limits, and OPA's user lookup.
+- The demo MCP server was labelled `bin_t` instead of `mcpsrv_fs_exec_t`:
+  its file context entry lost to the base policy's more specific
+  `/usr/libexec` entries.
+
 ## v0.1.0 — 2026-09-28
 
 First release. mcp-gateway makes stdio MCP servers on a Linux host

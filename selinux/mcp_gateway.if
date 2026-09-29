@@ -133,6 +133,13 @@ interface(`mcp_gateway_control_client',`
 ## </param>
 #
 interface(`mcp_gateway_backend_home_rw',`
+	gen_require(`
+		type user_home_dir_t, user_home_t;
+	')
 	userdom_manage_user_home_content_files($1)
 	userdom_manage_user_home_content_dirs($1)
+	# New files and directories directly in the home directory are home
+	# content, as for programs the user runs.
+	allow $1 user_home_dir_t:dir rw_dir_perms;
+	type_transition $1 user_home_dir_t:{ file dir } user_home_t;
 ')
