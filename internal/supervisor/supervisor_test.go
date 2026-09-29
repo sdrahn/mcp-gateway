@@ -208,3 +208,18 @@ func TestExecOutputBeforeExit(t *testing.T) {
 		}
 	}
 }
+
+func TestHasSELinuxFS(t *testing.T) {
+	with := `22 26 0:21 / /sys rw,nosuid,nodev,noexec,relatime shared:2 - sysfs sysfs rw
+24 22 0:22 / /sys/fs/selinux rw,nosuid,noexec,relatime shared:3 - selinuxfs selinuxfs rw
+`
+	without := `22 26 0:21 / /sys rw,nosuid,nodev,noexec,relatime shared:2 - sysfs sysfs rw
+30 22 0:26 / /sys/kernel/security rw,nosuid,nodev,noexec,relatime shared:7 - securityfs securityfs rw
+`
+	if !hasSELinuxFS(strings.NewReader(with)) {
+		t.Error("selinuxfs mount not found")
+	}
+	if hasSELinuxFS(strings.NewReader(without)) {
+		t.Error("selinuxfs found where there is none")
+	}
+}

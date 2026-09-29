@@ -12,6 +12,9 @@ Wants=network-online.target
 Type=simple
 User=mcp-gateway
 Group=mcp-gateway
+# The client socket is chgrp'ed to socket_group (gateway.yaml); the gateway
+# must be a member of that group to do so without CAP_CHOWN.
+SupplementaryGroups=mcp-users
 # Backend instances are started as transient units over D-Bus; the
 # gateway may manage mcp-*.service units only (polkit rule
 # 50-mcp-gateway.rules).
