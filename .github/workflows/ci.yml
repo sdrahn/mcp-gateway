@@ -119,3 +119,52 @@ jobs:
         run: |
           zypper -n --gpg-auto-import-keys in --allow-unsigned-rpm ~/rpmbuild/RPMS/noarch/mcp-gateway-selinux-*.rpm
           semodule -l | grep -x mcp_gateway
+      - name: Collect the packages for the VM test
+        run: mkdir rpms && cp ~/rpmbuild/RPMS/*/*.rpm rpms/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpms
+          path: rpms/
+          retention-days: 7
+
+  # The packages installed on a real openSUSE system (a KVM guest) with
+  # SELinux enforcing: domains, MCS pairs, polkit, credentials, kernel
+  # audit, and no SELinux denials (test/vm).
+  vm:
+    needs: opensuse
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+          static: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: rpms
+          path: rpms
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install QEMU
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils
+      - name: Build the test client
+        run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/mcpcall" ./test/vm/mcpcall
+      - name: Run the VM tests (openSUSE Tumbleweed)
+        env:
+          WORK: ${{ runner.temp }}/vm
+        run: test/vm/run-vm.sh rpms "$RUNNER_TEMP/mcpcall" "$(command -v opa)"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vm-logs
+          path: |
+            ${{ runner.temp }}/vm/console.log
+            ${{ runner.temp }}/vm/test.log
+          if-no-files-found: ignore
