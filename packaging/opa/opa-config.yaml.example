@@ -28,7 +28,7 @@ keys:
       ...
       -----END PUBLIC KEY-----
 
-# Decisions to the journal; policy/system/log.rego (part of the bundle)
+# Decisions to the journal; policy/mcp/log.rego (part of the bundle)
 # masks the arguments.
 decision_logs:
   console: true

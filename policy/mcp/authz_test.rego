@@ -189,7 +189,7 @@ test_obligations_merged if {
 		{"server": "fs", "tool": "read_file", "obligations": {"redact_output": ["AKIA\\w+"], "max_output_bytes": 1024, "rate_limit": "10/m", "arg_constraints": {"path": "\\.txt$"}, "audit": "full"}},
 		{"server": "fs", "tool": "read_file"},
 	]}}
-	d := authz.decision with input as call(alice, "fs", "read_file", {}) with data.rbac.roles as perms
+	d := authz.decision with input as call(alice, "fs", "read_file", {}) with data.mcp.rbac.roles as perms
 	d.effect == "allow"
 	d.obligations == {
 		"redact_output": ["AKIA\\w+", "token=\\S+"],
@@ -207,7 +207,7 @@ test_pseudonymize_merged if {
 		{"server": "crm", "tool": "update_customer", "obligations": {"reidentify": "id"}},
 		{"server": "crm", "tool": "update_customer"},
 	]}}
-	d := authz.decision with input as call(alice, "crm", "update_customer", {}) with data.rbac.roles as perms
+	d := authz.decision with input as call(alice, "crm", "update_customer", {}) with data.mcp.rbac.roles as perms
 	d.effect == "allow"
 	d.obligations == {
 		"pseudonymize": {
@@ -228,7 +228,7 @@ test_obligations_on_approved if {
 	perms := {"developer": {"permissions": [{"server": "fs", "tool": "write_file", "require_approval": true, "obligations": {"audit": "full"}}]}}
 	g := {"sub": "alice", "server": "fs", "tool": "write_file", "scope": "duration", "expires": future}
 	inp := object.union(call(alice, "fs", "write_file", {}), {"grants": [g]})
-	d := authz.decision with input as inp with data.rbac.roles as perms
+	d := authz.decision with input as inp with data.mcp.rbac.roles as perms
 	d.effect == "allow"
 	d.obligations.audit == "full"
 }
@@ -240,7 +240,7 @@ test_sensitive_elicitation if {
 	authz.decision.effect == "allow" with input as plain
 	authz.decision.effect == "deny" with input as secret
 	perms := {"admin": {"permissions": [{"server": "fs", "client": "elicitation/create", "allow_sensitive": true}]}}
-	authz.decision.effect == "allow" with input as secret with data.rbac.roles as perms
+	authz.decision.effect == "allow" with input as secret with data.mcp.rbac.roles as perms
 }
 
 cert_rbac := {
@@ -258,13 +258,13 @@ remote := {"sub": "u-remote", "iss": "https://idp", "transport": "http", "sessio
 remote_with_cert := object.union(remote, {"cert": {"subject": "CN=agent", "x5t#S256": "abc"}})
 
 test_require_client_cert if {
-	authz.decision.effect == "allow" with input as call(remote_with_cert, "fs", "write_file", {}) with data.rbac as cert_rbac
-	d := authz.decision with input as call(remote, "fs", "write_file", {}) with data.rbac as cert_rbac
+	authz.decision.effect == "allow" with input as call(remote_with_cert, "fs", "write_file", {}) with data.mcp.rbac as cert_rbac
+	d := authz.decision with input as call(remote, "fs", "write_file", {}) with data.mcp.rbac as cert_rbac
 	d.effect == "deny"
 	d.reason == "no matching permission"
 }
 
 test_deny_applies_without_client_cert if {
-	d := authz.decision with input as call(remote, "fs", "read_secret", {}) with data.rbac as cert_rbac
+	d := authz.decision with input as call(remote, "fs", "read_secret", {}) with data.mcp.rbac as cert_rbac
 	d.reason == "denied by policy"
 }

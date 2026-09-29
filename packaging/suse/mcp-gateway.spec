@@ -15,7 +15,8 @@ Name:           mcp-gateway
 Version:        0.1.0
 Release:        0
 Summary:        Policy-enforcing gateway for local MCP servers
-License:        MIT
+# MIT for mcp-gateway; the others for the vendored Go modules linked in.
+License:        MIT AND Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause
 Group:          Productivity/Networking/Security
 URL:            https://github.com/sdrahn/mcp-gateway
 Source0:        %{name}-%{version}.tar.gz
@@ -48,6 +49,7 @@ transient unit in its own SELinux domain.
 
 %package selinux
 Summary:        SELinux policy module for mcp-gateway
+License:        MIT
 Group:          System/Management
 BuildArch:      noarch
 Requires:       selinux-policy-%{selinuxtype}
@@ -61,6 +63,7 @@ the gateway's or OPA's sockets.
 
 %package cockpit
 Summary:        Cockpit page for mcp-gateway
+License:        MIT
 Group:          System/Management
 BuildArch:      noarch
 Requires:       %{name} = %{version}
@@ -164,6 +167,7 @@ fi
 %{_datadir}/mcp-gateway/policy
 %{_datadir}/mcp-gateway/opa
 %{_datadir}/mcp-gateway/mcs
+%{_datadir}/mcp-gateway/schema
 %{_unitdir}/mcp-gateway.service
 %{_unitdir}/mcp-opa.service
 %{_sysusersdir}/%{name}.conf

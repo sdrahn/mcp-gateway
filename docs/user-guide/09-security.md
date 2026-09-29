@@ -183,9 +183,42 @@ it is available; `on` makes it mandatory.
 journalctl -u mcp-opa.service -o cat | jq 'select(.msg == "Decision Log")'
 ```
 
-Tool arguments are masked (`system/log.rego`) unless the decision asked
+Tool arguments are masked (`mcp/log.rego`) unless the decision asked
 for a full audit. The `decision_id` of a gateway record appears in the
 decision log's input (`input.context.decision_id`), linking the two.
+
+#### Shipping decision logs to a collector
+
+Where OPA's decision logs are already collected centrally (for
+Kubernetes admission or Envoy authorization, say), the gateway's
+decisions can go to the same place, through OPA's decision-log service.
+OPA sends batches of decisions, gzip-compressed JSON, with `POST` to
+`<url>/logs`; the collector sees what the journal gets, masked the same
+way.
+
+```bash
+cp /usr/share/mcp-gateway/opa/decision-logs.yaml.example /etc/mcp-gateway/opa-config.yaml
+vi /etc/mcp-gateway/opa-config.yaml          # the collector's URL, credentials
+install -D -m 0644 /usr/share/mcp-gateway/opa/decision-logs.conf \
+    /etc/systemd/system/mcp-opa.service.d/decision-logs.conf
+setsebool -P mcpopa_can_network on           # OPA may connect to HTTP(S) ports
+systemctl daemon-reload && systemctl restart mcp-opa.service
+```
+
+- The drop-in works with every policy mode (chapter 6): it adds the
+  configuration file through `OPA_EXTRA_ARGS` and lifts OPA's network
+  isolation. With a bundle server, OPA already reads
+  `/etc/mcp-gateway/opa-config.yaml`: add the `decision_logs` part (and
+  its service) to that file.
+- A token for the collector goes in a file only OPA can read, such as
+  `/etc/mcp-gateway/opa-logs.token` (`install -m 0600 -o mcp-opa`), not
+  in `/etc/mcp-gateway/credentials/`, which OPA may not read.
+- The collector must be on a port labelled `http_port_t` (80, 443 and
+  others; `semanage port -l | grep http_port_t`).
+- While the collector is unreachable, OPA buffers decisions up to
+  `buffer_size_limit_bytes` and then drops the oldest. The journal copy
+  (`console: true`) remains, so forward that as well if every decision
+  must be kept.
 
 Forward both journals to your log management; keep `audit.key` to
 compare digests later.

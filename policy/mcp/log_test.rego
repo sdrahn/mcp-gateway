@@ -1,8 +1,8 @@
-package system.log_test
+package mcp.log_test
 
 import rego.v1
 
-import data.system.log
+import data.mcp.log
 
 test_args_masked if {
 	"/input/args" in log.mask with input as {

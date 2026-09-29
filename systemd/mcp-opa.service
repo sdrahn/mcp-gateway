@@ -14,19 +14,27 @@ ReadWritePaths=/run/mcp-gateway
 # rather than through a file label ("-": ignored where SELinux is off).
 SELinuxContext=-system_u:system_r:mcpopa_t:s0
 # Policy logic (vendor, /usr/share) and role data (administrator, /etc).
+# Everything lives below data.mcp, so the policy can share an OPA with
+# other policies: "mcp:" loads the administrator's data files below it
+# (rbac/data.json is data.mcp.rbac); Rego files keep their packages.
 # For signed bundles (from mcp-policy-bundle or a bundle server) replace
 # ExecStart= with a drop-in from /usr/share/mcp-gateway/opa/.
-# Every decision is logged to the journal; policy/system/log.rego masks
+# Every decision is logged to the journal; policy/mcp/log.rego masks
 # tool arguments, and input.context.decision_id links an entry to the
 # gateway's audit record.
+# OPA_EXTRA_ARGS adds options in every mode, e.g. an OPA configuration file
+# for shipping decision logs (decision-logs.conf in /usr/share/mcp-gateway/opa/).
+Environment=OPA_EXTRA_ARGS=
 ExecStart=/usr/bin/opa run --server \
     --addr unix:///run/mcp-gateway/opa.sock \
     --unix-socket-perm 0660 \
     --watch \
     --log-format json \
     --set=decision_logs.console=true \
+    --set=decision_logs.mask_decision=/mcp/log/mask \
+    $OPA_EXTRA_ARGS \
     /usr/share/mcp-gateway/policy \
-    /etc/mcp-gateway/policy
+    mcp:/etc/mcp-gateway/policy
 Restart=on-failure
 
 NoNewPrivileges=yes

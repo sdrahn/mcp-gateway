@@ -324,11 +324,34 @@ changes within seconds; the gateway notices within `policy.watch_interval`
 (10 s), tells connected agents to list their tools again and writes a
 `mcp-policy-change` audit event. No restart is needed.
 
-Check the file first; a syntax error makes OPA keep the previous policy
-and log an error:
+Check the file first:
 
 ```bash
-python3 -m json.tool /etc/mcp-gateway/policy/rbac/data.json >/dev/null
+mcp-gateway --check-policy-data
+```
+
+It validates the file against the role data's JSON Schema
+(`/usr/share/mcp-gateway/schema/rbac.schema.json`) and reports every
+problem with its location, for example
+
+```
+/roles/developer/permissions/4: additional properties 'require_aproval' not allowed
+/bindings/users/alice/0: unknown role "developr"
+```
+
+The policy ignores what it does not understand, so without the check a
+misspelt field or role name only shows as denied requests. Besides the
+schema (field names, types and allowed values), it checks that regular
+expressions compile and that bindings and `role:` approver rules name
+existing roles. `mcp-gateway --check` includes it; Cockpit runs it before
+saving, and `mcp-policy-bundle` before signing. Editors that support JSON
+Schema can use the schema file while you edit. A `description` is allowed
+on roles and permissions, for your notes.
+
+A syntax error in a Rego file makes OPA keep the previous policy and log
+an error:
+
+```bash
 opa check /usr/share/mcp-gateway/policy /etc/mcp-gateway/policy
 journalctl -u mcp-opa.service -n 20
 ```

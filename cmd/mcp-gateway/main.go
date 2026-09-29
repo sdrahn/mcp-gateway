@@ -14,6 +14,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -32,6 +34,7 @@ import (
 	controlapi "github.com/sdrahn/mcp-gateway/internal/control"
 	"github.com/sdrahn/mcp-gateway/internal/notify"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
+	"github.com/sdrahn/mcp-gateway/internal/policydata"
 	"github.com/sdrahn/mcp-gateway/internal/router"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
@@ -45,7 +48,10 @@ const mcsWatchInterval = 30 * time.Second
 func main() {
 	configPath := flag.String("config", "", "path to the gateway configuration (default: "+
 		config.DefaultConfigPath+", else "+config.DefaultVendorConfigPath+", else built-in defaults)")
-	checkOnly := flag.Bool("check", false, "validate the configuration and backend registry, then exit")
+	checkOnly := flag.Bool("check", false, "validate the configuration, the backend registry and the role data, then exit")
+	checkData := flag.Bool("check-policy-data", false, "validate only the role data, then exit")
+	policyData := flag.String("policy-data", policydata.DefaultPath,
+		"role data to validate with -check and -check-policy-data (\"-\": standard input; empty: none)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	debug := flag.Bool("debug", false, "log debug messages")
 	flag.Parse()
@@ -61,13 +67,58 @@ func main() {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	if err := run(log, *configPath, *checkOnly); err != nil {
+	if *checkData {
+		if err := checkPolicyData(log, *policyData, true); err != nil {
+			log.Error("role data invalid", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if err := run(log, *configPath, *checkOnly, *policyData); err != nil {
 		log.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(log *slog.Logger, configPath string, checkOnly bool) error {
+// checkPolicyData validates the role data at path ("-": standard input)
+// against its schema, printing each problem to standard error. A missing
+// file is an error only if required (the policy may come from a bundle).
+func checkPolicyData(log *slog.Logger, path string, required bool) error {
+	if path == "" {
+		return nil
+	}
+	var data []byte
+	var err error
+	if path == "-" {
+		data, err = io.ReadAll(os.Stdin)
+	} else {
+		data, err = os.ReadFile(path)
+	}
+	if errors.Is(err, fs.ErrNotExist) && !required {
+		log.Info("no role data to check", "path", path)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	problems, err := policydata.Check(data)
+	if err != nil {
+		return err
+	}
+	for _, p := range problems {
+		fmt.Fprintln(os.Stderr, p)
+	}
+	if len(problems) > 0 {
+		if path == "-" {
+			path = "standard input"
+		}
+		return fmt.Errorf("%s: %d problem(s)", path, len(problems))
+	}
+	log.Info("role data valid", "path", path)
+	return nil
+}
+
+func run(log *slog.Logger, configPath string, checkOnly bool, policyData string) error {
 	gw, used, err := config.Resolve(configPath)
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
@@ -81,6 +132,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool) error {
 	}
 	log.Info("configuration valid", "config", used, "socket", gw.Socket, "backends", len(backends))
 	if checkOnly {
+		if err := checkPolicyData(log, policyData, false); err != nil {
+			return fmt.Errorf("role data: %w", err)
+		}
 		return nil
 	}
 

@@ -55,8 +55,23 @@ function validateRBAC(d) {
     return problems;
 }
 
+/* schemaProblems checks the role data against its JSON Schema with
+ * "mcp-gateway --check-policy-data" (unknown fields, wrong values, invalid
+ * regular expressions). Each problem is a line starting with its location
+ * (a JSON pointer). If the check cannot run, nothing is reported. */
+async function schemaProblems(data) {
+    try {
+        await cockpit.spawn(["mcp-gateway", "--check-policy-data", "--policy-data", "-"], { err: "message" })
+                .input(JSON.stringify(data));
+        return [];
+    } catch (ex) {
+        return ((ex && ex.message) || "").split("\n").filter(l => l.startsWith("/"));
+    }
+}
+
 async function saveRBAC(data) {
-    const problems = validateRBAC(data);
+    let problems = validateRBAC(data);
+    if (problems.length === 0) problems = await schemaProblems(data);
     if (problems.length > 0) {
         showError("Not saved: " + problems.join(" "));
         return false;

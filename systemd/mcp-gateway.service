@@ -18,7 +18,9 @@ SupplementaryGroups=mcp-users
 # Backend instances are started as transient units over D-Bus; the
 # gateway may manage mcp-*.service units only (polkit rule
 # 50-mcp-gateway.rules).
-ExecStartPre=/usr/bin/mcp-gateway --check
+# The configuration only: the role data is OPA's; a mistake there denies
+# requests but must not keep the gateway from starting.
+ExecStartPre=/usr/bin/mcp-gateway --check --policy-data=
 ExecStart=/usr/bin/mcp-gateway
 Restart=on-failure
 # /run/mcp-gateway is created by tmpfiles.d (mcp-gateway.conf).

@@ -26,6 +26,14 @@ import (
 // shipped mcp-opa.service drop-in, with paths replaced.
 func dropInArgs(t *testing.T, file string, replace ...string) []string {
 	t.Helper()
+	return unitArgs(t, file, nil, replace...)
+}
+
+// unitArgs is dropInArgs with environment variables for the command line:
+// like systemd, an unquoted $NAME becomes the words of its value (none if
+// it is unset).
+func unitArgs(t *testing.T, file string, env map[string]string, replace ...string) []string {
+	t.Helper()
 	b, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
@@ -36,11 +44,35 @@ func dropInArgs(t *testing.T, file string, replace ...string) []string {
 		if !ok {
 			continue
 		}
-		cmd = strings.NewReplacer(replace...).Replace(cmd)
-		return strings.Fields(cmd)
+		var args []string
+		for _, f := range strings.Fields(strings.NewReplacer(replace...).Replace(cmd)) {
+			if name, ok := strings.CutPrefix(f, "$"); ok {
+				args = append(args, strings.Fields(env[name])...)
+				continue
+			}
+			args = append(args, f)
+		}
+		return args
 	}
 	t.Fatalf("no opa ExecStart= in %s", file)
 	return nil
+}
+
+// unitEnv returns the Environment= settings of a unit file or drop-in.
+func unitEnv(t *testing.T, file string, replace ...string) map[string]string {
+	t.Helper()
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{}
+	for _, line := range strings.Split(string(b), "\n") {
+		if kv, ok := strings.CutPrefix(line, "Environment="); ok {
+			k, v, _ := strings.Cut(kv, "=")
+			env[k] = strings.NewReplacer(replace...).Replace(v)
+		}
+	}
+	return env
 }
 
 func signingKey(t *testing.T, dir string) (key, pub string) {
@@ -171,7 +203,10 @@ func TestSignedBundle(t *testing.T) {
 	t.Run("revision active", func(t *testing.T) {
 		var resp struct {
 			Result map[string]struct {
-				Manifest struct{ Revision string } `json:"manifest"`
+				Manifest struct {
+					Revision string   `json:"revision"`
+					Roots    []string `json:"roots"`
+				} `json:"manifest"`
 			} `json:"result"`
 		}
 		opaGet(t, sock, "/v1/data/system/bundles", &resp)
@@ -181,6 +216,10 @@ func TestSignedBundle(t *testing.T) {
 		for _, b := range resp.Result {
 			if b.Manifest.Revision != "e2e-1" {
 				t.Fatalf("revision %q", b.Manifest.Revision)
+			}
+			// Only data.mcp, so the bundle can share an OPA.
+			if len(b.Manifest.Roots) != 1 || b.Manifest.Roots[0] != "mcp" {
+				t.Fatalf("roots %q", b.Manifest.Roots)
 			}
 		}
 	})
@@ -263,8 +302,21 @@ func TestPolicyBundleKeygen(t *testing.T) {
 	if out, err := build(); err != nil {
 		t.Fatalf("build with the generated key: %v %s", err, out)
 	}
+	// Role data that fails its schema is not signed.
+	gateway := buildBinary(t, filepath.Join(dir, "bin"), "./cmd/mcp-gateway")
+	bad := filepath.Join(dir, "bad")
+	writeFile(t, filepath.Join(bad, "rbac", "data.json"), `{"roles": {"r": {"permissions": [{"server": "fs", "tool": "x", "efect": "deny"}]}}}`)
+	cmd := exec.Command("sh", filepath.Join("..", "tools", "mcp-policy-bundle"),
+		"-k", key, "-o", filepath.Join(dir, "bad.tar.gz"), "-n", "-V", filepath.Join("..", "policy"), "-L", bad)
+	cmd.Env = append(os.Environ(), "OPA="+opa, "MCP_GATEWAY="+gateway)
+	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "'efect' not allowed") {
+		t.Fatalf("invalid role data: %v %s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bad.tar.gz")); err == nil {
+		t.Fatal("bundle written for invalid role data")
+	}
 	// The bundle verifies with the generated verification key.
-	cmd := exec.Command(opa, "run", "--server", "--addr", "unix://"+filepath.Join(dir, "opa.sock"), "--bundle",
+	cmd = exec.Command(opa, "run", "--server", "--addr", "unix://"+filepath.Join(dir, "opa.sock"), "--bundle",
 		"--verification-key", filepath.Join(dir, "bundle", "verify.pem"), bundle)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
@@ -274,3 +326,6 @@ func TestPolicyBundleKeygen(t *testing.T) {
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
 	waitFor(t, filepath.Join(dir, "opa.sock"))
 }
+
+// buildBinary is build, for tests whose local build function shadows it.
+var buildBinary = build
