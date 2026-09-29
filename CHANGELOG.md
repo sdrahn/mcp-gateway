@@ -4,7 +4,19 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
-## Unreleased
+## v0.2.0 — 2026-09-29
+
+The policy engine fits into an existing OPA estate (decision D8): the
+gateway's policy lives entirely below `data.mcp`, so its bundles can
+share an OPA with other teams' policies, and its decision logs can go to
+the same collector. Role data edits are checked against a JSON Schema
+and previewed ("what changes?") before they take effect, and the policy
+is linted with Regal in CI. Includes the fixes of 0.1.1.
+
+**Upgrading from 0.1:** custom policy that reads `data.rbac` or adds to
+`system.log`, and drop-ins that replace `ExecStart=` of
+`mcp-opa.service`, need changes (below). The role data file stays where
+it is and needs none.
 
 ### Changed (incompatible)
 
@@ -40,7 +52,6 @@ change configuration, policy data or APIs.
   in `/usr/share/mcp-gateway/opa/` (chapter 9). All `mcp-opa.service`
   variants pass `$OPA_EXTRA_ARGS` to OPA, so the drop-in combines with
   every policy mode.
-
 - **"What changes?" before saving role data.** `POST /v1/policy/whatif`
   on the control API evaluates the decision for every user and group the
   current or proposed bindings name, over every tool, prompt, resource
