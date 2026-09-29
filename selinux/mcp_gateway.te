@@ -60,6 +60,10 @@ corenet_port(mcp_port_t)
 # /run/mcp-gateway and the client socket in it.
 type mcpgw_runtime_t;
 mcp_gateway_runtime_file(mcpgw_runtime_t)
+# Created by systemd-tmpfiles (tmpfiles.d/mcp-gateway.conf). The class
+# argument is required by Fedora-derived policy (openSUSE) and ignored,
+# with a warning, by reference policy.
+systemd_tmpfilesd_managed(mcpgw_runtime_t, dir)
 
 type mcpgw_sock_t;
 mcp_gateway_runtime_file(mcpgw_sock_t)

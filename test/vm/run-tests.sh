@@ -74,8 +74,12 @@ as_gateway_user_fails() { ! runuser -u mcp-gateway -- "$@" >/dev/null 2>&1; }
 # packages were installed ($since, epoch seconds). ausearch -ts takes
 # locale-formatted dates; filtering on the record timestamps avoids that.
 audit_since() {
-	ausearch -m "$1" -ts yesterday --raw 2>/dev/null |
-		awk -F'msg=audit\\(' -v s="$since" 'NF > 1 && $2 + 0 >= s'
+	local line ts
+	ausearch -m "$1" -ts yesterday --raw 2>/dev/null | while IFS= read -r line; do
+		ts=${line#*msg=audit(}
+		ts=${ts%%.*}
+		[[ $ts =~ ^[0-9]+$ ]] && [ "$ts" -ge "$since" ] && printf '%s\n' "$line"
+	done
 }
 audited() { audit_since TRUSTED_APP | grep -q "op=$1"; }
 audit_log_works() { audit_since SERVICE_START | grep -q 'unit=mcp-gateway'; }
@@ -148,7 +152,16 @@ echo "  opa:     $(label "$opa_pid")"
 check "gateway runs in mcpgw_t" proc_has_type "$gw_pid" mcpgw_t
 check "OPA runs in mcpopa_t" proc_has_type "$opa_pid" mcpopa_t
 check "gateway runs as mcp-gateway" test "$(proc_user "$gw_pid")" = mcp-gateway
-ls -Z /run/mcp-gateway/ | sed 's/^/  /'
+ls -ldZ /run/mcp-gateway | sed 's/^/  /'
+ls -lZ /run/mcp-gateway/ | sed 's/^/  /'
+check "/run/mcp-gateway is labeled mcpgw_runtime_t" file_has_type /run/mcp-gateway mcpgw_runtime_t
+check "mcp.sock belongs to group mcp-users" test "$(stat -c %G /run/mcp-gateway/mcp.sock)" = mcp-users
+# Restarting OPA (e.g. for a new policy bundle) must leave the gateway's
+# sockets alone.
+systemctl restart mcp-opa.service
+sleep 2
+check "OPA is running after a restart" systemctl is-active --quiet mcp-opa.service
+check "mcp.sock keeps its group across an OPA restart" test "$(stat -c %G /run/mcp-gateway/mcp.sock)" = mcp-users
 
 section "Calls"
 tool alice read_file '{"path":"/home/alice/secret.txt"}'
@@ -216,6 +229,8 @@ check "credentials are labeled mcpgw_cred_t" file_has_type /etc/mcp-gateway/cred
 check "the gateway user cannot read credentials" as_gateway_user_fails cat /etc/mcp-gateway/credentials/probe
 
 section "Kernel audit"
+echo "  auditd: $(systemctl is-active auditd); records since the install: $(audit_since ALL | wc -l)"
+audit_since SERVICE_START | grep -o 'unit=mcp-[a-z-]*' | sort | uniq -c | sed 's/^/  /'
 audit_since TRUSTED_APP |
 	grep -o 'op=mcp-[a-z-]*' | sort | uniq -c | sed 's/^/  /'
 check "the audit log has the gateway's service start" audit_log_works

@@ -19,6 +19,14 @@ openSUSE Tumbleweed with SELinux enforcing:
 - The gateway did not detect SELinux from inside its domain and started
   backends without their SELinux domain and MCS categories; it now
   checks the mount table.
+- Clients could not connect after OPA restarted, and OPA could fail to
+  start: both services declared `/run/mcp-gateway` as their
+  `RuntimeDirectory=`, so systemd handed the directory, sockets included,
+  to whichever started last. It is now created by tmpfiles.d
+  (mode 0771, group `mcp-gateway`).
+- The demo MCP server was labelled `bin_t` instead of `mcpsrv_fs_exec_t`:
+  its file context entry lost to the base policy's more specific
+  `/usr/libexec` entries.
 
 ## v0.1.0 — 2026-09-28
 

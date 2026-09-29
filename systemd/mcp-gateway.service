@@ -21,9 +21,8 @@ SupplementaryGroups=mcp-users
 ExecStartPre=/usr/bin/mcp-gateway --check
 ExecStart=/usr/bin/mcp-gateway
 Restart=on-failure
-RuntimeDirectory=mcp-gateway
-RuntimeDirectoryMode=0750
-RuntimeDirectoryPreserve=yes
+# /run/mcp-gateway is created by tmpfiles.d (mcp-gateway.conf).
+ReadWritePaths=/run/mcp-gateway
 StateDirectory=mcp-gateway
 StateDirectoryMode=0700
 

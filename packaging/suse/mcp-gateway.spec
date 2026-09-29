@@ -106,7 +106,7 @@ make selinux
 %make_install install install-selinux install-cockpit install-desktop install-demo \
     PREFIX=%{_prefix} BINDIR=%{_bindir} SBINDIR=%{_sbindir} LIBEXECDIR=%{_libexecdir} \
     DATADIR=%{_datadir} SYSCONFDIR=%{_sysconfdir} DISTCONFDIR=%{_distconfdir} \
-    UNITDIR=%{_unitdir} SYSUSERSDIR=%{_sysusersdir} \
+    UNITDIR=%{_unitdir} SYSUSERSDIR=%{_sysusersdir} TMPFILESDIR=%{_tmpfilesdir} \
     SELINUXDIR=%{_datadir}/selinux/packages/%{selinuxtype}
 
 %check
@@ -117,6 +117,7 @@ go test ./internal/...
 %service_add_pre mcp-gateway.service mcp-opa.service
 
 %post
+%tmpfiles_create %{_tmpfilesdir}/%{name}.conf
 %service_add_post mcp-gateway.service mcp-opa.service
 
 %preun
@@ -166,6 +167,7 @@ fi
 %{_unitdir}/mcp-gateway.service
 %{_unitdir}/mcp-opa.service
 %{_sysusersdir}/%{name}.conf
+%{_tmpfilesdir}/%{name}.conf
 %{_datadir}/polkit-1/rules.d/50-mcp-gateway.rules
 
 %files selinux

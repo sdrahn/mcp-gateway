@@ -8,9 +8,8 @@ Type=simple
 User=mcp-opa
 Group=mcp-gateway
 # Shared with mcp-gateway.service.
-RuntimeDirectory=mcp-gateway
-RuntimeDirectoryMode=0750
-RuntimeDirectoryPreserve=yes
+# /run/mcp-gateway is created by tmpfiles.d (mcp-gateway.conf).
+ReadWritePaths=/run/mcp-gateway
 # The distribution's opa binary, entered into its own SELinux domain here
 # rather than through a file label ("-": ignored where SELinux is off).
 SELinuxContext=-system_u:system_r:mcpopa_t:s0
