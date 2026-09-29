@@ -25,6 +25,17 @@ change configuration, policy data or APIs.
   `ExecStart=` of `mcp-opa.service` must add the prefix and the mask
   setting.
 
+### Added
+
+- **JSON Schema for the role data** (`rbac.schema.json`, draft-07,
+  installed in `/usr/share/mcp-gateway/schema/`). `mcp-gateway --check`
+  and the new `mcp-gateway --check-policy-data` report every problem with
+  its location: unknown fields, wrong types and values, regular
+  expressions that do not compile, and bindings or approver rules that
+  name a role that does not exist. Cockpit runs the check before saving
+  the role data, `mcp-policy-bundle` before signing. Roles and
+  permissions may carry a `description`.
+
 ### Changed
 
 - The gateway's policy fingerprint (which triggers `list_changed`

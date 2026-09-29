@@ -1173,10 +1173,12 @@ tools, and brings no bundle distribution or decision logging.
 *Consequences:*
 - Rego's weak points stay: "undefined" versus "false", rules defined
   twice fail only at evaluation time, and there is no static proof of a
-  policy's effect. Mitigations to add: a JSON Schema for the role data
-  (checked by `mcp-gateway --check` and Cockpit), Regal in CI, and a
-  "what changes?" check comparing decisions before and after a role-data
-  change.
+  policy's effect. Mitigations: a JSON Schema for the role data
+  (`rbac.schema.json`, done in 0.2: checked by `mcp-gateway --check` and
+  `--check-policy-data`, Cockpit before saving and `mcp-policy-bundle`
+  before signing, together with regular expressions and role
+  references); still to add: Regal in CI and a "what changes?" check
+  comparing decisions before and after a role-data change.
 - Integration with an existing OPA estate becomes a requirement:
   - **Bundle roots** (done in 0.2): the policy, the role data and the
     decision-log mask all live below `data.mcp`, and `mcp-policy-bundle`

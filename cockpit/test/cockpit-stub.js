@@ -59,6 +59,14 @@
         },
         spawn(args, opts) {
             log.push(["spawn", args.join(" "), opts.superuser]);
+            if (args[0] === "mcp-gateway") {
+                // --check-policy-data: a misspelt field is the one problem it knows.
+                const result = data => data.includes("require_aproval")
+                    ? Promise.reject(new Error("/roles/developer/permissions/0: additional properties 'require_aproval' not allowed\n" +
+                                               "level=ERROR msg=\"role data invalid\""))
+                    : Promise.resolve("");
+                return { input: result };
+            }
             if (args.includes("mcp-gateway.service")) return Promise.resolve(journal);
             if (args[0] === "test") {
                 return query.has("nokey") ? Promise.reject(new Error("exit 1")) : Promise.resolve("");

@@ -25,7 +25,9 @@ Usage: mcp-policy-bundle [-k SIGNING_KEY] [-o OUTPUT] [-r REVISION] [-n]
   -V  policy logic (default: /usr/share/mcp-gateway/policy)
   -L  role data (default: /etc/mcp-gateway/policy)
 
-Environment: OPA (default: opa from PATH). -G needs openssl.
+Environment: OPA (default: opa from PATH), MCP_GATEWAY (default:
+mcp-gateway from PATH; checks the role data before building, if found).
+-G needs openssl.
 USAGE
 	exit 2
 }
@@ -75,6 +77,16 @@ fi
 if [ ! -r "$key" ]; then
 	echo "mcp-policy-bundle: cannot read signing key $key (create one with -G, or pass -k)" >&2
 	exit 1
+fi
+
+# The role data must match its schema; mcp-gateway checks it where it is
+# installed (a bundle built elsewhere, e.g. in CI, may lack it).
+gateway=${MCP_GATEWAY:-mcp-gateway}
+if [ -f "$local/rbac/data.json" ] && command -v "$gateway" >/dev/null 2>&1; then
+	if ! "$gateway" --check-policy-data --policy-data "$local/rbac/data.json"; then
+		echo "mcp-policy-bundle: $local/rbac/data.json has problems (above); no bundle built" >&2
+		exit 1
+	fi
 fi
 
 tmp=$(mktemp -d)

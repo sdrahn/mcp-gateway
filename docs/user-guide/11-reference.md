@@ -6,12 +6,15 @@
 
 ```
 mcp-gateway [--config FILE] [--check] [--debug] [--version]
+mcp-gateway --check-policy-data [--policy-data FILE]
 ```
 
 | Flag | Meaning |
 |---|---|
 | `--config FILE` | configuration file (default: `/etc/mcp-gateway/gateway.yaml`, else `/usr/etc/mcp-gateway/gateway.yaml`, else built-in defaults) |
-| `--check` | validate the configuration and all MCP server definitions, print a summary, exit (status 1 on errors) |
+| `--check` | validate the configuration, all MCP server definitions and the role data (if the file exists), print a summary, exit (status 1 on errors) |
+| `--check-policy-data` | validate only the role data against its schema, print each problem, exit (status 1 on problems) |
+| `--policy-data FILE` | role data for the two checks (default: `/etc/mcp-gateway/policy/rbac/data.json`; `-`: standard input; empty: none) |
 | `--debug` | log debug messages |
 | `--version` | print the version |
 
@@ -44,7 +47,9 @@ mcp-policy-bundle -G [-k KEY] [-o OUTPUT]
 
 Builds and signs a policy bundle, or (`-G`) creates a signing key pair.
 Chapter 6 lists the options. The environment variable `OPA` selects the
-`opa` binary.
+`opa` binary. Before building, the role data is checked with
+`mcp-gateway --check-policy-data` if `mcp-gateway` (or the program in
+`MCP_GATEWAY`) is found; with problems, no bundle is built.
 
 ## Control API
 
@@ -130,6 +135,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/etc/mcp-gateway/servers.d/` | your server definitions |
 | `/usr/share/mcp-gateway/policy/` | policy logic |
 | `/etc/mcp-gateway/policy/rbac/data.json` | role data |
+| `/usr/share/mcp-gateway/schema/rbac.schema.json` | JSON Schema (draft-07) of the role data |
 | `/etc/mcp-gateway/credentials/` | MCP server secrets (0700, `mcpgw_cred_t`) |
 | `/etc/mcp-gateway/bundle/` | `policy.tar.gz`, `verify.pem`, `signing.pem` |
 | `/usr/share/mcp-gateway/opa/` | OPA drop-ins: `signed-bundle.conf`, `bundle-server.conf`, `opa-config.yaml.example` |

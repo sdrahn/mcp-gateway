@@ -1,0 +1,145 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/sdrahn/mcp-gateway/schema/rbac.schema.json",
+  "title": "mcp-gateway role data",
+  "description": "Roles, bindings and approver rules: /etc/mcp-gateway/policy/rbac/data.json, data.mcp.rbac in OPA. Further data belongs in files of its own (rbac/<name>/data.json).",
+  "type": "object",
+  "properties": {
+    "roles": {
+      "description": "Role name to role.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/role" }
+    },
+    "bindings": {
+      "type": "object",
+      "properties": {
+        "users": {
+          "description": "Local user name (or mapped remote principal) to role names.",
+          "$ref": "#/definitions/roleLists"
+        },
+        "groups": {
+          "description": "Local group name to role names.",
+          "$ref": "#/definitions/roleLists"
+        }
+      },
+      "additionalProperties": false
+    },
+    "approvers": {
+      "description": "Server name, or \"default\", to the rules naming who may decide on approvals.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^(self|(role|group|user):.+)$"
+        }
+      }
+    }
+  },
+  "required": ["roles"],
+  "additionalProperties": false,
+  "definitions": {
+    "role": {
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "permissions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/permission" }
+        }
+      },
+      "required": ["permissions"],
+      "additionalProperties": false
+    },
+    "roleLists": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "permission": {
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "server": { "description": "Server name glob.", "type": "string" },
+        "tool": { "description": "Tool name glob.", "type": "string" },
+        "prompt": { "description": "Prompt name glob.", "type": "string" },
+        "resource": { "description": "Resource URI glob; ${home} is the principal's home directory.", "type": "string" },
+        "client": { "description": "Glob over requests MCP servers send to the agent: sampling.create, elicitation.create, roots.list.", "type": "string" },
+        "effect": { "enum": ["allow", "deny"] },
+        "require_approval": { "type": "boolean" },
+        "approval_channel": { "enum": ["url", "form", "oob"] },
+        "args": {
+          "description": "Argument name to regular expression the (string) argument must match.",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "obligations": { "$ref": "#/definitions/obligations" },
+        "require_client_cert": { "type": "boolean" },
+        "allow_sensitive": { "type": "boolean" }
+      },
+      "required": ["server"],
+      "anyOf": [
+        { "required": ["tool"] },
+        { "required": ["prompt"] },
+        { "required": ["resource"] },
+        { "required": ["client"] }
+      ],
+      "additionalProperties": false
+    },
+    "obligations": {
+      "type": "object",
+      "properties": {
+        "redact_output": { "$ref": "#/definitions/stringOrList" },
+        "max_output_bytes": { "type": "integer", "minimum": 0 },
+        "rate_limit": {
+          "oneOf": [
+            { "$ref": "#/definitions/rate" },
+            { "type": "array", "items": { "$ref": "#/definitions/rate" } }
+          ]
+        },
+        "arg_constraints": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/stringOrList" }
+        },
+        "audit": { "enum": ["digest", "full"] },
+        "pseudonymize": { "$ref": "#/definitions/pseudonymize" },
+        "reidentify": { "$ref": "#/definitions/stringOrList" }
+      },
+      "additionalProperties": false
+    },
+    "pseudonymize": {
+      "type": "object",
+      "properties": {
+        "detect": {
+          "oneOf": [
+            { "$ref": "#/definitions/detector" },
+            { "type": "array", "items": { "$ref": "#/definitions/detector" } }
+          ]
+        },
+        "patterns": {
+          "description": "Name (the pseudonym's class) to regular expression.",
+          "type": "object",
+          "propertyNames": { "$ref": "#/definitions/className" },
+          "additionalProperties": { "type": "string" }
+        },
+        "fields": {
+          "description": "JSON key to the pseudonym's class.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/className" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "detector": { "enum": ["email", "iban", "credit_card", "phone", "ipv4", "ipv6"] },
+    "className": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+    "rate": { "type": "string", "pattern": "^[1-9][0-9]*/[smh]$" },
+    "stringOrList": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
+    }
+  }
+}

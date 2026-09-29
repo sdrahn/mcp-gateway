@@ -270,8 +270,21 @@ func TestPolicyBundleKeygen(t *testing.T) {
 	if out, err := build(); err != nil {
 		t.Fatalf("build with the generated key: %v %s", err, out)
 	}
+	// Role data that fails its schema is not signed.
+	gateway := buildBinary(t, filepath.Join(dir, "bin"), "./cmd/mcp-gateway")
+	bad := filepath.Join(dir, "bad")
+	writeFile(t, filepath.Join(bad, "rbac", "data.json"), `{"roles": {"r": {"permissions": [{"server": "fs", "tool": "x", "efect": "deny"}]}}}`)
+	cmd := exec.Command("sh", filepath.Join("..", "tools", "mcp-policy-bundle"),
+		"-k", key, "-o", filepath.Join(dir, "bad.tar.gz"), "-n", "-V", filepath.Join("..", "policy"), "-L", bad)
+	cmd.Env = append(os.Environ(), "OPA="+opa, "MCP_GATEWAY="+gateway)
+	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "'efect' not allowed") {
+		t.Fatalf("invalid role data: %v %s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bad.tar.gz")); err == nil {
+		t.Fatal("bundle written for invalid role data")
+	}
 	// The bundle verifies with the generated verification key.
-	cmd := exec.Command(opa, "run", "--server", "--addr", "unix://"+filepath.Join(dir, "opa.sock"), "--bundle",
+	cmd = exec.Command(opa, "run", "--server", "--addr", "unix://"+filepath.Join(dir, "opa.sock"), "--bundle",
 		"--verification-key", filepath.Join(dir, "bundle", "verify.pem"), bundle)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
@@ -281,3 +294,6 @@ func TestPolicyBundleKeygen(t *testing.T) {
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
 	waitFor(t, filepath.Join(dir, "opa.sock"))
 }
+
+// buildBinary is build, for tests whose local build function shadows it.
+var buildBinary = build

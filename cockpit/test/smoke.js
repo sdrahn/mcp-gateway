@@ -80,6 +80,14 @@ function site() {
     await page.waitForTimeout(200);
     check((await page.textContent("#error")).includes("unknown role"), "validation error shown");
     check((await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length === before, "invalid data not saved");
+    // So is data the schema check (mcp-gateway --check-policy-data) rejects.
+    await page.fill("#rbac-json", JSON.stringify({ roles: { developer: { permissions: [
+        { server: "fs", tool: "write_file", require_aproval: true }] } } }));
+    await page.click("#rbac-save");
+    await page.waitForTimeout(200);
+    check((await page.textContent("#error")).includes("'require_aproval' not allowed"), "schema problem shown");
+    check(!(await page.textContent("#error")).includes("level="), "only the problems, not the log line");
+    check((await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length === before, "data failing the schema not saved");
 
     // Signing from the page: the key is on the host (stub default).
     check(await page.isVisible("#bundle-sign"), "sign button with a local key");
