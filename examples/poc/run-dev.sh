@@ -37,8 +37,11 @@ supervisor:
   mode: exec
 YAML
 
+# The policy logic (without the default role data in policy/mcp/rbac) and
+# the PoC role data below data.mcp, as mcp-opa.service loads them.
 "$opa" run --server --addr "unix://$work/opa.sock" \
-    "$repo/policy/mcp" "$work/data" >"$work/opa.log" 2>&1 &
+    --set=decision_logs.mask_decision=/mcp/log/mask \
+    "$repo"/policy/mcp/*.rego "mcp:$work/data" >"$work/opa.log" 2>&1 &
 opa_pid=$!
 trap 'kill $opa_pid 2>/dev/null' EXIT INT TERM
 while [ ! -S "$work/opa.sock" ]; do sleep 0.1; done

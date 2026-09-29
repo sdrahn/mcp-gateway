@@ -236,7 +236,7 @@ mapped remote ones.)
   a local account of that name, the principal becomes that account: its
   name as `sub`, its uid, home and groups (§9, D1). Otherwise backends run
   as a dynamic user, isolated by the instance's MCS pair.
-- **Roles** are derived by policy data (`data.rbac.bindings`) from groups,
+- **Roles** are derived by policy data (`data.mcp.rbac.bindings`) from groups,
   users or claims — role assignment is itself policy, not code.
 - `client` comes from the MCP `initialize` request (`clientInfo`); it is
   **self-asserted** and must only be used for convenience rules, never as a
@@ -363,7 +363,7 @@ Unknown methods are **denied by default**.
   gateway, which only `Wants=` OPA, keeps its sessions and denies
   requests for that second). The gateway logs the active revisions at
   start and records them in `mcp-policy-change` audit events.
-- **Decision logs:** enabled, masked (`system.log.mask`) to strip argument
+- **Decision logs:** enabled, masked (`mcp.log.mask`) to strip argument
   values flagged as sensitive, shipped to the audit sink (§5.9).
 - **Status API:** gateway polls OPA health; unhealthy ⇒ fail closed.
 
@@ -448,7 +448,7 @@ approval is pending; the request shows up in the inbox. Either way the
 call waits until a decision or `approval_timeout`.
 
 **Who may decide** is policy (`data.mcp.approvals`, rules in
-`data.rbac.approvers`, §6.4); the gateway identifies the approver by the
+`data.mcp.rbac.approvers`, §6.4); the gateway identifies the approver by the
 control socket's peer credentials. The shipped rules allow the principal
 themself, matched by local uid (the approval page runs as the logged-in
 Cockpit user, so a local principal approves their own requests), and the
@@ -688,7 +688,7 @@ and aimed at MLS-style deployments.
 - OPA logs every decision to its journal (`decision_logs.console`). The
   gateway puts a random `decision_id` into each policy input
   (`input.context.decision_id`) and into its audit record, which links
-  the two. The mask policy `policy/system/log.rego` removes the arguments
+  the two. The mask policy `policy/mcp/log.rego` removes the arguments
   from OPA's log unless the decision asked for `audit: full`.
 
 ### 5.10 Cockpit integration
@@ -756,9 +756,17 @@ policy/
   mcp/elicitation.rego    # rules for backend-initiated elicitation
   mcp/lib/*.rego          # helpers (arg matching, time windows)
   mcp/*_test.rego         # policy tests (opa test)
-  system/log.rego         # masking for OPA's decision log
-  rbac/data.json          # data.rbac: roles, permissions, bindings, approvers
+  mcp/log.rego            # masking for OPA's decision log
+  mcp/rbac/data.json      # data.mcp.rbac: roles, permissions, bindings, approvers
+                          # (installed as /etc/mcp-gateway/policy/rbac/data.json)
 ```
+
+Everything the gateway uses lives below `data.mcp`, so the policy can
+share an OPA with other policies (D8): `mcp-opa.service` loads the
+administrator's data files with the prefix `mcp:` (`rbac/data.json` is
+`data.mcp.rbac`), sets `decision_logs.mask_decision` to `/mcp/log/mask`
+instead of OPA's default `/system/log/mask`, and bundles from
+`mcp-policy-bundle` declare the single root `mcp`.
 
 ### 6.2 Input document
 
@@ -940,7 +948,7 @@ default decision := {"effect": "deny", "reason": "no matching permission"}
 
 perms contains p if {
 	some role in data.mcp.roles_of[input.principal.sub]
-	some p in data.rbac.roles[role].permissions
+	some p in data.mcp.rbac.roles[role].permissions
 }
 
 matches(p) if {
@@ -1170,11 +1178,10 @@ tools, and brings no bundle distribution or decision logging.
   "what changes?" check comparing decisions before and after a role-data
   change.
 - Integration with an existing OPA estate becomes a requirement:
-  - **Bundle roots.** `mcp-policy-bundle` currently builds bundles
-    claiming the whole data tree (`"roots": [""]`), so they cannot share
-    an OPA with other teams' bundles. It should declare its roots
-    (`mcp`, `rbac`, `system/log`), and the role data may need a
-    namespaced root.
+  - **Bundle roots** (done in 0.2): the policy, the role data and the
+    decision-log mask all live below `data.mcp`, and `mcp-policy-bundle`
+    declares the single root `mcp` (§6.1), so the bundle can share an
+    OPA with other teams' bundles.
   - **Decision logs** can go to the estate's collector through OPA's
     decision-log service (OPA configuration file, SELinux boolean
     `mcpopa_can_network`); masking and decision ids carry over.

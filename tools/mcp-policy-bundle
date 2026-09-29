@@ -81,8 +81,23 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/src"
 cp -R "$vendor/." "$tmp/src/"
-cp -R "$local/." "$tmp/src/"
+# The administrator's files: Rego files at their relative path, so a file
+# at a shipped path replaces the shipped one; data files below data.mcp,
+# as mcp-opa.service loads them ("mcp:/etc/mcp-gateway/policy"), so
+# rbac/data.json is data.mcp.rbac.
+(cd "$local" && find . -type f ! -name '.manifest') | while IFS= read -r f; do
+	case $f in
+	*/data.json | */data.yaml | */data.yml) dest="$tmp/src/mcp/$f" ;;
+	*) dest="$tmp/src/$f" ;;
+	esac
+	mkdir -p "$(dirname "$dest")"
+	cp "$local/$f" "$dest"
+done
 find "$tmp/src" -name '*_test.rego' -exec rm -f {} +
+# The bundle claims only data.mcp, so it can share an OPA with other
+# bundles; opa build rejects Rego packages and data outside it.
+rm -f "$tmp/src/.manifest"
+printf '{"roots": ["mcp"]}\n' >"$tmp/src/.manifest"
 
 "$opa" check --strict "$tmp/src"
 "$opa" build --bundle "$tmp/src" --signing-key "$key" --signing-alg "$alg" \

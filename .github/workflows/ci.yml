@@ -110,7 +110,7 @@ jobs:
           grep -q 'config=/usr/etc/mcp-gateway/gateway.yaml' /tmp/check.log
           grep -q 'backends=1' /tmp/check.log
           test -f /usr/share/mcp-gateway/policy/mcp/approvals.rego
-          test -f /usr/share/mcp-gateway/policy/system/log.rego
+          test -f /usr/share/mcp-gateway/policy/mcp/log.rego
           test -x /usr/sbin/mcp-policy-bundle
           test -f /usr/share/mcp-gateway/opa/signed-bundle.conf
           test -f /usr/share/mcp-gateway/mcs/virtqemud.conf

@@ -3,6 +3,7 @@ package pep
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -92,13 +93,14 @@ func TestOPAVisible(t *testing.T) {
 }
 
 func TestOPAFingerprint(t *testing.T) {
-	var rbac atomicString
+	var rbac, other atomicString
 	rbac.Store(`{"result":{"roles":{}}}`)
+	other.Store(module("team.rego", "team", "v1"))
 	o := fakeOPA(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/policies":
-			_, _ = w.Write([]byte(`{"result":[{"id":"authz.rego","raw":"package mcp.authz"}]}`))
-		case "/v1/data/rbac":
+			_, _ = w.Write([]byte(`{"result":[` + module("authz.rego", "mcp", "authz") + `,` + other.Load() + `]}`))
+		case "/v1/data/mcp/rbac":
 			_, _ = w.Write([]byte(rbac.Load()))
 		default:
 			http.NotFound(w, r)
@@ -111,10 +113,22 @@ func TestOPAFingerprint(t *testing.T) {
 	if b, _ := o.Fingerprint(context.Background()); b != a {
 		t.Fatal("fingerprint not stable")
 	}
+	// Another team's policy in the same OPA does not count.
+	other.Store(module("team.rego", "team", "v2"))
+	if b, _ := o.Fingerprint(context.Background()); b != a {
+		t.Fatal("fingerprint changed with a policy outside mcp")
+	}
 	rbac.Store(`{"result":{"roles":{"x":{}}}}`)
 	if c, _ := o.Fingerprint(context.Background()); c == a {
 		t.Fatal("fingerprint did not change with the data")
 	}
+}
+
+// module is a /v1/policies entry for package data.<root>.<name>.
+func module(id, root, name string) string {
+	return fmt.Sprintf(`{"id":%q,"raw":"package %s.%s","ast":{"package":{"path":[`+
+		`{"type":"var","value":"data"},{"type":"string","value":%q},{"type":"string","value":%q}]}}}`,
+		id, root, name, root, name)
 }
 
 type atomicString struct {

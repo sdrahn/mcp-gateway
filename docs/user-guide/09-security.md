@@ -183,7 +183,7 @@ it is available; `on` makes it mandatory.
 journalctl -u mcp-opa.service -o cat | jq 'select(.msg == "Decision Log")'
 ```
 
-Tool arguments are masked (`system/log.rego`) unless the decision asked
+Tool arguments are masked (`mcp/log.rego`) unless the decision asked
 for a full audit. The `decision_id` of a gateway record appears in the
 decision log's input (`input.context.decision_id`), linking the two.
 

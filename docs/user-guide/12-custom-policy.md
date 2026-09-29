@@ -21,16 +21,23 @@ trees into one policy:
 
 | Directory | Contents |
 |---|---|
-| `/usr/share/mcp-gateway/policy/` | the shipped logic: `mcp/authz.rego`, `mcp/filter.rego`, `mcp/approvals.rego`, `system/log.rego` |
+| `/usr/share/mcp-gateway/policy/` | the shipped logic: `mcp/authz.rego`, `mcp/filter.rego`, `mcp/approvals.rego`, `mcp/log.rego` |
 | `/etc/mcp-gateway/policy/` | your files: `rbac/data.json`, and any `.rego` and `data.json` files you add |
 
 - A `.rego` file defines rules in the package it declares
   (`package mcp.authz`), wherever the file lies. Files declaring the same
   package are **merged** into one package.
-- A file named `data.json` (or `data.yaml`) becomes data at the path of
-  its directory: `/etc/mcp-gateway/policy/rbac/data.json` is `data.rbac`,
+- A file named `data.json` (or `data.yaml`) in `/etc/mcp-gateway/policy/`
+  becomes data below `data.mcp`, at the path of its directory:
+  `/etc/mcp-gateway/policy/rbac/data.json` is `data.mcp.rbac`,
   `/etc/mcp-gateway/policy/rbac/managers/data.json` is
-  `data.rbac.managers`.
+  `data.mcp.rbac.managers`.
+- Everything the gateway uses lives below `mcp`: its packages
+  (`mcp.authz`, …), the role data and the decision-log mask
+  (`mcp.log.mask`). Keep your own packages below `mcp` too
+  (`package mcp.custom.hours`, say): a signed bundle claims only `mcp`, so
+  that it can share an OPA with other teams' policies, and a package
+  outside it fails the bundle build.
 - OPA runs with `--watch`: it reloads changed files within seconds. If a
   file does not parse or compile, OPA logs the error and **keeps the
   previous policy**. If it cannot load the policy when it (re)starts,
@@ -38,9 +45,11 @@ trees into one policy:
 
 In **signed bundle mode** (chapter 6) the same two trees are combined by
 `mcp-policy-bundle` into a signed bundle: the shipped logic first, then
-your files on top (a file of yours with the same relative path replaces
-the shipped one), `*_test.rego` files are left out, and the result must
-pass `opa check --strict` before it is signed.
+your files on top (a `.rego` file of yours with the same relative path
+replaces the shipped one; data files go below `mcp/`, as above),
+`*_test.rego` files are left out, and the result must pass
+`opa check --strict` before it is signed. The bundle's manifest declares
+the root `mcp`.
 
 ## The contract
 
@@ -56,7 +65,7 @@ input as self-reported.
 | `data.mcp.approvals.manage_grant` | control API: may this caller see and revoke this grant? | `true`/`false` |
 | `data.mcp.approvals.manage_instance` | control API: may this caller see and stop this instance? | `true`/`false` |
 | `data.mcp.approvals.notify` | a new pending approval, with mail configured | a set of `"user:<name>"` and `"group:<name>"` |
-| `data.system.log.mask` | OPA itself, for every decision it logs | a set of JSON pointers to remove from the decision log |
+| `data.mcp.log.mask` | OPA itself, for every decision it logs (`mcp-opa.service` sets `decision_logs.mask_decision` to it) | a set of JSON pointers to remove from the decision log |
 
 **Failing closed.** A query that fails, times out (`policy.timeout`,
 250 ms) or is **undefined** counts as the most restrictive answer: an
@@ -198,7 +207,7 @@ of `request`; for `manage_instance` it has `instance`
 
 Because files of the same package are merged, a file in
 `/etc/mcp-gateway/policy/` can add rules to `mcp.authz`,
-`mcp.approvals` and `system.log`. This works for rules that may have
+`mcp.approvals` and `mcp.log`. This works for rules that may have
 several definitions:
 
 | Rule | Kind | Adding a definition… |
@@ -208,7 +217,7 @@ several definitions:
 | `mcp.authz.perms` | set | adds permissions (objects as in `data.json`) |
 | `mcp.approvals.allow`, `manage_grant`, `manage_instance` | boolean | lets more approvers act |
 | `mcp.approvals.notify` | set | mails more people |
-| `system.log.mask` | set | removes more from the decision log |
+| `mcp.log.mask` | set | removes more from the decision log |
 
 Do **not** define `decision`, `ask_channel`, `obligations` or any other
 single-valued rule of the shipped packages again: OPA accepts the files,
@@ -326,18 +335,18 @@ Data, in `/etc/mcp-gateway/policy/rbac/managers/data.json` (below
 ```rego
 # /etc/mcp-gateway/policy/custom/managers.rego
 #
-# A principal's manager (data.rbac.managers) may decide on their approvals
+# A principal's manager (data.mcp.rbac.managers) may decide on their approvals
 # and is told about them by mail.
 package mcp.approvals
 
 import rego.v1
 
 allow if {
-	data.rbac.managers[input.request.principal.sub] == input.approver.name
+	data.mcp.rbac.managers[input.request.principal.sub] == input.approver.name
 }
 
 notify contains sprintf("user:%s", [manager]) if {
-	manager := data.rbac.managers[input.request.principal.sub]
+	manager := data.mcp.rbac.managers[input.request.principal.sub]
 }
 ```
 
@@ -350,7 +359,7 @@ the manager.
 # /etc/mcp-gateway/policy/custom/log.rego
 #
 # Also keep client certificate details out of OPA's decision log.
-package system.log
+package mcp.log
 
 import rego.v1
 
@@ -413,8 +422,9 @@ ExecStart=/usr/bin/opa run --server \
     --watch \
     --log-format json \
     --set=decision_logs.console=true \
+    --set=decision_logs.mask_decision=/mcp/log/mask \
     /etc/mcp-gateway/policy-logic \
-    /etc/mcp-gateway/policy
+    mcp:/etc/mcp-gateway/policy
 ```
 
 ```bash
@@ -561,8 +571,8 @@ notify contains "group:mcp-admins"
 ```
 
 ```rego
-# /etc/mcp-gateway/policy-logic/system/log.rego
-package system.log
+# /etc/mcp-gateway/policy-logic/mcp/log.rego
+package mcp.log
 
 import rego.v1
 
@@ -579,9 +589,9 @@ undefined; the `else` chain makes the precedence explicit.
 
 Put data your rules use into `data.json` files below
 `/etc/mcp-gateway/policy/`, preferably **below `rbac/`**
-(`/etc/mcp-gateway/policy/rbac/<name>/data.json` → `data.rbac.<name>`):
+(`/etc/mcp-gateway/policy/rbac/<name>/data.json` → `data.mcp.rbac.<name>`):
 the gateway notices policy changes by comparing the loaded Rego modules
-and `data.rbac`, and only then tells agents to list their tools again
+and `data.mcp.rbac`, and only then tells agents to list their tools again
 and writes a `mcp-policy-change` audit event. Changes to data elsewhere
 take effect as well, but agents are not told, so their tool lists may be
 stale until they reconnect.
@@ -658,7 +668,7 @@ test_manager_may_approve if {
 		"request": {"principal": alice, "server": "fs", "name": "write_file", "action": "tools.call"},
 		"approver": {"name": "bob", "uid": 1001, "groups": ["users"]},
 	}
-		with data.rbac.managers as {"alice": "bob"}
+		with data.mcp.rbac.managers as {"alice": "bob"}
 }
 
 test_colleague_may_not_approve if {
@@ -666,7 +676,7 @@ test_colleague_may_not_approve if {
 		"request": {"principal": alice, "server": "fs", "name": "write_file", "action": "tools.call"},
 		"approver": {"name": "carol", "uid": 1002, "groups": ["users"]},
 	}
-		with data.rbac.managers as {"alice": "bob"}
+		with data.mcp.rbac.managers as {"alice": "bob"}
 }
 ```
 
@@ -769,7 +779,7 @@ revision, independently of their package versions.
 - **Speed.** The whole decision must finish within `policy.timeout`
   (250 ms) and the filter evaluates one decision per listed item. Avoid
   iterating over large data sets per decision; index data by key
-  instead (`data.rbac.managers[sub]`).
+  instead (`data.mcp.rbac.managers[sub]`).
 - **Strictness.** `mcp-policy-bundle` requires `opa check --strict`
   (no unused variables or imports, no deprecated built-ins); check with
   `--strict` in directory mode too, so switching to bundles later is

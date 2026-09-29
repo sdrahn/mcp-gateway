@@ -8,19 +8,19 @@ package mcp.authz
 import rego.v1
 
 # Roles of the principal: from the input (if the gateway resolved them) and
-# from the bindings in data.rbac.
+# from the bindings in data.mcp.rbac.
 roles contains r if some r in input.principal.roles
 
-roles contains r if some r in data.rbac.bindings.users[input.principal.sub]
+roles contains r if some r in data.mcp.rbac.bindings.users[input.principal.sub]
 
 roles contains r if {
 	some g in input.principal.groups
-	some r in data.rbac.bindings.groups[g]
+	some r in data.mcp.rbac.bindings.groups[g]
 }
 
 perms contains p if {
 	some role in roles
-	some p in data.rbac.roles[role].permissions
+	some p in data.mcp.rbac.roles[role].permissions
 	cert_ok(p)
 }
 

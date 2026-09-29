@@ -4,12 +4,12 @@
 # these from its control API; the approver is identified by the kernel
 # (uid, user and group names), never by the agent.
 #
-# data.rbac.approvers maps a server name, or "default", to rules:
+# data.mcp.rbac.approvers maps a server name, or "default", to rules:
 #   "self"          the principal themself (same local uid)
-#   "role:<role>"   approvers holding the role (data.rbac.bindings)
+#   "role:<role>"   approvers holding the role (data.mcp.rbac.bindings)
 #   "group:<group>" members of a local group
 #   "user:<user>"   a local user
-# Without data.rbac.approvers, only "self" applies.
+# Without data.mcp.rbac.approvers, only "self" applies.
 package mcp.approvals
 
 import rego.v1
@@ -56,28 +56,28 @@ notify contains rule if {
 notify contains sprintf("user:%s", [user]) if {
 	some rule in rules_for(input.request.server)
 	startswith(rule, "role:")
-	some user, roles in data.rbac.bindings.users
+	some user, roles in data.mcp.rbac.bindings.users
 	substring(rule, 5, -1) in roles
 }
 
 notify contains sprintf("group:%s", [group]) if {
 	some rule in rules_for(input.request.server)
 	startswith(rule, "role:")
-	some group, roles in data.rbac.bindings.groups
+	some group, roles in data.mcp.rbac.bindings.groups
 	substring(rule, 5, -1) in roles
 }
 
 rules_for(server) := rules if {
-	rules := data.rbac.approvers[server]
+	rules := data.mcp.rbac.approvers[server]
 } else := rules if {
-	rules := data.rbac.approvers["default"]
+	rules := data.mcp.rbac.approvers["default"]
 } else := ["self"]
 
-approver_roles contains r if some r in data.rbac.bindings.users[input.approver.name]
+approver_roles contains r if some r in data.mcp.rbac.bindings.users[input.approver.name]
 
 approver_roles contains r if {
 	some g in input.approver.groups
-	some r in data.rbac.bindings.groups[g]
+	some r in data.mcp.rbac.bindings.groups[g]
 }
 
 # subject is the pending request's principal, the grant or the instance;

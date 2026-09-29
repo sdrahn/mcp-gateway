@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/principal"
@@ -78,18 +79,49 @@ func (o *OPA) Visible(ctx context.Context, p principal.Principal, rs []Resource)
 	return out, nil
 }
 
-// Fingerprint identifies the policy OPA has loaded: a hash of its
-// modules and of data.rbac. It changes when OPA reloads changed files.
+// Fingerprint identifies the gateway's policy in OPA: a hash of the
+// modules in packages below mcp and of data.mcp.rbac. It changes when OPA
+// reloads changed files, but not for other policies sharing the OPA.
 func (o *OPA) Fingerprint(ctx context.Context) (string, error) {
-	h := sha256.New()
-	for _, path := range []string{"/v1/policies", "/v1/data/rbac"} {
-		body, err := o.get(ctx, path)
-		if err != nil {
-			return "", err
+	body, err := o.get(ctx, "/v1/policies")
+	if err != nil {
+		return "", err
+	}
+	var policies struct {
+		Result []struct {
+			ID  string `json:"id"`
+			Raw string `json:"raw"`
+			AST struct {
+				Package struct {
+					Path []struct {
+						Value any `json:"value"`
+					} `json:"path"`
+				} `json:"package"`
+			} `json:"ast"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &policies); err != nil {
+		return "", fmt.Errorf("opa: policies: %w", err)
+	}
+	var modules []string
+	for _, m := range policies.Result {
+		// The package path starts with the data root: data.mcp.authz is
+		// [data, "mcp", "authz"].
+		if p := m.AST.Package.Path; len(p) > 1 && p[1].Value == "mcp" {
+			modules = append(modules, m.ID+"\x00"+m.Raw)
 		}
-		h.Write(body)
+	}
+	sort.Strings(modules)
+	h := sha256.New()
+	for _, m := range modules {
+		h.Write([]byte(m))
 		h.Write([]byte{0})
 	}
+	data, err := o.get(ctx, "/v1/data/mcp/rbac")
+	if err != nil {
+		return "", err
+	}
+	h.Write(data)
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 

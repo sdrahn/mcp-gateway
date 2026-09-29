@@ -15,13 +15,13 @@ bob := {"name": "bob", "uid": 1002, "groups": ["users"]}
 carol := {"name": "carol", "uid": 1003, "groups": ["users", "wheel"]}
 
 test_self_by_default if {
-	approvals.allow with input as {"approver": alice, "request": alice_req} with data.rbac as {}
-	not approvals.allow with input as {"approver": bob, "request": alice_req} with data.rbac as {}
-	not approvals.allow with input as {"approver": carol, "request": alice_req} with data.rbac as {}
+	approvals.allow with input as {"approver": alice, "request": alice_req} with data.mcp.rbac as {}
+	not approvals.allow with input as {"approver": bob, "request": alice_req} with data.mcp.rbac as {}
+	not approvals.allow with input as {"approver": carol, "request": alice_req} with data.mcp.rbac as {}
 }
 
 test_shipped_data_admins if {
-	# policy/rbac/data.json: default ["self", "role:admin"], wheel → admin
+	# policy/mcp/rbac/data.json: default ["self", "role:admin"], wheel → admin
 	approvals.allow with input as {"approver": alice, "request": alice_req}
 	approvals.allow with input as {"approver": carol, "request": alice_req}
 	not approvals.allow with input as {"approver": bob, "request": alice_req}
@@ -37,10 +37,10 @@ test_remote_principal_only_by_role if {
 test_per_server_rules if {
 	rbac := {"approvers": {"default": ["self"], "db": ["group:dba", "user:dave"]}, "bindings": {}}
 	db_req := object.union(alice_req, {"server": "db"})
-	not approvals.allow with input as {"approver": alice, "request": db_req} with data.rbac as rbac
-	approvals.allow with input as {"approver": {"name": "dave", "uid": 1004, "groups": []}, "request": db_req} with data.rbac as rbac
-	approvals.allow with input as {"approver": {"name": "erin", "uid": 1005, "groups": ["dba"]}, "request": db_req} with data.rbac as rbac
-	approvals.allow with input as {"approver": alice, "request": alice_req} with data.rbac as rbac
+	not approvals.allow with input as {"approver": alice, "request": db_req} with data.mcp.rbac as rbac
+	approvals.allow with input as {"approver": {"name": "dave", "uid": 1004, "groups": []}, "request": db_req} with data.mcp.rbac as rbac
+	approvals.allow with input as {"approver": {"name": "erin", "uid": 1005, "groups": ["dba"]}, "request": db_req} with data.mcp.rbac as rbac
+	approvals.allow with input as {"approver": alice, "request": alice_req} with data.mcp.rbac as rbac
 }
 
 test_manage_grant if {
@@ -65,7 +65,7 @@ test_manage_instance if {
 }
 
 test_notify if {
-	# policy/rbac/data.json: default ["self", "role:admin"], wheel → admin
+	# policy/mcp/rbac/data.json: default ["self", "role:admin"], wheel → admin
 	approvals.notify == {"user:alice", "group:wheel"} with input as {"request": alice_req}
 
 	# An unmapped remote principal has no local account to tell.
@@ -76,5 +76,5 @@ test_notify if {
 		"bindings": {"users": {"dave": ["auditor"]}, "groups": {"sec": ["auditor"]}},
 	}
 	approvals.notify == {"user:carol", "group:ops", "user:dave", "group:sec"} with input as {"request": alice_req}
-		with data.rbac as rbac
+		with data.mcp.rbac as rbac
 }

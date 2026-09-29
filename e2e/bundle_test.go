@@ -171,7 +171,10 @@ func TestSignedBundle(t *testing.T) {
 	t.Run("revision active", func(t *testing.T) {
 		var resp struct {
 			Result map[string]struct {
-				Manifest struct{ Revision string } `json:"manifest"`
+				Manifest struct {
+					Revision string   `json:"revision"`
+					Roots    []string `json:"roots"`
+				} `json:"manifest"`
 			} `json:"result"`
 		}
 		opaGet(t, sock, "/v1/data/system/bundles", &resp)
@@ -181,6 +184,10 @@ func TestSignedBundle(t *testing.T) {
 		for _, b := range resp.Result {
 			if b.Manifest.Revision != "e2e-1" {
 				t.Fatalf("revision %q", b.Manifest.Revision)
+			}
+			// Only data.mcp, so the bundle can share an OPA.
+			if len(b.Manifest.Roots) != 1 || b.Manifest.Roots[0] != "mcp" {
+				t.Fatalf("roots %q", b.Manifest.Roots)
 			}
 		}
 	})

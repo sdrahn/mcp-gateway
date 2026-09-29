@@ -6,10 +6,42 @@ change configuration, policy data or APIs.
 
 ## Unreleased
 
+### Changed (incompatible)
+
+- **Everything below `data.mcp`**, so the policy can share an OPA with
+  other policies:
+  - The role data is `data.mcp.rbac` (was `data.rbac`); the file stays at
+    `/etc/mcp-gateway/policy/rbac/data.json`. `mcp-opa.service` loads
+    `/etc/mcp-gateway/policy` with the prefix `mcp:`, so other data
+    files there move below `data.mcp` as well.
+  - The decision-log mask is `mcp.log.mask` (was `system.log.mask`,
+    now `policy/mcp/log.rego`); the OPA units set
+    `decision_logs.mask_decision` to `/mcp/log/mask`.
+  - Bundles from `mcp-policy-bundle` declare the root `mcp` (was the
+    whole data tree); Rego packages outside `mcp` fail the build.
+
+  Custom policy that reads `data.rbac` or adds to `system.log` must be
+  changed (`docs/user-guide/12-custom-policy.md`). A drop-in replacing
+  `ExecStart=` of `mcp-opa.service` must add the prefix and the mask
+  setting.
+
+### Changed
+
+- The gateway's policy fingerprint (which triggers `list_changed`
+  notifications) covers only modules in packages below `mcp` and
+  `data.mcp.rbac`, so other policies in a shared OPA do not affect it.
+
+## v0.1.1 — 2026-09-29
+
+Makes 0.1.0 work on openSUSE with SELinux enforcing, where the gateway
+could not serve requests. Upgrading from 0.1.0 needs no configuration
+changes; the packages create `/run/mcp-gateway` anew (tmpfiles.d) and
+restart the services.
+
 ### Fixed
 
-Found by the new VM test (test/vm), which installs the packages on
-openSUSE Tumbleweed with SELinux enforcing:
+Found by the new VM test, which installs the packages on openSUSE
+Tumbleweed with SELinux enforcing:
 
 - The gateway failed to start: it could not give its client socket to
   the `mcp-users` group because it was not a member of that group
@@ -35,6 +67,13 @@ openSUSE Tumbleweed with SELinux enforcing:
 - The demo MCP server was labelled `bin_t` instead of `mcpsrv_fs_exec_t`:
   its file context entry lost to the base policy's more specific
   `/usr/libexec` entries.
+
+### Added
+
+- CI job `vm`: the packages on an openSUSE Tumbleweed VM (QEMU/KVM) with
+  SELinux enforcing: labels, domains, per-user instances with distinct
+  MCS pairs, policy decisions, polkit, credentials, kernel audit, and no
+  SELinux denials (`test/vm`).
 
 ## v0.1.0 — 2026-09-28
 

@@ -255,9 +255,15 @@ func setupWith(t *testing.T, rbac string, roots map[string]string, extra string,
 
 	writeFile(t, filepath.Join(tmp, "data", "rbac", "data.json"), rbac)
 	opaSock := filepath.Join(tmp, "opa.sock")
-	args := []string{"run", "--server", "--addr", "unix://" + opaSock,
-		"--set=decision_logs.console=true",
-		filepath.Join("..", "policy", "mcp"), filepath.Join("..", "policy", "system"), filepath.Join(tmp, "data")}
+	// As mcp-opa.service does: the policy logic, and the role data below
+	// data.mcp. Only the Rego files of policy/mcp, not its default data.
+	modules, err := filepath.Glob(filepath.Join("..", "policy", "mcp", "*.rego"))
+	if err != nil || len(modules) == 0 {
+		t.Fatalf("policy modules: %v %v", modules, err)
+	}
+	args := append([]string{"run", "--server", "--addr", "unix://" + opaSock,
+		"--set=decision_logs.console=true", "--set=decision_logs.mask_decision=/mcp/log/mask"},
+		append(modules, "mcp:"+filepath.Join(tmp, "data"))...)
 	if opaArgs != nil {
 		args = opaArgs(tmp, opaSock)
 	}
@@ -436,7 +442,7 @@ func TestEndToEnd(t *testing.T) {
 			}
 		}
 		// OPA's decision log carries the same decision ids, with the
-		// arguments masked (policy/system/log.rego).
+		// arguments masked (policy/mcp/log.rego).
 		ids := regexp.MustCompile(`"decision_id":"([0-9a-f]{32})"`).FindAllStringSubmatch(logs, -1)
 		if len(ids) == 0 {
 			t.Fatal("gateway audit records lack decision ids")
