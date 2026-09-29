@@ -187,6 +187,13 @@ selinux_get_enforce_mode(mcpgw_t)
 # virtual machines and libvirt daemons to skip the category pairs they hold
 # and to check libvirt's range. Only these domains, not all processes.
 kernel_list_proc(mcpgw_t)
+# The scan visits every process; only the domains below are readable.
+gen_require(`
+	attribute domain;
+')
+dontaudit mcpgw_t domain:dir search_dir_perms;
+dontaudit mcpgw_t domain:file read_file_perms;
+allow mcpgw_t self:process getattr;
 optional_policy(`
 	gen_require(`type container_t;')
 	ps_process_pattern(mcpgw_t, container_t)
@@ -260,6 +267,21 @@ tunable_policy(`mcpopa_can_network',`
 ')
 sysnet_dns_name_resolve(mcpopa_t)
 miscfiles_read_generic_certs(mcpopa_t)
+auth_use_nsswitch(mcpopa_t)
+
+########################################
+#
+# Go runtime (gateway and OPA)
+#
+# net.core.somaxconn for listen backlogs; cgroup CPU limits for GOMAXPROCS.
+gen_require(`
+	type sysctl_t, sysctl_net_t, cgroup_t;
+')
+allow { mcpgw_t mcpopa_t } sysctl_t:dir search_dir_perms;
+allow { mcpgw_t mcpopa_t } sysctl_net_t:dir search_dir_perms;
+allow { mcpgw_t mcpopa_t } sysctl_net_t:file read_file_perms;
+allow { mcpgw_t mcpopa_t } cgroup_t:dir search_dir_perms;
+allow { mcpgw_t mcpopa_t } cgroup_t:file read_file_perms;
 
 ########################################
 #

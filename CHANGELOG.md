@@ -27,6 +27,11 @@ openSUSE Tumbleweed with SELinux enforcing:
 - On openSUSE, the gateway could not start any MCP server instance:
   systemd denied StartTransientUnit because the policy rule for it came
   from a reference-policy-only interface.
+- The filesystem MCP server could not create files directly in the
+  user's home directory (SELinux).
+- SELinux denials from the gateway and OPA in normal operation: the MCS
+  scan's walk over /proc (now silenced), the Go runtime reading sysctls
+  and cgroup limits, and OPA's user lookup.
 - The demo MCP server was labelled `bin_t` instead of `mcpsrv_fs_exec_t`:
   its file context entry lost to the base policy's more specific
   `/usr/libexec` entries.
