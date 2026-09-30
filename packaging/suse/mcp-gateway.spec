@@ -52,6 +52,11 @@ Group:          System/Management
 BuildArch:      noarch
 Requires:       selinux-policy-%{selinuxtype}
 Requires(post): selinux-policy-%{selinuxtype}
+# %%selinux_requires asks for the build's selinux-policy version and
+# release, so a build against a rebuild or maintenance update of the same
+# policy version cannot be installed on a host without that update. The
+# module needs the policy version only: drop the release.
+%{?_selinux_policy_version:%global _selinux_policy_version %(echo '%{_selinux_policy_version}' | cut -d- -f1)}
 %{?selinux_requires}
 
 %description selinux
