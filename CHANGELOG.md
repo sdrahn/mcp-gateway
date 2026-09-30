@@ -4,7 +4,11 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
-## Unreleased
+## v0.2.3 — 2026-09-30
+
+Builds for SLES 16.0, which failed with 0.2.2 in the build's file list
+check. No functional changes; upgrading from 0.2.2 needs no
+configuration changes.
 
 ### Fixed
 
