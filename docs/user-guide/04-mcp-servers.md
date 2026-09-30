@@ -245,7 +245,7 @@ files_read_usr_files(mcpsrv_git_t)               # e.g. scripts below /usr
 ```
 
 ```bash
-make -f /usr/share/selinux/devel/Makefile mcp_git.pp   # needs mcp_gateway.if installed
+make -f /usr/share/selinux/devel/Makefile mcp_git.pp   # needs selinux-policy-devel
 semodule -i mcp_git.pp
 restorecon -v /usr/libexec/mcp-servers/mcp-git
 ```
@@ -254,6 +254,14 @@ Then set `selinux_type: mcpsrv_git_t` in the definition.
 
 Notes:
 
+- `mcp-gateway-selinux` installs the template's interface file
+  (`/usr/share/selinux/devel/include/services/mcp_gateway.if`), so
+  building a module needs only `selinux-policy-devel`.
+- Servers that talk to system services over D-Bus (systemd, firewalld,
+  snapper) need `dbus_system_bus_client(mcpsrv_<name>_t)` and the
+  service's chat interface, e.g. `init_dbus_chat` or
+  `firewalld_dbus_chat`; what the service then allows the instance's
+  user is up to its polkit rules.
 - The template defines `mcpsrv_<name>_t` and `mcpsrv_<name>_exec_t`.
   If the server's program keeps a generic label (for example an
   interpreter such as `/usr/bin/node`, labelled `bin_t`), also add

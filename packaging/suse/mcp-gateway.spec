@@ -182,6 +182,7 @@ fi
 %files selinux
 %dir %{_datadir}/selinux/packages/%{selinuxtype}
 %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
+%{_datadir}/selinux/devel/include/services/%{modulename}.if
 
 %files cockpit
 %dir %{_datadir}/cockpit

@@ -56,6 +56,7 @@ template(`mcp_gateway_backend_template',`
 		attribute mcpsrv_domain;
 		type mcpgw_t;
 		type init_t;
+		type cgroup_t;
 	')
 
 	type mcpsrv_$1_t, mcpsrv_domain;
@@ -77,6 +78,9 @@ template(`mcp_gateway_backend_template',`
 	corecmd_search_bin(mcpsrv_$1_t)
 	files_read_etc_files(mcpsrv_$1_t)
 	init_use_fds(mcpsrv_$1_t)
+	# Go (and other) runtimes read their cgroup CPU and memory limits.
+	allow mcpsrv_$1_t cgroup_t:dir search_dir_perms;
+	allow mcpsrv_$1_t cgroup_t:file read_file_perms;
 	logging_send_syslog_msg(mcpsrv_$1_t)
 	miscfiles_read_localization(mcpsrv_$1_t)
 ')
