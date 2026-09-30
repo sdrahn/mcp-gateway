@@ -6,6 +6,19 @@ change configuration, policy data or APIs.
 
 ## Unreleased
 
+### Fixed
+
+- The package did not build for SLES 16.0: its build root has no package
+  owning `/usr/share/polkit-1/rules.d`, and the file list check failed.
+  The build now pulls in polkit, which owns it.
+
+## v0.2.2 — 2026-09-30
+
+SELinux fixes found running systemd, firewalld and snapper MCP servers
+on SLES 16.1, and a user guide chapter on setting them up. Upgrading
+from 0.2.1 needs no configuration changes; modules built for dedicated
+backend domains can now use the gateway's template.
+
 ### Added
 
 - User guide chapter 13: running system management MCP servers
