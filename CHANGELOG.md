@@ -4,6 +4,18 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## Unreleased
+
+### Fixed
+
+- SELinux: `mcp-gateway-selinux` installs `mcp_gateway.if`, so modules
+  for dedicated backend domains can use `mcp_gateway_backend_template`
+  as chapter 4 describes; before, building such a module failed.
+- SELinux: backend domains may read their cgroup limits, which Go
+  servers do at start (denials for `cgroup_t`).
+- SELinux: the gateway's user lookups through nss-systemd no longer log
+  denials where PID 1 runs as `kernel_t` (seen on SLES 16.1).
+
 ## v0.2.1 — 2026-09-30
 
 Makes the SELinux package installable when it was built against a newer

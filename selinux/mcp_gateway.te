@@ -173,6 +173,15 @@ optional_policy(`
 auth_use_nsswitch(mcpgw_t)
 miscfiles_read_localization(mcpgw_t)
 
+# nss-systemd asks PID 1 (io.systemd.DynamicUser) for dynamic users. Where
+# PID 1 runs as kernel_t (seen on SLES 16.1) that is not allowed: the lookup
+# falls back to the other NSS sources, so only keep it out of the log.
+init_stream_connect(mcpgw_t)
+gen_require(`
+	type kernel_t;
+')
+dontaudit mcpgw_t kernel_t:unix_stream_socket connectto;
+
 # Approval mail (notifications.email): SMTP when enabled, and getent to
 # expand approver groups through NSS.
 tunable_policy(`mcpgw_can_send_mail',`
