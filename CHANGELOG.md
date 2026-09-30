@@ -4,6 +4,15 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## Unreleased
+
+### Fixed
+
+- `mcp-gateway-selinux` could not be installed when it was built against
+  a newer release of the host's selinux-policy version (seen on SLES
+  16.1). It now requires the selinux-policy version only, not also its
+  release.
+
 ## v0.2.0 — 2026-09-29
 
 The policy engine fits into an existing OPA estate (decision D8): the
