@@ -6,6 +6,13 @@ change configuration, policy data or APIs.
 
 ## Unreleased
 
+### Added
+
+- User guide chapter 13: running system management MCP servers
+  (systemd, firewalld, snapper) behind the gateway: a dedicated account,
+  SELinux domains for D-Bus, polkit rules, and a role that reads freely
+  and changes only with approval.
+
 ### Fixed
 
 - SELinux: `mcp-gateway-selinux` installs `mcp_gateway.if`, so modules

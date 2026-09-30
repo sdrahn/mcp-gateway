@@ -1,0 +1,286 @@
+# 13. System management servers (systemd, firewalld, snapper)
+
+MCP servers that manage the host itself, such as `systemd-mcp`,
+`firewalld-mcp` and a snapper MCP server, differ from servers that work
+on a user's files: they talk to system services over D-Bus, and those
+services decide for themselves (through polkit or their own
+configuration) what a caller may do. This chapter shows how to run them
+behind the gateway so that:
+
+- agents can read the system state freely,
+- every change waits for a human's approval in Cockpit,
+- the servers hold only the rights they need, and no one types an admin
+  password into an agent.
+
+The examples use the program names of the openSUSE/SLES packages
+(`/usr/bin/systemd-mcp`, `/usr/bin/firewalld-mcp`,
+`/usr/bin/snapper-mcp`); adjust the paths to your installation.
+
+## Three layers of authorization
+
+A call from an agent to, say, `change_unit_state` passes three checks:
+
+| Layer | Decides | Configured in |
+|---|---|---|
+| **gateway policy** | whether *this principal* may call *this tool* now: allow, deny, or ask for approval | role data (chapter 6) |
+| **the MCP server's own authorization** (some servers) | whether the server acts at all | the server's command-line options |
+| **the system service** (systemd, firewalld, snapperd) | whether the *account the instance runs as* may do this | polkit rules, service configuration |
+
+An instance is a background service without a login session, so nothing
+can answer a polkit password prompt: a call the service would
+authenticate interactively fails with "Interactive authentication
+required" or similar. The gateway does not collect passwords (MCP
+forbids asking for them through the agent's client, and the gateway
+would become a store of admin passwords). Instead, the gateway's
+approval takes the place of the password prompt, and a polkit rule
+grants the server's account the rights it needs, without a password.
+
+## The account the servers run as
+
+By default an instance runs as the requesting user (`run_as:
+principal`). A polkit rule for that user then also applies outside the
+gateway, for example to `systemctl` in the user's shell. To keep the
+rights inside the gateway, run the servers as a dedicated system account
+and write the polkit rules for that account:
+
+```bash
+# a system account without login (or: useradd --system)
+cat >/etc/sysusers.d/mcp-sysmgmt.conf <<'EOF'
+u mcp-sysmgmt - "mcp-gateway system management servers" / /usr/sbin/nologin
+EOF
+systemd-sysusers
+```
+
+With `run_as: mcp-sysmgmt`, every principal's instance runs as that
+account; what each principal may do is then decided by the gateway's
+policy alone, which is the point: the gateway's roles and approvals are
+the only way to these rights.
+
+## Server definitions
+
+```yaml
+# /etc/mcp-gateway/servers.d/systemd.yaml
+name: systemd
+command: ["/usr/bin/systemd-mcp", "--allow-read", "--allow-write"]
+run_as: mcp-sysmgmt
+selinux_type: mcpsrv_systemd_t
+```
+
+```yaml
+# /etc/mcp-gateway/servers.d/firewalld.yaml
+name: firewalld
+command: ["/usr/bin/firewalld-mcp"]
+run_as: mcp-sysmgmt
+selinux_type: mcpsrv_firewalld_t
+```
+
+```yaml
+# /etc/mcp-gateway/servers.d/snapper.yaml
+name: snapper
+command: ["/usr/bin/snapper-mcp"]
+run_as: mcp-sysmgmt
+selinux_type: mcpsrv_snapper_t
+```
+
+Notes:
+
+- `systemd-mcp` asks for its own authorization over D-Bus before it
+  reads or writes, unless started with `--allow-read` / `--allow-write`.
+  Behind the gateway, which already decides every call, pre-authorize.
+  If calls still end with "calling method was canceled by user", its own
+  authorization is still active; `--noauth ThisIsInsecure` switches it
+  off. Use that option only behind the gateway, never in an agent's own
+  configuration.
+- None of these servers needs `network: true`: the system bus is a unix
+  socket.
+- The servers speak MCP on stdin/stdout. A server that also writes log
+  lines to stdout breaks the protocol (the gateway logs "invalid message
+  from backend … parse error"); use its option to log to stderr or a
+  file.
+- The definitions are read at start: `mcp-gateway --check && systemctl
+  restart mcp-gateway.service`.
+
+## SELinux domains
+
+The default domain for servers, `mcpsrv_generic_t`, may not use the
+system bus, so these servers exit at start ("backend instance exited").
+Give each its own domain with the gateway's template
+(`mcp-gateway-selinux` installs the interface file; building needs
+`selinux-policy-devel`):
+
+```
+# mcp_systemd.te
+policy_module(mcp_systemd, 1.0)
+
+mcp_gateway_backend_template(systemd)
+
+dbus_system_bus_client(mcpsrv_systemd_t)
+init_dbus_chat(mcpsrv_systemd_t)
+optional_policy(`
+	policykit_dbus_chat(mcpsrv_systemd_t)
+')
+```
+
+```
+# mcp_systemd.fc
+/usr/bin/systemd-mcp  --  gen_context(system_u:object_r:mcpsrv_systemd_exec_t,s0)
+```
+
+For firewalld and snapper, the same with their names, and instead of
+`init_dbus_chat` the service's interface:
+
+```
+optional_policy(`
+	firewalld_dbus_chat(mcpsrv_firewalld_t)
+')
+```
+
+```
+# snapper: not every policy has an interface for snapperd, so plainly:
+optional_policy(`
+	gen_require(`
+		type snapperd_t;
+		class dbus send_msg;
+	')
+	allow mcpsrv_snapper_t snapperd_t:dbus send_msg;
+	allow snapperd_t mcpsrv_snapper_t:dbus send_msg;
+')
+```
+
+Build, install and label:
+
+```bash
+make -f /usr/share/selinux/devel/Makefile mcp_systemd.pp mcp_firewalld.pp mcp_snapper.pp
+semodule -i mcp_systemd.pp mcp_firewalld.pp mcp_snapper.pp
+restorecon -v /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/snapper-mcp
+```
+
+Install the modules **before** naming the domains in the definitions: an
+unknown `selinux_type` makes every start fail with
+`status=229/SELINUX_CONTEXT`.
+
+The tools may need more than the start does (reading the journal, for
+example). Find the rest by running the domains permissive while using
+the tools, then turn the denials into rules:
+
+```bash
+semanage permissive -a mcpsrv_systemd_t
+# use the server's tools from an agent, then:
+ausearch -m AVC,USER_AVC -ts recent | grep mcpsrv_systemd_t | audit2allow
+semanage permissive -d mcpsrv_systemd_t
+```
+
+Many D-Bus denials are hidden by `dontaudit` rules; `semodule -DB` shows
+them, `semodule -B` hides them again. D-Bus denials are logged by the
+bus as `USER_AVC`, not `AVC`.
+
+## Service permissions
+
+### systemd and firewalld: polkit
+
+```js
+// /etc/polkit-1/rules.d/60-mcp-sysmgmt.rules
+// The gateway's system management servers (run_as: mcp-sysmgmt) may manage
+// units and the firewall. Which calls run is decided by the gateway, which
+// requires approval for every change.
+polkit.addRule(function(action, subject) {
+    if (subject.user != "mcp-sysmgmt")
+        return polkit.Result.NOT_HANDLED;
+    if (action.id == "org.freedesktop.systemd1.manage-units" ||
+        action.id == "org.freedesktop.systemd1.manage-unit-files" ||
+        action.id == "org.freedesktop.systemd1.reload-daemon")
+        return polkit.Result.YES;
+    if (action.id.indexOf("org.fedoraproject.FirewallD1.") == 0)
+        return polkit.Result.YES;
+    return polkit.Result.NOT_HANDLED;
+});
+```
+
+polkit reads new rules immediately. Keep the rule as narrow as your use
+allows: `action.lookup("unit")` holds the unit name for systemd's
+actions, so a rule can name the units the servers may touch;
+`pkaction | grep -E 'systemd1|FirewallD1'` lists the actions.
+
+firewalld allows queries (`…FirewallD1.info`) without a password only in
+an active login session, so even reading needs the rule for a background
+account.
+
+### snapper: the snapper configuration
+
+snapperd does not use polkit; it lets non-root callers use a snapper
+configuration named in `ALLOW_USERS` or `ALLOW_GROUPS`:
+
+```bash
+snapper -c root set-config ALLOW_USERS="mcp-sysmgmt"
+```
+
+Allowed callers can list, create and delete snapshots of that
+configuration; rollbacks need root.
+
+## Roles and approvals
+
+A role that lets its holders read freely and makes every change wait for
+approval (chapter 6 explains how permissions combine: one matching
+permission **without** `require_approval` allows the call, so a role like
+the shipped `admin`, which allows everything, never asks):
+
+```json
+"roles": {
+  "sysops": {
+    "description": "systemd, firewalld, snapper: read freely, change only with approval",
+    "permissions": [
+      {"server": "systemd",   "tool": "list_*"},
+      {"server": "systemd",   "tool": "get_*"},
+      {"server": "systemd",   "tool": "*", "require_approval": true, "approval_channel": "oob"},
+      {"server": "firewalld", "tool": "get_*"},
+      {"server": "firewalld", "tool": "list_*"},
+      {"server": "firewalld", "tool": "*", "require_approval": true, "approval_channel": "oob"},
+      {"server": "snapper",   "tool": "list_*"},
+      {"server": "snapper",   "tool": "*", "require_approval": true, "approval_channel": "oob"}
+    ]
+  }
+},
+"bindings": {"users": {"alice": ["sysops"]}},
+"approvers": {
+  "default": ["self", "role:admin"],
+  "systemd":   ["role:admin"],
+  "firewalld": ["role:admin"],
+  "snapper":   ["role:admin"]
+}
+```
+
+- Check the read patterns against the servers' actual tool names (a
+  `tools/list` through `mcp-connect --server systemd`): a changing tool
+  whose name starts with `list_` or `get_` would run without approval.
+- `oob` puts the request into the Cockpit inbox (and desktop and mail
+  notifications) whatever the agent's client supports; the agent waits,
+  up to `approval_timeout` (chapter 3). Raise it if approvers need longer
+  than the default two minutes.
+- Without `self` in the server's approver rule, users cannot approve
+  their own changes: someone holding `admin` must.
+- Do not also bind these users to `admin`: its permissions allow every
+  call and nothing would ask.
+
+## Checking and troubleshooting
+
+```bash
+# Can the gateway list each server's tools? (lists servers it could not)
+curl -s --unix-socket /run/mcp-gateway/control.sock -X POST \
+  --data-binary @/etc/mcp-gateway/policy/rbac/data.json http://gw/v1/policy/whatif | jq .unchecked
+# The gateway's decision for each call:
+journalctl -u mcp-gateway.service -o cat | grep '"audit":true' | jq -c '{server,name,effect,reason}'
+# What the servers said:
+journalctl -u 'mcp-systemd-*' -u 'mcp-firewalld-*' -u 'mcp-snapper-*' -b
+```
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `unchecked`: "backend instance exited", the server's journal shows only systemd's start and exit messages | the server may not reach the system bus (and cannot even log why) | dedicated SELinux domain, as above; `semodule -DB` shows the hidden denials |
+| `status=229/SELINUX_CONTEXT` | the definition names a domain whose module is not installed | install the module, or remove `selinux_type` |
+| "invalid message from backend … parse error" | the server writes non-MCP output to stdout | its option for logging to stderr or a file |
+| a change runs without approval (audit: `effect: allow`) | a role of the principal allows the tool without approval (often `admin`) | check the principal's roles; only reads may match a permission without `require_approval` |
+| audit: `ask`, but nothing appears in Cockpit | the approval could not be delivered | `journalctl -u mcp-gateway.service \| grep -iE 'approval\|elicit'`; the control socket must be enabled |
+| "calling method was canceled by user" | `systemd-mcp`'s own authorization | `--allow-read` / `--allow-write`, or `--noauth ThisIsInsecure` behind the gateway |
+| "Interactive authentication required", `NOT_AUTHORIZED` after approval | the service's polkit check for the instance's account | the polkit rule above, for the account in `run_as` |
+| snapper calls refused after approval | the account is not in the snapper configuration's `ALLOW_USERS`/`ALLOW_GROUPS` | `snapper -c <config> set-config ALLOW_USERS=…` |
+| role data edits do not take effect | OPA did not notice the change (some editors replace the file) | `systemctl restart mcp-opa.service`; compare `curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/bindings` with the file |
