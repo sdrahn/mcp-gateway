@@ -4,6 +4,19 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## v0.1.2 — 2026-09-30
+
+Makes the SELinux package installable when it was built against a newer
+release of the host's selinux-policy version. Upgrading from 0.1.1
+needs no configuration changes.
+
+### Fixed
+
+- `mcp-gateway-selinux` could not be installed when it was built against
+  a newer release of the host's selinux-policy version (seen on SLES
+  16.1: "nothing provides 'selinux-policy >= VERSION-RELEASE'"). It now
+  requires the selinux-policy version only, not also its release.
+
 ## v0.1.1 — 2026-09-29
 
 Makes 0.1.0 work on openSUSE with SELinux enforcing, where the gateway
