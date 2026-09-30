@@ -4,56 +4,11 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
-## v0.2.2 — 2026-09-30
+## v0.2.3 — 2026-09-30
 
-SELinux fixes found running systemd, firewalld and snapper MCP servers
-on SLES 16.1, and a user guide chapter on setting them up. Upgrading
-from 0.2.1 needs no configuration changes; modules built for dedicated
-backend domains can now use the gateway's template.
-
-### Added
-
-- User guide chapter 13: running system management MCP servers
-  (systemd, firewalld, snapper) behind the gateway: a dedicated account,
-  SELinux domains for D-Bus, polkit rules, and a role that reads freely
-  and changes only with approval.
-
-### Fixed
-
-- SELinux: `mcp-gateway-selinux` installs `mcp_gateway.if`, so modules
-  for dedicated backend domains can use `mcp_gateway_backend_template`
-  as chapter 4 describes; before, building such a module failed.
-- SELinux: backend domains may read their cgroup limits, which Go
-  servers do at start (denials for `cgroup_t`).
-- SELinux: the gateway's user lookups through nss-systemd no longer log
-  denials where PID 1 runs as `kernel_t` (seen on SLES 16.1).
-
-## v0.2.1 — 2026-09-30
-
-Makes the SELinux package installable when it was built against a newer
-release of the host's selinux-policy version. Upgrading from 0.2.0
-needs no configuration changes.
-
-### Fixed
-
-- `mcp-gateway-selinux` could not be installed when it was built against
-  a newer release of the host's selinux-policy version (seen on SLES
-  16.1: "nothing provides 'selinux-policy >= VERSION-RELEASE'"). It now
-  requires the selinux-policy version only, not also its release.
-
-## v0.2.0 — 2026-09-29
-
-The policy engine fits into an existing OPA estate (decision D8): the
-gateway's policy lives entirely below `data.mcp`, so its bundles can
-share an OPA with other teams' policies, and its decision logs can go to
-the same collector. Role data edits are checked against a JSON Schema
-and previewed ("what changes?") before they take effect, and the policy
-is linted with Regal in CI. Includes the fixes of 0.1.1.
-
-**Upgrading from 0.1:** custom policy that reads `data.rbac` or adds to
-`system.log`, and drop-ins that replace `ExecStart=` of
-`mcp-opa.service`, need changes (below). The role data file stays where
-it is and needs none.
+Builds for SLES 16.0, which failed with 0.2.2 in the build's file list
+check. No functional changes; upgrading from 0.2.2 needs no
+configuration changes.
 
 ### Fixed
 
