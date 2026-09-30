@@ -27,6 +27,8 @@ TMPFILESDIR ?= $(PREFIX)/lib/tmpfiles.d
 POLKITDIR   ?= $(DATADIR)/polkit-1/rules.d
 COCKPITDIR  ?= $(DATADIR)/cockpit/mcp-gateway
 SELINUXDIR  ?= $(DATADIR)/selinux/packages/$(SELINUXTYPE)
+# mcp_gateway.if, for modules of dedicated backend domains.
+SELINUXINCDIR ?= $(DATADIR)/selinux/devel/include/services
 DESTDIR     ?=
 
 BINARIES := bin/mcp-gateway bin/mcp-connect bin/mcp-gateway-notify bin/mcp-fs-demo
@@ -105,6 +107,7 @@ install-selinux: selinux/mcp_gateway.pp
 	install -d $(DESTDIR)$(SELINUXDIR)
 	bzip2 -9 -c selinux/mcp_gateway.pp >$(DESTDIR)$(SELINUXDIR)/mcp_gateway.pp.bz2
 	chmod 0644 $(DESTDIR)$(SELINUXDIR)/mcp_gateway.pp.bz2
+	install -Dm0644 selinux/mcp_gateway.if $(DESTDIR)$(SELINUXINCDIR)/mcp_gateway.if
 
 install-cockpit:
 	install -d $(DESTDIR)$(COCKPITDIR)
