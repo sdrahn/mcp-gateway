@@ -10,7 +10,7 @@ change configuration, policy data or APIs.
 
 - The package did not build for SLES 16.0: its build root has no package
   owning `/usr/share/polkit-1/rules.d`, and the file list check failed.
-  The package now owns the directory as well.
+  The build now pulls in polkit, which owns it.
 
 ## v0.2.2 — 2026-09-30
 
