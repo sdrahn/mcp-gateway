@@ -4,6 +4,14 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## Unreleased
+
+### Fixed
+
+- The package did not build for SLES 16.0: its build root has no package
+  owning `/usr/share/polkit-1/rules.d`, and the file list check failed.
+  The package now owns the directory as well.
+
 ## v0.2.2 — 2026-09-30
 
 SELinux fixes found running systemd, firewalld and snapper MCP servers

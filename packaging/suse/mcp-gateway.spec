@@ -177,6 +177,9 @@ fi
 %{_unitdir}/mcp-opa.service
 %{_sysusersdir}/%{name}.conf
 %{_tmpfilesdir}/%{name}.conf
+# Not owned by any package in the SLES 16.0 build root.
+%dir %{_datadir}/polkit-1
+%dir %{_datadir}/polkit-1/rules.d
 %{_datadir}/polkit-1/rules.d/50-mcp-gateway.rules
 
 %files selinux
