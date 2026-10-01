@@ -184,7 +184,7 @@ jobs:
       - name: Install build tools
         run: >
           zypper -n --gpg-auto-import-keys in --no-recommends
-          git tar gzip make go gcc gcc-c++ cmake systemd-devel
+          git tar gzip findutils make go gcc gcc-c++ cmake systemd-devel
           libzypp-devel yaml-cpp-devel libboost_test-devel
       - uses: actions/checkout@v4
       - name: Build the servers

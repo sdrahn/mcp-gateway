@@ -48,9 +48,9 @@ fetch openSUSE/mcp-server-zypp mcp-server-zypp "$MCP_SERVER_ZYPP"
 # does), told where the worker is.
 cmake -S "$src/mcp-server-zypp" -B "$src/zypp-build" -DBUILD_GO_PROXY=OFF -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build "$src/zypp-build" --target zypp-mcp-tool -j "$(nproc)"
-install -m 0755 "$(find "$src/zypp-build" -type f -name zypp-mcp-tool | head -1)" "$out/usr/libexec/mcp-server-zypp/"
+install -m 0755 "$src/zypp-build/worker/zypp-mcp-tool" "$out/usr/libexec/mcp-server-zypp/"
 (cd "$src/mcp-server-zypp/proxy" && CGO_ENABLED=0 go build -trimpath \
 	-ldflags "-X 'github.com/openSUSE/mcp-server-zypp/internal/config.DefaultWorkerDir=/usr/libexec/mcp-server-zypp'" \
 	-o "$out/usr/bin/mcp-server-zypp" ./cmd/mcp-server-zypp)
 
-find "$out" -type f | sort
+ls -lR "$out"
