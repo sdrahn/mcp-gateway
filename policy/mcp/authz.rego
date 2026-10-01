@@ -155,6 +155,7 @@ allowed if {
 	some p in matching
 	not p.effect == "deny"
 	not p.require_approval
+	unconditional(p)
 }
 
 approvable contains p if {
@@ -162,6 +163,27 @@ approvable contains p if {
 	not p.effect == "deny"
 	p.require_approval
 }
+
+# Privileged servers run without the kernel sandbox (docs/architecture.md,
+# section 5.7.1). A permission allows their calls without approval only
+# if it names server and target without wildcards; others, like admin's
+# "*", ask.
+approvable contains p if {
+	some p in matching
+	not p.effect == "deny"
+	not p.require_approval
+	not unconditional(p)
+}
+
+unconditional(_) if not input.resource.privileged == true
+
+unconditional(p) if {
+	input.resource.privileged == true
+	not has_glob(p.server)
+	not has_glob(object.get(p, target_field[input.action], "*"))
+}
+
+has_glob(s) if regex.match(`[*?\[\]{}]`, s)
 
 granted if {
 	some g in input.grants

@@ -106,6 +106,12 @@ func (r *Router) WatchPolicy(ctx context.Context, interval time.Duration, finger
 	}
 }
 
+// privileged reports whether server is a privileged backend.
+func (r *Router) privileged(server string) bool {
+	b := r.Backends[server]
+	return b != nil && b.Privileged
+}
+
 // Instances describes the running backend instances.
 func (r *Router) Instances() []InstanceInfo {
 	r.init()

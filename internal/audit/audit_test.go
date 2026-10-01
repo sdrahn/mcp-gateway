@@ -46,6 +46,21 @@ func TestLogKeyedDigestAndKernel(t *testing.T) {
 	}
 }
 
+func TestLogPrivilegedToKernel(t *testing.T) {
+	var out bytes.Buffer
+	k := &fakeKernel{}
+	a := New(&out, Options{Key: bytes.Repeat([]byte{1}, 32), Kernel: k})
+	a.Log(Record{Session: "s1", Sub: "alice", Action: "tools.call", Server: "zypp", Name: "confirm_install",
+		Effect: "allow", Reason: "approved", GrantID: "g-1", DecisionID: "d-1", Privileged: true})
+	if !strings.Contains(out.String(), `"privileged":true`) {
+		t.Fatalf("journal record: %s", out.String())
+	}
+	if len(k.msgs) != 1 || !strings.Contains(k.msgs[0], " grant=g-1 ") || !strings.Contains(k.msgs[0], " privileged=yes ") ||
+		!strings.HasSuffix(k.msgs[0], " res=success") {
+		t.Fatalf("kernel messages %v", k.msgs)
+	}
+}
+
 func TestEventAndKernelFailure(t *testing.T) {
 	var out bytes.Buffer
 	k := &fakeKernel{err: errors.New("EPERM")}

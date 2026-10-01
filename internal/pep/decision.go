@@ -38,6 +38,9 @@ type Resource struct {
 	// Kind is "tool", "resource" or "prompt".
 	Kind string `json:"kind"`
 	Name string `json:"name"`
+	// Privileged is set for privileged servers (docs/architecture.md,
+	// section 5.7.1), which the gateway does not sandbox.
+	Privileged bool `json:"privileged,omitempty"`
 	// Annotations are the backend's tool annotations. They are untrusted
 	// hints and must never grant access on their own.
 	Annotations map[string]any `json:"annotations,omitempty"`

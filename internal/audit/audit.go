@@ -37,6 +37,9 @@ type Record struct {
 	// Reidentified counts the pseudonyms replaced by original values in
 	// the arguments (Args are then the arguments as forwarded).
 	Reidentified int
+	// Privileged marks decisions on privileged servers, which go to the
+	// kernel audit subsystem whatever the effect.
+	Privileged bool
 }
 
 // KernelSender delivers messages to the kernel audit subsystem.
@@ -99,12 +102,20 @@ func (a *Logger) Log(r Record) {
 			attrs = append(attrs, "args_hmac", a.digest(r.Args))
 		}
 	}
+	if r.Privileged {
+		attrs = append(attrs, "privileged", true)
+	}
 	a.l.Info("mcp", attrs...)
-	if r.Effect == "deny" {
-		a.kernel("mcp-decision", false, map[string]string{
+	if r.Effect == "deny" || r.Privileged {
+		fields := map[string]string{
 			"session": r.Session, "principal": r.Sub, "action": r.Action, "server": r.Server,
 			"target": r.Name, "reason": r.Reason, "decision_id": r.DecisionID,
-		})
+		}
+		if r.Privileged {
+			fields["privileged"] = "yes"
+			fields["grant"] = r.GrantID
+		}
+		a.kernel("mcp-decision", r.Effect != "deny", fields)
 	}
 }
 
