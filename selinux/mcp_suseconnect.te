@@ -4,9 +4,19 @@ policy_module(mcp_suseconnect, 1.0.0)
 # mcp-gateway: package mcp-gateway-profile-suseconnect. It runs as root
 # (in the sandbox), talks to SCC or an RMT server over HTTPS, keeps a call
 # count in /var/lib/suseconnect-mcp and reads and writes the system
-# credentials in /etc/zypp/credentials.d.
+# credentials in /etc/zypp/credentials.d. It runs zypper (products,
+# services), which like the zypp worker runs in rpm_t; the instance has
+# no_new_privs (the sandbox), hence nnp_transition.
+
+gen_require(`
+	type rpm_t;
+	class process2 nnp_transition;
+')
 
 mcp_gateway_backend_template(suseconnect)
+mcp_gateway_backend_rpm(suseconnect)
+
+allow mcpsrv_suseconnect_t rpm_t:process2 nnp_transition;
 
 type mcpsrv_suseconnect_var_lib_t;
 files_type(mcpsrv_suseconnect_var_lib_t)

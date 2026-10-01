@@ -77,9 +77,18 @@ jobs:
   # The OBS package (packaging/suse), built the way OBS builds it: real
   # SUSE rpm macros, offline Go modules, the SELinux module against
   # openSUSE's policy, rpmlint with the package's rpmlintrc.
+  # On each distribution the VM test runs (packages built for it).
   opensuse:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: tumbleweed
+            image: registry.opensuse.org/opensuse/tumbleweed:latest
+          - distro: leap16
+            image: registry.opensuse.org/opensuse/leap:16.0
     runs-on: ubuntu-24.04
-    container: registry.opensuse.org/opensuse/tumbleweed:latest
+    container: ${{ matrix.image }}
     steps:
       # The packages providing rpm macros the spec uses must be there before
       # rpmspec can parse it (OBS knows them from its project config).
@@ -151,17 +160,58 @@ jobs:
         run: mkdir rpms && cp ~/rpmbuild/RPMS/*/*.rpm rpms/
       - uses: actions/upload-artifact@v4
         with:
-          name: rpms
+          name: rpms-${{ matrix.distro }}
           path: rpms/
+          retention-days: 7
+
+  # The MCP servers the setup packages are for, from their upstream sources
+  # at pinned versions (test/vm/build-servers.sh), for the VM test.
+  servers:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: tumbleweed
+            image: registry.opensuse.org/opensuse/tumbleweed:latest
+          - distro: leap16
+            image: registry.opensuse.org/opensuse/leap:16.0
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    steps:
+      # The distribution's Go; it fetches the toolchain a server's go.mod
+      # asks for (GOTOOLCHAIN=auto). setup-go would leave the container's
+      # PATH without /usr/bin.
+      - name: Install build tools
+        run: >
+          zypper -n --gpg-auto-import-keys in --no-recommends
+          git tar gzip findutils make go gcc gcc-c++ cmake systemd-devel
+          libzypp-devel yaml-cpp-devel libboost_test-devel
+      - uses: actions/checkout@v4
+      - name: Build the servers
+        run: test/vm/build-servers.sh servers
+      - uses: actions/upload-artifact@v4
+        with:
+          name: servers-${{ matrix.distro }}
+          path: servers/
           retention-days: 7
 
   # The packages installed on a real openSUSE system (a KVM guest) with
   # SELinux enforcing: domains, MCS pairs, polkit, credentials, kernel
   # audit, and no SELinux denials (test/vm).
   vm:
-    needs: opensuse
+    needs: [opensuse, servers]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: tumbleweed
+            name: openSUSE Tumbleweed
+            image_url: https://download.opensuse.org/tumbleweed/appliances/openSUSE-Tumbleweed-Minimal-VM.x86_64-Cloud.qcow2
+          - distro: leap16
+            name: openSUSE Leap 16.0
+            image_url: https://download.opensuse.org/distribution/leap/16.0/appliances/Leap-16.0-Minimal-VM.x86_64-Cloud.qcow2
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -173,8 +223,12 @@ jobs:
           static: true
       - uses: actions/download-artifact@v4
         with:
-          name: rpms
+          name: rpms-${{ matrix.distro }}
           path: rpms
+      - uses: actions/download-artifact@v4
+        with:
+          name: servers-${{ matrix.distro }}
+          path: servers
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -186,14 +240,15 @@ jobs:
         run: |
           CGO_ENABLED=0 go build -o "$RUNNER_TEMP/mcpcall" ./test/vm/mcpcall
           CGO_ENABLED=0 go build -o "$RUNNER_TEMP/privsrv" ./test/vm/privsrv
-      - name: Run the VM tests (openSUSE Tumbleweed)
+      - name: Run the VM tests (${{ matrix.name }})
         env:
           WORK: ${{ runner.temp }}/vm
-        run: test/vm/run-vm.sh rpms "$RUNNER_TEMP/mcpcall" "$(command -v opa)" "$RUNNER_TEMP/privsrv"
+          IMAGE_URL: ${{ matrix.image_url }}
+        run: test/vm/run-vm.sh rpms "$RUNNER_TEMP/mcpcall" "$(command -v opa)" "$RUNNER_TEMP/privsrv" servers
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: vm-logs
+          name: vm-logs-${{ matrix.distro }}
           path: |
             ${{ runner.temp }}/vm/console.log
             ${{ runner.temp }}/vm/test.log

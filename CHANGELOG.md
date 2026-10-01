@@ -28,6 +28,14 @@ change configuration, policy data or APIs.
   `GET /v1/policy` and shown in Cockpit, and part of the policy
   fingerprint (installing a setup tells clients to list tools again).
 
+### Fixed
+
+- SELinux: on policies that grant systemd the transition into a service
+  domain only together with `init_systemd` (openSUSE Leap 16), the
+  gateway, OPA and the server instances stayed in `init_t` and failed to
+  start; the module now allows the transition under `NoNewPrivileges=`
+  itself.
+
 ## v0.3.0 — 2026-10-01
 
 Agents can install and remove packages through the gateway: MCP servers
