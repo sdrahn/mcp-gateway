@@ -192,5 +192,5 @@ Kernel audit (`TRUSTED_APP`) operations:
 | MCS collision check | 30 s | no |
 | "once" grant | 1 min (15 min if decided with no call waiting) | no |
 | "session" grant | session end, at most 8 h | no |
-| duration grant | at most 30 days | policy |
+| duration grant | at most 30 days | `approval_scopes` (role data) |
 | SSE replay buffer | 256 events per stream, 5 min | no |

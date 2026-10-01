@@ -57,7 +57,22 @@ policy offered:
 |---|---|---|
 | `once` ("Only this call") | used by the waiting call only; not stored | 1 minute |
 | `session` ("For this session") | stored, bound to the agent's session | until the session ends, at most 8 hours |
-| a duration such as `1h` ("For 1h"; custom policy only) | stored | that time, at most 30 days |
+| a duration such as `1h` ("For 1h") | stored, not bound to a session | that time, at most 30 days |
+
+A permission offers "once" and "session" unless its `approval_scopes`
+says otherwise (chapter 6):
+
+```json
+{"server": "zypp", "tool": "*", "require_approval": true, "approval_channel": "oob",
+ "approval_scopes": ["once", "1h", "8h"]}
+```
+
+"Session" means the agent's MCP connection. Some agents open a new one
+for every prompt (Kit does), and a session grant then ends with the
+prompt; offer a duration instead, which also survives reconnects and
+gateway restarts. Keep durations short for changing tools: the grant
+covers every call of that tool by the same principal until it expires
+or is revoked.
 
 A grant covers the same principal, server and tool, whatever the
 arguments. Permissions with `args` conditions still apply: a grant
