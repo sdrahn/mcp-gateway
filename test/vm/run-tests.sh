@@ -129,7 +129,14 @@ journal_since_start_has() {
 }
 has_capabilities() { ! grep -q '^CapEff:[[:space:]]*0000000000000000' "/proc/$1/status"; }
 not_installed() { ! rpm -q "$1" >/dev/null 2>&1; }
-privileged_audited() { audit_since TRUSTED_APP | grep 'op=mcp-decision' | grep 'privileged=yes' | grep -q 'res=success'; }
+# auditd writes the records asynchronously: wait for them a little.
+privileged_audited() {
+	for _ in $(seq 10); do
+		audit_since TRUSTED_APP | grep 'op=mcp-decision' | grep 'privileged=yes' | grep -q 'res=success' && return
+		sleep 1
+	done
+	return 1
+}
 
 # --- tests -------------------------------------------------------------------
 
@@ -285,6 +292,13 @@ policy_module(mcp_privtest, 1.0)
 
 mcp_gateway_backend_template(privtest)
 mcp_gateway_backend_rpm(privtest)
+
+# Test only: "hold" writes its marker file below /run.
+gen_require(`
+	type var_run_t;
+')
+allow mcpsrv_privtest_t var_run_t:dir rw_dir_perms;
+allow mcpsrv_privtest_t var_run_t:file create_file_perms;
 END
 printf '/usr/libexec/mcpgw-privtest\t--\tgen_context(system_u:object_r:mcpsrv_privtest_exec_t,s0)\n' \
 	>/root/privtest/mcp_privtest.fc
