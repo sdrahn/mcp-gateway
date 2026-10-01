@@ -389,7 +389,7 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 
 	resources := make([]pep.Resource, len(items))
 	for i, it := range items {
-		resources[i] = pep.Resource{Server: it.server, Kind: spec.kind, Name: it.name}
+		resources[i] = pep.Resource{Server: it.server, Kind: spec.kind, Name: it.name, Privileged: s.r.privileged(it.server)}
 	}
 	type key struct{ server, kind, name string }
 	visible := map[key]bool{}
@@ -618,7 +618,8 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	}
 	s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: t.action, Server: t.server,
 		Name: t.resource.Name, Effect: string(dec.Effect), Reason: dec.Reason, GrantID: grantID,
-		DecisionID: decisionID, Args: t.args, FullArgs: ob != nil && ob.FullAudit, Reidentified: nReidentified})
+		DecisionID: decisionID, Args: t.args, FullArgs: ob != nil && ob.FullAudit, Reidentified: nReidentified,
+		Privileged: s.r.privileged(t.server)})
 	if dec.Effect != pep.Allow {
 		return s.denial(m.Method, dec.Reason)
 	}
@@ -637,6 +638,9 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		defer u.unregisterProgress(gw)
 	}
 	resp, err := u.request(ctx, s, m.Method, params)
+	if errors.Is(err, errShuttingDown) {
+		return nil, rpcError(jsonrpc.CodeInternalError, err.Error())
+	}
 	if err != nil {
 		return nil, rpcError(jsonrpc.CodeInternalError, "backend unavailable")
 	}
@@ -680,6 +684,7 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 		Grants:    s.r.Broker.Grants(p, t.resource.Server, t.resource.Name),
 		Context:   s.policyContext(decisionID),
 	}
+	in.Resource.Privileged = s.r.privileged(t.resource.Server)
 	// A "once" grant from an approval decided while no call was waiting
 	// (the client left, the gateway restarted) is used up by the call it
 	// allows.
@@ -957,7 +962,7 @@ func (s *Session) relayBackendRequest(u *upstream, m *jsonrpc.Message) *jsonrpc.
 		dec = pep.Evaluate(s.ctx, s.r.PDP, pep.Input{
 			Principal: p,
 			Action:    action,
-			Resource:  pep.Resource{Server: u.backend.Name, Kind: "client", Name: m.Method},
+			Resource:  pep.Resource{Server: u.backend.Name, Kind: "client", Name: m.Method, Privileged: u.backend.Privileged},
 			Args:      args,
 			Context:   s.policyContext(decisionID),
 		})

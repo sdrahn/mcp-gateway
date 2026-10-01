@@ -2,7 +2,7 @@
 # Boots an openSUSE cloud image with QEMU/KVM, installs the packages built
 # from this tree and runs test/vm/run-tests.sh in it as root.
 #
-# Usage: test/vm/run-vm.sh <rpm dir> <mcpcall binary> <opa binary>
+# Usage: test/vm/run-vm.sh <rpm dir> <mcpcall binary> <opa binary> <privsrv binary>
 #
 # Environment:
 #   IMAGE_URL  cloud image (default: openSUSE Tumbleweed Minimal-VM, Cloud)
@@ -14,13 +14,14 @@
 # cloud-localds (cloud-image-utils), ssh and /dev/kvm.
 set -euo pipefail
 
-[ $# = 3 ] || {
-	echo "usage: $0 <rpm dir> <mcpcall binary> <opa binary>" >&2
+[ $# = 4 ] || {
+	echo "usage: $0 <rpm dir> <mcpcall binary> <opa binary> <privsrv binary>" >&2
 	exit 2
 }
 rpms=$(realpath "$1")
 mcpcall=$(realpath "$2")
 opa=$(realpath "$3")
+privsrv=$(realpath "$4")
 here=$(cd "$(dirname "$0")" && pwd)
 image_url=${IMAGE_URL:-https://download.opensuse.org/tumbleweed/appliances/openSUSE-Tumbleweed-Minimal-VM.x86_64-Cloud.qcow2}
 work=${WORK:-$(mktemp -d)}
@@ -102,7 +103,7 @@ fi
 log "copying the test payload"
 vm 'rm -rf /root/vmtest && mkdir -p /root/vmtest/rpms'
 scp -q -i "$work/key" -P "$port" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
-	"$here/run-tests.sh" "$mcpcall" "$opa" root@127.0.0.1:/root/vmtest/
+	"$here/run-tests.sh" "$mcpcall" "$opa" "$privsrv" root@127.0.0.1:/root/vmtest/
 scp -q -i "$work/key" -P "$port" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
 	"$rpms"/*.rpm root@127.0.0.1:/root/vmtest/rpms/
 

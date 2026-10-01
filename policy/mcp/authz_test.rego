@@ -321,3 +321,50 @@ test_duration_grant_survives_new_session if {
 	d := authz.decision with input as inp with data.mcp.rbac.roles as perms
 	d == {"effect": "allow", "reason": "approved"}
 }
+
+privileged_call(tool) := json.patch(call(alice, "zypp", tool, {}), [{"op": "add", "path": "/resource/privileged", "value": true}])
+
+test_privileged_wildcard_asks if {
+	perms := {"developer": {"permissions": [{"server": "*", "tool": "*"}]}}
+	d := authz.decision with input as privileged_call("confirm_install") with data.mcp.rbac.roles as perms
+	d.effect == "ask"
+	d.ask.scopes == ["once", "session"]
+}
+
+test_privileged_tool_wildcard_asks if {
+	perms := {"developer": {"permissions": [{"server": "zypp", "tool": "plan_*"}]}}
+	d := authz.decision with input as privileged_call("plan_install") with data.mcp.rbac.roles as perms
+	d.effect == "ask"
+}
+
+test_privileged_exact_name_allows if {
+	perms := {"developer": {"permissions": [{"server": "zypp", "tool": "search_packages"}]}}
+	d := authz.decision with input as privileged_call("search_packages") with data.mcp.rbac.roles as perms
+	d.effect == "allow"
+}
+
+test_privileged_deny_still_denies if {
+	perms := {"developer": {"permissions": [
+		{"server": "*", "tool": "*"},
+		{"server": "zypp", "tool": "confirm_*", "effect": "deny"},
+	]}}
+	d := authz.decision with input as privileged_call("confirm_remove") with data.mcp.rbac.roles as perms
+	d.effect == "deny"
+}
+
+test_privileged_wildcard_granted if {
+	perms := {"developer": {"permissions": [{"server": "*", "tool": "*"}]}}
+	granted_in := json.patch(privileged_call("confirm_install"), [{"op": "add", "path": "/grants", "value": [{
+		"sub": "alice", "server": "zypp", "tool": "confirm_install",
+		"scope": "once", "expires": future,
+	}]}])
+	d := authz.decision with input as granted_in with data.mcp.rbac.roles as perms
+	d.effect == "allow"
+	d.reason == "approved"
+}
+
+test_unprivileged_wildcard_allows if {
+	perms := {"developer": {"permissions": [{"server": "*", "tool": "*"}]}}
+	d := authz.decision with input as call(alice, "zypp", "confirm_install", {}) with data.mcp.rbac.roles as perms
+	d.effect == "allow"
+}

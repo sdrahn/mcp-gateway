@@ -6,6 +6,7 @@
 #   rpms/     mcp-gateway, mcp-gateway-selinux and mcp-gateway-demo-server
 #   mcpcall   the test client (test/vm/mcpcall)
 #   opa       OPA binary, used if the distribution has no opa package
+#   privsrv   test server for privileged backends (test/vm/privsrv)
 # Every check prints PASS or FAIL; the script exits 1 if any failed.
 set -u
 dir=$(cd "$(dirname "$0")" && pwd)
@@ -83,9 +84,62 @@ audit_since() {
 	done
 }
 audited() { audit_since TRUSTED_APP | grep -q "op=$1"; }
+# The kernel replaces the last byte of a user record with a NUL; the
+# record must still end with the complete result.
+denial_res_complete() { audit_since TRUSTED_APP | grep 'op=mcp-decision' | grep -q "res=failed'"; }
 audit_log_works() { audit_since SERVICE_START | grep -q 'unit=mcp-gateway'; }
 journal_has_audit() { journalctl -u mcp-gateway.service -o cat | grep -qF '"audit":true'; }
 no_mcp_denials() { ! grep -E 'mcpgw_|mcpopa_|mcpsrv_|mcp_port_t' <<<"$avc" | grep -q .; }
+# ptool <user> <tool> <args>: a call to the privileged test server.
+ptool() {
+	out=$(runuser -u "$1" -- /usr/local/bin/mcpcall --server privtest --method tools/call \
+		--params "{\"name\":\"$2\",\"arguments\":$3}" 2>&1)
+	rc=$?
+	echo "  [$1] rc=$rc ${out:0:300}"
+}
+# control <user> <method> <path> [body]: the control API as <user>.
+control() {
+	runuser -u "$1" -- curl -s --unix-socket /run/mcp-gateway/control.sock -X "$2" \
+		${4:+--data-binary "$4"} "http://gw$3"
+}
+# ptool_approved <user> <tool> <args>: ptool, with <user> approving the
+# call (once) through the control API while it waits.
+ptool_approved() {
+	local id res=/root/privtest/call.out
+	ptool "$@" >"$res" &
+	local pid=$!
+	for _ in $(seq 30); do
+		id=$(control "$1" GET /v1/approvals | jq -r '.[0].id // empty')
+		[ -n "$id" ] && break
+		sleep 1
+	done
+	echo "  approval: ${id:-none}"
+	[ -n "$id" ] && control "$1" POST "/v1/approvals/$id" '{"decision":"approve","scope":"once"}' >/dev/null
+	wait "$pid"
+	cat "$res"
+	out=$(cat "$res")
+	rc=0
+	grep -q 'rc=0 ' "$res" || rc=1
+}
+wait_socket() {
+	for _ in $(seq 60); do
+		[ -S /run/mcp-gateway/mcp.sock ] && return
+		sleep 1
+	done
+}
+journal_since_start_has() {
+	journalctl -u mcp-gateway.service -o cat --since "@$since" | grep -qF -- "$1"
+}
+has_capabilities() { ! grep -q '^CapEff:[[:space:]]*0000000000000000' "/proc/$1/status"; }
+not_installed() { ! rpm -q "$1" >/dev/null 2>&1; }
+# auditd writes the records asynchronously: wait for them a little.
+privileged_audited() {
+	for _ in $(seq 10); do
+		audit_since TRUSTED_APP | grep 'op=mcp-decision' | grep 'privileged=yes' | grep -q 'res=success' && return
+		sleep 1
+	done
+	return 1
+}
 
 # --- tests -------------------------------------------------------------------
 
@@ -97,7 +151,8 @@ sestatus | grep -E 'policy name|mode'
 
 section "Install"
 zypper -n --gpg-auto-import-keys ref >/dev/null
-zypper -n in --no-recommends audit policycoreutils selinux-policy-targeted polkit >/dev/null ||
+zypper -n in --no-recommends audit policycoreutils selinux-policy-targeted selinux-policy-devel polkit \
+	rpm-build jq >/dev/null ||
 	die "installing dependencies failed"
 systemctl enable --now auditd
 if zypper -n in --no-recommends opa >/dev/null 2>&1; then
@@ -108,6 +163,7 @@ else
 	echo "  opa: release binary ($(opa version | head -1))"
 fi
 install -m 0755 "$dir/mcpcall" /usr/local/bin/mcpcall
+install -D -m 0755 "$dir/privsrv" /usr/libexec/mcpgw-privtest
 since=$(date +%s)
 rpm -Uvh --nodeps "$dir"/rpms/mcp-gateway-[0-9]*.rpm "$dir"/rpms/mcp-gateway-selinux-*.rpm \
 	"$dir"/rpms/mcp-gateway-demo-server-*.rpm || die "installing the packages failed"
@@ -235,14 +291,134 @@ echo "  $(file_label /etc/mcp-gateway/credentials/probe) /etc/mcp-gateway/creden
 check "credentials are labeled mcpgw_cred_t" file_has_type /etc/mcp-gateway/credentials/probe mcpgw_cred_t
 check "the gateway user cannot read credentials" as_gateway_user_fails cat /etc/mcp-gateway/credentials/probe
 
+section "Privileged server"
+# A server that installs packages, as mcp-server-zypp does: its own
+# domain, rpm in rpm_t (mcp_gateway_backend_rpm), no sandbox, approval
+# for every call not allowed by exact name.
+mkdir -p /root/privtest
+cat >/root/privtest/mcp_privtest.te <<'END'
+policy_module(mcp_privtest, 1.0)
+
+mcp_gateway_backend_template(privtest)
+mcp_gateway_backend_rpm(privtest)
+
+# Test only: "hold" writes its marker file below /run.
+gen_require(`
+	type var_run_t;
+')
+allow mcpsrv_privtest_t var_run_t:dir rw_dir_perms;
+allow mcpsrv_privtest_t var_run_t:file manage_file_perms;
+END
+printf '/usr/libexec/mcpgw-privtest\t--\tgen_context(system_u:object_r:mcpsrv_privtest_exec_t,s0)\n' \
+	>/root/privtest/mcp_privtest.fc
+make -s -C /root/privtest -f /usr/share/selinux/devel/Makefile mcp_privtest.pp >/root/privtest/build.log 2>&1 ||
+	sed 's/^/  /' /root/privtest/build.log
+check "a backend module builds with the installed interface" test -f /root/privtest/mcp_privtest.pp
+semodule -i /root/privtest/mcp_privtest.pp && restorecon /usr/libexec/mcpgw-privtest
+echo "  $(file_label /usr/libexec/mcpgw-privtest) /usr/libexec/mcpgw-privtest"
+check "the test server is labeled mcpsrv_privtest_exec_t" file_has_type /usr/libexec/mcpgw-privtest mcpsrv_privtest_exec_t
+cat >/root/privtest/mcpgw-vmtest.spec <<'END'
+Name: mcpgw-vmtest
+Version: 1
+Release: 1
+Summary: VM test package of mcp-gateway
+License: MIT
+BuildArch: noarch
+%description
+Installed and removed through a privileged MCP server.
+%install
+mkdir -p %{buildroot}/usr/share/mcpgw-vmtest
+echo hello >%{buildroot}/usr/share/mcpgw-vmtest/hello.txt
+%files
+/usr/share/mcpgw-vmtest
+END
+rpmbuild -bb --quiet --define "_rpmdir /srv/mcpgw-vmtest" /root/privtest/mcpgw-vmtest.spec >/dev/null 2>&1
+test_rpm=/srv/mcpgw-vmtest/noarch/mcpgw-vmtest-1-1.noarch.rpm
+check "the test package was built" test -f "$test_rpm"
+cat >/etc/mcp-gateway/servers.d/privtest.yaml <<'END'
+name: privtest
+command: ["/usr/libexec/mcpgw-privtest"]
+run_as: root
+selinux_type: mcpsrv_privtest_t
+privileged: true
+END
+# "hold" by exact name (allowed), everything else through the wildcard
+# (asks, since the server is privileged).
+jq '.roles.tester.permissions += [{"server": "privtest", "tool": "hold"}, {"server": "privtest", "tool": "*"}]' \
+	/etc/mcp-gateway/policy/rbac/data.json >/root/privtest/data.json &&
+	cat /root/privtest/data.json >/etc/mcp-gateway/policy/rbac/data.json
+check "the gateway accepts the privileged server" /usr/bin/mcp-gateway --check --policy-data=
+systemctl restart mcp-gateway.service
+wait_socket
+check "the start log warns about the privileged server" journal_since_start_has 'privileged server'
+
+ptool alice hold '{"seconds":"0","marker":"/run/mcpgw-vmtest-hold0"}'
+check "a tool named exactly runs without approval" succeeded_with "held"
+p_unit=$(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-privtest-*' | awk 'NR==1{print $1}')
+p_pid=$(systemctl show -p MainPID --value "${p_unit:-none}" 2>/dev/null)
+p_ctx=$(label "${p_pid:-1}")
+echo "  ${p_unit:-no unit}: $p_ctx"
+check "the privileged instance runs as root" test "$(proc_user "${p_pid:-1}")" = root
+check "the privileged instance runs in mcpsrv_privtest_t" has_type "$p_ctx" mcpsrv_privtest_t
+check "the privileged instance has no category pair" test "${p_ctx##*:}" = s0
+if [ -n "$p_pid" ] && [ "$p_pid" != 0 ]; then
+	grep -E '^(NoNewPrivs|CapEff):' "/proc/$p_pid/status" | sed 's/^/  /'
+	check "the privileged instance has capabilities" has_capabilities "$p_pid"
+	check "the privileged instance has no no_new_privs" grep -q '^NoNewPrivs:[[:space:]]*0' "/proc/$p_pid/status"
+fi
+
+ptool_approved alice install_rpm "{\"path\":\"$test_rpm\"}"
+check "the install call succeeded after an approval" succeeded_with "install_rpm done"
+check "the package is installed" rpm -q mcpgw-vmtest
+echo "  $(file_label /usr/share/mcpgw-vmtest/hello.txt) /usr/share/mcpgw-vmtest/hello.txt"
+check "installed files have their normal label" file_has_type /usr/share/mcpgw-vmtest/hello.txt usr_t
+check "installed files carry no categories" test "$(categories "$(file_label /usr/share/mcpgw-vmtest/hello.txt)")" = ""
+check "the privileged call is in the kernel audit log" privileged_audited
+ptool_approved alice remove_rpm '{"name":"mcpgw-vmtest"}'
+check "the remove call succeeded after an approval" succeeded_with "remove_rpm done"
+check "the package is removed" not_installed mcpgw-vmtest
+
+# Stopping the gateway waits for a running call to a privileged server.
+rm -f /run/mcpgw-vmtest-held
+ptool alice hold '{"seconds":"15","marker":"/run/mcpgw-vmtest-held"}' >/dev/null &
+sleep 3
+t0=$(date +%s)
+systemctl stop mcp-gateway.service
+t1=$(date +%s)
+wait
+echo "  stopping took $((t1 - t0)) s"
+check "the call finished before the instance stopped" test -f /run/mcpgw-vmtest-held
+check "stopping waited for the call" test $((t1 - t0)) -ge 8
+check "the gateway logged that it waited" journal_since_start_has 'waiting for privileged calls'
+systemctl start mcp-gateway.service
+wait_socket
+
+section "Update without restart"
+gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
+ls -li /usr/bin/mcp-gateway | sed 's/^/  before: /'
+rpm -Uvh --force --nodeps "$dir"/rpms/mcp-gateway-[0-9]*.rpm >/dev/null 2>&1
+sleep 2
+ls -li /usr/bin/mcp-gateway | sed 's/^/  after:  /'
+check "a package update does not restart the gateway" \
+	test "$(systemctl show -p MainPID --value mcp-gateway.service)" = "$gw_pid"
+# A reinstall of the same build may leave the file as it is; replace it
+# the way an update does (new file renamed over the old one).
+cp -p /usr/bin/mcp-gateway /usr/bin/.mcp-gateway.vmtest && mv /usr/bin/.mcp-gateway.vmtest /usr/bin/mcp-gateway &&
+	restorecon /usr/bin/mcp-gateway
+status=$(control alice GET /v1/status)
+echo "  $status"
+check "the control API reports the pending restart" grep -qF '"restart_pending":true' <<<"$status"
+
 section "Kernel audit"
 echo "  auditd: $(systemctl is-active auditd); records since the install: $(audit_since ALL | wc -l)"
 audit_since SERVICE_START | grep -o 'unit=mcp-[a-z-]*' | sort | uniq -c | sed 's/^/  /'
 audit_since TRUSTED_APP |
 	grep -o 'op=mcp-[a-z-]*' | sort | uniq -c | sed 's/^/  /'
+audit_since TRUSTED_APP | grep 'op=mcp-decision' | cut -c1-600 | sed 's/^/  /'
 check "the audit log has the gateway's service start" audit_log_works
 check "the gateway start is audited" audited mcp-gateway-start
 check "the denial is audited" audited mcp-decision
+check "audit records keep their last character (res=failed)" denial_res_complete
 check "decisions are in the journal" journal_has_audit
 
 section "SELinux denials"

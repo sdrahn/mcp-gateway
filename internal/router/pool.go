@@ -25,6 +25,14 @@ const (
 	stableAfter = time.Minute
 )
 
+// On shutdown the gateway waits up to drainTimeout for calls to
+// privileged backends (mcp-gateway.service has TimeoutStopSec=30min),
+// checking every drainPoll.
+const (
+	drainTimeout = 28 * time.Minute
+	drainPoll    = 100 * time.Millisecond
+)
+
 // pool owns backend instances: one per (principal, backend) by default,
 // one per (session, backend) for backends with isolation: session. An
 // instance stays up for idle after its last session detached.
@@ -37,6 +45,8 @@ type pool struct {
 	onListChanged func(*upstream, *jsonrpc.Message)
 
 	backoffBase, backoffMax, stableAfter time.Duration
+	// drainTimeout bounds how long closeAll waits for privileged calls.
+	drainTimeout time.Duration
 
 	mu      sync.Mutex
 	entries map[string]*poolEntry
@@ -58,6 +68,9 @@ type poolEntry struct {
 	stopping bool
 	// ended is set once the end of the instance has been accounted for.
 	ended bool
+	// idleWait is set when a privileged instance was due to stop but a
+	// request was still in flight; it stops once that is answered.
+	idleWait bool
 }
 
 // failures tracks consecutive failures of one instance key.
@@ -79,7 +92,7 @@ func (e *BackoffError) Error() string {
 
 func newPool(l supervisor.Launcher, idle time.Duration, log *slog.Logger) *pool {
 	return &pool{launcher: l, idle: idle, log: log, now: time.Now,
-		backoffBase: backoffBase, backoffMax: backoffMax, stableAfter: stableAfter,
+		backoffBase: backoffBase, backoffMax: backoffMax, stableAfter: stableAfter, drainTimeout: drainTimeout,
 		entries: map[string]*poolEntry{}, failing: map[string]*failures{}}
 }
 
@@ -122,6 +135,7 @@ func (p *pool) acquire(ctx context.Context, b *config.Backend, pr principal.Prin
 				p.mu.Unlock()
 				return nil, nil, e.err
 			}
+			e.up.setOnIdle(func() { p.idled(e) })
 			go func() {
 				<-e.up.closed
 				p.exited(e)
@@ -239,10 +253,41 @@ func (p *pool) release(e *poolEntry) {
 	if e.refs > 0 || p.entries[e.key] != e {
 		return
 	}
+	p.scheduleStop(e)
+}
+
+// idled is called when e's last request in flight was answered: a
+// privileged instance that was due to stop meanwhile stops now (after
+// the idle timeout).
+func (p *pool) idled(e *poolEntry) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !e.idleWait || e.refs > 0 || p.entries[e.key] != e {
+		return
+	}
+	e.idleWait = false
+	p.scheduleStop(e)
+}
+
+// mustKeep reports whether e is a privileged instance with a request in
+// flight, which the pool does not stop.
+func mustKeep(e *poolEntry) bool {
+	return e.up != nil && e.up.backend.Privileged && e.up.busy()
+}
+
+// scheduleStop stops e, which no session uses, after the idle timeout
+// (at once for isolation: session); p.mu must be held.
+func (p *pool) scheduleStop(e *poolEntry) {
 	stop := func() {
 		p.mu.Lock()
 		if e.refs > 0 || p.entries[e.key] != e {
 			p.mu.Unlock()
+			return
+		}
+		if mustKeep(e) {
+			e.idleWait = true
+			p.mu.Unlock()
+			p.log.Info("privileged instance kept while a call runs", "server", e.up.backend.Name, "instance", e.up.id)
 			return
 		}
 		delete(p.entries, e.key)
@@ -274,6 +319,10 @@ type InstanceInfo struct {
 	// Sessions is the number of sessions using the instance; 0 while it
 	// waits for the idle timeout.
 	Sessions int `json:"sessions"`
+	// Privileged instances (section 5.7.1) are not stopped while Busy
+	// (requests in flight).
+	Privileged bool `json:"privileged,omitempty"`
+	Busy       bool `json:"busy,omitempty"`
 }
 
 // list describes the running instances, ordered by start.
@@ -292,7 +341,8 @@ func (p *pool) list() []InstanceInfo {
 		}
 		info := InstanceInfo{ID: e.up.id, Server: e.up.backend.Name, Unit: e.up.unit,
 			Sub: e.principal.Sub, Issuer: e.principal.Issuer, UID: e.principal.UID,
-			Transport: e.principal.Transport, Isolation: e.isolation, Started: e.started, Sessions: e.refs}
+			Transport: e.principal.Transport, Isolation: e.isolation, Started: e.started, Sessions: e.refs,
+			Privileged: e.up.backend.Privileged, Busy: e.up.busy()}
 		if e.isolation == config.IsolationSession {
 			info.SessionID = e.principal.SessionID
 		}
@@ -303,7 +353,8 @@ func (p *pool) list() []InstanceInfo {
 }
 
 // stop stops the instance with the given id; sessions using it get a new
-// instance on their next call.
+// instance on their next call. A privileged instance with a request in
+// flight is not stopped (reported as not found; InstanceInfo.Busy tells).
 func (p *pool) stop(id string) bool {
 	p.mu.Lock()
 	var found *poolEntry
@@ -316,7 +367,7 @@ func (p *pool) stop(id string) bool {
 		default:
 		}
 	}
-	if found == nil {
+	if found == nil || mustKeep(found) {
 		p.mu.Unlock()
 		return false
 	}
@@ -331,7 +382,8 @@ func (p *pool) stop(id string) bool {
 	return true
 }
 
-// closeAll stops every instance.
+// closeAll stops every instance. Privileged instances first refuse new
+// requests and get until drainTimeout to answer those in flight.
 func (p *pool) closeAll() {
 	p.mu.Lock()
 	entries := make([]*poolEntry, 0, len(p.entries))
@@ -341,10 +393,29 @@ func (p *pool) closeAll() {
 	}
 	p.entries = map[string]*poolEntry{}
 	p.mu.Unlock()
+	var privileged []*poolEntry
 	for _, e := range entries {
 		<-e.ready
-		if e.up != nil {
+		switch {
+		case e.up == nil:
+		case e.up.backend.Privileged:
+			e.up.draining.Store(true)
+			privileged = append(privileged, e)
+		default:
 			e.up.close()
 		}
+	}
+	deadline := p.now().Add(p.drainTimeout)
+	for _, e := range privileged {
+		if e.up.busy() {
+			p.log.Info("waiting for privileged calls", "server", e.up.backend.Name, "instance", e.up.id)
+		}
+		for e.up.busy() && !e.up.isClosed() && p.now().Before(deadline) {
+			time.Sleep(drainPoll)
+		}
+		if e.up.busy() && !e.up.isClosed() {
+			p.log.Warn("stopping privileged instance with a call still running", "server", e.up.backend.Name, "instance", e.up.id)
+		}
+		e.up.close()
 	}
 }

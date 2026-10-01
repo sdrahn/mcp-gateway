@@ -45,17 +45,25 @@ func OpenNetlink() (*Netlink, error) {
 }
 
 // Send delivers one message and waits for the kernel's acknowledgement.
+// userMessage builds the netlink message of a user audit record. The
+// text ends with a NUL, as libaudit sends it: the kernel overwrites the
+// last byte of the payload with one, which otherwise cut off the last
+// character of the record ("res=succes").
+func userMessage(seq uint32, msg string) []byte {
+	buf := make([]byte, unix.NLMSG_HDRLEN+len(msg)+1)
+	binary.NativeEndian.PutUint32(buf[0:4], uint32(len(buf)))
+	binary.NativeEndian.PutUint16(buf[4:6], auditTrustedApp)
+	binary.NativeEndian.PutUint16(buf[6:8], unix.NLM_F_REQUEST|unix.NLM_F_ACK)
+	binary.NativeEndian.PutUint32(buf[8:12], seq)
+	copy(buf[unix.NLMSG_HDRLEN:], msg)
+	return buf
+}
+
 func (n *Netlink) Send(msg string) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.seq++
-	payload := []byte(msg)
-	buf := make([]byte, unix.NLMSG_HDRLEN+len(payload))
-	binary.NativeEndian.PutUint32(buf[0:4], uint32(len(buf)))
-	binary.NativeEndian.PutUint16(buf[4:6], auditTrustedApp)
-	binary.NativeEndian.PutUint16(buf[6:8], unix.NLM_F_REQUEST|unix.NLM_F_ACK)
-	binary.NativeEndian.PutUint32(buf[8:12], n.seq)
-	copy(buf[unix.NLMSG_HDRLEN:], payload)
+	buf := userMessage(n.seq, msg)
 	if err := unix.Sendto(n.fd, buf, 0, &unix.SockaddrNetlink{Family: unix.AF_NETLINK}); err != nil {
 		return fmt.Errorf("audit send: %w", err)
 	}

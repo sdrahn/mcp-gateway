@@ -17,10 +17,13 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -131,6 +134,11 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		return fmt.Errorf("loading backend registry: %w", err)
 	}
 	log.Info("configuration valid", "config", used, "socket", gw.Socket, "backends", len(backends))
+	for _, name := range slices.Sorted(maps.Keys(backends)) {
+		if backends[name].Privileged {
+			log.Warn("privileged server: runs as root without sandbox; every call is decided by policy and approval", "server", name)
+		}
+	}
 	if checkOnly {
 		if err := checkPolicyData(log, policyData, false); err != nil {
 			return fmt.Errorf("role data: %w", err)
@@ -210,7 +218,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		}
 		log.Info("listening", "control", gw.Approvals.ControlSocket)
 		cs := &controlapi.Server{Broker: b, Backends: backends, Instances: r, Policy: opa,
-			Review: opa, Catalog: r, Log: log}
+			Review: opa, Catalog: r, Log: log, RestartPending: restartPending}
 		go func() {
 			if err := cs.Serve(ctx, cl); err != nil {
 				log.Error("control API failed", "err", err)
@@ -221,6 +229,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if mcsAvoid {
 		go watchMCS(ctx, log, auditLog, sd, gw.Supervisor)
 	}
+	go watchUpdate(ctx, log)
 
 	// Clients learn about policy changes through list_changed.
 	go r.WatchPolicy(ctx, gw.Policy.WatchInterval, opa.Fingerprint, func() {
@@ -295,6 +304,58 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, r *router.Router, errc chan<- 
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}, nil
+}
+
+// startExe is the program file the gateway was started from (nil if
+// unknown), to notice when an update replaces it.
+var startExe = programFile()
+
+// programFile stats the gateway's program file by the path it was started
+// with (the unit uses /usr/bin/mcp-gateway), not through /proc/self/exe,
+// which the gateway's SELinux domain need not read.
+func programFile() os.FileInfo {
+	path := os.Args[0]
+	if !filepath.IsAbs(path) {
+		var err error
+		if path, err = exec.LookPath(path); err != nil {
+			return nil
+		}
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	return fi
+}
+
+// restartPending reports whether the program file was replaced since the
+// start: the package does not restart the gateway on update, since an
+// update made through a privileged server would wait for itself
+// (docs/architecture.md, section 5.7.1).
+func restartPending() bool {
+	return replaced(startExe, programFile())
+}
+
+// replaced reports whether now is another file than start (or gone).
+func replaced(start, now os.FileInfo) bool {
+	return start != nil && (now == nil || !os.SameFile(start, now))
+}
+
+// watchUpdate logs once when the program was updated.
+func watchUpdate(ctx context.Context, log *slog.Logger) {
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if restartPending() {
+			log.Warn("mcp-gateway was updated; restart mcp-gateway.service to use the new version (calls to privileged servers are waited for)")
+			return
+		}
+	}
 }
 
 // newAudit sets up the audit trail: JSON records on stderr (journald),

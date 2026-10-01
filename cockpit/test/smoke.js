@@ -35,6 +35,7 @@ function site() {
     await page.waitForSelector("#approval-a1");
     check(await page.isVisible("#tab-approvals"), "approvals tab shown");
     check((await page.textContent("#whoami")).includes("carol"), "whoami");
+    check(!(await page.isVisible("#restart-note")), "no restart note without an update");
     check(await page.$eval("#approval-a1", e => e.classList.contains("highlight")), "linked approval highlighted");
     check(!(await page.textContent("#approval-a1")).includes("no longer waiting") &&
           (await page.textContent("#approval-a2")).includes("no longer waiting"), "approvals without a waiting call marked");
@@ -48,11 +49,13 @@ function site() {
     const serversText = await page.textContent("#servers");
     check(serversText.includes("mcpsrv_fs_t") && serversText.includes("mcp-fs-i1.service") && serversText.includes("1 session"), "servers and instance shown");
     check(serversText.includes("No running instances you may manage"), "server without instances");
+    check(serversText.includes("privileged: no sandbox") && serversText.includes("call running"), "privileged server and busy instance shown");
+    check(await page.$eval("#servers .card:last-child button.danger", b => b.disabled), "busy privileged instance cannot be stopped");
     await page.click("#servers button:has-text('Show log')");
     await page.waitForFunction(() => document.querySelector("pre.log").textContent.includes("started"));
     check(true, "instance log shown");
-    await page.click("#servers button:has-text('Stop')");
-    await page.waitForFunction(() => !document.querySelector("#servers .instance"));
+    await page.click("#servers button:has-text('Stop'):not([disabled])");
+    await page.waitForFunction(() => !document.querySelector("#servers .instance:not(:has(button[disabled]))"));
     check((await page.evaluate(() => __calls)).some(c => c[0] === "DELETE" && c[1] === "/v1/instances/i1"), "stop instance");
 
     await page.goto(url + "#/policy");
@@ -137,6 +140,11 @@ function site() {
     await page.fill("#audit-filter input[name=text]", "bob");
     rows = await page.$$eval("#audit tbody tr", trs => trs.map(t => t.textContent));
     check(rows.length === 1 && rows[0].includes("bob"), "text filter");
+
+    // After an update the page says that a restart is pending.
+    await page.goto(url + "?restart#/approvals");
+    await page.waitForSelector("#restart-note:not([hidden])");
+    check((await page.textContent("#restart-note")).includes("restarted"), "restart note after an update");
 
     // Narrow screens: no horizontal scrolling.
     await page.setViewportSize({ width: 390, height: 800 });

@@ -36,7 +36,7 @@ func (r *Router) Catalog(ctx context.Context) Catalog {
 	for _, name := range names {
 		b := r.Backends[name]
 		for _, m := range clientMethods {
-			c.Resources = append(c.Resources, pep.Resource{Server: name, Kind: "client", Name: m})
+			c.Resources = append(c.Resources, pep.Resource{Server: name, Kind: "client", Name: m, Privileged: b.Privileged})
 		}
 		if b.Discovery != config.DiscoveryShared {
 			c.Unchecked[name] = "tools and prompts are listed per user (discovery: " + b.Discovery + ")"
@@ -58,7 +58,7 @@ func (r *Router) Catalog(ctx context.Context) Catalog {
 				break
 			}
 			for _, it := range items {
-				res := pep.Resource{Server: name, Kind: spec.kind, Name: it.name}
+				res := pep.Resource{Server: name, Kind: spec.kind, Name: it.name, Privileged: b.Privileged}
 				if raw, ok := it.raw["annotations"]; ok && spec.kind == "tool" {
 					_ = json.Unmarshal(raw, &res.Annotations)
 				}

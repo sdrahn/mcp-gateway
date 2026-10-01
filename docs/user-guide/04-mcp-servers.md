@@ -57,6 +57,7 @@ Server names must be unique across all files.
 | `credentials` | none | secrets handed to the server by systemd, see [Secrets](#secrets) |
 | `sandbox.protect_home` | `read-only` | access to home directories: `yes` (none), `read-only`, `read-write` |
 | `sandbox.read_write_paths` | none | existing absolute paths the instance may write despite `ProtectSystem=strict` (systemd `ReadWritePaths=`); paths of the gateway itself, and directories containing them, are refused |
+| `privileged` | `false` | run without the sandbox, with the rights of a root service, for servers that change the system as a whole (package installation); needs `run_as: root` and is accepted only in `/etc/mcp-gateway/servers.d`. See [Privileged servers](#privileged-servers). |
 | `sandbox.state_directory` | none | a directory below `/var/lib` (a relative name, e.g. `my-server`) that systemd creates for the instance, owned by its user, mode 0700, writable and kept across instances (systemd `StateDirectory=`) |
 
 Example with everything:
@@ -173,6 +174,59 @@ user's files) always run on the principal's own instance.
 
 Use `discovery: instance` for servers whose tool list depends on the user
 (for example on files in the home directory or the user's configuration).
+
+## Privileged servers
+
+A server that installs packages (mcp-server-zypp) writes anywhere below
+`/`, changes owners, sets file capabilities and labels and runs package
+scripts; no sandbox allows that. Mark such a server `privileged`:
+
+```yaml
+# /etc/mcp-gateway/servers.d/zypp.yaml
+name: zypp
+command: ["/usr/bin/mcp-server-zypp"]
+run_as: root
+network: true
+selinux_type: mcpsrv_zypp_t
+privileged: true
+```
+
+- Only the administrator's directory may define one: a privileged
+  definition in `/usr/share/mcp-gateway/servers.d` stops the gateway
+  from starting, so installing a package never creates one (a symlink in
+  `/etc` to a shipped file is the administrator's choice).
+- The instance runs as a root system service: all capabilities, a
+  writable system, no system call filter, no `NoNewPrivileges`; private
+  `/tmp`, `UMask=0022`, 4 GiB memory and 4096 tasks; without
+  `network: true` still no network. With SELinux it runs in its domain
+  **without an MCS pair**, so the files it installs stay readable for
+  everyone. The process that installs (the zypp worker, `rpm`) runs in
+  `rpm_t`, as with zypper (`mcp_gateway_backend_rpm`, below).
+- Calls are allowed without approval only by permissions naming server
+  and tool without wildcards (chapter 6); every decision on the server
+  goes to the kernel audit log.
+- The gateway does not stop the instance while a call is running: not
+  after the idle timeout, not from Cockpit, and on `systemctl stop` or
+  restart it refuses new calls and waits up to 28 minutes for running
+  ones ("waiting for privileged calls").
+- `mcp-gateway --check` and the start log warn about every privileged
+  server; Cockpit marks them.
+
+SELinux module for mcp-server-zypp (its worker labelled like zypper):
+
+```
+# mcp_zypp.te
+policy_module(mcp_zypp, 1.0)
+
+mcp_gateway_backend_template(zypp)
+mcp_gateway_backend_rpm(zypp)
+```
+
+```
+# mcp_zypp.fc
+/usr/bin/mcp-server-zypp                     --  gen_context(system_u:object_r:mcpsrv_zypp_exec_t,s0)
+/usr/libexec/mcp-server-zypp/zypp-mcp-tool   --  gen_context(system_u:object_r:rpm_exec_t,s0)
+```
 
 ## Secrets
 

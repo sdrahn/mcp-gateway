@@ -10,8 +10,9 @@ remote MCP clients, with:
 - pseudonymization of personal data before it reaches external LLMs,
 - SELinux confinement of the gateway, the policy engine and every MCP server.
 
-Target distributions: openSUSE (Tumbleweed, Leap) and SLES, packaged with
-the Open Build Service; see [packaging/suse](packaging/suse/README.md).
+Target distributions: SLES 16 and openSUSE Leap 16 (openSUSE Tumbleweed
+for development), packaged with the Open Build Service; see
+[packaging/suse](packaging/suse/README.md).
 
 Status: proof of concept; local clients (unix socket) and remote clients
 (MCP Streamable HTTP with OAuth bearer tokens). The

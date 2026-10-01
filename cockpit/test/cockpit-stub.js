@@ -17,6 +17,7 @@
     ];
     const routes = {
         "/v1/whoami": () => ({ name: "carol", uid: 1003 }),
+        "/v1/status": () => ({ restart_pending: query.has("restart") }),
         "/v1/approvals": () => [{ id: "a1", channel: "oob", principal: { sub: "alice", transport: "unix", client: { name: "kit" } },
             action: "tools.call", server: "fs", name: "write_file", args: { path: "/home/alice/x" }, prompt: "Write?",
             scopes: ["once", "session"], expires: new Date(Date.now() + 60000).toISOString(), waiting: true },
@@ -24,7 +25,10 @@
               name: "delete_file", args: {}, scopes: ["once"], expires: new Date(Date.now() + 60000).toISOString(), waiting: false }],
         "/v1/grants": () => [],
         "/v1/servers": () => [{ name: "fs", selinux_type: "mcpsrv_fs_t", isolation: "principal", network: false, run_as: "principal", instances },
-                              { name: "git", selinux_type: "", isolation: "principal", network: true, run_as: "principal", instances: [] }],
+                              { name: "git", selinux_type: "", isolation: "principal", network: true, run_as: "principal", instances: [] },
+                              { name: "zypp", selinux_type: "mcpsrv_zypp_t", isolation: "principal", network: true, run_as: "root", privileged: true,
+                                instances: [{ id: "i2", server: "zypp", unit: "mcp-zypp-i2.service", sub: "alice", uid: 1001, transport: "unix",
+                                              isolation: "principal", started: new Date().toISOString(), sessions: 0, privileged: true, busy: true }] }],
         "/v1/policy": () => ({ mode: "bundle",
             bundles: query.get("source") === "server" ? { mcp: "r42" } : { "/etc/mcp-gateway/bundle/policy.tar.gz": "r42" } }),
     };

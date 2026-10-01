@@ -35,10 +35,8 @@ version is `X.Y.Z`. For an OBS project that follows a release, use the
 `osc vc -m "Update to X.Y.Z"` with the release's CHANGELOG.md section, and
 commit.
 
-Build targets: openSUSE Tumbleweed, Leap 16 and SLES 16 out of the box. For
-Leap/SLES 15 the build needs Go ≥ 1.24 (`golang(API) >= 1.24`, e.g. from
-`devel:languages:go`); note that SLES 15 uses AppArmor rather than SELinux,
-so `mcp-gateway-selinux` does not apply there.
+Build targets: SLES 16 and Leap 16 (supported), openSUSE Tumbleweed
+(development). SLES 15 and Leap 15 are not supported.
 
 ## Packages
 

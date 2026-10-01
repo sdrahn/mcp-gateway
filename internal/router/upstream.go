@@ -33,6 +33,10 @@ const initTimeout = 30 * time.Second
 
 var errBackendGone = errors.New("backend instance exited")
 
+// errShuttingDown refuses new requests to a privileged backend while the
+// gateway waits for running ones before it stops.
+var errShuttingDown = errors.New("the gateway is shutting down")
+
 // initResult is a backend's initialize result.
 type initResult struct {
 	ProtocolVersion string                     `json:"protocolVersion"`
@@ -73,10 +77,21 @@ type upstream struct {
 	closed    chan struct{}
 	closeOnce sync.Once
 
+	// draining refuses new requests (see errShuttingDown).
+	draining atomic.Bool
+
 	mu       sync.Mutex
 	pending  map[string]chan *jsonrpc.Message
 	sessions map[*Session]int // attached sessions → requests in flight
 	progress map[string]progressRoute
+	// inflight holds the requests sent and not yet answered, including
+	// those whose caller gave up (cancelled, session gone): a backend may
+	// finish what it started, and a privileged one must not be stopped
+	// before (docs/architecture.md, section 5.7.1).
+	inflight map[string]struct{}
+	// onIdle, if set, is called when the last request in flight was
+	// answered.
+	onIdle func()
 }
 
 // newUpstream performs the MCP handshake with a freshly started instance.
@@ -93,6 +108,7 @@ func newUpstream(ctx context.Context, b *config.Backend, id string, inst supervi
 		pending:       map[string]chan *jsonrpc.Message{},
 		sessions:      map[*Session]int{},
 		progress:      map[string]progressRoute{},
+		inflight:      map[string]struct{}{},
 	}
 	go u.readLoop()
 
@@ -141,6 +157,33 @@ func (u *upstream) isClosed() bool {
 	}
 }
 
+// busy reports whether requests are in flight.
+func (u *upstream) busy() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return len(u.inflight) > 0
+}
+
+// setOnIdle sets the function called when u stops being busy.
+func (u *upstream) setOnIdle(f func()) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.onIdle = f
+}
+
+// answered removes a request from those in flight.
+func (u *upstream) answered(key string) {
+	u.mu.Lock()
+	_, was := u.inflight[key]
+	delete(u.inflight, key)
+	idle := was && len(u.inflight) == 0
+	f := u.onIdle
+	u.mu.Unlock()
+	if idle && f != nil {
+		f()
+	}
+}
+
 func (u *upstream) attach(s *Session) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -176,6 +219,9 @@ func (u *upstream) notify(method string, params any) error {
 // itself) and waits for the response. On ctx cancellation the backend is
 // told with notifications/cancelled.
 func (u *upstream) request(ctx context.Context, s *Session, method string, params any) (*jsonrpc.Message, error) {
+	if u.draining.Load() {
+		return nil, errShuttingDown
+	}
 	id := json.RawMessage(strconv.FormatInt(u.nextID.Add(1), 10))
 	req, err := jsonrpc.NewRequest(id, method, params)
 	if err != nil {
@@ -184,6 +230,7 @@ func (u *upstream) request(ctx context.Context, s *Session, method string, param
 	ch := make(chan *jsonrpc.Message, 1)
 	u.mu.Lock()
 	u.pending[string(id)] = ch
+	u.inflight[string(id)] = struct{}{}
 	if _, ok := u.sessions[s]; ok {
 		u.sessions[s]++
 	}
@@ -198,6 +245,7 @@ func (u *upstream) request(ctx context.Context, s *Session, method string, param
 	}()
 
 	if err := u.conn.Write(req); err != nil {
+		u.answered(string(id))
 		return nil, errBackendGone
 	}
 	select {
@@ -295,6 +343,7 @@ func (u *upstream) readLoop() {
 			if ch != nil {
 				ch <- m
 			}
+			u.answered(m.Key())
 		case m.IsNotification():
 			u.notification(m)
 		case m.IsRequest():

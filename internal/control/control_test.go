@@ -229,10 +229,12 @@ func TestServersAndInstances(t *testing.T) {
 	insts := &fakeInstances{list: []router.InstanceInfo{
 		{ID: "i-alice", Server: "fs", Unit: "mcp-fs-1.service", Sub: "alice", UID: &alice},
 		{ID: "i-bob", Server: "fs", Unit: "mcp-fs-2.service", Sub: "bob", UID: &bob},
+		{ID: "i-zypp", Server: "zypp", Unit: "mcp-zypp-3.service", Sub: "alice", UID: &alice, Privileged: true, Busy: true},
 	}}
 	s.Backends = map[string]*config.Backend{
-		"fs":  {Name: "fs", SELinuxType: "mcpsrv_fs_t", Isolation: config.IsolationPrincipal, RunAs: "principal", Command: []string{"/secret", "--token=x"}},
-		"git": {Name: "git", SELinuxType: "mcpsrv_git_t", Network: true},
+		"fs":   {Name: "fs", SELinuxType: "mcpsrv_fs_t", Isolation: config.IsolationPrincipal, RunAs: "principal", Command: []string{"/secret", "--token=x"}},
+		"git":  {Name: "git", SELinuxType: "mcpsrv_git_t", Network: true},
+		"zypp": {Name: "zypp", SELinuxType: "mcpsrv_zypp_t", RunAs: "root", Privileged: true},
 	}
 	s.Instances = insts
 
@@ -241,7 +243,7 @@ func TestServersAndInstances(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != 200 {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
-	if len(got) != 2 || got[0].Name != "fs" || got[1].Name != "git" {
+	if len(got) != 3 || got[0].Name != "fs" || got[1].Name != "git" || got[1].Privileged || !got[2].Privileged {
 		t.Fatalf("servers %+v", got)
 	}
 	if len(got[0].Instances) != 1 || got[0].Instances[0].ID != "i-alice" {
@@ -258,11 +260,26 @@ func TestServersAndInstances(t *testing.T) {
 	if rec := call(t, s, 1001, "DELETE", "/v1/instances/i-alice", ""); rec.Code != http.StatusNoContent {
 		t.Fatalf("alice stop: %d", rec.Code)
 	}
+	// A privileged instance with a call running is not stopped.
+	if rec := call(t, s, 1001, "DELETE", "/v1/instances/i-zypp", ""); rec.Code != http.StatusConflict {
+		t.Fatalf("busy privileged stop: %d", rec.Code)
+	}
 	if rec := call(t, s, 1001, "DELETE", "/v1/instances/nope", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown instance: %d", rec.Code)
 	}
 	if len(insts.stopped) != 1 || insts.stopped[0] != "i-alice" {
 		t.Fatalf("stopped %v", insts.stopped)
+	}
+}
+
+func TestStatus(t *testing.T) {
+	s, _, _ := setup(t)
+	if rec := call(t, s, 1001, "GET", "/v1/status", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"restart_pending":false`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	s.RestartPending = func() bool { return true }
+	if rec := call(t, s, 1001, "GET", "/v1/status", ""); !strings.Contains(rec.Body.String(), `"restart_pending":true`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 }
 

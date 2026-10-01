@@ -149,3 +149,35 @@ interface(`mcp_gateway_backend_home_rw',`
 	allow $1 user_home_dir_t:dir rw_dir_perms;
 	type_transition $1 user_home_dir_t:{ file dir } user_home_t;
 ')
+
+########################################
+## <summary>
+##	Let a backend domain of a privileged server (docs/architecture.md,
+##	section 5.7.1) run programs labelled rpm_exec_t in rpm_t, as zypper
+##	runs: the package manager worker of mcp-server-zypp, or rpm itself.
+##	The backend keeps its own domain; only the worker installs.
+## </summary>
+## <param name="prefix">
+##	<summary>
+##	Backend name as given to mcp_gateway_backend_template.
+##	</summary>
+## </param>
+#
+interface(`mcp_gateway_backend_rpm',`
+	gen_require(`
+		type mcpsrv_$1_t, rpm_t, mcpgw_t;
+	')
+
+	# Find the worker programs (e.g. /usr/libexec/mcp-server-zypp).
+	corecmd_list_bin(mcpsrv_$1_t)
+	rpm_domtrans(mcpsrv_$1_t)
+
+	# The worker talks to the server over pipes and is stopped by it.
+	allow rpm_t mcpsrv_$1_t:fd use;
+	allow rpm_t mcpsrv_$1_t:fifo_file rw_fifo_file_perms;
+	allow rpm_t mcpsrv_$1_t:process sigchld;
+	allow mcpsrv_$1_t rpm_t:process { signal sigkill };
+	# Inherited from the unit: the stdio socket of the gateway (not used
+	# by the worker, but open) and the journal stream.
+	allow rpm_t mcpgw_t:fd use;
+')

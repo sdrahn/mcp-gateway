@@ -21,11 +21,14 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 )
 
-// Resource limits applied to every instance.
+// Resource limits applied to every instance; privileged instances
+// (package installation: RPM scripts, initrd builds) get more.
 const (
-	instanceMemoryMax  = 512 << 20
-	instanceTasksMax   = 64
-	instanceRuntimeMax = 8 * time.Hour
+	instanceMemoryMax   = 512 << 20
+	instanceTasksMax    = 64
+	instanceRuntimeMax  = 8 * time.Hour
+	privilegedMemoryMax = 4 << 30
+	privilegedTasksMax  = 4096
 )
 
 // Systemd starts each backend instance as a transient systemd service,
@@ -86,14 +89,11 @@ func (s *Systemd) bus(ctx context.Context) (*sddbus.Conn, error) {
 }
 
 // Properties returns the transient unit properties for an instance whose
-// stdio is fd. mcs is the category pair ("" without SELinux).
+// stdio is fd. mcs is the category pair ("" without SELinux, and for
+// privileged backends).
 func (s *Systemd) Properties(b *config.Backend, p principal.Principal, fd int, mcs string) ([]sddbus.Property, error) {
 	prop := func(name string, v any) sddbus.Property {
 		return sddbus.Property{Name: name, Value: dbus.MakeVariant(v)}
-	}
-	protectHome := b.Sandbox.ProtectHome
-	if protectHome == "read-write" {
-		protectHome = "no"
 	}
 	props := []sddbus.Property{
 		sddbus.PropDescription(fmt.Sprintf("MCP backend %s for %s", b.Name, p.Sub)),
@@ -108,6 +108,82 @@ func (s *Systemd) Properties(b *config.Backend, p principal.Principal, fd int, m
 		prop("StandardOutput", "null"),
 		prop("StandardError", "journal"),
 		prop("CollectMode", "inactive-or-failed"),
+		prop("RuntimeMaxUSec", uint64(instanceRuntimeMax/time.Microsecond)),
+	}
+	if b.Privileged {
+		props = append(props, privilegedProperties(b, prop)...)
+	} else {
+		props = append(props, sandboxProperties(b, prop)...)
+	}
+	if b.Sandbox.StateDirectory != "" {
+		props = append(props, prop("StateDirectory", []string{b.Sandbox.StateDirectory}),
+			prop("StateDirectoryMode", uint32(0o700)))
+	}
+	switch b.RunAs {
+	case "principal":
+		if p.UID == nil {
+			// A remote principal without a local account (decision D1):
+			// a throwaway user, isolated by the instance's MCS pair.
+			props = append(props, prop("DynamicUser", true))
+			break
+		}
+		props = append(props, prop("User", p.Sub))
+		if p.Home != "" {
+			props = append(props, prop("WorkingDirectory", p.Home))
+		}
+	case "dynamic":
+		props = append(props, prop("DynamicUser", true))
+	default:
+		props = append(props, prop("User", b.RunAs))
+	}
+	switch {
+	case mcs != "":
+		props = append(props, prop("SELinuxContext", fmt.Sprintf("system_u:system_r:%s:s0:%s", b.SELinuxType, mcs)))
+	case b.Privileged && s.SELinux:
+		// No categories: files the backend installs must stay readable
+		// for services running at s0.
+		props = append(props, prop("SELinuxContext", fmt.Sprintf("system_u:system_r:%s:s0", b.SELinuxType)))
+	}
+	creds, err := b.ParseCredentials()
+	if err != nil {
+		return nil, err
+	}
+	if len(creds) > 0 {
+		// systemd (as root) reads the files and exposes them to the
+		// backend below $CREDENTIALS_DIRECTORY; the gateway never sees them.
+		type loadCredential struct{ ID, Path string }
+		lc := make([]loadCredential, len(creds))
+		for i, c := range creds {
+			lc[i] = loadCredential{c.Name, c.Path}
+		}
+		props = append(props, prop("LoadCredential", lc))
+	}
+	return props, nil
+}
+
+// privilegedProperties are those of a root system service that may
+// change the system as a whole (docs/architecture.md, section 5.7.1):
+// all capabilities, a writable system, no system call filter, and
+// NoNewPrivileges off (SELinux transitions to rpm_t, setuid helpers in
+// package scripts).
+func privilegedProperties(b *config.Backend, prop func(string, any) sddbus.Property) []sddbus.Property {
+	return []sddbus.Property{
+		prop("NoNewPrivileges", false),
+		prop("PrivateTmp", true),
+		prop("PrivateNetwork", !b.Network),
+		prop("UMask", uint32(0o022)),
+		prop("MemoryMax", uint64(privilegedMemoryMax)),
+		prop("TasksMax", uint64(privilegedTasksMax)),
+	}
+}
+
+// sandboxProperties are the hardened sandbox of ordinary instances.
+func sandboxProperties(b *config.Backend, prop func(string, any) sddbus.Property) []sddbus.Property {
+	protectHome := b.Sandbox.ProtectHome
+	if protectHome == "read-write" {
+		protectHome = "no"
+	}
+	props := []sddbus.Property{
 		prop("NoNewPrivileges", true),
 		prop("ProtectSystem", "strict"),
 		prop("ProtectHome", protectHome),
@@ -137,14 +213,9 @@ func (s *Systemd) Properties(b *config.Backend, p principal.Principal, fd int, m
 		prop("UMask", uint32(0o077)),
 		prop("MemoryMax", uint64(instanceMemoryMax)),
 		prop("TasksMax", uint64(instanceTasksMax)),
-		prop("RuntimeMaxUSec", uint64(instanceRuntimeMax/time.Microsecond)),
 	}
 	if len(b.Sandbox.ReadWritePaths) > 0 {
 		props = append(props, prop("ReadWritePaths", b.Sandbox.ReadWritePaths))
-	}
-	if b.Sandbox.StateDirectory != "" {
-		props = append(props, prop("StateDirectory", []string{b.Sandbox.StateDirectory}),
-			prop("StateDirectoryMode", uint32(0o700)))
 	}
 	if !b.Network {
 		props = append(props, prop("RestrictAddressFamilies", struct {
@@ -152,41 +223,7 @@ func (s *Systemd) Properties(b *config.Backend, p principal.Principal, fd int, m
 			Families []string
 		}{true, []string{"AF_UNIX"}}))
 	}
-	switch b.RunAs {
-	case "principal":
-		if p.UID == nil {
-			// A remote principal without a local account (decision D1):
-			// a throwaway user, isolated by the instance's MCS pair.
-			props = append(props, prop("DynamicUser", true))
-			break
-		}
-		props = append(props, prop("User", p.Sub))
-		if p.Home != "" {
-			props = append(props, prop("WorkingDirectory", p.Home))
-		}
-	case "dynamic":
-		props = append(props, prop("DynamicUser", true))
-	default:
-		props = append(props, prop("User", b.RunAs))
-	}
-	if mcs != "" {
-		props = append(props, prop("SELinuxContext", fmt.Sprintf("system_u:system_r:%s:s0:%s", b.SELinuxType, mcs)))
-	}
-	creds, err := b.ParseCredentials()
-	if err != nil {
-		return nil, err
-	}
-	if len(creds) > 0 {
-		// systemd (as root) reads the files and exposes them to the
-		// backend below $CREDENTIALS_DIRECTORY; the gateway never sees them.
-		type loadCredential struct{ ID, Path string }
-		lc := make([]loadCredential, len(creds))
-		for i, c := range creds {
-			lc[i] = loadCredential{c.Name, c.Path}
-		}
-		props = append(props, prop("LoadCredential", lc))
-	}
-	return props, nil
+	return props
 }
 
 // Start implements Launcher.
@@ -204,7 +241,7 @@ func (s *Systemd) Start(ctx context.Context, b *config.Backend, p principal.Prin
 	defer func() { _ = unix.Close(childFD) }()
 
 	var mcs string
-	if s.SELinux {
+	if s.SELinux && !b.Privileged {
 		if mcs, err = s.MCS.Allocate(); err != nil {
 			_ = gwFile.Close()
 			return nil, err

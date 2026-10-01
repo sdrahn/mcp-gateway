@@ -2,11 +2,14 @@ package audit
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 type fakeKernel struct {
@@ -43,6 +46,21 @@ func TestLogKeyedDigestAndKernel(t *testing.T) {
 		strings.ToUpper("64656e69656420627920706f6c696379") + " server=fs session=s1 target=delete_file res=failed"
 	if k.msgs[0] != want {
 		t.Fatalf("kernel message\n got %s\nwant %s", k.msgs[0], want)
+	}
+}
+
+func TestLogPrivilegedToKernel(t *testing.T) {
+	var out bytes.Buffer
+	k := &fakeKernel{}
+	a := New(&out, Options{Key: bytes.Repeat([]byte{1}, 32), Kernel: k})
+	a.Log(Record{Session: "s1", Sub: "alice", Action: "tools.call", Server: "zypp", Name: "confirm_install",
+		Effect: "allow", Reason: "approved", GrantID: "g-1", DecisionID: "d-1", Privileged: true})
+	if !strings.Contains(out.String(), `"privileged":true`) {
+		t.Fatalf("journal record: %s", out.String())
+	}
+	if len(k.msgs) != 1 || !strings.Contains(k.msgs[0], " grant=g-1 ") || !strings.Contains(k.msgs[0], " privileged=yes ") ||
+		!strings.HasSuffix(k.msgs[0], " res=success") {
+		t.Fatalf("kernel messages %v", k.msgs)
 	}
 }
 
@@ -90,6 +108,18 @@ func TestLoadKey(t *testing.T) {
 
 // The real kernel interface, where the environment allows it (needs
 // CAP_AUDIT_WRITE and an audit-enabled kernel).
+func TestUserMessageNULTerminated(t *testing.T) {
+	const msg = "op=mcp-decision res=success"
+	buf := userMessage(7, msg)
+	payload := buf[unix.NLMSG_HDRLEN:]
+	if int(binary.NativeEndian.Uint32(buf[0:4])) != len(buf) || binary.NativeEndian.Uint32(buf[8:12]) != 7 {
+		t.Fatalf("header % x", buf[:unix.NLMSG_HDRLEN])
+	}
+	if string(payload) != msg+"\x00" {
+		t.Fatalf("payload %q, want the message and a NUL", payload)
+	}
+}
+
 func TestNetlink(t *testing.T) {
 	n, err := OpenNetlink()
 	if err != nil {

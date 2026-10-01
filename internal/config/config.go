@@ -216,6 +216,11 @@ type Backend struct {
 	// $CREDENTIALS_DIRECTORY/name; the gateway itself never reads them.
 	Credentials []string `yaml:"credentials"`
 	Sandbox     Sandbox  `yaml:"sandbox"`
+	// Privileged runs the backend with the rights of a root system
+	// service instead of the sandbox, for servers that change the system
+	// as a whole (package installation). Only the administrator's
+	// directory may define one, and only with run_as: root.
+	Privileged bool `yaml:"privileged"`
 }
 
 // Credential is a parsed credentials entry.
@@ -574,7 +579,8 @@ func checkURL(s string) error {
 // and returns the validated backend definitions keyed by backend name. A
 // file in a later dir overrides the file with the same name in an earlier
 // one; an empty file, or a symlink to /dev/null, masks it (as with systemd
-// units). Pass the vendor dir first, the administrator's last.
+// units). Pass the vendor dir first, the administrator's last: only the
+// last dir may define privileged backends.
 func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 	byFile := map[string]string{}
 	for _, dir := range dirs {
@@ -607,6 +613,9 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 		b.setDefaults()
 		if err := b.Validate(); err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+		if b.Privileged && (len(dirs) == 0 || filepath.Dir(p) != filepath.Clean(dirs[len(dirs)-1])) {
+			return nil, fmt.Errorf("%s: privileged: only allowed in %s", p, dirs[len(dirs)-1])
 		}
 		if _, dup := backends[b.Name]; dup {
 			return nil, fmt.Errorf("%s: duplicate backend name %q", p, b.Name)
@@ -657,6 +666,14 @@ func (b *Backend) Validate() error {
 	}
 	if err := b.Sandbox.validate(); err != nil {
 		return err
+	}
+	if b.Privileged {
+		if b.RunAs != "root" {
+			return fmt.Errorf("privileged: needs run_as: root, not %q", b.RunAs)
+		}
+		if len(b.Sandbox.ReadWritePaths) > 0 {
+			return errors.New("sandbox.read_write_paths: has no effect on a privileged backend, which may write everywhere")
+		}
 	}
 	if _, err := b.ParseCredentials(); err != nil {
 		return err

@@ -169,12 +169,14 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - name: Install QEMU
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils
-      - name: Build the test client
-        run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/mcpcall" ./test/vm/mcpcall
+      - name: Build the test client and the privileged test server
+        run: |
+          CGO_ENABLED=0 go build -o "$RUNNER_TEMP/mcpcall" ./test/vm/mcpcall
+          CGO_ENABLED=0 go build -o "$RUNNER_TEMP/privsrv" ./test/vm/privsrv
       - name: Run the VM tests (openSUSE Tumbleweed)
         env:
           WORK: ${{ runner.temp }}/vm
-        run: test/vm/run-vm.sh rpms "$RUNNER_TEMP/mcpcall" "$(command -v opa)"
+        run: test/vm/run-vm.sh rpms "$RUNNER_TEMP/mcpcall" "$(command -v opa)" "$RUNNER_TEMP/privsrv"
       - if: always()
         uses: actions/upload-artifact@v4
         with:

@@ -48,6 +48,8 @@ async function init() {
     try {
         currentUser = await getJSON("/v1/whoami");
         document.getElementById("whoami").textContent = "Signed in as " + currentUser.name;
+        const status = await getJSON("/v1/status");
+        document.getElementById("restart-note").hidden = !status.restart_pending;
     } catch (ex) {
         showError(describeFailure(ex));
     }

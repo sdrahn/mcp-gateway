@@ -189,6 +189,10 @@ tunable_policy(`mcpgw_can_send_mail',`
 ')
 corecmd_exec_bin(mcpgw_t)
 
+# A pending restart after an update: the gateway stats its own program
+# file (/usr/bin/mcp-gateway) to notice that it was replaced.
+allow mcpgw_t mcpgw_exec_t:file getattr;
+
 # SELinux detection (supervisor.SELinuxEnabled).
 selinux_get_fs_mount(mcpgw_t)
 selinux_get_enforce_mode(mcpgw_t)

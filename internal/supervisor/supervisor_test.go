@@ -149,6 +149,29 @@ func TestSystemdProperties(t *testing.T) {
 	}
 }
 
+func TestSystemdPropertiesPrivileged(t *testing.T) {
+	s := &Systemd{SELinux: true}
+	b := &config.Backend{Name: "zypp", Command: []string{"/usr/bin/mcp-server-zypp"}, SELinuxType: "mcpsrv_zypp_t",
+		RunAs: "root", Network: true, Privileged: true, Sandbox: config.Sandbox{ProtectHome: "read-only"}}
+	m := propMap(t, s, b, alice(), "")
+	if m["User"] != "root" || m["NoNewPrivileges"] != false || m["UMask"] != uint32(0o022) || m["PrivateNetwork"] != false {
+		t.Errorf("props %v", m)
+	}
+	if m["SELinuxContext"] != "system_u:system_r:mcpsrv_zypp_t:s0" {
+		t.Errorf("SELinuxContext %v", m["SELinuxContext"])
+	}
+	for _, k := range []string{"ProtectSystem", "ProtectHome", "CapabilityBoundingSet", "SystemCallFilter",
+		"RestrictSUIDSGID", "PrivateDevices", "RestrictAddressFamilies", "ReadWritePaths"} {
+		if _, ok := m[k]; ok {
+			t.Errorf("unexpected %s on a privileged instance", k)
+		}
+	}
+	s.SELinux = false
+	if m = propMap(t, s, b, alice(), ""); m["SELinuxContext"] != nil {
+		t.Errorf("SELinuxContext without SELinux: %v", m["SELinuxContext"])
+	}
+}
+
 func TestExecLauncher(t *testing.T) {
 	if _, err := os.Stat("/bin/cat"); err != nil {
 		t.Skip("no /bin/cat")

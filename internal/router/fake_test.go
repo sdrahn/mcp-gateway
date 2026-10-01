@@ -118,7 +118,7 @@ func (l *fakeLauncher) Start(_ context.Context, b *config.Backend, p principal.P
 		return nil, err
 	}
 	gw, be := net.Pipe()
-	fi := &fakeInstance{Conn: gw, name: b.Name, id: id, p: p, closed: make(chan struct{}), cancelled: make(chan string, 10)}
+	fi := &fakeInstance{Conn: gw, name: b.Name, id: id, p: p, closed: make(chan struct{}), cancelled: make(chan string, 10), commit: make(chan struct{})}
 	fi.be = jsonrpc.NewConn(be)
 	go fi.serve(fi.be)
 	l.mu.Lock()
@@ -143,6 +143,9 @@ type fakeInstance struct {
 	closeOnce sync.Once
 	closed    chan struct{}
 	cancelled chan string // request ids the backend was told to cancel
+	// commit, once closed, lets "commit" calls finish; they ignore
+	// cancellation (like an RPM transaction).
+	commit chan struct{}
 
 	argsMu   sync.Mutex
 	lastArgs json.RawMessage // arguments of the last update_customer call
@@ -273,6 +276,11 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 						return
 					}
 					respond(m, text("roots: "+string(resp.Result)))
+				}(m)
+			case "commit":
+				go func(m *jsonrpc.Message) {
+					<-f.commit
+					respond(m, text("committed"))
 				}(m)
 			case "slow":
 				ch := make(chan struct{})

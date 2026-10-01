@@ -38,7 +38,8 @@ Access must be governed. The gateway shall
   still be contained by the kernel (SELinux, cgroups, namespaces, DAC).
 - No modification of the existing MCP servers.
 - Operable with standard Linux tooling: systemd, journald, auditd, RPM
-  (openSUSE/SLES packages built with OBS).
+  (packages built with OBS). Supported distributions: SLES 16 and
+  openSUSE Leap 16; openSUSE Tumbleweed is the development platform.
 
 ### Non-goals (for now)
 
@@ -49,6 +50,8 @@ Access must be governed. The gateway shall
 - Content-level safety filtering of tool output (prompt-injection
   detection etc.). The design leaves a hook for it (obligations, §6.4).
 - High availability / multi-host clustering. One gateway per host.
+- SLES 15 and Leap 15, and with them AppArmor: the confinement model is
+  SELinux.
 
 ## 3. Terminology
 
@@ -584,6 +587,72 @@ Approvers learn about pending approvals without watching the inbox:
     protect_home: read-write
   ```
 
+#### 5.7.1 Privileged backends
+
+Some servers change the system as a whole: mcp-server-zypp installs
+packages, and an RPM transaction writes anywhere below `/`, changes
+owners, sets file capabilities and SELinux labels and runs package
+scripts. No sandbox setting short of "none" allows that. A backend
+marked **privileged** runs with the rights of a root service, and its
+protection moves from the kernel sandbox to the gateway: policy,
+approval and audit decide every call (decision D9).
+
+```yaml
+# /etc/mcp-gateway/servers.d/zypp.yaml
+name: zypp
+command: ["/usr/bin/mcp-server-zypp"]
+run_as: root
+network: true                 # downloads
+selinux_type: mcpsrv_zypp_t
+privileged: true
+```
+
+- **Where it may be defined.** Only in `/etc/mcp-gateway/servers.d`
+  (the administrator's directory); a privileged definition in
+  `/usr/share/mcp-gateway/servers.d` is refused, so installing a package
+  never creates one. `run_as` must be `root`; `isolation`,
+  `credentials` and `env` apply as usual.
+- **Unit properties.** Those of a root system service: full capability
+  bounding set, no `NoNewPrivileges` (SELinux domain transitions to
+  `rpm_t` need it off, and package scripts run setuid helpers), no
+  `ProtectSystem`/`ProtectHome`, `PrivateDevices`, `RestrictSUIDSGID`,
+  system call filter or address family restriction; `PrivateTmp`,
+  `UMask=0022`, and larger `MemoryMax`/`TasksMax`. The SELinux context is
+  `system_u:system_r:<selinux_type>:s0` **without an MCS pair**: files the
+  backend creates would otherwise carry the instance's categories, and
+  services running at `s0` could not read them.
+- **SELinux.** The server process stays in its own domain
+  (`mcp_gateway_backend_template`); the interface
+  `mcp_gateway_backend_rpm(<name>)` lets it run its worker in `rpm_t`
+  (the worker labelled `rpm_exec_t`, as zypper is), with the pipes and
+  signals between the two. The kernel confines the MCP-speaking part;
+  the part that installs runs where zypper runs.
+- **Policy.** The policy input carries `resource.privileged: true`. For
+  such servers the shipped policy allows a call without approval only
+  through a permission naming server and target without wildcards, so
+  roles like `admin` (`"tool": "*"`) ask for approval there; a
+  permission may still deny. Every decision on a privileged server, not
+  only denials, goes to the kernel audit subsystem (when it is
+  available), with the grant that allowed it.
+- **Never stopped during a call.** The pool does not stop a privileged
+  instance while a call is running: the idle timer starts only when no
+  session is attached and no call is in flight, including calls whose
+  session went away (the gateway keeps reading their responses). On
+  shutdown the gateway refuses new calls to privileged servers and waits
+  for running ones before stopping the instances (`TimeoutStopSec` of
+  `mcp-gateway.service` raised to 30 min; logged as "waiting for
+  privileged calls"). A gateway crash still closes the stdio socket, so
+  the server itself must finish a transaction it has started when its
+  input ends (mcp-server-zypp: to be raised upstream).
+- **The gateway's own update.** A package update through a privileged
+  server that restarts `mcp-gateway.service` from its scriptlets would
+  wait for itself. The package therefore does not restart the gateway on
+  update (`%service_del_postun_without_restart`); the Cockpit page and
+  the log say that a restart is pending.
+- **Visible.** `mcp-gateway --check`, the servers list and the Cockpit
+  page mark privileged servers; the control API refuses to stop a busy
+  privileged instance (`409`).
+
 ### 5.8 SELinux policy module (`mcp_gateway`)
 
 Types:
@@ -1088,7 +1157,7 @@ instances started later, without starting any.
 ## 9. Decisions
 
 These resolve the open questions from the initial architecture discussion.
-D1–D7 were accepted on 2026-09-27, D8 on 2026-09-28.
+D1–D7 were accepted on 2026-09-27, D8 on 2026-09-28, D9 on 2026-10-01.
 
 **D1 — Run-as identity for remote principals.**
 *Decision (accepted):* configurable per deployment, default **mapped local account**
@@ -1204,6 +1273,19 @@ tools, and brings no bundle distribution or decision logging.
   - **Shared libraries.** Custom policy may import company-wide Rego
     packages; a namespace convention keeps them apart from `mcp.*`.
 
+**D9 — Package installation through privileged backends.**
+*Decision (accepted and implemented 2026-10-01):* servers that change
+the whole system, first of all package installation with
+mcp-server-zypp, run as **privileged backends** (§5.7.1) instead of
+being left to tools outside the gateway.
+*Rationale:* package management is a core administration task for
+agents on SLES; leaving it outside the gateway would leave it outside
+policy, approval and audit. The price is that the kernel no longer
+contains such a server: a compromised privileged backend is root. This
+is limited by admin-only definitions, approval for every call not
+explicitly allowed, kernel audit, and confinement of the part that
+speaks MCP.
+
 ## 10. Repository layout
 
 ```
@@ -1263,11 +1345,51 @@ docs/
    requests with per-session reversible tokens, policy-controlled
    re-identification (§6.3.1).
 
-## 12. Open items
+Steps 1–9 made a proof of concept with all designed functions. Running it
+with real MCP servers (systemd, firewalld, snapper, zypp, suseconnect)
+showed where it is not yet a product: every server needed SELinux rules,
+polkit rules or sandbox settings worked out by hand, the packages broke
+on SLES 16 although CI (Tumbleweed only) was green, and agents differ in
+how they use sessions. Steps 10–14 lead to a 1.0 for SLES 16 and Leap 16.
 
-- Distribution focus is openSUSE and SLES (packages via OBS,
-  `packaging/suse`). SLES 15 uses AppArmor, not SELinux; an AppArmor
-  profile set would be needed there.
+10. **Server profiles, tested on the target distributions:**
+    - profiles for systemd-mcp (openSUSE/systemd-mcp), firewalld,
+      snapper, mcp-server-zypp and suseconnect-mcp (SUSE/connect-ng):
+      server definition with sandbox settings, SELinux domain
+      (`mcp_gateway_backend_template`), polkit rules, account groups and
+      suggested role data, enabled with one step;
+    - privileged backends (§5.7.1, D9) for package installation with
+      mcp-server-zypp, with a VM test that installs and removes a
+      package through the gateway after an approval;
+    - what a server cannot do behind a gateway (own interactive polkit
+      checks, unused options, fixed state paths) goes to its upstream
+      as an issue or patch rather than into a workaround here;
+    - the VM test (SELinux enforcing, no denials) runs these servers, not
+      only the demo server, and reads and changes something through each,
+      with an approval;
+    - CI builds and VM-tests on SLES 16 and Leap 16 (Tumbleweed stays as
+      the early warning), plus an upgrade test from the previous release.
+11. **Stable interfaces:** versioned `gateway.yaml`, server definitions,
+    role data, the policy input and decision documents and the control
+    API; a deprecation policy (warn for one minor release, then remove);
+    CI checks that the configuration of the previous release still works.
+12. **Operability:** `Type=notify` with a systemd watchdog for the
+    gateway; metrics (decisions, pending approvals, instance starts and
+    failures, OPA latency); a self-check command that finds what had to
+    be debugged by hand: servers that do not start, SELinux denials for a
+    backend, missing polkit rules, role data that does not validate,
+    principals without roles.
+13. **Security assurance:** fuzzing of the JSON-RPC parser, the HTTP
+    transport and the policy input; a review of the threat model (§8);
+    an external review of identity, approvals and the control socket;
+    decisions on the open items that matter in production (rate-limit
+    counters across restarts, grants expiring during a call, path
+    arguments through symlinks).
+14. **Client compatibility:** tested and documented behaviour with Kit,
+    Claude Code and other MCP clients (sessions, elicitation, approval
+    timeouts, `list_changed`).
+
+## 12. Open items
 
 - Path arguments: policy rejects `..` segments, but symlinks inside an
   allowed tree can still point elsewhere. Resolving paths needs knowledge
