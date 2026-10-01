@@ -4,6 +4,18 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## Unreleased
+
+### Fixed
+
+- The gateway told clients every `policy.watch_interval` (10 seconds)
+  that the policy had changed (`notifications/tools/list_changed` and
+  friends, "policy changed; notifying sessions" in the log), although it
+  had not: OPA, which `mcp-opa.service` runs with decision logging,
+  returns a new decision id with every response, and the gateway's
+  policy fingerprint included it. Clients re-listed their tools all the
+  time.
+
 ## v0.2.4 — 2026-10-01
 
 Server definitions can make paths writable for their instances, for
