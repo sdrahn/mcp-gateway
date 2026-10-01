@@ -627,12 +627,13 @@ privileged: true
   (the worker labelled `rpm_exec_t`, as zypper is), with the pipes and
   signals between the two. The kernel confines the MCP-speaking part;
   the part that installs runs where zypper runs.
-- **Policy.** The policy input carries `server_privileged: true`. For
+- **Policy.** The policy input carries `resource.privileged: true`. For
   such servers the shipped policy allows a call without approval only
-  through a permission naming the tool without wildcards, so roles like
-  `admin` (`"tool": "*"`) ask for approval there; a permission may still
-  deny. Approvals for privileged servers are audited to the kernel audit
-  log as well, whatever `audit.kernel` says for other events.
+  through a permission naming server and target without wildcards, so
+  roles like `admin` (`"tool": "*"`) ask for approval there; a
+  permission may still deny. Every decision on a privileged server, not
+  only denials, goes to the kernel audit subsystem (when it is
+  available), with the grant that allowed it.
 - **Never stopped during a call.** The pool does not stop a privileged
   instance while a call is running: the idle timer starts only when no
   session is attached and no call is in flight, including calls whose
@@ -649,7 +650,8 @@ privileged: true
   update (`%service_del_postun_without_restart`); the Cockpit page and
   the log say that a restart is pending.
 - **Visible.** `mcp-gateway --check`, the servers list and the Cockpit
-  page mark privileged servers.
+  page mark privileged servers; the control API refuses to stop a busy
+  privileged instance (`409`).
 
 ### 5.8 SELinux policy module (`mcp_gateway`)
 
@@ -1272,7 +1274,7 @@ tools, and brings no bundle distribution or decision logging.
     packages; a namespace convention keeps them apart from `mcp.*`.
 
 **D9 — Package installation through privileged backends.**
-*Decision (accepted 2026-10-01, design proposed):* servers that change
+*Decision (accepted and implemented 2026-10-01):* servers that change
 the whole system, first of all package installation with
 mcp-server-zypp, run as **privileged backends** (§5.7.1) instead of
 being left to tools outside the gateway.

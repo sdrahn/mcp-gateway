@@ -68,6 +68,13 @@ zypper update 'mcp-gateway*'
 systemctl try-restart mcp-gateway.service mcp-opa.service
 ```
 
+The package does not restart `mcp-gateway.service` itself: an update
+made through a privileged server (package installation by an agent)
+would otherwise wait for itself. Until you restart it, the gateway runs
+the previous version; it logs "mcp-gateway was updated", and the
+Cockpit page shows a notice. A restart waits for calls to privileged
+servers (up to 28 minutes) and ends all sessions.
+
 Your files below `/etc` are left alone. If the package's default
 configuration changed, compare it with your copy:
 `diff /usr/etc/mcp-gateway/gateway.yaml /etc/mcp-gateway/gateway.yaml`.

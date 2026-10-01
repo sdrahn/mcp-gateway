@@ -6,7 +6,26 @@ change configuration, policy data or APIs.
 
 ## Unreleased
 
+### Added
+
+- Privileged servers (`privileged: true`, `run_as: root`) for MCP
+  servers that change the system as a whole, such as package
+  installation with mcp-server-zypp: no sandbox, SELinux domain without
+  an MCS pair and the installing worker in `rpm_t`
+  (`mcp_gateway_backend_rpm`). Accepted only in
+  `/etc/mcp-gateway/servers.d`. Calls are allowed without approval only
+  by permissions naming server and tool exactly (`admin` asks), every
+  decision goes to the kernel audit log, and the gateway never stops
+  such an instance while a call runs, also on shutdown (it waits up to
+  28 minutes; `TimeoutStopSec=30min`).
+- `GET /v1/status` (control API) reports a pending restart; the Cockpit
+  page shows it.
+
 ### Changed
+
+- The package no longer restarts `mcp-gateway.service` on update (an
+  update through a privileged server would wait for itself); restart it
+  yourself. The gateway logs that it was updated.
 
 - Supported distributions are SLES 16 and openSUSE Leap 16; Tumbleweed
   is the development platform. SLES 15 and Leap 15 (AppArmor) are out of

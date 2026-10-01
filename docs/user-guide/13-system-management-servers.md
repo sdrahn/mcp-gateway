@@ -188,11 +188,12 @@ selinux_type: mcpsrv_zypp_t
 ```
 
 - `confirm_install` and `confirm_remove` change the system and refuse to
-  run unless the worker is root. They also cannot work behind the
-  gateway as it is: an RPM transaction writes all over the file system,
-  changes owners and runs package scripts, while every instance runs
-  with no capabilities and a read-only system (`run_as: root` does not
-  change that). Leave them to no one for now.
+  run unless the worker is root. An RPM transaction writes all over the
+  file system, changes owners and runs package scripts, which no sandbox
+  allows: for them, run the server as a **privileged server** (chapter
+  4, with its SELinux module) instead of the definition above. Calls to
+  it then need an approval unless a permission names the tool exactly,
+  and the gateway does not stop it while a transaction runs.
 - The worker asks the user, by elicitation, whether to trust a new GPG
   key of a repository. The gateway passes such a request to the agent's
   client only with a `client` permission for `elicitation.create`

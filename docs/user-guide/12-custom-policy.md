@@ -126,6 +126,7 @@ your rules `default` values so they are never undefined by accident.
 | `action` | `tools.call`, `prompts.get`, `resources.read`, `resources.subscribe`, `resources.unsubscribe`, `completion.complete`; for requests from MCP servers: `sampling.create`, `elicitation.create`, `roots.list` |
 | `resource.server` | the MCP server |
 | `resource.kind`, `name` | `tool`/tool name, `prompt`/prompt name, `resource`/URI, `resource_template`/URI template (completions), `client`/request method |
+| `resource.privileged` | `true` for privileged servers (no sandbox, chapter 4); the shipped policy then allows only through permissions naming server and target exactly |
 | `resource.annotations` | the tool's annotations (`readOnlyHint`, `destructiveHint`, …) as the MCP server declared them: **untrusted**, use them only to deny more |
 | `args` | tool or prompt arguments; for `elicitation.create`: `mode`, `fields`, `sensitive` (the gateway's guess whether secrets are asked for), `url` |
 | `grants` | the principal's unexpired grants for this server and tool (for calls only) |

@@ -164,6 +164,13 @@ Pseudonymization detectors, patterns and field rules add up, and so do
 the arguments to re-identify. A malformed obligation (an invalid
 regular expression, a bad rate, an unknown detector) denies the call.
 
+For **privileged servers** (chapter 4) a permission allows a call
+without approval only if it names `server` and the target without
+wildcards (`{"server": "zypp", "tool": "search_packages"}`). Other
+allowing permissions ask instead, so a role like `admin`
+(`"server": "*", "tool": "*"`) needs an approval there; `deny` still
+denies.
+
 `args` and `arg_constraints` differ: `args` decides whether a
 permission applies (so a non-matching write can fall through to another
 permission or to "no matching permission"), `arg_constraints` is checked

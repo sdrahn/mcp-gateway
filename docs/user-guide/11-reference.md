@@ -65,13 +65,14 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | Method and path | Body / result |
 |---|---|
 | `GET /v1/whoami` | the caller: `{"name", "uid", "groups"}` |
+| `GET /v1/status` | `{"restart_pending": true}` when the gateway's program was updated and the gateway not yet restarted |
 | `GET /v1/approvals` | pending approvals the caller may decide on (list of approvals, below) |
 | `GET /v1/approvals/{id}` | one approval; `404` if unknown or not the caller's to decide |
 | `POST /v1/approvals/{id}` | `{"decision": "approve"\|"deny", "scope": "once"\|"session"\|<duration>}`; returns the grant (`200`) or nothing (`204`, denied); `400 scope not offered` |
 | `GET /v1/grants` | grants the caller may manage (list of grants, below) |
 | `DELETE /v1/grants/{id}` | revoke; `204` |
-| `GET /v1/servers` | registered servers `{"name", "selinux_type", "isolation", "network", "run_as", "instances"}` with the instances the caller may manage `{"id", "server", "unit", "sub", "iss", "uid", "transport", "session_id", "isolation", "started", "sessions"}` |
-| `DELETE /v1/instances/{id}` | stop an instance; `204` |
+| `GET /v1/servers` | registered servers `{"name", "selinux_type", "isolation", "network", "run_as", "privileged", "instances"}` with the instances the caller may manage `{"id", "server", "unit", "sub", "iss", "uid", "transport", "session_id", "isolation", "started", "sessions", "privileged", "busy"}` |
+| `DELETE /v1/instances/{id}` | stop an instance; `204`; `409` for a privileged instance with a call running |
 | `GET /v1/policy` | `{"mode": "directories"\|"bundle", "bundles": {name: revision}}`; `502` if OPA is unavailable |
 | `POST /v1/policy/whatif` | body: proposed role data (as `data.json`); returns `{"changes": [{"principal", "server", "kind", "name", "before", "after"}], "principals", "resources", "unchecked": {server: reason}}`: the decisions that would change, for the users (`user:<name>`) and groups (`group:<name>`) either role data binds; `403` unless `data.mcp.approvals.review_policy` allows the caller |
 | `GET /v1/events` | server-sent events (`event: approval`) for the approvals the caller may decide on: first all pending, then changes; `data` is `{"type": "pending"\|"resolved", "id", "new", "pending", "url"}` |
@@ -118,7 +119,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `op=` | When | Fields |
 |---|---|---|
 | `mcp-gateway-start` | the gateway started | |
-| `mcp-decision` | a request was denied (`res=failed`) | `session`, `principal`, `action`, `server`, `target`, `reason`, `decision_id` |
+| `mcp-decision` | a request was denied (`res=failed`), or any decision on a privileged server | `session`, `principal`, `action`, `server`, `target`, `reason`, `decision_id`; for privileged servers also `privileged=yes` and `grant` |
 | `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel` |
 | `mcp-grant-revoke` | a grant was revoked | `id`, `by`, `principal`, `server`, `target` |
 | `mcp-policy-change` | OPA loaded a different policy | `revision` |
