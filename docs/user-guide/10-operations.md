@@ -133,6 +133,7 @@ ausearch -m AVC -ts recent | grep mcpsrv
 | SELinux denies the program as entry point | label it with the domain's `_exec_t` type or add `corecmd_bin_entry_type` (chapter 4) |
 | SELinux denies what the server does | extend the server's module (permissive + `audit2allow`) |
 | the server needs the network / a writable home | `network: true`, `sandbox.protect_home: read-write` |
+| the server cannot create or write its state (`Read-only file system`, e.g. below `/var/lib`) | `sandbox.state_directory`, or `sandbox.read_write_paths` for other existing paths (chapter 4) |
 | "Interactive authentication required" / polkit denial | the polkit rule `50-mcp-gateway.rules` is missing, or the unit name does not start with `mcp-` |
 | out of memory, killed after 8 hours | the fixed limits (512 MiB, 8 h); split the work or restart |
 

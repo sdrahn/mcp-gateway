@@ -134,6 +134,13 @@ func (s *Systemd) Properties(b *config.Backend, p principal.Principal, fd int, m
 		prop("TasksMax", uint64(instanceTasksMax)),
 		prop("RuntimeMaxUSec", uint64(instanceRuntimeMax/time.Microsecond)),
 	}
+	if len(b.Sandbox.ReadWritePaths) > 0 {
+		props = append(props, prop("ReadWritePaths", b.Sandbox.ReadWritePaths))
+	}
+	if b.Sandbox.StateDirectory != "" {
+		props = append(props, prop("StateDirectory", []string{b.Sandbox.StateDirectory}),
+			prop("StateDirectoryMode", uint32(0o700)))
+	}
 	if !b.Network {
 		props = append(props, prop("RestrictAddressFamilies", struct {
 			Allow    bool
