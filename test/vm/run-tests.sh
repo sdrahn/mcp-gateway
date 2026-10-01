@@ -7,6 +7,7 @@
 #   mcpcall   the test client (test/vm/mcpcall)
 #   opa       OPA binary, used if the distribution has no opa package
 #   privsrv   test server for privileged backends (test/vm/privsrv)
+#   servers/  the servers of the setup packages (test/vm/build-servers.sh), optional
 # Every check prints PASS or FAIL; the script exits 1 if any failed.
 set -u
 dir=$(cd "$(dirname "$0")" && pwd)
@@ -140,6 +141,36 @@ privileged_audited() {
 	done
 	return 1
 }
+# stool <user> <server> <tool> <args>: a tool call to a server; sets $out
+# and $rc as call does.
+stool() {
+	out=$(runuser -u "$1" -- /usr/local/bin/mcpcall --server "$2" --method tools/call \
+		--params "{\"name\":\"$3\",\"arguments\":$4}" 2>&1)
+	rc=$?
+	echo "  [$1 $2/$3] rc=$rc ${out:0:300}"
+}
+# stool_approved <user> <server> <tool> <args>: stool, approved (once) by
+# <user> through the control API while it waits.
+stool_approved() {
+	local id res=/root/vmtest/stool.out
+	stool "$@" >"$res" &
+	local pid=$!
+	for _ in $(seq 30); do
+		id=$(control "$1" GET /v1/approvals | jq -r '.[0].id // empty')
+		[ -n "$id" ] && break
+		sleep 1
+	done
+	echo "  approval: ${id:-none}"
+	[ -n "$id" ] && control "$1" POST "/v1/approvals/$id" '{"decision":"approve","scope":"once"}' >/dev/null
+	wait "$pid"
+	cat "$res"
+	out=$(cat "$res")
+	rc=0
+	grep -q ' rc=0 ' "$res" || rc=1
+}
+# reached_server: the last call got an answer from the server (a result or
+# a tool error), not a refusal or an unavailable backend.
+reached_server() { [ "$rc" != 1 ]; }
 
 # --- tests -------------------------------------------------------------------
 
@@ -392,6 +423,64 @@ check "stopping waited for the call" test $((t1 - t0)) -ge 8
 check "the gateway logged that it waited" journal_since_start_has 'waiting for privileged calls'
 systemctl start mcp-gateway.service
 wait_socket
+
+section "Server setups"
+# The setup packages with the real servers, built from upstream
+# (test/vm/build-servers.sh): each server reads through the gateway, and
+# systemd changes a unit after an approval, all with SELinux enforcing.
+if [ -d "$dir/servers" ]; then
+	cp -a "$dir/servers/." /
+	restorecon -R /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
+		/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp
+	rpm -Uvh --nodeps "$dir"/rpms/mcp-gateway-profile-*.rpm >/dev/null || die "installing the setup packages failed"
+	zypper -n in --no-recommends firewalld >/dev/null && systemctl enable --now firewalld >/dev/null 2>&1
+	for f in /usr/bin/systemd-mcp:mcpsrv_systemd_exec_t /usr/bin/firewalld-mcp:mcpsrv_firewalld_exec_t \
+		/usr/bin/mcp-server-zypp:mcpsrv_zypp_exec_t /usr/libexec/mcp-server-zypp/zypp-mcp-tool:rpm_exec_t \
+		/usr/bin/suseconnect-mcp:mcpsrv_suseconnect_exec_t; do
+		echo "  $(file_label "${f%%:*}") ${f%%:*}"
+		check "${f%%:*} is labeled ${f##*:}" file_has_type "${f%%:*}" "${f##*:}"
+	done
+	check "the setups created mcp-sysmgmt in systemd-journal" bash -c 'id -nG mcp-sysmgmt | grep -qw systemd-journal'
+	cat >/etc/systemd/system/mcpgw-vmtest.service <<'END'
+[Unit]
+Description=mcp-gateway VM test unit
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+END
+	systemctl daemon-reload
+	jq '.bindings.users.alice += ["systemd-operator", "firewalld-reader", "zypp-reader", "suseconnect-reader"]' \
+		/etc/mcp-gateway/policy/rbac/data.json >/root/vmtest/data.json &&
+		cat /root/vmtest/data.json >/etc/mcp-gateway/policy/rbac/data.json
+	check "the role data binds the shipped roles" mcp-gateway --check-policy-data
+	systemctl restart mcp-gateway.service
+	wait_socket
+
+	stool alice systemd list_units '{"state":"all","patterns":["mcpgw-vmtest*"]}'
+	check "systemd: list_units" succeeded_with "mcpgw-vmtest.service"
+	stool alice systemd list_log '{"unit":["mcp-gateway.service"],"exact_unit":true,"count":50,"pattern":"configuration valid"}'
+	check "systemd: list_log reads the system journal" succeeded_with "configuration valid"
+	stool_approved alice systemd change_unit_state '{"name":"mcpgw-vmtest.service","action":"start","timeout":30}'
+	check "systemd: change_unit_state after an approval" test "$rc" = 0
+	check "systemd: the unit was started" systemctl is-active --quiet mcpgw-vmtest.service
+
+	stool alice firewalld get_default_zone '{}'
+	check "firewalld: get_default_zone" test "$rc" = 0
+
+	stool alice zypp search_packages '{"pattern":"bash"}'
+	check "zypp: search_packages" succeeded_with "bash"
+
+	# Without a registration it may report an error, but from the server.
+	stool alice suseconnect RegistrationStatus '{}'
+	check "suseconnect: RegistrationStatus answers" reached_server
+
+	for s in systemd firewalld zypp suseconnect; do
+		journalctl -u "mcp-$s-*" --no-pager -o cat 2>/dev/null | tail -5 | sed "s/^/  [$s] /"
+	done
+else
+	echo "  no servers given (test/vm/run-vm.sh <...> <servers dir>); skipped"
+fi
 
 section "Update without restart"
 gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
