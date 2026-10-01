@@ -4,7 +4,12 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
-## Unreleased
+## v0.2.5 — 2026-10-01
+
+Stops the gateway from telling clients every 10 seconds that the policy
+changed, logs what MCP servers write to stdout when it is not MCP, and
+documents running suseconnect-mcp. Upgrading from 0.2.4 needs no
+configuration changes.
 
 ### Fixed
 
