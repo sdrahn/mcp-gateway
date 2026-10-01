@@ -15,6 +15,10 @@ behind the gateway so that:
 The examples use the program names of the openSUSE/SLES packages
 (`/usr/bin/systemd-mcp`, `/usr/bin/firewalld-mcp`,
 `/usr/bin/snapper-mcp`); adjust the paths to your installation.
+Upstream projects: [systemd-mcp](https://github.com/openSUSE/systemd-mcp)
+(notes below are for version 0.3.5), and `suseconnect-mcp`, package
+`mcp-server-suseconnect`, part of
+[connect-ng](https://github.com/SUSE/connect-ng).
 
 ## Three layers of authorization
 
@@ -51,6 +55,16 @@ EOF
 systemd-sysusers
 ```
 
+For the system journal (`list_log`), add the account to the journal's
+group; otherwise `systemd-mcp` falls back to its gatekeeper service,
+which asks polkit for an admin password, and then shows only the
+account's own (empty) journal:
+
+```bash
+echo 'm mcp-sysmgmt systemd-journal' >>/etc/sysusers.d/mcp-sysmgmt.conf
+systemd-sysusers
+```
+
 With `run_as: mcp-sysmgmt`, every principal's instance runs as that
 account; what each principal may do is then decided by the gateway's
 policy alone, which is the point: the gateway's roles and approvals are
@@ -61,7 +75,7 @@ the only way to these rights.
 ```yaml
 # /etc/mcp-gateway/servers.d/systemd.yaml
 name: systemd
-command: ["/usr/bin/systemd-mcp", "--allow-read", "--allow-write"]
+command: ["/usr/bin/systemd-mcp"]
 run_as: mcp-sysmgmt
 selinux_type: mcpsrv_systemd_t
 ```
@@ -84,13 +98,17 @@ selinux_type: mcpsrv_snapper_t
 
 Notes:
 
-- `systemd-mcp` asks for its own authorization over D-Bus before it
-  reads or writes, unless started with `--allow-read` / `--allow-write`.
-  Behind the gateway, which already decides every call, pre-authorize.
-  If calls still end with "calling method was canceled by user", its own
-  authorization is still active; `--noauth ThisIsInsecure` switches it
-  off. Use that option only behind the gateway, never in an agent's own
-  configuration.
+- On stdin/stdout, `systemd-mcp` allows all reads and checks every
+  change with polkit itself (`org.freedesktop.systemd1.manage-units` for
+  its own process, without a login session to ask in). The polkit rule
+  below answers that check as well as systemd's own. Calls that end with
+  "calling method was canceled by user" mean the rule does not apply
+  (wrong account, or the rule file is missing). The `--allow-read` and
+  `--allow-write` options have no effect in version 0.3.5; do not use
+  `--noauth`, which is meant for its HTTP mode.
+- `get_file` reads any file or directory the account can read, and
+  `get_file`, `get_man_page` and `list_log` run `getfacl`, `man` and
+  `rpm`; the SELinux domain needs rules for those (see below).
 - None of these servers needs `network: true`: the system bus is a unix
   socket.
 - The servers speak MCP on stdin/stdout. A server that also writes log
@@ -104,7 +122,7 @@ Notes:
 
 `suseconnect-mcp` registers the system with SCC (or an RMT server) and
 shows its registration. It refuses to run without root, talks to SCC,
-keeps state in `/var/lib/suseconnect-mcp`, and writes the system
+counts the calls of each tool in `/var/lib/suseconnect-mcp`, and writes the system
 credentials, even for the status, because SCC may hand out a new system
 token with any request:
 
@@ -274,7 +292,9 @@ the shipped `admin`, which allows everything, never asks):
     "description": "systemd, firewalld, snapper: read freely, change only with approval",
     "permissions": [
       {"server": "systemd",   "tool": "list_*"},
-      {"server": "systemd",   "tool": "get_*"},
+      {"server": "systemd",   "tool": "get_man_page"},
+      {"server": "systemd",   "tool": "check_restart_reload"},
+      {"server": "systemd",   "tool": "get_file", "args": {"path": "^/(etc|usr/lib)/systemd/"}},
       {"server": "systemd",   "tool": "*", "require_approval": true, "approval_channel": "oob"},
       {"server": "firewalld", "tool": "get_*"},
       {"server": "firewalld", "tool": "list_*"},
@@ -296,6 +316,8 @@ the shipped `admin`, which allows everything, never asks):
 - Check the read patterns against the servers' actual tool names (a
   `tools/list` through `mcp-connect --server systemd`): a changing tool
   whose name starts with `list_` or `get_` would run without approval.
+  Name `get_file` on its own, with the paths it may read freely: other
+  paths fall through to the approval permission.
 - `oob` puts the request into the Cockpit inbox (and desktop and mail
   notifications) whatever the agent's client supports; the agent waits,
   up to `approval_timeout` (chapter 3). Raise it if approvers need longer

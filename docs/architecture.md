@@ -1274,10 +1274,14 @@ on SLES 16 although CI (Tumbleweed only) was green, and agents differ in
 how they use sessions. Steps 10–14 lead to a 1.0 for SLES 16 and Leap 16.
 
 10. **Server profiles, tested on the target distributions:**
-    - profiles for systemd-mcp, firewalld, snapper, mcp-server-zypp and
-      suseconnect-mcp: server definition with sandbox settings, SELinux
-      domain (`mcp_gateway_backend_template`), polkit rules and suggested
-      role data, enabled with one step;
+    - profiles for systemd-mcp (openSUSE/systemd-mcp), firewalld,
+      snapper, mcp-server-zypp and suseconnect-mcp (SUSE/connect-ng):
+      server definition with sandbox settings, SELinux domain
+      (`mcp_gateway_backend_template`), polkit rules, account groups and
+      suggested role data, enabled with one step;
+    - what a server cannot do behind a gateway (own interactive polkit
+      checks, unused options, fixed state paths) goes to its upstream
+      as an issue or patch rather than into a workaround here;
     - the VM test (SELinux enforcing, no denials) runs these servers, not
       only the demo server, and reads and changes something through each,
       with an approval;
