@@ -16,6 +16,17 @@ change configuration, policy data or APIs.
   policy fingerprint included it. Clients re-listed their tools all the
   time.
 
+### Changed
+
+- A line an MCP server writes to stdout that is not MCP is logged with
+  its first 200 bytes (`line` in "invalid message from backend"), which
+  usually shows the cause: a usage message or a log line on stdout.
+
+### Added
+
+- User guide chapter 13: running suseconnect-mcp (root, network, its
+  state directory and the writable credentials directory).
+
 ## v0.2.4 — 2026-10-01
 
 Server definitions can make paths writable for their instances, for
