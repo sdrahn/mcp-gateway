@@ -5,7 +5,11 @@
       "permissions": [
         {
           "server": "systemd",
-          "tool": "list_units"
+          "tool": "list_loaded_units"
+        },
+        {
+          "server": "systemd",
+          "tool": "list_unit_files"
         },
         {
           "server": "systemd",
@@ -33,7 +37,11 @@
       "permissions": [
         {
           "server": "systemd",
-          "tool": "list_units"
+          "tool": "list_loaded_units"
+        },
+        {
+          "server": "systemd",
+          "tool": "list_unit_files"
         },
         {
           "server": "systemd",

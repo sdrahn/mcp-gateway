@@ -57,6 +57,7 @@ template(`mcp_gateway_backend_template',`
 		type mcpgw_t;
 		type init_t;
 		type cgroup_t;
+		type sysfs_t;
 		class process2 { nnp_transition nosuid_transition };
 	')
 
@@ -85,6 +86,10 @@ template(`mcp_gateway_backend_template',`
 	# Go (and other) runtimes read their cgroup CPU and memory limits.
 	allow mcpsrv_$1_t cgroup_t:dir search_dir_perms;
 	allow mcpsrv_$1_t cgroup_t:file read_file_perms;
+	# The Go runtime probes the transparent huge page size in sysfs and
+	# does without.
+	dontaudit mcpsrv_$1_t sysfs_t:dir list_dir_perms;
+	dontaudit mcpsrv_$1_t sysfs_t:file read_file_perms;
 	logging_send_syslog_msg(mcpsrv_$1_t)
 	# stderr: the journal stream systemd connected for the unit.
 	init_rw_stream_sockets(mcpsrv_$1_t)

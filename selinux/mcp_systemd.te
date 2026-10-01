@@ -13,17 +13,26 @@ optional_policy(`
 	policykit_dbus_chat(mcpsrv_systemd_t)
 ')
 
-# list_log: the journal files.
+# list_log: the journal files, persistent and volatile (/run/log/journal).
 logging_read_generic_logs(mcpsrv_systemd_t)
 optional_policy(`
 	logging_read_all_logs(mcpsrv_systemd_t)
 ')
+optional_policy(`
+	gen_require(`
+		type syslogd_var_run_t;
+	')
+	list_dirs_pattern(mcpsrv_systemd_t, syslogd_var_run_t, syslogd_var_run_t)
+	read_files_pattern(mcpsrv_systemd_t, syslogd_var_run_t, syslogd_var_run_t)
+')
+fs_getattr_xattr_fs(mcpsrv_systemd_t)
 
 # get_file, get_man_page, list_log: helper programs and what they read.
 corecmd_exec_bin(mcpsrv_systemd_t)
 files_read_usr_files(mcpsrv_systemd_t)
 miscfiles_read_man_pages(mcpsrv_systemd_t)
 optional_policy(`
+	rpm_exec(mcpsrv_systemd_t)
 	rpm_read_db(mcpsrv_systemd_t)
 ')
 # Unit files (get_file below /etc/systemd and /usr/lib/systemd); the type
@@ -44,4 +53,24 @@ optional_policy(`
 	list_dirs_pattern(mcpsrv_systemd_t, systemd_unit_t, systemd_unit_t)
 	read_files_pattern(mcpsrv_systemd_t, systemd_unit_t, systemd_unit_t)
 	read_lnk_files_pattern(mcpsrv_systemd_t, systemd_unit_t, systemd_unit_t)
+')
+
+# change_unit_state: systemd checks the service class on the unit's file
+# type; units of any package. The attribute is systemd_unit_file_type in
+# Fedora-derived policy, systemdunit in the reference policy. Who may
+# change which unit is up to polkit (polkit.rules) and the gateway's
+# approvals.
+optional_policy(`
+	gen_require(`
+		attribute systemd_unit_file_type;
+		class service { start stop status reload enable disable };
+	')
+	allow mcpsrv_systemd_t systemd_unit_file_type:service { start stop status reload enable disable };
+')
+optional_policy(`
+	gen_require(`
+		attribute systemdunit;
+		class service { start stop status reload enable disable };
+	')
+	allow mcpsrv_systemd_t systemdunit:service { start stop status reload enable disable };
 ')

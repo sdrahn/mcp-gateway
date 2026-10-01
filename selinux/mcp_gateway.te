@@ -166,6 +166,14 @@ gen_require(`
 	class process2 { nnp_transition nosuid_transition };
 ')
 allow init_t { mcpgw_t mcpopa_t }:process2 { nnp_transition nosuid_transition };
+
+# The Go runtime of both probes the transparent huge page size in sysfs
+# and does without.
+gen_require(`
+	type sysfs_t;
+')
+dontaudit { mcpgw_t mcpopa_t } sysfs_t:dir list_dir_perms;
+dontaudit { mcpgw_t mcpopa_t } sysfs_t:file read_file_perms;
 allow init_t mcpgw_cred_t:dir list_dir_perms;
 allow init_t mcpgw_cred_t:file read_file_perms;
 

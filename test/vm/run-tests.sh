@@ -460,8 +460,8 @@ END
 	systemctl restart mcp-gateway.service
 	wait_socket
 
-	stool alice systemd list_units '{"state":"all","patterns":["mcpgw-vmtest*"]}'
-	check "systemd: list_units" succeeded_with "mcpgw-vmtest.service"
+	stool alice systemd list_loaded_units '{"state":"all","patterns":["mcpgw-vmtest*"]}'
+	check "systemd: list_loaded_units" succeeded_with "mcpgw-vmtest.service"
 	stool alice systemd list_log '{"unit":["mcp-gateway.service"],"exact_unit":true,"count":50,"pattern":"configuration valid"}'
 	check "systemd: list_log reads the system journal" succeeded_with "configuration valid"
 	stool_approved alice systemd change_unit_state '{"name":"mcpgw-vmtest.service","action":"start","timeout":30}'
