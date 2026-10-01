@@ -1,0 +1,2 @@
+/usr/bin/suseconnect-mcp				--	gen_context(system_u:object_r:mcpsrv_suseconnect_exec_t,s0)
+/var/lib/suseconnect-mcp(/.*)?				gen_context(system_u:object_r:mcpsrv_suseconnect_var_lib_t,s0)

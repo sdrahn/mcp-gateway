@@ -4,6 +4,30 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## Unreleased
+
+### Added
+
+- Setup packages for system management servers:
+  `mcp-gateway-profile-systemd`, `-firewalld`, `-zypp` and
+  `-suseconnect` install the server definition, the roles to bind users
+  to (`systemd-reader`, `systemd-operator`, `firewalld-reader`,
+  `zypp-reader`, `zypp-installer`, `suseconnect-reader`,
+  `suseconnect-admin`), and where needed the account `mcp-sysmgmt` and a
+  polkit rule. `mcp-gateway-profile-zypp` includes a privileged
+  definition to link into `/etc/mcp-gateway/servers.d`. The SELinux
+  modules `mcp_systemd`, `mcp_firewalld`, `mcp_zypp` and
+  `mcp_suseconnect` come with `mcp-gateway-selinux`; they replace modules
+  of the same names built from the user guide's examples.
+
+- Roles shipped with server setups: files in
+  `/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.json`
+  (`data.mcp.profiles`) add roles that bindings may name; a role of the
+  same name in the role data replaces a shipped one. They are known to
+  `--check-policy-data` (new option `--shipped-policy`), listed by
+  `GET /v1/policy` and shown in Cockpit, and part of the policy
+  fingerprint (installing a setup tells clients to list tools again).
+
 ## v0.3.0 — 2026-10-01
 
 Agents can install and remove packages through the gateway: MCP servers

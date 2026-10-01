@@ -1,0 +1,11 @@
+# mcp-server-zypp as a privileged server: it can install and remove
+# packages (confirm_install, confirm_remove; role zypp-installer, every
+# call approved). Enable it by linking it as
+# /etc/mcp-gateway/servers.d/zypp.yaml (privileged servers are accepted
+# only there); see chapter 13 of the user guide.
+name: zypp
+command: ["/usr/bin/mcp-server-zypp"]
+run_as: root
+network: true
+selinux_type: mcpsrv_zypp_t
+privileged: true

@@ -1,0 +1,9 @@
+# systemd-mcp (https://github.com/openSUSE/systemd-mcp), set up by the
+# package mcp-gateway-profile-systemd. The polkit rule of that package lets
+# the account mcp-sysmgmt manage units without a password; the gateway's
+# policy decides who may call which tool (roles systemd-reader and
+# systemd-operator). Override or mask in /etc/mcp-gateway/servers.d.
+name: systemd
+command: ["/usr/bin/systemd-mcp"]
+run_as: mcp-sysmgmt
+selinux_type: mcpsrv_systemd_t

@@ -1,0 +1,13 @@
+// mcp-gateway-profile-systemd: systemd-mcp behind mcp-gateway runs as
+// mcp-sysmgmt and may manage units without a password. Which calls run is
+// decided by the gateway's policy (roles systemd-reader, systemd-operator;
+// changes need an approval).
+polkit.addRule(function(action, subject) {
+    if (subject.user != "mcp-sysmgmt")
+        return polkit.Result.NOT_HANDLED;
+    if (action.id == "org.freedesktop.systemd1.manage-units" ||
+        action.id == "org.freedesktop.systemd1.manage-unit-files" ||
+        action.id == "org.freedesktop.systemd1.reload-daemon")
+        return polkit.Result.YES;
+    return polkit.Result.NOT_HANDLED;
+});

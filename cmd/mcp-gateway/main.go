@@ -55,6 +55,8 @@ func main() {
 	checkData := flag.Bool("check-policy-data", false, "validate only the role data, then exit")
 	policyData := flag.String("policy-data", policydata.DefaultPath,
 		"role data to validate with -check and -check-policy-data (\"-\": standard input; empty: none)")
+	flag.StringVar(&shippedPolicy, "shipped-policy", policydata.DefaultShippedDir,
+		"shipped policy whose server setup roles bindings may name (empty: none)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	debug := flag.Bool("debug", false, "log debug messages")
 	flag.Parse()
@@ -83,6 +85,10 @@ func main() {
 	}
 }
 
+// shippedPolicy is the shipped policy directory with the roles of the
+// server setup packages (-shipped-policy).
+var shippedPolicy string
+
 // checkPolicyData validates the role data at path ("-": standard input)
 // against its schema, printing each problem to standard error. A missing
 // file is an error only if required (the policy may come from a bundle).
@@ -104,10 +110,18 @@ func checkPolicyData(log *slog.Logger, path string, required bool) error {
 	if err != nil {
 		return err
 	}
-	problems, err := policydata.Check(data)
+	var shipped map[string]string
+	var problems []string
+	if shippedPolicy != "" {
+		if shipped, problems, err = policydata.ShippedRoles(shippedPolicy); err != nil {
+			return err
+		}
+	}
+	own, err := policydata.CheckWith(data, shipped)
 	if err != nil {
 		return err
 	}
+	problems = append(problems, own...)
 	for _, p := range problems {
 		fmt.Fprintln(os.Stderr, p)
 	}

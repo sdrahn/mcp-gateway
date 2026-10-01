@@ -1,0 +1,15 @@
+policy_module(mcp_firewalld, 1.0.0)
+
+# firewalld-mcp (janvhs/firewalld-mcp) behind mcp-gateway: package
+# mcp-gateway-profile-firewalld. It only reads the firewall configuration
+# from firewalld over the system bus.
+
+mcp_gateway_backend_template(firewalld)
+
+dbus_system_bus_client(mcpsrv_firewalld_t)
+optional_policy(`
+	firewalld_dbus_chat(mcpsrv_firewalld_t)
+')
+optional_policy(`
+	policykit_dbus_chat(mcpsrv_firewalld_t)
+')

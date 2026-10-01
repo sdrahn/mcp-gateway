@@ -1,4 +1,4 @@
-# 13. System management servers (systemd, firewalld, snapper)
+# 13. System management servers (systemd, firewalld, zypp, suseconnect, snapper)
 
 MCP servers that manage the host itself, such as `systemd-mcp`,
 `firewalld-mcp` and a snapper MCP server, differ from servers that work
@@ -22,6 +22,58 @@ Upstream projects: [systemd-mcp](https://github.com/openSUSE/systemd-mcp)
 and `suseconnect-mcp`, package
 `mcp-server-suseconnect`, part of
 [connect-ng](https://github.com/SUSE/connect-ng).
+
+## Setup packages
+
+For systemd-mcp, firewalld-mcp, mcp-server-zypp and suseconnect-mcp, a
+package sets everything in this chapter up:
+
+| Package | Server | Roles to bind |
+|---|---|---|
+| `mcp-gateway-profile-systemd` | `systemd` | `systemd-reader` (units, logs, man pages, unit files); `systemd-operator` (also changes and other files, with approval) |
+| `mcp-gateway-profile-firewalld` | `firewalld` | `firewalld-reader` |
+| `mcp-gateway-profile-zypp` | `zypp` | `zypp-reader` (search, dependencies, updates, plans); `zypp-installer` (also install and remove, with approval; privileged server) |
+| `mcp-gateway-profile-suseconnect` | `suseconnect` | `suseconnect-reader`; `suseconnect-admin` (also registration changes, with approval) |
+
+Each installs the server definition (in
+`/usr/share/mcp-gateway/servers.d`), its roles (chapter 6, "Roles of
+server setups"), and where needed the account `mcp-sysmgmt` and a polkit
+rule. The SELinux domains come with `mcp-gateway-selinux`. The server
+itself is only recommended, since it may come from elsewhere.
+
+```bash
+zypper install mcp-gateway-profile-systemd systemd-mcp
+systemctl restart mcp-gateway.service        # reads the new definition
+```
+
+Then bind users or groups to the roles, in Cockpit or in the role data:
+
+```json
+"bindings": {"groups": {"sysops": ["systemd-operator", "firewalld-reader", "zypp-reader"]}}
+```
+
+- Approvals for these servers follow your approver rules
+  (`"approvers"`); a setup does not set any.
+- To change a shipped role, define a role of the same name in the role
+  data; it replaces the shipped one.
+- To change a definition, put a file of the same name in
+  `/etc/mcp-gateway/servers.d`; an empty file there disables the server.
+- With signed policy bundles, rebuild the bundle after installing a
+  setup (`mcp-policy-bundle`): the roles are part of the policy.
+- To let mcp-server-zypp install and remove packages, make it a
+  privileged server (chapter 4) by linking the shipped definition into
+  the administrator's directory, where privileged servers are accepted:
+
+  ```bash
+  ln -s /usr/share/mcp-gateway/profiles/zypp-privileged.yaml /etc/mcp-gateway/servers.d/zypp.yaml
+  systemctl restart mcp-gateway.service
+  ```
+
+  Users then need `zypp-installer`; every installation and removal waits
+  for an approval.
+
+The rest of this chapter explains what the packages set up, and how to
+do the same by hand for other servers.
 
 ## Three layers of authorization
 
@@ -205,6 +257,12 @@ selinux_type: mcpsrv_zypp_t
   `find_*`, `check_updates`, `plan_*`) and require approval for the rest.
 
 ## SELinux domains
+
+`mcp-gateway-selinux` ships the modules `mcp_systemd`, `mcp_firewalld`,
+`mcp_zypp` and `mcp_suseconnect` (sources in the gateway's `selinux/`
+directory); for those servers you need no module of your own, and a
+module of yours with one of these names would be replaced. What follows
+shows how they are built, for other servers such as snapper.
 
 The default domain for servers, `mcpsrv_generic_t`, may not use the
 system bus, so these servers exit at start ("backend instance exited").

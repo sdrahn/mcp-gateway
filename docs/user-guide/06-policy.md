@@ -59,6 +59,22 @@ Bindings as shipped: group `dev` → `developer`, group `wheel` → `admin`.
 Adjust both to your organisation; they are examples, not a
 recommendation.
 
+### Roles of server setups
+
+The server setup packages (chapter 13) ship roles for their server, for
+example `systemd-reader`. They are installed as
+`/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.json`, and the
+policy adds them to the roles of the role data:
+
+- Bind users and groups to them like to your own roles; a setup never
+  binds anyone, and the approver rules stay yours.
+- A role of the same name in the role data replaces the shipped one, so
+  you can change a shipped role without editing package files.
+- `mcp-gateway --check-policy-data` knows them (bindings to them are not
+  "unknown"), and Cockpit offers them and shows their permissions.
+- Two setups shipping the same role name is an error that
+  `--check-policy-data` reports; the policy would fail on it.
+
 ## Permissions
 
 A permission is an object with a `server` glob and exactly one target:

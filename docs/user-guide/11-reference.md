@@ -15,6 +15,7 @@ mcp-gateway --check-policy-data [--policy-data FILE]
 | `--check` | validate the configuration, all MCP server definitions and the role data (if the file exists), print a summary, exit (status 1 on errors) |
 | `--check-policy-data` | validate only the role data against its schema, print each problem, exit (status 1 on problems) |
 | `--policy-data FILE` | role data for the two checks (default: `/etc/mcp-gateway/policy/rbac/data.json`; `-`: standard input; empty: none) |
+| `--shipped-policy DIR` | shipped policy with the roles of the server setups, which bindings may name; its setup role files are checked too (default: `/usr/share/mcp-gateway/policy`; empty: none) |
 | `--debug` | log debug messages |
 | `--version` | print the version |
 
@@ -73,7 +74,7 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `DELETE /v1/grants/{id}` | revoke; `204` |
 | `GET /v1/servers` | registered servers `{"name", "selinux_type", "isolation", "network", "run_as", "privileged", "instances"}` with the instances the caller may manage `{"id", "server", "unit", "sub", "iss", "uid", "transport", "session_id", "isolation", "started", "sessions", "privileged", "busy"}` |
 | `DELETE /v1/instances/{id}` | stop an instance; `204`; `409` for a privileged instance with a call running |
-| `GET /v1/policy` | `{"mode": "directories"\|"bundle", "bundles": {name: revision}}`; `502` if OPA is unavailable |
+| `GET /v1/policy` | `{"mode": "directories"\|"bundle", "bundles": {name: revision}, "shipped_roles": {role: {"setup", "description", "permissions"}}}`; `502` if OPA is unavailable |
 | `POST /v1/policy/whatif` | body: proposed role data (as `data.json`); returns `{"changes": [{"principal", "server", "kind", "name", "before", "after"}], "principals", "resources", "unchecked": {server: reason}}`: the decisions that would change, for the users (`user:<name>`) and groups (`group:<name>`) either role data binds; `403` unless `data.mcp.approvals.review_policy` allows the caller |
 | `GET /v1/events` | server-sent events (`event: approval`) for the approvals the caller may decide on: first all pending, then changes; `data` is `{"type": "pending"\|"resolved", "id", "new", "pending", "url"}` |
 

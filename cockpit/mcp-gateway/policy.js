@@ -7,6 +7,10 @@
 "use strict";
 
 let rbac = null; // parsed role data as last read or saved
+// roles shipped by server setup packages (GET /v1/policy): name →
+// { setup, description, permissions }; bindings may name them, the role
+// data may replace them.
+let shippedRoles = {};
 // "directories", "bundle-file" (our bundle file), or "bundle-server"
 let policySource = "directories";
 let signingKey = false; // the signing key exists on this host
@@ -48,7 +52,7 @@ function validateRBAC(d) {
                 continue;
             }
             for (const r of list) {
-                if (!(r in roles)) problems.push(kind.slice(0, -1) + " \"" + who + "\" is bound to unknown role \"" + r + "\".");
+                if (!(r in roles) && !(r in shippedRoles)) problems.push(kind.slice(0, -1) + " \"" + who + "\" is bound to unknown role \"" + r + "\".");
             }
         }
     }
@@ -219,7 +223,8 @@ function renderRBAC() {
     const bindings = rbac.bindings || {};
 
     const select = document.querySelector("#binding-add select[name=role]");
-    select.replaceChildren(...Object.keys(roles).sort().map(r => el("option", { value: r }, r)));
+    const roleNames = [...new Set([...Object.keys(roles), ...Object.keys(shippedRoles)])].sort();
+    select.replaceChildren(...roleNames.map(r => el("option", { value: r }, r)));
 
     const body = document.querySelector("#bindings tbody");
     body.replaceChildren();
@@ -256,8 +261,18 @@ function renderRBAC() {
     const box = document.getElementById("roles");
     box.replaceChildren();
     for (const [name, role] of Object.entries(roles).sort()) {
+        const note = name in shippedRoles ? " (replaces the role of setup " + shippedRoles[name].setup + ")" : "";
+        box.append(el("div", { class: "card" },
+                      el("h3", null, name + note),
+                      el("ul", { class: "permissions" },
+                         ...(role.permissions || []).map(p => el("li", null, permissionText(p))))));
+    }
+    for (const [name, role] of Object.entries(shippedRoles).sort()) {
+        if (name in roles) continue;
         box.append(el("div", { class: "card" },
                       el("h3", null, name),
+                      el("div", { class: "muted" }, "Shipped with the " + role.setup + " server setup" +
+                         (role.description ? ": " + role.description : "") + ". Define a role of this name to replace it."),
                       el("ul", { class: "permissions" },
                          ...(role.permissions || []).map(p => el("li", null, permissionText(p))))));
     }
@@ -314,6 +329,7 @@ tabs.policy = {
                 ? "Loaded from signed bundle " + revs.join(", ") + "."
                 : "Loaded from the policy directories (/usr/share/mcp-gateway/policy, /etc/mcp-gateway/policy).";
             policySource = st.mode !== "bundle" ? "directories" : BUNDLE_FILE in bundles ? "bundle-file" : "bundle-server";
+            shippedRoles = st.shipped_roles || {};
             signingKey = false;
             if (policySource === "bundle-file") {
                 try {

@@ -1,0 +1,13 @@
+# suseconnect-mcp (package mcp-server-suseconnect, from
+# https://github.com/SUSE/connect-ng), set up by the package
+# mcp-gateway-profile-suseconnect. It needs root (in the sandbox), talks to
+# SCC or an RMT server, and updates the system credentials (roles
+# suseconnect-reader and suseconnect-admin).
+name: suseconnect
+command: ["/usr/bin/suseconnect-mcp"]
+run_as: root
+network: true
+selinux_type: mcpsrv_suseconnect_t
+sandbox:
+  state_directory: suseconnect-mcp
+  read_write_paths: ["/etc/zypp/credentials.d"]

@@ -7,10 +7,13 @@ rules:
       level: ignore
   imports:
     unresolved-reference:
-      # The role data comes from data.json files, which Regal does not see.
+      # The role data comes from data.json files, which Regal does not see:
+      # the administrator's and those of the server setup packages.
       except-paths:
         - data.mcp.rbac
         - data.mcp.rbac.**
+        - data.mcp.profiles
+        - data.mcp.profiles.**
   style:
     line-length:
       # Tests are tables of inputs and expectations; wrapping hurts more

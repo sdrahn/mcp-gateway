@@ -1,0 +1,18 @@
+policy_module(mcp_zypp, 1.0.0)
+
+# mcp-server-zypp (openSUSE/mcp-server-zypp) behind mcp-gateway: package
+# mcp-gateway-profile-zypp. The server (mcp-server-zypp) runs in its own
+# domain; its worker (zypp-mcp-tool), labelled like zypper, runs in rpm_t.
+# Read-only, the instance has no_new_privs (the sandbox), so the switch
+# to rpm_t needs nnp_transition; as a privileged server (installing) it
+# has not.
+
+gen_require(`
+	type rpm_t;
+	class process2 nnp_transition;
+')
+
+mcp_gateway_backend_template(zypp)
+mcp_gateway_backend_rpm(zypp)
+
+allow mcpsrv_zypp_t rpm_t:process2 nnp_transition;
