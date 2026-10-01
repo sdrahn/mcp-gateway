@@ -4,7 +4,12 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
-## Unreleased
+## v0.2.4 — 2026-10-01
+
+Server definitions can make paths writable for their instances, for
+servers that keep state outside their private /tmp (such as
+suseconnect-mcp in /var/lib/suseconnect-mcp). Existing definitions
+behave as before; upgrading from 0.2.3 needs no configuration changes.
 
 ### Added
 
