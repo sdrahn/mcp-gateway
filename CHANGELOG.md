@@ -18,6 +18,10 @@ configuration changes.
   lines ("invalid message from backend"), so calls worked, but the
   servers' logs were missing from the journal. Instances now get
   `StandardOutput=null` (stdout is still the gateway's socket).
+- Kernel audit records of the gateway lost their last character
+  (`res=succes`, `res=faile`): the kernel replaces the last byte of a user
+  record with a NUL, which the gateway did not send. Tools that filter
+  on `res=` (`ausearch --success`, `aureport`) misread them.
 
 ## v0.2.6 — 2026-10-01
 

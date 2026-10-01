@@ -2,11 +2,14 @@ package audit
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 type fakeKernel struct {
@@ -90,6 +93,18 @@ func TestLoadKey(t *testing.T) {
 
 // The real kernel interface, where the environment allows it (needs
 // CAP_AUDIT_WRITE and an audit-enabled kernel).
+func TestUserMessageNULTerminated(t *testing.T) {
+	const msg = "op=mcp-decision res=success"
+	buf := userMessage(7, msg)
+	payload := buf[unix.NLMSG_HDRLEN:]
+	if int(binary.NativeEndian.Uint32(buf[0:4])) != len(buf) || binary.NativeEndian.Uint32(buf[8:12]) != 7 {
+		t.Fatalf("header % x", buf[:unix.NLMSG_HDRLEN])
+	}
+	if string(payload) != msg+"\x00" {
+		t.Fatalf("payload %q, want the message and a NUL", payload)
+	}
+}
+
 func TestNetlink(t *testing.T) {
 	n, err := OpenNetlink()
 	if err != nil {
