@@ -38,10 +38,13 @@ func TestReadClassifies(t *testing.T) {
 		t.Fatalf("response: %+v %v", m, err)
 	}
 	var rpcErr *Error
-	if _, err = c.Read(); !errors.As(err, &rpcErr) || rpcErr.Code != CodeParseError {
+	var lineErr *LineError
+	if _, err = c.Read(); !errors.As(err, &rpcErr) || rpcErr.Code != CodeParseError ||
+		!errors.As(err, &lineErr) || string(lineErr.Line) != "not json" {
 		t.Fatalf("parse error: %v", err)
 	}
-	if _, err = c.Read(); !errors.As(err, &rpcErr) || rpcErr.Code != CodeInvalidRequest {
+	if _, err = c.Read(); !errors.As(err, &rpcErr) || rpcErr.Code != CodeInvalidRequest ||
+		!errors.As(err, &lineErr) || !strings.Contains(string(lineErr.Line), `"1.0"`) {
 		t.Fatalf("invalid request: %v", err)
 	}
 	if m, err = c.Read(); err != nil || m.Method != "ping" {
