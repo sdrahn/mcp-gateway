@@ -4,7 +4,12 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
-## Unreleased
+## v0.2.6 — 2026-10-01
+
+Permissions can offer approvals for a fixed time, for agents that open a
+new MCP session for every prompt, where a "session" grant ends with the
+prompt. Upgrading from 0.2.5 needs no configuration changes; existing
+role data keeps offering "once" and "session".
 
 ### Added
 
