@@ -4,6 +4,19 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## Unreleased
+
+### Added
+
+- Permissions can offer approvals for a fixed time:
+  `"approval_scopes": ["once", "1h", "8h"]` in the role data (durations
+  up to 720h; "once" is always offered; default "once" and "session").
+  Such a grant is not bound to the agent's session, so it also helps
+  agents that open a new MCP session for every prompt (Kit), where a
+  "session" grant ends with the prompt. Cockpit offers "For 1h" and so
+  on; the JSON Schema and `mcp-gateway --check-policy-data` check the
+  values.
+
 ## v0.2.5 — 2026-10-01
 
 Stops the gateway from telling clients every 10 seconds that the policy

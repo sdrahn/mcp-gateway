@@ -268,3 +268,56 @@ test_deny_applies_without_client_cert if {
 	d := authz.decision with input as call(remote, "fs", "read_secret", {}) with data.mcp.rbac as cert_rbac
 	d.reason == "denied by policy"
 }
+
+test_default_approval_scopes if {
+	d := authz.decision with input as call(alice, "fs", "write_file", {"path": "/home/alice/x.txt"})
+	d.ask.scopes == ["once", "session"]
+}
+
+test_approval_scopes_from_permission if {
+	perms := {"developer": {"permissions": [{
+		"server": "fs", "tool": "write_file", "require_approval": true,
+		"approval_scopes": ["8h", "session", "30m", "1h"],
+	}]}}
+	d := authz.decision with input as call(alice, "fs", "write_file", {}) with data.mcp.rbac.roles as perms
+	d.effect == "ask"
+	d.ask.scopes == ["once", "session", "30m", "1h", "8h"]
+}
+
+test_approval_scopes_once_always if {
+	perms := {"developer": {"permissions": [{
+		"server": "fs", "tool": "write_file", "require_approval": true,
+		"approval_scopes": ["1h"],
+	}]}}
+	d := authz.decision with input as call(alice, "fs", "write_file", {}) with data.mcp.rbac.roles as perms
+	d.ask.scopes == ["once", "1h"]
+}
+
+test_approval_scopes_most_restrictive_permission if {
+	perms := {"developer": {"permissions": [
+		{"server": "fs", "tool": "write_file", "require_approval": true, "approval_scopes": ["session", "1h", "8h"]},
+		{"server": "fs", "tool": "write_*", "require_approval": true, "approval_scopes": ["1h"]},
+	]}}
+	d := authz.decision with input as call(alice, "fs", "write_file", {}) with data.mcp.rbac.roles as perms
+	d.ask.scopes == ["once", "1h"]
+}
+
+test_approval_scopes_invalid_ignored if {
+	perms := {"developer": {"permissions": [{
+		"server": "fs", "tool": "write_file", "require_approval": true,
+		"approval_scopes": ["forever", "721h", "0h", "1d", "2h"],
+	}]}}
+	d := authz.decision with input as call(alice, "fs", "write_file", {}) with data.mcp.rbac.roles as perms
+	d.ask.scopes == ["once", "2h"]
+}
+
+test_duration_grant_survives_new_session if {
+	perms := {"developer": {"permissions": [{
+		"server": "fs", "tool": "write_file", "require_approval": true,
+		"approval_scopes": ["1h"],
+	}]}}
+	g := {"sub": "alice", "server": "fs", "tool": "write_file", "scope": "duration", "session_id": "old", "expires": future}
+	inp := object.union(call(alice, "fs", "write_file", {}), {"grants": [g]})
+	d := authz.decision with input as inp with data.mcp.rbac.roles as perms
+	d == {"effect": "allow", "reason": "approved"}
+}

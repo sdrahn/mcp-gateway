@@ -80,6 +80,7 @@ Further fields:
 | `effect: "deny"` | forbid what the permission matches; a deny always wins |
 | `require_approval: true` | allowed only with a human's approval (chapter 7) |
 | `approval_channel` | `url` (default), `form` or `oob`: how approval is obtained |
+| `approval_scopes` | the scopes the approver may choose from (chapter 7): `once`, `session` and durations such as `30m` or `8h` (at most `720h`); default `["once", "session"]`. `once` is always offered. |
 | `args` | map of argument name → regular expression; the permission applies only if every listed argument is a string matching its expression |
 | `obligations` | conditions on an allowed call, see [Obligations](#obligations) |
 | `require_client_cert: true` | applies only to remote clients that presented a verified client certificate (mTLS) |
@@ -112,8 +113,10 @@ For a request, all permissions of all the principal's roles whose
 3. a matching permission requires approval and the principal holds a
    valid grant for this server and tool → **allow** ("approved");
 4. a matching permission requires approval → **ask**, through its
-   `approval_channel`, offering the scopes "once" and "session", with
-   out-of-band as fallback;
+   `approval_channel`, offering the scopes in its `approval_scopes`
+   ("once" and "session" by default; with several such permissions, only
+   the scopes all of them offer, and "once" always), with out-of-band as
+   fallback;
 5. otherwise → **deny** ("no matching permission").
 
 Everything not explicitly allowed is denied. If OPA does not answer
