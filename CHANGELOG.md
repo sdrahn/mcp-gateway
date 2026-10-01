@@ -26,10 +26,18 @@ change configuration, policy data or APIs.
 - The package no longer restarts `mcp-gateway.service` on update (an
   update through a privileged server would wait for itself); restart it
   yourself. The gateway logs that it was updated.
-
 - Supported distributions are SLES 16 and openSUSE Leap 16; Tumbleweed
   is the development platform. SLES 15 and Leap 15 (AppArmor) are out of
   scope.
+
+### Fixed
+
+- What MCP servers write to stderr went to the gateway's connection to
+  the server instead of the journal: with stdout passed as a file
+  descriptor, systemd duplicated it to stderr. The gateway skipped such
+  lines ("invalid message from backend"), so calls worked, but the
+  servers' logs were missing from the journal. Instances now get
+  `StandardOutput=null` (stdout is still the gateway's socket).
 
 ## v0.2.6 — 2026-10-01
 
