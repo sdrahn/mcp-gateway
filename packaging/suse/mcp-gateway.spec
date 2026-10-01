@@ -213,11 +213,9 @@ go test ./internal/... ./profiles/...
 %selinux_relabel_pre -s %{selinuxtype}
 
 %post selinux
-%selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2 \
-    %{_datadir}/selinux/packages/%{selinuxtype}/mcp_systemd.pp.bz2 \
-    %{_datadir}/selinux/packages/%{selinuxtype}/mcp_firewalld.pp.bz2 \
-    %{_datadir}/selinux/packages/%{selinuxtype}/mcp_zypp.pp.bz2 \
-    %{_datadir}/selinux/packages/%{selinuxtype}/mcp_suseconnect.pp.bz2
+# One line: the macro takes no continued arguments. The setup modules
+# (mcp-gateway-profile-*) come with this package.
+%selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_systemd.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_firewalld.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_zypp.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_suseconnect.pp.bz2
 
 %postun selinux
 if [ $1 -eq 0 ]; then
