@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -273,7 +274,14 @@ func (u *upstream) readLoop() {
 		if err != nil {
 			var rpcErr *jsonrpc.Error
 			if errors.As(err, &rpcErr) {
-				u.log.Warn("invalid message from backend", "err", err)
+				// The start of the line usually says why: a usage message,
+				// a log line the server writes to stdout instead of stderr.
+				args := []any{"err", err}
+				var lineErr *jsonrpc.LineError
+				if errors.As(err, &lineErr) {
+					args = append(args, "line", excerpt(lineErr.Line, maxLoggedLine))
+				}
+				u.log.Warn("invalid message from backend", args...)
 				continue
 			}
 			u.log.Info("backend connection closed", "err", err)
@@ -345,4 +353,16 @@ func (u *upstream) backendRequest(m *jsonrpc.Message) {
 		return
 	}
 	_ = u.conn.Write(s.relayBackendRequest(u, m))
+}
+
+// maxLoggedLine bounds what is logged of a backend line that is not
+// JSON-RPC.
+const maxLoggedLine = 200
+
+// excerpt returns at most n bytes of line as valid UTF-8, marked when cut.
+func excerpt(line []byte, n int) string {
+	if len(line) <= n {
+		return strings.ToValidUTF8(string(line), "\ufffd")
+	}
+	return strings.ToValidUTF8(string(line[:n]), "\ufffd") + "…"
 }

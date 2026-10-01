@@ -7,7 +7,9 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -94,6 +96,7 @@ func TestOPAVisible(t *testing.T) {
 
 func TestOPAFingerprint(t *testing.T) {
 	var rbac, other atomicString
+	var ids atomic.Int64
 	rbac.Store(`{"result":{"roles":{}}}`)
 	other.Store(module("team.rego", "team", "v1"))
 	o := fakeOPA(t, func(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +104,10 @@ func TestOPAFingerprint(t *testing.T) {
 		case "/v1/policies":
 			_, _ = w.Write([]byte(`{"result":[` + module("authz.rego", "mcp", "authz") + `,` + other.Load() + `]}`))
 		case "/v1/data/mcp/rbac":
-			_, _ = w.Write([]byte(rbac.Load()))
+			// With decision logging on (as mcp-opa.service runs OPA), every
+			// response carries a new decision id.
+			id := ids.Add(1)
+			_, _ = w.Write([]byte(strings.Replace(rbac.Load(), "{", fmt.Sprintf(`{"decision_id":"%d",`, id), 1)))
 		default:
 			http.NotFound(w, r)
 		}
