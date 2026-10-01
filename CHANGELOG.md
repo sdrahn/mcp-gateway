@@ -4,7 +4,11 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
-## Unreleased
+## v0.2.7 — 2026-10-01
+
+MCP servers' log output (stderr) reaches the journal again instead of
+the gateway's connection to the server. Upgrading from 0.2.6 needs no
+configuration changes.
 
 ### Fixed
 
