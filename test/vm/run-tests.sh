@@ -298,7 +298,7 @@ gen_require(`
 	type var_run_t;
 ')
 allow mcpsrv_privtest_t var_run_t:dir rw_dir_perms;
-allow mcpsrv_privtest_t var_run_t:file create_file_perms;
+allow mcpsrv_privtest_t var_run_t:file manage_file_perms;
 END
 printf '/usr/libexec/mcpgw-privtest\t--\tgen_context(system_u:object_r:mcpsrv_privtest_exec_t,s0)\n' \
 	>/root/privtest/mcp_privtest.fc
