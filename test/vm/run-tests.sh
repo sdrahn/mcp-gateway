@@ -84,6 +84,9 @@ audit_since() {
 	done
 }
 audited() { audit_since TRUSTED_APP | grep -q "op=$1"; }
+# The kernel replaces the last byte of a user record with a NUL; the
+# record must still end with the complete result.
+denial_res_complete() { audit_since TRUSTED_APP | grep 'op=mcp-decision' | grep -q "res=failed'"; }
 audit_log_works() { audit_since SERVICE_START | grep -q 'unit=mcp-gateway'; }
 journal_has_audit() { journalctl -u mcp-gateway.service -o cat | grep -qF '"audit":true'; }
 no_mcp_denials() { ! grep -E 'mcpgw_|mcpopa_|mcpsrv_|mcp_port_t' <<<"$avc" | grep -q .; }
@@ -415,6 +418,7 @@ audit_since TRUSTED_APP | grep 'op=mcp-decision' | cut -c1-600 | sed 's/^/  /'
 check "the audit log has the gateway's service start" audit_log_works
 check "the gateway start is audited" audited mcp-gateway-start
 check "the denial is audited" audited mcp-decision
+check "audit records keep their last character (res=failed)" denial_res_complete
 check "decisions are in the journal" journal_has_audit
 
 section "SELinux denials"
