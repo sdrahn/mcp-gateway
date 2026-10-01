@@ -28,13 +28,20 @@ change configuration, policy data or APIs.
   `GET /v1/policy` and shown in Cockpit, and part of the policy
   fingerprint (installing a setup tells clients to list tools again).
 
+## v0.3.1 — 2026-10-01
+
+The gateway starts confined on openSUSE Leap 16. Upgrading from 0.3.0
+needs no configuration changes; restart the gateway after the update
+(`systemctl restart mcp-gateway.service`), since the package no longer
+does.
+
 ### Fixed
 
 - SELinux: on policies that grant systemd the transition into a service
   domain only together with `init_systemd` (openSUSE Leap 16), the
-  gateway, OPA and the server instances stayed in `init_t` and failed to
-  start; the module now allows the transition under `NoNewPrivileges=`
-  itself.
+  gateway, OPA and the server instances stayed in `init_t` and OPA failed
+  to start; the module now allows the transition under
+  `NoNewPrivileges=` itself.
 
 ## v0.3.0 — 2026-10-01
 
