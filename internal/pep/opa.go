@@ -157,7 +157,9 @@ func (o *OPA) Fingerprint(ctx context.Context) (string, error) {
 		h.Write([]byte(m))
 		h.Write([]byte{0})
 	}
-	data, err := o.get(ctx, "/v1/data/mcp/rbac")
+	// Only the data: with decision logging on (as mcp-opa.service runs
+	// OPA), the response also carries a new decision id each time.
+	data, err := o.RoleData(ctx)
 	if err != nil {
 		return "", err
 	}
