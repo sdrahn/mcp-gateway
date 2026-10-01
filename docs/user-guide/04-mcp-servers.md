@@ -56,6 +56,8 @@ Server names must be unique across all files.
 | `discovery` | `shared` | where tool and prompt lists come from: `shared` (one gateway-owned instance per server, cached; listing starts no per-user instances), `instance` (each principal's own instance, for servers whose tools depend on the user) |
 | `credentials` | none | secrets handed to the server by systemd, see [Secrets](#secrets) |
 | `sandbox.protect_home` | `read-only` | access to home directories: `yes` (none), `read-only`, `read-write` |
+| `sandbox.read_write_paths` | none | existing absolute paths the instance may write despite `ProtectSystem=strict` (systemd `ReadWritePaths=`); paths of the gateway itself, and directories containing them, are refused |
+| `sandbox.state_directory` | none | a directory below `/var/lib` (a relative name, e.g. `my-server`) that systemd creates for the instance, owned by its user, mode 0700, writable and kept across instances (systemd `StateDirectory=`) |
 
 Example with everything:
 
@@ -87,7 +89,8 @@ Each instance runs as a transient systemd service named
 - the **working directory** of the principal's home (local principals);
 - a **sandbox**: `NoNewPrivileges`, `ProtectSystem=strict` (the whole
   file system read-only except `/dev`, `/proc`, `/sys` and the home as
-  configured), `ProtectHome` as configured, private `/tmp` and `/dev`, no
+  configured, the `state_directory` and the `read_write_paths`),
+  `ProtectHome` as configured, private `/tmp` and `/dev`, no
   capabilities, the `@system-service` system call set only, protected
   kernel tunables, modules, logs, clock, hostname and control groups,
   `UMask=0077`; without `network: true` a private network namespace and
@@ -96,6 +99,53 @@ Each instance runs as a transient systemd service named
 - with SELinux: the definition's domain and a unique **MCS category
   pair**, so instances running as the same account (for example dynamic
   users of different remote principals) cannot touch each other.
+
+### Writable paths and state
+
+`ProtectSystem=strict` keeps everything but the private `/tmp` read-only,
+which also holds for servers running as root. A server that keeps state
+in a fixed place gets it with `sandbox.state_directory`:
+
+```yaml
+name: suseconnect
+command: ["/usr/bin/suseconnect-mcp"]
+run_as: root
+network: true
+sandbox:
+  state_directory: suseconnect-mcp     # /var/lib/suseconnect-mcp
+```
+
+systemd creates the directory before the instance starts, owned by the
+instance's user, and makes it writable; it needs no
+`read_write_paths` entry. All instances of the server share it, so it
+suits servers with a fixed `run_as`; with `run_as: principal`, systemd
+hands it to each user in turn.
+
+`sandbox.read_write_paths` makes other existing paths writable (an
+instance whose path does not exist fails to start). Each one widens what
+an agent can change through the server: keep the list short and
+specific.
+
+Neither option changes SELinux: in enforcing mode the server's domain
+also needs write access to these paths, for example a type of its own
+for its state directory:
+
+```
+# mcp_suseconnect.te (excerpt)
+type mcpsrv_suseconnect_var_lib_t;
+files_type(mcpsrv_suseconnect_var_lib_t)
+manage_dirs_pattern(mcpsrv_suseconnect_t, mcpsrv_suseconnect_var_lib_t, mcpsrv_suseconnect_var_lib_t)
+manage_files_pattern(mcpsrv_suseconnect_t, mcpsrv_suseconnect_var_lib_t, mcpsrv_suseconnect_var_lib_t)
+files_search_var_lib(mcpsrv_suseconnect_t)
+```
+
+```
+# mcp_suseconnect.fc (excerpt)
+/var/lib/suseconnect-mcp(/.*)?  gen_context(system_u:object_r:mcpsrv_suseconnect_var_lib_t,s0)
+```
+
+In development mode (`supervisor.mode: exec`) there is no sandbox, and
+both options have no effect.
 
 ### Lifecycle
 

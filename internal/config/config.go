@@ -271,6 +271,57 @@ type Sandbox struct {
 	// ProtectHome is "yes", "read-only" or "read-write" (i.e. no
 	// protection); default "read-only".
 	ProtectHome string `yaml:"protect_home"`
+	// ReadWritePaths are existing absolute paths the instance may write
+	// despite ProtectSystem=strict (systemd ReadWritePaths=).
+	ReadWritePaths []string `yaml:"read_write_paths"`
+	// StateDirectory is a directory below /var/lib that systemd creates
+	// for the instance, owned by its user and writable (StateDirectory=).
+	StateDirectory string `yaml:"state_directory"`
+}
+
+// stateDirectory is a relative path of plain names, as StateDirectory=
+// takes it.
+var stateDirectory = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$`)
+
+// gatewayPaths may not be made writable for instances, nor any directory
+// containing one of them: the gateway's configuration, policy, secrets,
+// state and sockets.
+var gatewayPaths = []string{
+	"/etc/mcp-gateway", "/usr/etc/mcp-gateway", "/usr/share/mcp-gateway",
+	DefaultStateDir, "/run/mcp-gateway",
+}
+
+// validate checks the sandbox relaxations.
+func (s *Sandbox) validate() error {
+	switch s.ProtectHome {
+	case "yes", "read-only", "read-write":
+	default:
+		return fmt.Errorf("sandbox.protect_home: unknown value %q", s.ProtectHome)
+	}
+	for _, p := range s.ReadWritePaths {
+		if !filepath.IsAbs(p) || filepath.Clean(p) != p {
+			return fmt.Errorf("sandbox.read_write_paths: %q must be absolute and clean", p)
+		}
+		for _, g := range gatewayPaths {
+			if within(p, g) || within(g, p) {
+				return fmt.Errorf("sandbox.read_write_paths: %q would make the gateway's %s writable", p, g)
+			}
+		}
+	}
+	if d := s.StateDirectory; d != "" {
+		if !stateDirectory.MatchString(d) || strings.Contains(d, "..") {
+			return fmt.Errorf("sandbox.state_directory: %q must be a relative path of plain names, e.g. %q", d, "my-server")
+		}
+		if within(filepath.Join("/var/lib", d), DefaultStateDir) {
+			return fmt.Errorf("sandbox.state_directory: %q is the gateway's own state directory", d)
+		}
+	}
+	return nil
+}
+
+// within reports whether path is dir or below it.
+func within(path, dir string) bool {
+	return path == dir || strings.HasPrefix(path, strings.TrimSuffix(dir, "/")+"/")
 }
 
 // Defaults applied to empty fields.
@@ -604,10 +655,8 @@ func (b *Backend) Validate() error {
 	default:
 		return fmt.Errorf("discovery: unknown value %q", b.Discovery)
 	}
-	switch b.Sandbox.ProtectHome {
-	case "yes", "read-only", "read-write":
-	default:
-		return fmt.Errorf("sandbox.protect_home: unknown value %q", b.Sandbox.ProtectHome)
+	if err := b.Sandbox.validate(); err != nil {
+		return err
 	}
 	if _, err := b.ParseCredentials(); err != nil {
 		return err

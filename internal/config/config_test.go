@@ -168,6 +168,20 @@ func TestResolveExplicitMissing(t *testing.T) {
 	}
 }
 
+func TestLoadBackendsSandbox(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.yaml", "name: a\ncommand: [/usr/bin/a]\nsandbox:\n"+
+		"  read_write_paths: [/var/lib/a, /srv/data]\n  state_directory: a/cache\n")
+	reg, err := LoadBackends(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb := reg["a"].Sandbox
+	if len(sb.ReadWritePaths) != 2 || sb.ReadWritePaths[1] != "/srv/data" || sb.StateDirectory != "a/cache" {
+		t.Errorf("sandbox %+v", sb)
+	}
+}
+
 func TestLoadBackendsErrors(t *testing.T) {
 	tests := map[string][]string{
 		"bad name":         {"name: Bad_Name\ncommand: [/usr/bin/a]\n"},
@@ -181,6 +195,14 @@ func TestLoadBackendsErrors(t *testing.T) {
 		"relative cred":    {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"db:secrets/db\"]\n"},
 		"unclean cred":     {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"db:/etc/../root/x\"]\n"},
 		"dup cred":         {"name: a\ncommand: [/usr/bin/a]\ncredentials: [db, \"db:/x\"]\n"},
+		"relative rw path": {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [var/lib/a]\n"},
+		"unclean rw path":  {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [/var/lib/a/../mcp-gateway]\n"},
+		"rw gateway state": {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [/var/lib/mcp-gateway/x]\n"},
+		"rw above gateway": {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [/etc]\n"},
+		"rw root":          {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [/]\n"},
+		"absolute state":   {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  state_directory: /var/lib/a\n"},
+		"dotdot state":     {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  state_directory: a/../../etc\n"},
+		"gateway state":    {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  state_directory: mcp-gateway\n"},
 		"duplicate":        {"name: a\ncommand: [/usr/bin/a]\n", "name: a\ncommand: [/usr/bin/b]\n"},
 	}
 	for name, files := range tests {
