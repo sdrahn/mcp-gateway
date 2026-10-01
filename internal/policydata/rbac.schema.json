@@ -70,6 +70,17 @@
         "effect": { "enum": ["allow", "deny"] },
         "require_approval": { "type": "boolean" },
         "approval_channel": { "enum": ["url", "form", "oob"] },
+        "approval_scopes": {
+          "description": "Scopes the approver may choose from; default [\"once\", \"session\"]. \"once\" is always offered. Durations such as \"30m\" or \"8h\", at most 720h.",
+          "type": "array",
+          "items": {
+            "anyOf": [
+              { "enum": ["once", "session"] },
+              { "type": "string", "pattern": "^[1-9][0-9]*[mh]$" }
+            ]
+          },
+          "uniqueItems": true
+        },
         "args": {
           "description": "Argument name to regular expression the (string) argument must match.",
           "type": "object",

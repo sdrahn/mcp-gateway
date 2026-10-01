@@ -15,12 +15,16 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
+
+// maxGrantDuration is the longest duration scope (broker.MaxGrantTTL).
+const maxGrantDuration = 30 * 24 * time.Hour
 
 // DefaultPath is the role data file of a package installation.
 const DefaultPath = "/etc/mcp-gateway/policy/rbac/data.json"
@@ -127,8 +131,9 @@ func dedup(s []string) []string {
 type rbac struct {
 	Roles map[string]struct {
 		Permissions []struct {
-			Args        map[string]string `json:"args"`
-			Obligations struct {
+			Args           map[string]string `json:"args"`
+			ApprovalScopes []string          `json:"approval_scopes"`
+			Obligations    struct {
 				RedactOutput   stringList            `json:"redact_output"`
 				ArgConstraints map[string]stringList `json:"arg_constraints"`
 				Pseudonymize   struct {
@@ -168,6 +173,16 @@ func (d *rbac) check() []string {
 			base := fmt.Sprintf("/roles/%s/permissions/%d", escape(name), i)
 			for _, arg := range sortedKeys(p.Args) {
 				re(base+"/args/"+escape(arg), p.Args[arg])
+			}
+			// The schema checked the form; the broker refuses grants longer
+			// than MaxGrantTTL, and the policy leaves such scopes out.
+			for j, scope := range p.ApprovalScopes {
+				if scope == "once" || scope == "session" {
+					continue
+				}
+				if d, err := time.ParseDuration(scope); err != nil || d > maxGrantDuration {
+					problems = append(problems, fmt.Sprintf("%s/approval_scopes/%d: %q is longer than 720h (30 days)", base, j, scope))
+				}
 			}
 			for j, expr := range p.Obligations.RedactOutput {
 				re(fmt.Sprintf("%s/obligations/redact_output/%d", base, j), expr)

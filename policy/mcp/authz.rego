@@ -184,6 +184,42 @@ ask_channel := c if {
 	c := object.get(p, "approval_channel", "url")
 }
 
+# Approval scopes: "once" always, and the scopes every approvable
+# permission offers (approval_scopes, default "once" and "session"), so
+# the most restrictive permission decides. Durations ("1h", up to 720h)
+# come last, shortest first; invalid entries are ignored.
+default_approval_scopes := ["once", "session"]
+
+max_grant_duration_ns := time.parse_duration_ns("720h")
+
+offered_scopes contains s if {
+	some p in approvable
+	some s in object.get(p, "approval_scopes", default_approval_scopes)
+	valid_scope(s)
+	every q in approvable {
+		s in object.get(q, "approval_scopes", default_approval_scopes)
+	}
+}
+
+valid_scope(s) if s in {"once", "session"}
+
+valid_scope(s) if {
+	is_string(s)
+	regex.match(`^[1-9][0-9]*[mh]$`, s)
+	time.parse_duration_ns(s) <= max_grant_duration_ns
+}
+
+default first_scopes := ["once"]
+
+first_scopes := ["once", "session"] if "session" in offered_scopes
+
+duration_scopes := [d[1] | some d in sort({[time.parse_duration_ns(s), s] |
+	some s in offered_scopes
+	not s in {"once", "session"}
+})]
+
+ask_scopes := array.concat(first_scopes, duration_scopes)
+
 # Obligations of all matching (non-deny) permissions, merged: redaction
 # patterns, rate limits and argument constraints add up (every constraint
 # must hold), the smallest output limit wins, and "full" audit wins.
@@ -296,7 +332,7 @@ decision := {"effect": "deny", "reason": "denied by policy"} if {
 			input.principal.sub, input.action,
 			input.resource.server, input.resource.name,
 		]),
-		"scopes": ["once", "session"],
+		"scopes": ask_scopes,
 		"fallback": "oob",
 	},
 } if {
