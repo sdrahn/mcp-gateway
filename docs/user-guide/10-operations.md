@@ -136,6 +136,7 @@ ausearch -m AVC -ts recent | grep mcpsrv
 | the server cannot create or write its state (`Read-only file system`, e.g. below `/var/lib`) | `sandbox.state_directory`, or `sandbox.read_write_paths` for other existing paths (chapter 4) |
 | "Interactive authentication required" / polkit denial | the polkit rule `50-mcp-gateway.rules` is missing, or the unit name does not start with `mcp-` |
 | out of memory, killed after 8 hours | the fixed limits (512 MiB, 8 h); split the work or restart |
+| the gateway logs `invalid message from backend … parse error` | the server wrote something other than MCP to stdout; the `line` field shows its first 200 bytes (often a usage message, so the server's arguments are wrong, or a log line, so it needs its option to log to stderr). Such lines are discarded. They may contain whatever the server printed, so treat the gateway's journal accordingly. |
 
 ### Remote clients
 

@@ -45,6 +45,19 @@ type Error struct {
 
 func (e *Error) Error() string { return fmt.Sprintf("jsonrpc error %d: %s", e.Code, e.Message) }
 
+// LineError is returned by Read for a line that is not valid JSON-RPC: Err
+// (also reachable with errors.As) says what is wrong, Line is the line, for
+// logging.
+type LineError struct {
+	Err  *Error
+	Line []byte
+}
+
+func (e *LineError) Error() string { return e.Err.Error() }
+
+// Unwrap returns the JSON-RPC error.
+func (e *LineError) Unwrap() error { return e.Err }
+
 // Message is a request, notification or response.
 type Message struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -129,8 +142,8 @@ func NewConn(rwc io.ReadWriteCloser) *Conn {
 }
 
 // Read returns the next message. Blank lines are skipped. A line that is
-// not valid JSON-RPC yields a *Error with CodeParseError or
-// CodeInvalidRequest; the connection remains usable.
+// not valid JSON-RPC yields a *LineError wrapping a *Error with
+// CodeParseError or CodeInvalidRequest; the connection remains usable.
 func (c *Conn) Read() (*Message, error) {
 	for {
 		line, err := c.readLine()
@@ -143,10 +156,10 @@ func (c *Conn) Read() (*Message, error) {
 		}
 		m := &Message{}
 		if err := json.Unmarshal(line, m); err != nil {
-			return nil, &Error{Code: CodeParseError, Message: "parse error"}
+			return nil, &LineError{Err: &Error{Code: CodeParseError, Message: "parse error"}, Line: line}
 		}
 		if m.JSONRPC != Version || (m.Method == "" && len(m.ID) == 0) {
-			return nil, &Error{Code: CodeInvalidRequest, Message: "invalid request"}
+			return nil, &LineError{Err: &Error{Code: CodeInvalidRequest, Message: "invalid request"}, Line: line}
 		}
 		return m, nil
 	}
