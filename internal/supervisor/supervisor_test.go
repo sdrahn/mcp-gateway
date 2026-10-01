@@ -108,6 +108,22 @@ func TestSystemdProperties(t *testing.T) {
 	if _, ok := m["SystemCallFilter"]; !ok {
 		t.Error("SystemCallFilter missing")
 	}
+	for _, k := range []string{"ReadWritePaths", "StateDirectory"} {
+		if _, ok := m[k]; ok {
+			t.Errorf("unexpected %s without sandbox settings", k)
+		}
+	}
+
+	b.Sandbox.ReadWritePaths = []string{"/var/lib/fs"}
+	b.Sandbox.StateDirectory = "fs"
+	m = propMap(t, s, b, alice(), "c3,c7")
+	if rw, _ := m["ReadWritePaths"].([]string); len(rw) != 1 || rw[0] != "/var/lib/fs" {
+		t.Errorf("ReadWritePaths %v", m["ReadWritePaths"])
+	}
+	if sd, _ := m["StateDirectory"].([]string); len(sd) != 1 || sd[0] != "fs" || m["StateDirectoryMode"] != uint32(0o700) {
+		t.Errorf("StateDirectory %v mode %v", m["StateDirectory"], m["StateDirectoryMode"])
+	}
+	b.Sandbox.ReadWritePaths, b.Sandbox.StateDirectory = nil, ""
 
 	b.Network, b.RunAs = true, "dynamic"
 	m = propMap(t, s, b, alice(), "")

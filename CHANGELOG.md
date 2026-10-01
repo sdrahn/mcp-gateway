@@ -4,6 +4,17 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## Unreleased
+
+### Added
+
+- Server definitions can make paths writable for their instances, which
+  `ProtectSystem=strict` otherwise keeps read-only:
+  `sandbox.state_directory` (a directory below `/var/lib` that systemd
+  creates for the instance, e.g. for a server that keeps state in
+  `/var/lib/<name>`) and `sandbox.read_write_paths` (other existing
+  paths). Paths of the gateway itself are refused.
+
 ## v0.2.3 — 2026-09-30
 
 Builds for SLES 16.0, which failed with 0.2.2 in the build's file list
