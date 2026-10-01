@@ -11,6 +11,8 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -28,6 +30,11 @@ const maxGrantDuration = 30 * 24 * time.Hour
 
 // DefaultPath is the role data file of a package installation.
 const DefaultPath = "/etc/mcp-gateway/policy/rbac/data.json"
+
+// DefaultShippedDir is the shipped policy (OPA loads it as is): the server
+// setup packages install their roles there, as
+// mcp/profiles/<setup>/data.json (data.mcp.profiles.<setup>.roles).
+const DefaultShippedDir = "/usr/share/mcp-gateway/policy"
 
 // Schema is the JSON Schema (draft-07) of the role data; the packages
 // install it as /usr/share/mcp-gateway/schema/rbac.schema.json.
@@ -53,7 +60,11 @@ var printer = message.NewPrinter(language.English)
 
 // Check returns the problems in the role data, one line each, starting
 // with the location as a JSON pointer; none if it is valid.
-func Check(data []byte) ([]string, error) {
+func Check(data []byte) ([]string, error) { return CheckWith(data, nil) }
+
+// CheckWith is Check, with the roles shipped by server setups (role name
+// to setup, see ShippedRoles) known to bindings and approver rules.
+func CheckWith(data []byte, shipped map[string]string) ([]string, error) {
 	sch, err := compiled()
 	if err != nil {
 		return nil, fmt.Errorf("policydata: schema: %w", err)
@@ -76,7 +87,52 @@ func Check(data []byte) ([]string, error) {
 	if err := json.Unmarshal(data, &d); err != nil {
 		return []string{err.Error()}, nil
 	}
-	return d.check(), nil
+	return d.check(shipped), nil
+}
+
+// ShippedRoles reads the roles the server setup packages installed below
+// dir (DefaultShippedDir): role name to setup. A file that is not valid
+// role data, or a role two setups ship, is a problem (prefixed with the
+// file); the policy would fail on the latter. A missing dir is no error.
+func ShippedRoles(dir string) (map[string]string, []string, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "mcp", "profiles", "*", "data.json"))
+	if err != nil {
+		return nil, nil, err
+	}
+	sort.Strings(files)
+	roles := map[string]string{}
+	var problems []string
+	for _, f := range files {
+		setup := filepath.Base(filepath.Dir(f))
+		data, err := os.ReadFile(f)
+		if err != nil {
+			return nil, nil, err
+		}
+		ps, err := Check(data)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, p := range ps {
+			problems = append(problems, f+": "+p)
+		}
+		if len(ps) > 0 {
+			continue
+		}
+		var d struct {
+			Roles map[string]json.RawMessage `json:"roles"`
+		}
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, nil, err
+		}
+		for _, name := range sortedKeys(d.Roles) {
+			if other, dup := roles[name]; dup {
+				problems = append(problems, fmt.Sprintf("%s: role %q is shipped by setup %q as well", f, name, other))
+				continue
+			}
+			roles[name] = setup
+		}
+	}
+	return roles, problems, nil
 }
 
 // collect adds the leaf errors of a validation error. The alternatives of
@@ -161,7 +217,7 @@ func (l *stringList) UnmarshalJSON(b []byte) error {
 	return json.Unmarshal(b, (*[]string)(l))
 }
 
-func (d *rbac) check() []string {
+func (d *rbac) check(shipped map[string]string) []string {
 	var problems []string
 	re := func(loc, expr string) {
 		if _, err := regexp.Compile(expr); err != nil {
@@ -198,7 +254,8 @@ func (d *rbac) check() []string {
 		}
 	}
 	unknown := func(loc, role string) {
-		if _, ok := d.Roles[role]; !ok {
+		_, own := d.Roles[role]
+		if _, ok := shipped[role]; !ok && !own {
 			problems = append(problems, fmt.Sprintf("%s: unknown role %q", loc, role))
 		}
 	}

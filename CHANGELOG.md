@@ -4,6 +4,18 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## Unreleased
+
+### Added
+
+- Roles shipped with server setups: files in
+  `/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.json`
+  (`data.mcp.profiles`) add roles that bindings may name; a role of the
+  same name in the role data replaces a shipped one. They are known to
+  `--check-policy-data` (new option `--shipped-policy`), listed by
+  `GET /v1/policy` and shown in Cockpit, and part of the policy
+  fingerprint (installing a setup tells clients to list tools again).
+
 ## v0.3.0 — 2026-10-01
 
 Agents can install and remove packages through the gateway: MCP servers

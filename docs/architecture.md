@@ -982,6 +982,12 @@ decide on that server's approvals and manage its grants: `self`,
 `role:<role>`, `group:<group>`, `user:<user>` (§5.6.1). Without it, only
 `self` applies.
 
+Server setup packages (roadmap step 10) ship roles for their server in
+`data.mcp.profiles.<setup>.roles`. The policy merges them below the roles
+of `data.mcp.rbac`: a role of the same name there replaces the shipped
+one. Bindings and approvers come from `data.mcp.rbac` only, so installing
+a setup grants nothing by itself.
+
 Completions follow their target: a prompt's like `prompts.get`; a resource
 template's (and its visibility in `resources/templates/list`) wherever the
 principal may read some resource of that backend.

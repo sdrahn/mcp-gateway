@@ -30,7 +30,9 @@
                                 instances: [{ id: "i2", server: "zypp", unit: "mcp-zypp-i2.service", sub: "alice", uid: 1001, transport: "unix",
                                               isolation: "principal", started: new Date().toISOString(), sessions: 0, privileged: true, busy: true }] }],
         "/v1/policy": () => ({ mode: "bundle",
-            bundles: query.get("source") === "server" ? { mcp: "r42" } : { "/etc/mcp-gateway/bundle/policy.tar.gz": "r42" } }),
+            bundles: query.get("source") === "server" ? { mcp: "r42" } : { "/etc/mcp-gateway/bundle/policy.tar.gz": "r42" },
+            shipped_roles: { "systemd-reader": { setup: "systemd", description: "read the system state",
+                permissions: [{ server: "systemd", tool: "list_units" }] } } }),
     };
     const listeners = {};
     const location = {

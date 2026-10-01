@@ -368,3 +368,30 @@ test_unprivileged_wildcard_allows if {
 	d := authz.decision with input as call(alice, "zypp", "confirm_install", {}) with data.mcp.rbac.roles as perms
 	d.effect == "allow"
 }
+
+shipped := {"systemd": {"roles": {"systemd-reader": {
+	"description": "read systemd",
+	"permissions": [{"server": "systemd", "tool": "list_units"}],
+}}}}
+
+test_shipped_role_applies if {
+	d := authz.decision with input as call(alice, "systemd", "list_units", {})
+		with data.mcp.profiles as shipped
+		with data.mcp.rbac.bindings as {"users": {"alice": ["systemd-reader"]}}
+	d.effect == "allow"
+}
+
+test_shipped_role_needs_binding if {
+	d := authz.decision with input as call(alice, "systemd", "list_units", {})
+		with data.mcp.profiles as shipped
+		with data.mcp.rbac.bindings as {"users": {}}
+	d.effect == "deny"
+}
+
+test_admin_role_replaces_shipped_role if {
+	d := authz.decision with input as call(alice, "systemd", "list_units", {})
+		with data.mcp.profiles as shipped
+		with data.mcp.rbac.roles as {"systemd-reader": {"permissions": [{"server": "systemd", "tool": "list_units", "effect": "deny"}]}}
+		with data.mcp.rbac.bindings as {"users": {"alice": ["systemd-reader"]}}
+	d.effect == "deny"
+}

@@ -65,6 +65,9 @@ function site() {
     const bindings = await page.textContent("#bindings");
     check(bindings.includes("wheel") && bindings.includes("admin") && bindings.includes("dev"), "bindings listed");
     check((await page.textContent("#roles")).includes("approval via url"), "permission flags");
+    check((await page.textContent("#roles")).includes("Shipped with the systemd server setup"), "shipped role shown");
+    check(await page.$eval("#binding-add select[name=role]", s => [...s.options].some(o => o.value === "systemd-reader")),
+          "shipped role offered for bindings");
     await page.fill("#binding-add input[name=name]", "alice");
     await page.selectOption("#binding-add select[name=role]", "developer");
     const replacesBefore = (await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length;

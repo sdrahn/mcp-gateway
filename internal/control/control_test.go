@@ -296,6 +296,37 @@ func TestPolicyStatus(t *testing.T) {
 	}
 }
 
+type fakeShippedPolicy struct {
+	fakePolicy
+	shipped string
+}
+
+func (f fakeShippedPolicy) ShippedRoles(context.Context) (json.RawMessage, error) {
+	return json.RawMessage(f.shipped), nil
+}
+
+func TestPolicyShippedRoles(t *testing.T) {
+	s, _, _ := setup(t)
+	s.Policy = fakeShippedPolicy{fakePolicy{}, `{"systemd": {"roles": {"systemd-reader": {"description": "read",
+		"permissions": [{"server": "systemd", "tool": "list_units"}]}}}}`}
+	rec := call(t, s, 1001, "GET", "/v1/policy", "")
+	var got struct {
+		ShippedRoles map[string]shippedRole `json:"shipped_roles"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	r := got.ShippedRoles["systemd-reader"]
+	if r.Setup != "systemd" || r.Description != "read" || !strings.Contains(string(r.Permissions), "list_units") {
+		t.Fatalf("shipped roles %+v", got.ShippedRoles)
+	}
+	// None installed: an empty list, not an error.
+	s.Policy = fakeShippedPolicy{fakePolicy{}, ``}
+	if rec := call(t, s, 1001, "GET", "/v1/policy", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"shipped_roles":{}`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+}
+
 func TestEvents(t *testing.T) {
 	s, id, _ := setup(t)
 	srv := httptest.NewUnstartedServer(s.Handler())

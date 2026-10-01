@@ -18,7 +18,7 @@
 //	DELETE /v1/grants/{id}
 //	GET    /v1/servers          registry, with the instances the caller may see
 //	DELETE /v1/instances/{id}   stop an instance
-//	GET    /v1/policy           active policy bundles and their revisions
+//	GET    /v1/policy           active policy bundles and their revisions, roles shipped by server setups
 //	POST   /v1/policy/whatif    role data → the decisions it would change
 //	GET    /v1/events           server-sent events: approvals the caller may decide on
 package control
@@ -54,6 +54,20 @@ type Instances interface {
 // PolicyStatus reports the policy OPA has activated (pep.OPA).
 type PolicyStatus interface {
 	Bundles(ctx context.Context) (map[string]string, error)
+}
+
+// ShippedRoleSource also lists the roles of the server setup packages
+// (pep.OPA: data.mcp.profiles).
+type ShippedRoleSource interface {
+	ShippedRoles(ctx context.Context) (json.RawMessage, error)
+}
+
+// shippedRole is a role a server setup package ships, as GET /v1/policy
+// shows it.
+type shippedRole struct {
+	Setup       string          `json:"setup"`
+	Description string          `json:"description,omitempty"`
+	Permissions json.RawMessage `json:"permissions"`
 }
 
 // PolicyReview answers "what changes?" for proposed role data (pep.OPA).
@@ -232,7 +246,32 @@ func (s *Server) policy(w http.ResponseWriter, r *http.Request, _ broker.Approve
 	if len(bundles) > 0 {
 		mode = "bundle"
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"mode": mode, "bundles": bundles})
+	resp := map[string]any{"mode": mode, "bundles": bundles}
+	if src, ok := s.Policy.(ShippedRoleSource); ok {
+		raw, err := src.ShippedRoles(r.Context())
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "policy engine unavailable")
+			return
+		}
+		roles := map[string]shippedRole{}
+		var setups map[string]struct {
+			Roles map[string]shippedRole `json:"roles"`
+		}
+		if len(raw) > 0 {
+			if err := json.Unmarshal(raw, &setups); err != nil {
+				writeError(w, http.StatusBadGateway, "invalid shipped roles")
+				return
+			}
+		}
+		for setup, d := range setups {
+			for name, role := range d.Roles {
+				role.Setup = setup
+				roles[name] = role
+			}
+		}
+		resp["shipped_roles"] = roles
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // maxRoleData bounds the proposed role data of POST /v1/policy/whatif.

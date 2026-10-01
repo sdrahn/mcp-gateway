@@ -120,7 +120,8 @@ func (o *OPA) Visible(ctx context.Context, p principal.Principal, rs []Resource)
 }
 
 // Fingerprint identifies the gateway's policy in OPA: a hash of the
-// modules in packages below mcp and of data.mcp.rbac. It changes when OPA
+// modules in packages below mcp, of data.mcp.rbac and of the roles the
+// server setups ship (data.mcp.profiles). It changes when OPA
 // reloads changed files, but not for other policies sharing the OPA.
 func (o *OPA) Fingerprint(ctx context.Context) (string, error) {
 	body, err := o.get(ctx, "/v1/policies")
@@ -164,13 +165,32 @@ func (o *OPA) Fingerprint(ctx context.Context) (string, error) {
 		return "", err
 	}
 	h.Write(data)
+	h.Write([]byte{0})
+	shipped, err := o.ShippedRoles(ctx)
+	if err != nil {
+		return "", err
+	}
+	h.Write(shipped)
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // RoleData returns the role data OPA has loaded (data.mcp.rbac); empty if
 // there is none.
 func (o *OPA) RoleData(ctx context.Context) (json.RawMessage, error) {
-	body, err := o.get(ctx, "/v1/data/mcp/rbac")
+	return o.data(ctx, "/v1/data/mcp/rbac", "role data")
+}
+
+// ShippedRoles returns the data of the server setup packages
+// (data.mcp.profiles: setup name to {"roles": ...}); empty if there is
+// none.
+func (o *OPA) ShippedRoles(ctx context.Context) (json.RawMessage, error) {
+	return o.data(ctx, "/v1/data/mcp/profiles", "shipped roles")
+}
+
+// data returns the result of a GET of a data document (empty if it is
+// undefined), without the rest of the response.
+func (o *OPA) data(ctx context.Context, path, what string) (json.RawMessage, error) {
+	body, err := o.get(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +198,7 @@ func (o *OPA) RoleData(ctx context.Context) (json.RawMessage, error) {
 		Result json.RawMessage `json:"result"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("opa: role data: %w", err)
+		return nil, fmt.Errorf("opa: %s: %w", what, err)
 	}
 	return resp.Result, nil
 }

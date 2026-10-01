@@ -95,9 +95,10 @@ func TestOPAVisible(t *testing.T) {
 }
 
 func TestOPAFingerprint(t *testing.T) {
-	var rbac, other atomicString
+	var rbac, other, profiles atomicString
 	var ids atomic.Int64
 	rbac.Store(`{"result":{"roles":{}}}`)
+	profiles.Store(`{}`) // undefined: no setup packages
 	other.Store(module("team.rego", "team", "v1"))
 	o := fakeOPA(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -108,6 +109,8 @@ func TestOPAFingerprint(t *testing.T) {
 			// response carries a new decision id.
 			id := ids.Add(1)
 			_, _ = w.Write([]byte(strings.Replace(rbac.Load(), "{", fmt.Sprintf(`{"decision_id":"%d",`, id), 1)))
+		case "/v1/data/mcp/profiles":
+			_, _ = w.Write([]byte(profiles.Load()))
 		default:
 			http.NotFound(w, r)
 		}
@@ -125,8 +128,14 @@ func TestOPAFingerprint(t *testing.T) {
 		t.Fatal("fingerprint changed with a policy outside mcp")
 	}
 	rbac.Store(`{"result":{"roles":{"x":{}}}}`)
-	if c, _ := o.Fingerprint(context.Background()); c == a {
+	c, _ := o.Fingerprint(context.Background())
+	if c == a {
 		t.Fatal("fingerprint did not change with the data")
+	}
+	// A setup package installed: its roles count.
+	profiles.Store(`{"result":{"systemd":{"roles":{"systemd-reader":{}}}}}`)
+	if d, _ := o.Fingerprint(context.Background()); d == c || d == "" {
+		t.Fatal("fingerprint did not change with shipped roles")
 	}
 }
 

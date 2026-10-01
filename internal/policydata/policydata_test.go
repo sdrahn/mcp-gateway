@@ -87,3 +87,44 @@ func TestCheck(t *testing.T) {
 		})
 	}
 }
+
+func TestShippedRoles(t *testing.T) {
+	dir := t.TempDir()
+	write := func(setup, content string) {
+		t.Helper()
+		p := filepath.Join(dir, "mcp", "profiles", setup)
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(p, "data.json"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("systemd", `{"roles": {"systemd-reader": {"permissions": [{"server": "systemd", "tool": "list_*"}]}}}`)
+	write("zypp", `{"roles": {"zypp-reader": {"permissions": [{"server": "zypp", "tool": "search_packages"}]},
+		"systemd-reader": {"permissions": []}}}`)
+	write("broken", `{"roles": {"x": {}}}`)
+
+	roles, problems, err := ShippedRoles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roles["systemd-reader"] != "systemd" || roles["zypp-reader"] != "zypp" || len(roles) != 2 {
+		t.Errorf("roles %v", roles)
+	}
+	if len(problems) != 2 || !strings.Contains(problems[0], "broken/data.json") ||
+		!strings.Contains(problems[1], `role "systemd-reader" is shipped by setup "systemd" as well`) {
+		t.Errorf("problems %q", problems)
+	}
+
+	// Bindings may name shipped roles.
+	data := []byte(`{"roles": {}, "bindings": {"users": {"alice": ["systemd-reader", "nope"]}}}`)
+	ps, err := CheckWith(data, roles)
+	if err != nil || len(ps) != 1 || !strings.Contains(ps[0], `unknown role "nope"`) {
+		t.Errorf("CheckWith: %v %q", err, ps)
+	}
+
+	if roles, problems, err := ShippedRoles(filepath.Join(dir, "missing")); err != nil || len(roles) != 0 || len(problems) != 0 {
+		t.Errorf("missing dir: %v %v %v", roles, problems, err)
+	}
+}

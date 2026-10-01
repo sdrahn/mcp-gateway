@@ -31,7 +31,11 @@ trees into one policy:
   becomes data below `data.mcp`, at the path of its directory:
   `/etc/mcp-gateway/policy/rbac/data.json` is `data.mcp.rbac`,
   `/etc/mcp-gateway/policy/rbac/managers/data.json` is
-  `data.mcp.rbac.managers`.
+  `data.mcp.rbac.managers`. The shipped policy directory is loaded the
+  same way: the server setup packages put their roles in
+  `/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.json`
+  (`data.mcp.profiles.<setup>.roles`); the shipped `mcp.authz` merges
+  them below the roles of `data.mcp.rbac` (`role_defs`).
 - Everything the gateway uses lives below `mcp`: its packages
   (`mcp.authz`, …), the role data and the decision-log mask
   (`mcp.log.mask`). Keep your own packages below `mcp` too

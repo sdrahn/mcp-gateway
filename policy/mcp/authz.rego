@@ -20,8 +20,20 @@ roles contains r if {
 
 perms contains p if {
 	some role in roles
-	some p in data.mcp.rbac.roles[role].permissions
+	some p in role_defs[role].permissions
 	cert_ok(p)
+}
+
+# Role definitions: the administrator's (data.mcp.rbac.roles) and those
+# shipped with server setups (data.mcp.profiles.<setup>.roles, installed
+# by the setup packages). A role the administrator defines replaces a
+# shipped one of the same name. Bindings and approvers are always the
+# administrator's.
+role_defs := object.union(shipped_roles, object.get(data.mcp.rbac, "roles", {}))
+
+shipped_roles[name] := role if {
+	some profile in data.mcp.profiles
+	some name, role in profile.roles
 }
 
 # A permission with "require_client_cert": true applies only to remote
