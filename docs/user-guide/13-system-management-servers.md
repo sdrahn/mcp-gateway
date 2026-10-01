@@ -95,10 +95,54 @@ Notes:
   socket.
 - The servers speak MCP on stdin/stdout. A server that also writes log
   lines to stdout breaks the protocol (the gateway logs "invalid message
-  from backend … parse error"); use its option to log to stderr or a
-  file.
+  from backend … parse error" with the start of the line); use its
+  option to log to stderr or a file.
 - The definitions are read at start: `mcp-gateway --check && systemctl
   restart mcp-gateway.service`.
+
+### suseconnect-mcp
+
+`suseconnect-mcp` registers the system with SCC (or an RMT server) and
+shows its registration. It refuses to run without root, talks to SCC,
+keeps state in `/var/lib/suseconnect-mcp`, and writes the system
+credentials, even for the status, because SCC may hand out a new system
+token with any request:
+
+```yaml
+# /etc/mcp-gateway/servers.d/suseconnect.yaml
+name: suseconnect
+command: ["/usr/bin/suseconnect-mcp"]
+run_as: root
+network: true
+selinux_type: mcpsrv_suseconnect_t
+sandbox:
+  state_directory: suseconnect-mcp                # /var/lib/suseconnect-mcp
+  read_write_paths: ["/etc/zypp/credentials.d"]   # SCCcredentials
+```
+
+- Running as root does not lift the sandbox: no capabilities, and
+  everything but the paths above stays read-only. `RegistrationStatus`
+  and `ListExtensions` work with this definition; the tools that change
+  the registration (`RegisterSystem`, `ActivateProduct`,
+  `DeactivateProduct`, `DeregisterSystem`) also set up repositories and
+  services and are likely to need more paths (`/etc/zypp/repos.d`,
+  `/etc/zypp/services.d`, `/var/cache/zypp`); open them only if agents
+  are to change registrations, behind approval.
+- `RegisterSystem` and `ActivateProduct` take the **registration code**
+  as an argument: the agent supplies it, so its model sees it. Prefer
+  registering by hand and leaving those tools to no one, or to approval
+  by someone else (approver rules without `self`).
+- The credentials file is labelled `system_conf_t`; the server's domain
+  needs read and write access to it (find the rules with a permissive
+  round, below). Keep that access to this one domain.
+- In a role, allow the two reading tools and require approval for the
+  rest:
+
+  ```json
+  {"server": "suseconnect", "tool": "RegistrationStatus"},
+  {"server": "suseconnect", "tool": "ListExtensions"},
+  {"server": "suseconnect", "tool": "*", "require_approval": true, "approval_channel": "oob"}
+  ```
 
 ## SELinux domains
 
