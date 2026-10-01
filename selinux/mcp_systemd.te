@@ -9,6 +9,13 @@ mcp_gateway_backend_template(systemd)
 
 dbus_system_bus_client(mcpsrv_systemd_t)
 init_dbus_chat(mcpsrv_systemd_t)
+# list_loaded_units, list_unit_files: systemd checks system:status on its
+# own context (plain rule, as in mcp_gateway.te).
+gen_require(`
+	type init_t;
+	class system status;
+')
+allow mcpsrv_systemd_t init_t:system status;
 optional_policy(`
 	policykit_dbus_chat(mcpsrv_systemd_t)
 ')
@@ -26,6 +33,7 @@ optional_policy(`
 	read_files_pattern(mcpsrv_systemd_t, syslogd_var_run_t, syslogd_var_run_t)
 ')
 fs_getattr_xattr_fs(mcpsrv_systemd_t)
+fs_getattr_tmpfs(mcpsrv_systemd_t)
 
 # get_file, get_man_page, list_log: helper programs and what they read.
 corecmd_exec_bin(mcpsrv_systemd_t)
