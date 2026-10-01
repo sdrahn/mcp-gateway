@@ -182,6 +182,27 @@ func TestLoadBackendsSandbox(t *testing.T) {
 	}
 }
 
+func TestLoadBackendsPrivileged(t *testing.T) {
+	vendor, admin := t.TempDir(), t.TempDir()
+	const def = "name: zypp\ncommand: [/usr/bin/mcp-server-zypp]\nrun_as: root\nprivileged: true\n"
+	writeFile(t, admin, "zypp.yaml", def)
+	bs, err := LoadBackends(vendor, admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bs["zypp"].Privileged {
+		t.Errorf("not privileged: %+v", bs["zypp"])
+	}
+	// A package (vendor dir) cannot define one, not even when the
+	// administrator's directory is missing.
+	writeFile(t, vendor, "other.yaml", strings.Replace(def, "zypp", "other", 1))
+	for _, dirs := range [][]string{{vendor, admin}, {vendor, filepath.Join(admin, "missing")}} {
+		if _, err := LoadBackends(dirs...); err == nil || !strings.Contains(err.Error(), "privileged: only allowed in") {
+			t.Errorf("%v: err = %v", dirs, err)
+		}
+	}
+}
+
 func TestLoadBackendsErrors(t *testing.T) {
 	tests := map[string][]string{
 		"bad name":         {"name: Bad_Name\ncommand: [/usr/bin/a]\n"},
@@ -204,6 +225,8 @@ func TestLoadBackendsErrors(t *testing.T) {
 		"dotdot state":     {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  state_directory: a/../../etc\n"},
 		"gateway state":    {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  state_directory: mcp-gateway\n"},
 		"duplicate":        {"name: a\ncommand: [/usr/bin/a]\n", "name: a\ncommand: [/usr/bin/b]\n"},
+		"privileged user":  {"name: a\ncommand: [/usr/bin/a]\nprivileged: true\n"},
+		"privileged rw":    {"name: a\ncommand: [/usr/bin/a]\nprivileged: true\nrun_as: root\nsandbox:\n  read_write_paths: [/srv]\n"},
 	}
 	for name, files := range tests {
 		t.Run(name, func(t *testing.T) {

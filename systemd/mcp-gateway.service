@@ -23,6 +23,9 @@ SupplementaryGroups=mcp-users
 ExecStartPre=/usr/bin/mcp-gateway --check --policy-data=
 ExecStart=/usr/bin/mcp-gateway
 Restart=on-failure
+# On stop the gateway waits for calls to privileged servers (package
+# installations) to finish, for up to 28 minutes.
+TimeoutStopSec=30min
 # /run/mcp-gateway is created by tmpfiles.d (mcp-gateway.conf).
 ReadWritePaths=/run/mcp-gateway
 StateDirectory=mcp-gateway

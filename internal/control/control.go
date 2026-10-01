@@ -163,6 +163,7 @@ type serverInfo struct {
 	Isolation   config.Isolation      `json:"isolation"`
 	Network     bool                  `json:"network"`
 	RunAs       string                `json:"run_as"`
+	Privileged  bool                  `json:"privileged,omitempty"`
 	Instances   []router.InstanceInfo `json:"instances"`
 }
 
@@ -182,7 +183,7 @@ func (s *Server) servers(w http.ResponseWriter, r *http.Request, a broker.Approv
 			insts = []router.InstanceInfo{}
 		}
 		out = append(out, serverInfo{Name: name, SELinuxType: b.SELinuxType, Isolation: b.Isolation,
-			Network: b.Network, RunAs: b.RunAs, Instances: insts})
+			Network: b.Network, RunAs: b.RunAs, Privileged: b.Privileged, Instances: insts})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	writeJSON(w, http.StatusOK, out)
@@ -193,6 +194,10 @@ func (s *Server) stopInstance(w http.ResponseWriter, r *http.Request, a broker.A
 	if s.Instances != nil {
 		for _, in := range s.Instances.Instances() {
 			if in.ID == id && s.Broker.MayManageInstance(r.Context(), a, in.Server, in.UID) {
+				if in.Privileged && in.Busy {
+					writeError(w, http.StatusConflict, "a call to this privileged server is running; it stops when the call ends")
+					return
+				}
 				if s.Instances.StopInstance(id) {
 					if s.Log != nil {
 						s.Log.Info("instance stopped via control API", "instance", id, "server", in.Server, "by", a.Name)

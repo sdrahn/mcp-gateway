@@ -17,10 +17,12 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -131,6 +133,11 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		return fmt.Errorf("loading backend registry: %w", err)
 	}
 	log.Info("configuration valid", "config", used, "socket", gw.Socket, "backends", len(backends))
+	for _, name := range slices.Sorted(maps.Keys(backends)) {
+		if backends[name].Privileged {
+			log.Warn("privileged server: runs as root without sandbox; every call is decided by policy and approval", "server", name)
+		}
+	}
 	if checkOnly {
 		if err := checkPolicyData(log, policyData, false); err != nil {
 			return fmt.Errorf("role data: %w", err)

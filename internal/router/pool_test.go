@@ -201,3 +201,117 @@ func TestListAndStopInstances(t *testing.T) {
 		t.Fatalf("%d starts", n)
 	}
 }
+
+// startCommit sends a "commit" call to u whose caller gives up at once,
+// as a client does that cancels or disconnects; the backend goes on.
+func startCommit(t *testing.T, u *upstream) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = u.request(ctx, nil, "tools/call", map[string]any{"name": "commit"})
+	}()
+	for !u.busy() {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	<-done
+}
+
+func isClosed(ch chan struct{}, wait time.Duration) bool {
+	select {
+	case <-ch:
+		return true
+	case <-time.After(wait):
+		return false
+	}
+}
+
+func TestPrivilegedInstanceKeptWhileCallRuns(t *testing.T) {
+	for _, privileged := range []bool{false, true} {
+		p, l, _ := testPool(t, 0) // stop as soon as unused
+		b := &config.Backend{Name: "zypp", Isolation: config.IsolationPrincipal, Privileged: privileged}
+		u, release, err := p.acquire(context.Background(), b, alice())
+		if err != nil {
+			t.Fatal(err)
+		}
+		fi := l.started("zypp")[0]
+		startCommit(t, u)
+		release()
+		if !privileged {
+			if !isClosed(fi.closed, time.Second) {
+				t.Fatal("unprivileged instance not stopped")
+			}
+			continue
+		}
+		if isClosed(fi.closed, 50*time.Millisecond) {
+			t.Fatal("privileged instance stopped while a call runs")
+		}
+		if infos := p.list(); len(infos) != 1 || !infos[0].Privileged || !infos[0].Busy {
+			t.Fatalf("instances %+v", infos)
+		}
+		if p.stop(u.id) {
+			t.Fatal("stop on request stopped a busy privileged instance")
+		}
+		close(fi.commit)
+		if !isClosed(fi.closed, time.Second) {
+			t.Fatal("privileged instance not stopped after the call ended")
+		}
+	}
+}
+
+func TestCloseAllWaitsForPrivilegedCalls(t *testing.T) {
+	p, l, _ := testPool(t, time.Hour)
+	b := &config.Backend{Name: "zypp", Isolation: config.IsolationPrincipal, Privileged: true}
+	u, _, err := p.acquire(context.Background(), b, alice())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs := &config.Backend{Name: "fs", Isolation: config.IsolationPrincipal}
+	if _, _, err := p.acquire(context.Background(), fs, alice()); err != nil {
+		t.Fatal(err)
+	}
+	startCommit(t, u)
+	closed := make(chan struct{})
+	go func() {
+		p.closeAll()
+		close(closed)
+	}()
+	if !isClosed(l.started("fs")[0].closed, time.Second) {
+		t.Fatal("unprivileged instance not stopped at once")
+	}
+	if isClosed(closed, 50*time.Millisecond) {
+		t.Fatal("closeAll did not wait for the privileged call")
+	}
+	if _, err := u.request(context.Background(), nil, "tools/list", nil); !errors.Is(err, errShuttingDown) {
+		t.Fatalf("new request while draining: %v", err)
+	}
+	close(l.started("zypp")[0].commit)
+	if !isClosed(closed, time.Second) {
+		t.Fatal("closeAll did not return after the call ended")
+	}
+}
+
+func TestCloseAllDrainTimeout(t *testing.T) {
+	p, l, clock := testPool(t, time.Hour)
+	p.drainTimeout = time.Minute
+	b := &config.Backend{Name: "zypp", Isolation: config.IsolationPrincipal, Privileged: true}
+	u, _, err := p.acquire(context.Background(), b, alice())
+	if err != nil {
+		t.Fatal(err)
+	}
+	startCommit(t, u)
+	closed := make(chan struct{})
+	go func() {
+		p.closeAll()
+		close(closed)
+	}()
+	if isClosed(closed, 50*time.Millisecond) {
+		t.Fatal("closeAll did not wait")
+	}
+	clock.add(time.Minute)
+	if !isClosed(closed, time.Second) || !isClosed(l.started("zypp")[0].closed, time.Second) {
+		t.Fatal("closeAll did not stop the instance after the drain timeout")
+	}
+}
