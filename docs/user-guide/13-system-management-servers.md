@@ -162,6 +162,40 @@ sandbox:
   {"server": "suseconnect", "tool": "*", "require_approval": true, "approval_channel": "oob"}
   ```
 
+### mcp-server-zypp
+
+[mcp-server-zypp](https://github.com/openSUSE/mcp-server-zypp) (notes
+for version 0.1.2) searches packages, resolves dependencies and plans
+installations with libzypp. `/usr/bin/mcp-server-zypp` speaks MCP and
+starts a new worker, `/usr/libexec/mcp-server-zypp/zypp-mcp-tool`, for
+every call. Six tools only read and plan (`search_packages`,
+`find_providers`, `find_dependents`, `check_updates`, `plan_install`,
+`plan_remove`) and work as any account:
+
+```yaml
+# /etc/mcp-gateway/servers.d/zypp.yaml
+name: zypp
+command: ["/usr/bin/mcp-server-zypp"]
+run_as: mcp-sysmgmt
+selinux_type: mcpsrv_zypp_t
+```
+
+- `confirm_install` and `confirm_remove` change the system and refuse to
+  run unless the worker is root. They also cannot work behind the
+  gateway as it is: an RPM transaction writes all over the file system,
+  changes owners and runs package scripts, while every instance runs
+  with no capabilities and a read-only system (`run_as: root` does not
+  change that). Leave them to no one for now.
+- The worker asks the user, by elicitation, whether to trust a new GPG
+  key of a repository. The gateway passes such a request to the agent's
+  client only with a `client` permission for `elicitation.create`
+  (chapter 6), and only a client that supports elicitation can show it.
+- Licenses are accepted with the `accepted_licenses` argument of
+  `confirm_install`, which the agent fills in; the approval of that call
+  is where a human sees them.
+- In a role, allow the six reading tools by name (`search_packages`,
+  `find_*`, `check_updates`, `plan_*`) and require approval for the rest.
+
 ## SELinux domains
 
 The default domain for servers, `mcpsrv_generic_t`, may not use the

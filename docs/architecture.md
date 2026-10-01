@@ -1279,6 +1279,13 @@ how they use sessions. Steps 10–14 lead to a 1.0 for SLES 16 and Leap 16.
       server definition with sandbox settings, SELinux domain
       (`mcp_gateway_backend_template`), polkit rules, account groups and
       suggested role data, enabled with one step;
+    - servers that change the system wholesale (package installation
+      with mcp-server-zypp: RPM transactions write everywhere, need
+      capabilities and run package scripts) cannot run in the current
+      sandbox. Decide whether the gateway gets a privileged backend
+      class (relaxed sandbox, SELinux domain allowed to transition to
+      `rpm_t`, never stopped while a call runs, also not on gateway
+      restart) or leaves such changes to tools outside it;
     - what a server cannot do behind a gateway (own interactive polkit
       checks, unused options, fixed state paths) goes to its upstream
       as an issue or patch rather than into a workaround here;
