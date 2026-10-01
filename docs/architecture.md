@@ -38,7 +38,8 @@ Access must be governed. The gateway shall
   still be contained by the kernel (SELinux, cgroups, namespaces, DAC).
 - No modification of the existing MCP servers.
 - Operable with standard Linux tooling: systemd, journald, auditd, RPM
-  (openSUSE/SLES packages built with OBS).
+  (packages built with OBS). Supported distributions: SLES 16 and
+  openSUSE Leap 16; openSUSE Tumbleweed is the development platform.
 
 ### Non-goals (for now)
 
@@ -49,6 +50,8 @@ Access must be governed. The gateway shall
 - Content-level safety filtering of tool output (prompt-injection
   detection etc.). The design leaves a hook for it (obligations, §6.4).
 - High availability / multi-host clustering. One gateway per host.
+- SLES 15 and Leap 15, and with them AppArmor: the confinement model is
+  SELinux.
 
 ## 3. Terminology
 
@@ -1263,11 +1266,44 @@ docs/
    requests with per-session reversible tokens, policy-controlled
    re-identification (§6.3.1).
 
-## 12. Open items
+Steps 1–9 made a proof of concept with all designed functions. Running it
+with real MCP servers (systemd, firewalld, snapper, zypp, suseconnect)
+showed where it is not yet a product: every server needed SELinux rules,
+polkit rules or sandbox settings worked out by hand, the packages broke
+on SLES 16 although CI (Tumbleweed only) was green, and agents differ in
+how they use sessions. Steps 10–14 lead to a 1.0 for SLES 16 and Leap 16.
 
-- Distribution focus is openSUSE and SLES (packages via OBS,
-  `packaging/suse`). SLES 15 uses AppArmor, not SELinux; an AppArmor
-  profile set would be needed there.
+10. **Server profiles, tested on the target distributions:**
+    - profiles for systemd-mcp, firewalld, snapper, mcp-server-zypp and
+      suseconnect-mcp: server definition with sandbox settings, SELinux
+      domain (`mcp_gateway_backend_template`), polkit rules and suggested
+      role data, enabled with one step;
+    - the VM test (SELinux enforcing, no denials) runs these servers, not
+      only the demo server, and reads and changes something through each,
+      with an approval;
+    - CI builds and VM-tests on SLES 16 and Leap 16 (Tumbleweed stays as
+      the early warning), plus an upgrade test from the previous release.
+11. **Stable interfaces:** versioned `gateway.yaml`, server definitions,
+    role data, the policy input and decision documents and the control
+    API; a deprecation policy (warn for one minor release, then remove);
+    CI checks that the configuration of the previous release still works.
+12. **Operability:** `Type=notify` with a systemd watchdog for the
+    gateway; metrics (decisions, pending approvals, instance starts and
+    failures, OPA latency); a self-check command that finds what had to
+    be debugged by hand: servers that do not start, SELinux denials for a
+    backend, missing polkit rules, role data that does not validate,
+    principals without roles.
+13. **Security assurance:** fuzzing of the JSON-RPC parser, the HTTP
+    transport and the policy input; a review of the threat model (§8);
+    an external review of identity, approvals and the control socket;
+    decisions on the open items that matter in production (rate-limit
+    counters across restarts, grants expiring during a call, path
+    arguments through symlinks).
+14. **Client compatibility:** tested and documented behaviour with Kit,
+    Claude Code and other MCP clients (sessions, elicitation, approval
+    timeouts, `list_changed`).
+
+## 12. Open items
 
 - Path arguments: policy rejects `..` segments, but symlinks inside an
   allowed tree can still point elsewhere. Resolving paths needs knowledge

@@ -2,10 +2,9 @@
 
 ## Requirements
 
-- A systemd-based Linux distribution. The packages target **openSUSE
-  Tumbleweed, Leap 16 and SLES 16**; Leap/SLES 15 need Go ≥ 1.24 to build
-  and use AppArmor instead of SELinux (the SELinux module does not apply
-  there).
+- **SLES 16 or openSUSE Leap 16**; openSUSE Tumbleweed is built too, as
+  the development platform. SLES 15 and Leap 15 are not supported (they
+  use AppArmor; the confinement relies on SELinux).
 - **OPA** (`/usr/bin/opa`), the Open Policy Agent binary.
 - **SELinux** in enforcing mode is recommended (the gateway also runs
   without it, with less isolation).

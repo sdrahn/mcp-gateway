@@ -4,6 +4,14 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## Unreleased
+
+### Changed
+
+- Supported distributions are SLES 16 and openSUSE Leap 16; Tumbleweed
+  is the development platform. SLES 15 and Leap 15 (AppArmor) are out of
+  scope.
+
 ## v0.2.6 — 2026-10-01
 
 Permissions can offer approvals for a fixed time, for agents that open a
