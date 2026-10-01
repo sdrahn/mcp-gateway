@@ -1,0 +1,1 @@
+/usr/bin/systemd-mcp		--	gen_context(system_u:object_r:mcpsrv_systemd_exec_t,s0)

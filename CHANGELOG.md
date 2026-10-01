@@ -8,6 +8,18 @@ change configuration, policy data or APIs.
 
 ### Added
 
+- Setup packages for system management servers:
+  `mcp-gateway-profile-systemd`, `-firewalld`, `-zypp` and
+  `-suseconnect` install the server definition, the roles to bind users
+  to (`systemd-reader`, `systemd-operator`, `firewalld-reader`,
+  `zypp-reader`, `zypp-installer`, `suseconnect-reader`,
+  `suseconnect-admin`), and where needed the account `mcp-sysmgmt` and a
+  polkit rule. `mcp-gateway-profile-zypp` includes a privileged
+  definition to link into `/etc/mcp-gateway/servers.d`. The SELinux
+  modules `mcp_systemd`, `mcp_firewalld`, `mcp_zypp` and
+  `mcp_suseconnect` come with `mcp-gateway-selinux`; they replace modules
+  of the same names built from the user guide's examples.
+
 - Roles shipped with server setups: files in
   `/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.json`
   (`data.mcp.profiles`) add roles that bindings may name; a role of the

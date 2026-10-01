@@ -1,0 +1,1 @@
+/usr/bin/firewalld-mcp		--	gen_context(system_u:object_r:mcpsrv_firewalld_exec_t,s0)

@@ -1,0 +1,8 @@
+// mcp-gateway-profile-firewalld: firewalld-mcp behind mcp-gateway runs as
+// mcp-sysmgmt, without a login session, and may read the firewall
+// configuration. It has no changing tools, so nothing more is granted.
+polkit.addRule(function(action, subject) {
+    if (subject.user == "mcp-sysmgmt" && action.id == "org.fedoraproject.FirewallD1.info")
+        return polkit.Result.YES;
+    return polkit.Result.NOT_HANDLED;
+});

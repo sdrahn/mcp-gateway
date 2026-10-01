@@ -1,0 +1,8 @@
+# firewalld-mcp (https://github.com/janvhs/firewalld-mcp), set up by the
+# package mcp-gateway-profile-firewalld. It only reads the firewall
+# configuration (role firewalld-reader). Override or mask in
+# /etc/mcp-gateway/servers.d.
+name: firewalld
+command: ["/usr/bin/firewalld-mcp"]
+run_as: mcp-sysmgmt
+selinux_type: mcpsrv_firewalld_t

@@ -4,3 +4,6 @@
 *.test
 coverage.out
 /node_modules/
+# Interface stubs the SELinux build generates for the setup modules.
+/selinux/mcp_*.if
+!/selinux/mcp_gateway.if

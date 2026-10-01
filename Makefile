@@ -33,8 +33,13 @@ DESTDIR     ?=
 
 BINARIES := bin/mcp-gateway bin/mcp-connect bin/mcp-gateway-notify bin/mcp-fs-demo
 
+# Server setups (profiles/<name>, SELinux module selinux/mcp_<name>.te),
+# packaged as mcp-gateway-profile-<name>.
+PROFILES := systemd firewalld zypp suseconnect
+
 .PHONY: all build test vet lint fmt-check policy-check policy-test selinux check \
-	install install-gateway install-selinux install-cockpit install-desktop install-demo clean
+	install install-gateway install-selinux install-cockpit install-desktop install-demo \
+	install-profiles clean
 
 all: build
 
@@ -68,10 +73,14 @@ policy-check:
 policy-test:
 	$(OPA) test policy -v
 
-selinux: selinux/mcp_gateway.pp
+selinux: selinux/mcp_gateway.pp $(PROFILES:%=selinux/mcp_%.pp)
 
 selinux/mcp_gateway.pp: selinux/mcp_gateway.te selinux/mcp_gateway.if selinux/mcp_gateway.fc
 	$(MAKE) -C selinux -f $(SELINUX_DEVEL) mcp_gateway.pp
+
+# The setups' modules build on mcp_gateway.if, found next to them.
+selinux/mcp_%.pp: selinux/mcp_%.te selinux/mcp_%.fc selinux/mcp_gateway.if
+	$(MAKE) -C selinux -f $(SELINUX_DEVEL) mcp_$*.pp
 
 # Everything CI runs, except lint and the SELinux build.
 check: fmt-check vet test policy-check policy-test
@@ -103,11 +112,26 @@ install-gateway:
 	install -Dm0644 packaging/tmpfiles.d/mcp-gateway.conf $(DESTDIR)$(TMPFILESDIR)/mcp-gateway.conf
 	install -Dm0644 packaging/polkit/50-mcp-gateway.rules $(DESTDIR)$(POLKITDIR)/50-mcp-gateway.rules
 
-install-selinux: selinux/mcp_gateway.pp
+install-selinux: selinux
 	install -d $(DESTDIR)$(SELINUXDIR)
-	bzip2 -9 -c selinux/mcp_gateway.pp >$(DESTDIR)$(SELINUXDIR)/mcp_gateway.pp.bz2
-	chmod 0644 $(DESTDIR)$(SELINUXDIR)/mcp_gateway.pp.bz2
+	for m in gateway $(PROFILES); do \
+		bzip2 -9 -c selinux/mcp_$$m.pp >$(DESTDIR)$(SELINUXDIR)/mcp_$$m.pp.bz2 && \
+		chmod 0644 $(DESTDIR)$(SELINUXDIR)/mcp_$$m.pp.bz2 || exit 1; \
+	done
 	install -Dm0644 selinux/mcp_gateway.if $(DESTDIR)$(SELINUXINCDIR)/mcp_gateway.if
+
+# Server setups: definition (active once installed), shipped roles, polkit
+# rule and service account where the setup has them.
+install-profiles:
+	for p in $(PROFILES); do \
+		install -Dm0644 profiles/$$p/$$p.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/$$p.yaml && \
+		install -Dm0644 profiles/$$p/roles.json $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/$$p/data.json && \
+		{ [ ! -f profiles/$$p/polkit.rules ] || \
+		  install -Dm0644 profiles/$$p/polkit.rules $(DESTDIR)$(POLKITDIR)/60-mcp-gateway-$$p.rules; } && \
+		{ [ ! -f profiles/$$p/sysusers.conf ] || \
+		  install -Dm0644 profiles/$$p/sysusers.conf $(DESTDIR)$(SYSUSERSDIR)/mcp-gateway-profile-$$p.conf; } || exit 1; \
+	done
+	install -Dm0644 profiles/zypp/zypp-privileged.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/profiles/zypp-privileged.yaml
 
 install-cockpit:
 	install -d $(DESTDIR)$(COCKPITDIR)
@@ -127,4 +151,4 @@ install-demo:
 	chmod 0644 $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/fs-demo.yaml
 
 clean:
-	rm -rf bin selinux/tmp selinux/*.pp
+	rm -rf bin selinux/tmp selinux/*.pp $(PROFILES:%=selinux/mcp_%.if)

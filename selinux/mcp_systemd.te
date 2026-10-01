@@ -1,0 +1,47 @@
+policy_module(mcp_systemd, 1.0.0)
+
+# systemd-mcp (openSUSE/systemd-mcp) behind mcp-gateway: package
+# mcp-gateway-profile-systemd. It talks to systemd and polkit over the
+# system bus, reads the journal (as a member of systemd-journal), and runs
+# getfacl, man and rpm for get_file, get_man_page and list_log.
+
+mcp_gateway_backend_template(systemd)
+
+dbus_system_bus_client(mcpsrv_systemd_t)
+init_dbus_chat(mcpsrv_systemd_t)
+optional_policy(`
+	policykit_dbus_chat(mcpsrv_systemd_t)
+')
+
+# list_log: the journal files.
+logging_read_generic_logs(mcpsrv_systemd_t)
+optional_policy(`
+	logging_read_all_logs(mcpsrv_systemd_t)
+')
+
+# get_file, get_man_page, list_log: helper programs and what they read.
+corecmd_exec_bin(mcpsrv_systemd_t)
+files_read_usr_files(mcpsrv_systemd_t)
+miscfiles_read_man_pages(mcpsrv_systemd_t)
+optional_policy(`
+	rpm_read_db(mcpsrv_systemd_t)
+')
+# Unit files (get_file below /etc/systemd and /usr/lib/systemd); the type
+# is systemd_unit_file_t in Fedora-derived policy, systemd_unit_t in the
+# reference policy, so plainly for either.
+optional_policy(`
+	gen_require(`
+		type systemd_unit_file_t;
+	')
+	list_dirs_pattern(mcpsrv_systemd_t, systemd_unit_file_t, systemd_unit_file_t)
+	read_files_pattern(mcpsrv_systemd_t, systemd_unit_file_t, systemd_unit_file_t)
+	read_lnk_files_pattern(mcpsrv_systemd_t, systemd_unit_file_t, systemd_unit_file_t)
+')
+optional_policy(`
+	gen_require(`
+		type systemd_unit_t;
+	')
+	list_dirs_pattern(mcpsrv_systemd_t, systemd_unit_t, systemd_unit_t)
+	read_files_pattern(mcpsrv_systemd_t, systemd_unit_t, systemd_unit_t)
+	read_lnk_files_pattern(mcpsrv_systemd_t, systemd_unit_t, systemd_unit_t)
+')

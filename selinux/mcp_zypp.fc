@@ -1,0 +1,2 @@
+/usr/bin/mcp-server-zypp				--	gen_context(system_u:object_r:mcpsrv_zypp_exec_t,s0)
+/usr/libexec/mcp-server-zypp/zypp-mcp-tool		--	gen_context(system_u:object_r:rpm_exec_t,s0)

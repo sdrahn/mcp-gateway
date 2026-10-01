@@ -1359,22 +1359,26 @@ on SLES 16 although CI (Tumbleweed only) was green, and agents differ in
 how they use sessions. Steps 10–14 lead to a 1.0 for SLES 16 and Leap 16.
 
 10. **Server profiles, tested on the target distributions:**
-    - profiles for systemd-mcp (openSUSE/systemd-mcp), firewalld,
-      snapper, mcp-server-zypp and suseconnect-mcp (SUSE/connect-ng):
-      server definition with sandbox settings, SELinux domain
-      (`mcp_gateway_backend_template`), polkit rules, account groups and
-      suggested role data, enabled with one step;
+    - setup packages `mcp-gateway-profile-<name>` (installing one
+      enables the server) for systemd-mcp (openSUSE/systemd-mcp),
+      firewalld-mcp (janvhs/firewalld-mcp), mcp-server-zypp and
+      suseconnect-mcp (SUSE/connect-ng): server definition with sandbox
+      settings, account and polkit rule where needed, and shipped roles
+      (`data.mcp.profiles`, §6.4) to bind users to; the SELinux domains
+      in `mcp-gateway-selinux` (done; snapper has no known upstream);
     - privileged backends (§5.7.1, D9) for package installation with
       mcp-server-zypp, with a VM test that installs and removes a
-      package through the gateway after an approval;
+      package through the gateway after an approval (done);
     - what a server cannot do behind a gateway (own interactive polkit
       checks, unused options, fixed state paths) goes to its upstream
       as an issue or patch rather than into a workaround here;
     - the VM test (SELinux enforcing, no denials) runs these servers, not
       only the demo server, and reads and changes something through each,
       with an approval;
-    - CI builds and VM-tests on SLES 16 and Leap 16 (Tumbleweed stays as
-      the early warning), plus an upgrade test from the previous release.
+    - CI builds the servers from their upstream sources at pinned
+      versions and VM-tests on Leap 16 and Tumbleweed (SLES 16 through
+      the OBS builds; testing it in CI would need a registration code),
+      plus an upgrade test from the previous release.
 11. **Stable interfaces:** versioned `gateway.yaml`, server definitions,
     role data, the policy input and decision documents and the control
     API; a deprecation policy (warn for one minor release, then remove);

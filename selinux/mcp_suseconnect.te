@@ -1,0 +1,30 @@
+policy_module(mcp_suseconnect, 1.0.0)
+
+# suseconnect-mcp (SUSE/connect-ng, package mcp-server-suseconnect) behind
+# mcp-gateway: package mcp-gateway-profile-suseconnect. It runs as root
+# (in the sandbox), talks to SCC or an RMT server over HTTPS, keeps a call
+# count in /var/lib/suseconnect-mcp and reads and writes the system
+# credentials in /etc/zypp/credentials.d.
+
+mcp_gateway_backend_template(suseconnect)
+
+type mcpsrv_suseconnect_var_lib_t;
+files_type(mcpsrv_suseconnect_var_lib_t)
+manage_dirs_pattern(mcpsrv_suseconnect_t, mcpsrv_suseconnect_var_lib_t, mcpsrv_suseconnect_var_lib_t)
+manage_files_pattern(mcpsrv_suseconnect_t, mcpsrv_suseconnect_var_lib_t, mcpsrv_suseconnect_var_lib_t)
+files_search_var_lib(mcpsrv_suseconnect_t)
+
+# SCC / RMT over HTTPS.
+sysnet_dns_name_resolve(mcpsrv_suseconnect_t)
+corenet_tcp_connect_http_port(mcpsrv_suseconnect_t)
+miscfiles_read_generic_certs(mcpsrv_suseconnect_t)
+
+# /etc/zypp/credentials.d/SCCcredentials (system_conf_t on openSUSE).
+optional_policy(`
+	gen_require(`
+		type system_conf_t;
+	')
+	manage_files_pattern(mcpsrv_suseconnect_t, system_conf_t, system_conf_t)
+	allow mcpsrv_suseconnect_t system_conf_t:dir rw_dir_perms;
+')
+files_read_etc_files(mcpsrv_suseconnect_t)

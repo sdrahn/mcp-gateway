@@ -104,6 +104,65 @@ A minimal stdio MCP server offering file tools, resources and a prompt
 on the connecting user's home directory, registered with mcp-gateway as
 server "fs". For trying out and testing the gateway.
 
+%package profile-systemd
+Summary:        systemd-mcp behind mcp-gateway
+Group:          System/Management
+BuildArch:      noarch
+Requires:       %{name} = %{version}
+Recommends:     systemd-mcp
+%sysusers_requires
+
+%description profile-systemd
+Sets up systemd-mcp (https://github.com/openSUSE/systemd-mcp) behind
+mcp-gateway: the server definition, the account mcp-sysmgmt (a member
+of systemd-journal), a polkit rule letting that account manage units,
+and the roles systemd-reader and systemd-operator to bind users to.
+Changes to units need an approval.
+
+%package profile-firewalld
+Summary:        firewalld-mcp behind mcp-gateway
+Group:          System/Management
+BuildArch:      noarch
+Requires:       %{name} = %{version}
+Recommends:     firewalld-mcp
+%sysusers_requires
+
+%description profile-firewalld
+Sets up firewalld-mcp (https://github.com/janvhs/firewalld-mcp) behind
+mcp-gateway: the server definition, the account mcp-sysmgmt, a polkit
+rule letting it read the firewall configuration, and the role
+firewalld-reader.
+
+%package profile-zypp
+Summary:        mcp-server-zypp behind mcp-gateway
+Group:          System/Management
+BuildArch:      noarch
+Requires:       %{name} = %{version}
+Recommends:     mcp-server-zypp
+%sysusers_requires
+
+%description profile-zypp
+Sets up mcp-server-zypp (https://github.com/openSUSE/mcp-server-zypp)
+behind mcp-gateway: searching packages, dependencies and updates and
+planning installations as the account mcp-sysmgmt, in the sandbox (role
+zypp-reader). A definition as a privileged server, which can install and
+remove packages with approval (role zypp-installer), is included for
+the administrator to enable.
+
+%package profile-suseconnect
+Summary:        suseconnect-mcp behind mcp-gateway
+Group:          System/Management
+BuildArch:      noarch
+Requires:       %{name} = %{version}
+Recommends:     mcp-server-suseconnect
+
+%description profile-suseconnect
+Sets up suseconnect-mcp (package mcp-server-suseconnect) behind
+mcp-gateway: the server definition (root, in the sandbox, with network
+access and write access to the system credentials) and the roles
+suseconnect-reader and suseconnect-admin. Changes to the registration
+need an approval.
+
 %prep
 %autosetup -p1 -a1
 
@@ -112,9 +171,12 @@ export GOFLAGS="-mod=vendor"
 %make_build build VERSION=%{version}
 make selinux
 %sysusers_generate_pre packaging/sysusers.d/mcp-gateway.conf %{name} %{name}.conf
+%sysusers_generate_pre profiles/systemd/sysusers.conf %{name}-profile-systemd %{name}-profile-systemd.conf
+%sysusers_generate_pre profiles/firewalld/sysusers.conf %{name}-profile-firewalld %{name}-profile-firewalld.conf
+%sysusers_generate_pre profiles/zypp/sysusers.conf %{name}-profile-zypp %{name}-profile-zypp.conf
 
 %install
-%make_install install install-selinux install-cockpit install-desktop install-demo \
+%make_install install install-selinux install-cockpit install-desktop install-demo install-profiles \
     PREFIX=%{_prefix} BINDIR=%{_bindir} SBINDIR=%{_sbindir} LIBEXECDIR=%{_libexecdir} \
     DATADIR=%{_datadir} SYSCONFDIR=%{_sysconfdir} DISTCONFDIR=%{_distconfdir} \
     UNITDIR=%{_unitdir} SYSUSERSDIR=%{_sysusersdir} TMPFILESDIR=%{_tmpfilesdir} \
@@ -122,7 +184,7 @@ make selinux
 
 %check
 export GOFLAGS="-mod=vendor"
-go test ./internal/...
+go test ./internal/... ./profiles/...
 
 %pre -f %{name}.pre
 %service_add_pre mcp-gateway.service mcp-opa.service
@@ -141,15 +203,25 @@ go test ./internal/...
 %service_del_postun_without_restart mcp-gateway.service
 %service_del_postun mcp-opa.service
 
+%pre profile-systemd -f %{name}-profile-systemd.pre
+
+%pre profile-firewalld -f %{name}-profile-firewalld.pre
+
+%pre profile-zypp -f %{name}-profile-zypp.pre
+
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
 
 %post selinux
-%selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
+%selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2 \
+    %{_datadir}/selinux/packages/%{selinuxtype}/mcp_systemd.pp.bz2 \
+    %{_datadir}/selinux/packages/%{selinuxtype}/mcp_firewalld.pp.bz2 \
+    %{_datadir}/selinux/packages/%{selinuxtype}/mcp_zypp.pp.bz2 \
+    %{_datadir}/selinux/packages/%{selinuxtype}/mcp_suseconnect.pp.bz2
 
 %postun selinux
 if [ $1 -eq 0 ]; then
-    %selinux_modules_uninstall -s %{selinuxtype} %{modulename}
+    %selinux_modules_uninstall -s %{selinuxtype} mcp_systemd mcp_firewalld mcp_zypp mcp_suseconnect %{modulename}
 fi
 
 %posttrans selinux
@@ -176,7 +248,10 @@ fi
 %endif
 %dir %{_datadir}/mcp-gateway
 %dir %{_datadir}/mcp-gateway/servers.d
-%{_datadir}/mcp-gateway/policy
+%dir %{_datadir}/mcp-gateway/policy
+%dir %{_datadir}/mcp-gateway/policy/mcp
+%{_datadir}/mcp-gateway/policy/mcp/*.rego
+%dir %{_datadir}/mcp-gateway/policy/mcp/profiles
 %{_datadir}/mcp-gateway/opa
 %{_datadir}/mcp-gateway/mcs
 %{_datadir}/mcp-gateway/schema
@@ -189,6 +264,10 @@ fi
 %files selinux
 %dir %{_datadir}/selinux/packages/%{selinuxtype}
 %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
+%{_datadir}/selinux/packages/%{selinuxtype}/mcp_systemd.pp.bz2
+%{_datadir}/selinux/packages/%{selinuxtype}/mcp_firewalld.pp.bz2
+%{_datadir}/selinux/packages/%{selinuxtype}/mcp_zypp.pp.bz2
+%{_datadir}/selinux/packages/%{selinuxtype}/mcp_suseconnect.pp.bz2
 %{_datadir}/selinux/devel/include/services/%{modulename}.if
 
 %files cockpit
@@ -203,5 +282,28 @@ fi
 %dir %{_libexecdir}/mcp-servers
 %{_libexecdir}/mcp-servers/mcp-fs-demo
 %{_datadir}/mcp-gateway/servers.d/fs-demo.yaml
+
+%files profile-systemd
+%{_datadir}/mcp-gateway/servers.d/systemd.yaml
+%{_datadir}/mcp-gateway/policy/mcp/profiles/systemd
+%{_datadir}/polkit-1/rules.d/60-mcp-gateway-systemd.rules
+%{_sysusersdir}/%{name}-profile-systemd.conf
+
+%files profile-firewalld
+%{_datadir}/mcp-gateway/servers.d/firewalld.yaml
+%{_datadir}/mcp-gateway/policy/mcp/profiles/firewalld
+%{_datadir}/polkit-1/rules.d/60-mcp-gateway-firewalld.rules
+%{_sysusersdir}/%{name}-profile-firewalld.conf
+
+%files profile-zypp
+%{_datadir}/mcp-gateway/servers.d/zypp.yaml
+%{_datadir}/mcp-gateway/policy/mcp/profiles/zypp
+%{_sysusersdir}/%{name}-profile-zypp.conf
+%dir %{_datadir}/mcp-gateway/profiles
+%{_datadir}/mcp-gateway/profiles/zypp-privileged.yaml
+
+%files profile-suseconnect
+%{_datadir}/mcp-gateway/servers.d/suseconnect.yaml
+%{_datadir}/mcp-gateway/policy/mcp/profiles/suseconnect
 
 %changelog
