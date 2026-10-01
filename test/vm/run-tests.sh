@@ -411,6 +411,7 @@ echo "  auditd: $(systemctl is-active auditd); records since the install: $(audi
 audit_since SERVICE_START | grep -o 'unit=mcp-[a-z-]*' | sort | uniq -c | sed 's/^/  /'
 audit_since TRUSTED_APP |
 	grep -o 'op=mcp-[a-z-]*' | sort | uniq -c | sed 's/^/  /'
+audit_since TRUSTED_APP | grep 'op=mcp-decision' | cut -c1-600 | sed 's/^/  /'
 check "the audit log has the gateway's service start" audit_log_works
 check "the gateway start is audited" audited mcp-gateway-start
 check "the denial is audited" audited mcp-decision
