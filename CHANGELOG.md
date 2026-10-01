@@ -30,6 +30,24 @@ change configuration, policy data or APIs.
   is the development platform. SLES 15 and Leap 15 (AppArmor) are out of
   scope.
 
+## v0.2.8 — 2026-10-01
+
+The gateway's records in the kernel audit log are no longer cut short.
+Upgrading from 0.2.7 needs no configuration changes.
+
+### Fixed
+
+- Kernel audit records of the gateway lost their last character
+  (`res=succes`, `res=faile`): the kernel replaces the last byte of a user
+  record with a NUL, which the gateway did not send. Tools that filter
+  on `res=` (`ausearch --success`, `aureport`) misread them.
+
+## v0.2.7 — 2026-10-01
+
+MCP servers' log output (stderr) reaches the journal again instead of
+the gateway's connection to the server. Upgrading from 0.2.6 needs no
+configuration changes.
+
 ### Fixed
 
 - What MCP servers write to stderr went to the gateway's connection to
@@ -38,10 +56,6 @@ change configuration, policy data or APIs.
   lines ("invalid message from backend"), so calls worked, but the
   servers' logs were missing from the journal. Instances now get
   `StandardOutput=null` (stdout is still the gateway's socket).
-- Kernel audit records of the gateway lost their last character
-  (`res=succes`, `res=faile`): the kernel replaces the last byte of a user
-  record with a NUL, which the gateway did not send. Tools that filter
-  on `res=` (`ausearch --success`, `aureport`) misread them.
 
 ## v0.2.6 — 2026-10-01
 
