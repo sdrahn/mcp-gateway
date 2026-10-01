@@ -430,6 +430,9 @@ section "Server setups"
 # systemd changes a unit after an approval, all with SELinux enforcing.
 if [ -d "$dir/servers" ]; then
 	cp -a "$dir/servers/." /
+	# CI artifacts do not keep file modes.
+	chmod 0755 /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
+		/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp/zypp-mcp-tool
 	restorecon -R /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
 		/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp
 	rpm -Uvh --nodeps "$dir"/rpms/mcp-gateway-profile-*.rpm >/dev/null || die "installing the setup packages failed"
