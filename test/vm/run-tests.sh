@@ -174,6 +174,12 @@ check "alice cannot read bob's file" failed_without "bob secret"
 tool alice delete_file '{"path":"/home/alice/secret.txt"}'
 check "delete is denied by policy" tool_error_with "denied by policy"
 check "the file was not deleted" test -f /home/alice/secret.txt
+# The demo server logs a line to stderr at start: it belongs in the
+# instance's journal, not on the MCP connection.
+check "a server's stderr goes to the journal" \
+	bash -c "journalctl -u 'mcp-fs-*' -o cat | grep -q 'mcp-fs-demo: serving'"
+check "no server output reached the gateway as invalid messages" \
+	bash -c "! journalctl -u mcp-gateway.service -o cat | grep -q 'invalid message from backend'"
 
 section "Instances"
 systemctl list-units --type=service --plain --no-legend 'mcp-*' | awk '{print "  " $1, $4}'

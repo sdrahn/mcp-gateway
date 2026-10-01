@@ -42,6 +42,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	// A log line on stderr, which belongs in the journal, never on the
+	// MCP connection (the VM tests check where it ends up).
+	fmt.Fprintln(os.Stderr, "mcp-fs-demo: serving", root)
+
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 64<<10), 16<<20)
 	out := json.NewEncoder(os.Stdout)

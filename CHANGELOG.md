@@ -4,6 +4,17 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## Unreleased
+
+### Fixed
+
+- What MCP servers write to stderr went to the gateway's connection to
+  the server instead of the journal: with stdout passed as a file
+  descriptor, systemd duplicated it to stderr. The gateway skipped such
+  lines ("invalid message from backend"), so calls worked, but the
+  servers' logs were missing from the journal. Instances now get
+  `StandardOutput=null` (stdout is still the gateway's socket).
+
 ## v0.2.6 — 2026-10-01
 
 Permissions can offer approvals for a fixed time, for agents that open a

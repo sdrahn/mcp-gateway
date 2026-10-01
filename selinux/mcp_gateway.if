@@ -82,6 +82,8 @@ template(`mcp_gateway_backend_template',`
 	allow mcpsrv_$1_t cgroup_t:dir search_dir_perms;
 	allow mcpsrv_$1_t cgroup_t:file read_file_perms;
 	logging_send_syslog_msg(mcpsrv_$1_t)
+	# stderr: the journal stream systemd connected for the unit.
+	init_rw_stream_sockets(mcpsrv_$1_t)
 	miscfiles_read_localization(mcpsrv_$1_t)
 ')
 
