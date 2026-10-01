@@ -217,7 +217,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		}
 		log.Info("listening", "control", gw.Approvals.ControlSocket)
 		cs := &controlapi.Server{Broker: b, Backends: backends, Instances: r, Policy: opa,
-			Review: opa, Catalog: r, Log: log}
+			Review: opa, Catalog: r, Log: log, RestartPending: restartPending}
 		go func() {
 			if err := cs.Serve(ctx, cl); err != nil {
 				log.Error("control API failed", "err", err)
@@ -228,6 +228,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if mcsAvoid {
 		go watchMCS(ctx, log, auditLog, sd, gw.Supervisor)
 	}
+	go watchUpdate(ctx, log)
 
 	// Clients learn about policy changes through list_changed.
 	go r.WatchPolicy(ctx, gw.Policy.WatchInterval, opa.Fingerprint, func() {
@@ -302,6 +303,32 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, r *router.Router, errc chan<- 
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}, nil
+}
+
+// restartPending reports whether the running program was replaced on
+// disk: the package does not restart the gateway on update, since an
+// update made through a privileged server would wait for itself
+// (docs/architecture.md, section 5.7.1).
+func restartPending() bool {
+	exe, err := os.Readlink("/proc/self/exe")
+	return err == nil && strings.HasSuffix(exe, " (deleted)")
+}
+
+// watchUpdate logs once when the program was updated.
+func watchUpdate(ctx context.Context, log *slog.Logger) {
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if restartPending() {
+			log.Warn("mcp-gateway was updated; restart mcp-gateway.service to use the new version (calls to privileged servers are waited for)")
+			return
+		}
+	}
 }
 
 // newAudit sets up the audit trail: JSON records on stderr (journald),

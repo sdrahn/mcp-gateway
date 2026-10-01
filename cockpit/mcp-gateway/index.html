@@ -25,6 +25,11 @@
         <button role="tab" data-tab="audit">Audit</button>
     </nav>
     <div id="error" class="error" hidden></div>
+    <div id="restart-note" class="note" hidden>
+        mcp-gateway was updated and keeps running the previous version until
+        <code>mcp-gateway.service</code> is restarted. A restart waits for calls to
+        privileged servers to finish.
+    </div>
     <main>
         <div id="tab-approvals" class="tab" hidden>
             <section>

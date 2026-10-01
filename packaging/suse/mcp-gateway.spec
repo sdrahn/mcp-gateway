@@ -135,7 +135,11 @@ go test ./internal/...
 %service_del_preun mcp-gateway.service mcp-opa.service
 
 %postun
-%service_del_postun mcp-gateway.service mcp-opa.service
+# The gateway is not restarted on update: an update made through a
+# privileged MCP server (package installation) would wait for itself. It
+# logs, and the Cockpit page shows, that a restart is pending.
+%service_del_postun_without_restart mcp-gateway.service
+%service_del_postun mcp-opa.service
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}

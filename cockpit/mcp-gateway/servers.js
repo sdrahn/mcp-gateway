@@ -38,6 +38,12 @@ async function instanceLog(inst, box) {
 function instanceRow(inst) {
     const stop = el("button", { class: "danger" }, "Stop");
     stop.addEventListener("click", () => stopInstance(inst, stop));
+    // A privileged instance is not stopped while a call runs (it may be
+    // installing packages).
+    if (inst.privileged && inst.busy) {
+        stop.disabled = true;
+        stop.title = "A call is running; the instance stops when it ends.";
+    }
     const log = el("pre", { class: "log" });
     log.hidden = !openLogs.has(inst.id);
     const logButton = el("button", { class: "secondary" }, log.hidden ? "Show log" : "Hide log");
@@ -54,7 +60,8 @@ function instanceRow(inst) {
     if (!log.hidden) instanceLog(inst, log);
     const who = inst.sub + (inst.iss ? " (" + inst.iss + ")" : "") + " via " + inst.transport +
         (inst.session_id ? ", session " + inst.session_id.slice(0, 8) : "");
-    const use = inst.sessions > 0 ? inst.sessions + (inst.sessions === 1 ? " session" : " sessions") : "idle";
+    let use = inst.sessions > 0 ? inst.sessions + (inst.sessions === 1 ? " session" : " sessions") : "idle";
+    if (inst.busy) use += ", call running";
     return el("div", { class: "instance" },
               el("div", { class: "instance-head" },
                  el("span", null, who),
@@ -74,6 +81,7 @@ function renderServers(servers) {
     for (const s of servers) {
         const facts = [s.selinux_type || "mcpsrv_generic_t", "isolation: " + s.isolation,
             s.network ? "network" : "no network", "runs as " + s.run_as];
+        if (s.privileged) facts.push("privileged: no sandbox, every call by policy and approval");
         const card = el("div", { class: "card" },
                         el("h3", null, s.name),
                         el("div", { class: "muted" }, facts.join(" · ")));

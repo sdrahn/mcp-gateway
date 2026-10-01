@@ -10,6 +10,7 @@
 // API (JSON):
 //
 //	GET    /v1/whoami
+//	GET    /v1/status           {"restart_pending": true} after an update
 //	GET    /v1/approvals
 //	GET    /v1/approvals/{id}
 //	POST   /v1/approvals/{id}   {"decision": "approve"|"deny", "scope": "session"}
@@ -81,6 +82,9 @@ type Server struct {
 	Log     *slog.Logger
 	// Identify maps peer credentials to an approver; defaults to NSS.
 	Identify func(transport.PeerCred) (broker.Approver, error)
+	// RestartPending, if set, tells whether the gateway's program was
+	// replaced (the package does not restart it on update).
+	RestartPending func() bool
 
 	stopping <-chan struct{} // closed when Serve's context ends
 }
@@ -124,6 +128,9 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/whoami", s.with(func(w http.ResponseWriter, _ *http.Request, a broker.Approver) {
 		writeJSON(w, http.StatusOK, a)
+	}))
+	mux.HandleFunc("GET /v1/status", s.with(func(w http.ResponseWriter, _ *http.Request, _ broker.Approver) {
+		writeJSON(w, http.StatusOK, map[string]bool{"restart_pending": s.RestartPending != nil && s.RestartPending()})
 	}))
 	mux.HandleFunc("GET /v1/approvals", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
 		writeJSON(w, http.StatusOK, s.Broker.ListPending(r.Context(), a))

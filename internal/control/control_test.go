@@ -272,6 +272,17 @@ func TestServersAndInstances(t *testing.T) {
 	}
 }
 
+func TestStatus(t *testing.T) {
+	s, _, _ := setup(t)
+	if rec := call(t, s, 1001, "GET", "/v1/status", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"restart_pending":false`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	s.RestartPending = func() bool { return true }
+	if rec := call(t, s, 1001, "GET", "/v1/status", ""); !strings.Contains(rec.Body.String(), `"restart_pending":true`) {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+}
+
 func TestPolicyStatus(t *testing.T) {
 	s, _, _ := setup(t)
 	s.Policy = fakePolicy{"mcp": "r42"}
