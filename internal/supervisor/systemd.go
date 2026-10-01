@@ -101,6 +101,11 @@ func (s *Systemd) Properties(b *config.Backend, p principal.Principal, fd int, m
 		prop("Environment", environment(b, p)),
 		prop("StandardInputFileDescriptor", dbus.UnixFD(fd)),
 		prop("StandardOutputFileDescriptor", dbus.UnixFD(fd)),
+		// StandardOutput must differ from StandardError: with both
+		// "journal" (the default), systemd duplicates stdout, here the
+		// gateway's socket, to stderr. The passed descriptor still takes
+		// precedence for stdout.
+		prop("StandardOutput", "null"),
 		prop("StandardError", "journal"),
 		prop("CollectMode", "inactive-or-failed"),
 		prop("NoNewPrivileges", true),

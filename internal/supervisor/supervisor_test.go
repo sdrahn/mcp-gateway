@@ -93,6 +93,10 @@ func TestSystemdProperties(t *testing.T) {
 	if m["User"] != "alice" || m["ProtectHome"] != "no" || m["PrivateNetwork"] != true {
 		t.Errorf("props %v", m)
 	}
+	// stderr to the journal, not duplicated from stdout (the socket).
+	if m["StandardOutput"] != "null" || m["StandardError"] != "journal" {
+		t.Errorf("StandardOutput %v, StandardError %v", m["StandardOutput"], m["StandardError"])
+	}
 	if m["SELinuxContext"] != "system_u:system_r:mcpsrv_fs_t:s0:c3,c7" {
 		t.Errorf("SELinuxContext %v", m["SELinuxContext"])
 	}
