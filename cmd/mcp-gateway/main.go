@@ -20,6 +20,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"slices"
@@ -305,13 +306,39 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, r *router.Router, errc chan<- 
 	}, nil
 }
 
-// restartPending reports whether the running program was replaced on
-// disk: the package does not restart the gateway on update, since an
+// startExe is the program file the gateway was started from (nil if
+// unknown), to notice when an update replaces it.
+var startExe = programFile()
+
+// programFile stats the gateway's program file by the path it was started
+// with (the unit uses /usr/bin/mcp-gateway), not through /proc/self/exe,
+// which the gateway's SELinux domain need not read.
+func programFile() os.FileInfo {
+	path := os.Args[0]
+	if !filepath.IsAbs(path) {
+		var err error
+		if path, err = exec.LookPath(path); err != nil {
+			return nil
+		}
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	return fi
+}
+
+// restartPending reports whether the program file was replaced since the
+// start: the package does not restart the gateway on update, since an
 // update made through a privileged server would wait for itself
 // (docs/architecture.md, section 5.7.1).
 func restartPending() bool {
-	exe, err := os.Readlink("/proc/self/exe")
-	return err == nil && strings.HasSuffix(exe, " (deleted)")
+	return replaced(startExe, programFile())
+}
+
+// replaced reports whether now is another file than start (or gone).
+func replaced(start, now os.FileInfo) bool {
+	return start != nil && (now == nil || !os.SameFile(start, now))
 }
 
 // watchUpdate logs once when the program was updated.

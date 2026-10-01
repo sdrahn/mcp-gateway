@@ -153,7 +153,7 @@ else
 	echo "  opa: release binary ($(opa version | head -1))"
 fi
 install -m 0755 "$dir/mcpcall" /usr/local/bin/mcpcall
-install -D -m 0755 "$dir/privsrv" /usr/local/libexec/mcpgw-privtest
+install -D -m 0755 "$dir/privsrv" /usr/libexec/mcpgw-privtest
 since=$(date +%s)
 rpm -Uvh --nodeps "$dir"/rpms/mcp-gateway-[0-9]*.rpm "$dir"/rpms/mcp-gateway-selinux-*.rpm \
 	"$dir"/rpms/mcp-gateway-demo-server-*.rpm || die "installing the packages failed"
@@ -286,12 +286,14 @@ policy_module(mcp_privtest, 1.0)
 mcp_gateway_backend_template(privtest)
 mcp_gateway_backend_rpm(privtest)
 END
-printf '/usr/local/libexec/mcpgw-privtest\t--\tgen_context(system_u:object_r:mcpsrv_privtest_exec_t,s0)\n' \
+printf '/usr/libexec/mcpgw-privtest\t--\tgen_context(system_u:object_r:mcpsrv_privtest_exec_t,s0)\n' \
 	>/root/privtest/mcp_privtest.fc
 make -s -C /root/privtest -f /usr/share/selinux/devel/Makefile mcp_privtest.pp >/root/privtest/build.log 2>&1 ||
 	sed 's/^/  /' /root/privtest/build.log
 check "a backend module builds with the installed interface" test -f /root/privtest/mcp_privtest.pp
-semodule -i /root/privtest/mcp_privtest.pp && restorecon /usr/local/libexec/mcpgw-privtest
+semodule -i /root/privtest/mcp_privtest.pp && restorecon /usr/libexec/mcpgw-privtest
+echo "  $(file_label /usr/libexec/mcpgw-privtest) /usr/libexec/mcpgw-privtest"
+check "the test server is labeled mcpsrv_privtest_exec_t" file_has_type /usr/libexec/mcpgw-privtest mcpsrv_privtest_exec_t
 cat >/root/privtest/mcpgw-vmtest.spec <<'END'
 Name: mcpgw-vmtest
 Version: 1
@@ -312,7 +314,7 @@ test_rpm=/srv/mcpgw-vmtest/noarch/mcpgw-vmtest-1-1.noarch.rpm
 check "the test package was built" test -f "$test_rpm"
 cat >/etc/mcp-gateway/servers.d/privtest.yaml <<'END'
 name: privtest
-command: ["/usr/local/libexec/mcpgw-privtest"]
+command: ["/usr/libexec/mcpgw-privtest"]
 run_as: root
 selinux_type: mcpsrv_privtest_t
 privileged: true
@@ -370,10 +372,16 @@ wait_socket
 
 section "Update without restart"
 gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
+ls -li /usr/bin/mcp-gateway | sed 's/^/  before: /'
 rpm -Uvh --force --nodeps "$dir"/rpms/mcp-gateway-[0-9]*.rpm >/dev/null 2>&1
 sleep 2
+ls -li /usr/bin/mcp-gateway | sed 's/^/  after:  /'
 check "a package update does not restart the gateway" \
 	test "$(systemctl show -p MainPID --value mcp-gateway.service)" = "$gw_pid"
+# A reinstall of the same build may leave the file as it is; replace it
+# the way an update does (new file renamed over the old one).
+cp -p /usr/bin/mcp-gateway /usr/bin/.mcp-gateway.vmtest && mv /usr/bin/.mcp-gateway.vmtest /usr/bin/mcp-gateway &&
+	restorecon /usr/bin/mcp-gateway
 status=$(control alice GET /v1/status)
 echo "  $status"
 check "the control API reports the pending restart" grep -qF '"restart_pending":true' <<<"$status"
