@@ -4,7 +4,21 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
-## Unreleased
+## v0.3.0 — 2026-10-01
+
+Agents can install and remove packages through the gateway: MCP servers
+that change the system as a whole (mcp-server-zypp) run as privileged
+servers, outside the sandbox but with every call decided by policy,
+approved and audited. The supported distributions are now SLES 16 and
+openSUSE Leap 16.
+
+Upgrading from 0.2.x needs no configuration changes. From 0.3.0 on, the
+package no longer restarts the gateway on updates; restart
+`mcp-gateway.service` yourself after an update (the update from 0.2.x
+still restarts it, through the old package's scripts). If you copied
+the system management examples from the user guide, compare them with
+chapter 13: the firewalld polkit rule is narrower and the systemd-mcp
+role no longer allows every `get_*` tool.
 
 ### Added
 
@@ -29,6 +43,31 @@ change configuration, policy data or APIs.
 - Supported distributions are SLES 16 and openSUSE Leap 16; Tumbleweed
   is the development platform. SLES 15 and Leap 15 (AppArmor) are out of
   scope.
+- User guide, chapter 13, checked against the servers' upstream
+  sources: systemd-mcp's `--allow-read`/`--allow-write` have no effect
+  (dropped from the example), its account needs the `systemd-journal`
+  group, and `get_file` is allowed freely only below the systemd
+  configuration directories; the firewalld polkit rule grants only
+  `FirewallD1.info` (firewalld-mcp only reads); new section on
+  mcp-server-zypp.
+
+## v0.2.8 — 2026-10-01
+
+The gateway's records in the kernel audit log are no longer cut short.
+Upgrading from 0.2.7 needs no configuration changes.
+
+### Fixed
+
+- Kernel audit records of the gateway lost their last character
+  (`res=succes`, `res=faile`): the kernel replaces the last byte of a user
+  record with a NUL, which the gateway did not send. Tools that filter
+  on `res=` (`ausearch --success`, `aureport`) misread them.
+
+## v0.2.7 — 2026-10-01
+
+MCP servers' log output (stderr) reaches the journal again instead of
+the gateway's connection to the server. Upgrading from 0.2.6 needs no
+configuration changes.
 
 ### Fixed
 
@@ -38,10 +77,6 @@ change configuration, policy data or APIs.
   lines ("invalid message from backend"), so calls worked, but the
   servers' logs were missing from the journal. Instances now get
   `StandardOutput=null` (stdout is still the gateway's socket).
-- Kernel audit records of the gateway lost their last character
-  (`res=succes`, `res=faile`): the kernel replaces the last byte of a user
-  record with a NUL, which the gateway did not send. Tools that filter
-  on `res=` (`ausearch --success`, `aureport`) misread them.
 
 ## v0.2.6 — 2026-10-01
 
