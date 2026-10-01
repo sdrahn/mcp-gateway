@@ -4,6 +4,21 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## v0.3.1 — 2026-10-01
+
+The gateway starts confined on openSUSE Leap 16. Upgrading from 0.3.0
+needs no configuration changes; restart the gateway after the update
+(`systemctl restart mcp-gateway.service`), since the package no longer
+does.
+
+### Fixed
+
+- SELinux: on policies that grant systemd the transition into a service
+  domain only together with `init_systemd` (openSUSE Leap 16), the
+  gateway, OPA and the server instances stayed in `init_t` and OPA failed
+  to start; the module now allows the transition under
+  `NoNewPrivileges=` itself.
+
 ## v0.3.0 — 2026-10-01
 
 Agents can install and remove packages through the gateway: MCP servers
