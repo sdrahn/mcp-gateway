@@ -57,6 +57,7 @@ template(`mcp_gateway_backend_template',`
 		type mcpgw_t;
 		type init_t;
 		type cgroup_t;
+		class process2 { nnp_transition nosuid_transition };
 	')
 
 	type mcpsrv_$1_t, mcpsrv_domain;
@@ -65,6 +66,9 @@ template(`mcp_gateway_backend_template',`
 
 	# systemd enters the domain through SELinuxContext= as well.
 	allow init_t mcpsrv_$1_t:process transition;
+	# Instances run with NoNewPrivileges=; init_system_domain grants this
+	# only where the policy defines init_systemd.
+	allow init_t mcpsrv_$1_t:process2 { nnp_transition nosuid_transition };
 
 	# stdio: the gateway-owned socketpair passed in by systemd.
 	allow mcpsrv_$1_t mcpgw_t:fd use;

@@ -159,6 +159,13 @@ gen_require(`
 allow init_t mcpgw_t:fd use;
 allow init_t mcpgw_t:unix_stream_socket rw_socket_perms;
 allow init_t mcpopa_t:process transition;
+# The services run with NoNewPrivileges=. init_daemon_domain grants
+# systemd the transition only where the policy defines init_systemd,
+# which not every distribution does (Leap 16).
+gen_require(`
+	class process2 { nnp_transition nosuid_transition };
+')
+allow init_t { mcpgw_t mcpopa_t }:process2 { nnp_transition nosuid_transition };
 allow init_t mcpgw_cred_t:dir list_dir_perms;
 allow init_t mcpgw_cred_t:file read_file_perms;
 
