@@ -16,7 +16,10 @@ The examples use the program names of the openSUSE/SLES packages
 (`/usr/bin/systemd-mcp`, `/usr/bin/firewalld-mcp`,
 `/usr/bin/snapper-mcp`); adjust the paths to your installation.
 Upstream projects: [systemd-mcp](https://github.com/openSUSE/systemd-mcp)
-(notes below are for version 0.3.5), and `suseconnect-mcp`, package
+(notes below are for version 0.3.5),
+[firewalld-mcp](https://github.com/janvhs/firewalld-mcp) (0.1.0),
+[mcp-server-zypp](https://github.com/openSUSE/mcp-server-zypp) (0.1.2),
+and `suseconnect-mcp`, package
 `mcp-server-suseconnect`, part of
 [connect-ng](https://github.com/SUSE/connect-ng).
 
@@ -106,6 +109,10 @@ Notes:
   (wrong account, or the rule file is missing). The `--allow-read` and
   `--allow-write` options have no effect in version 0.3.5; do not use
   `--noauth`, which is meant for its HTTP mode.
+- `firewalld-mcp` (0.1.0) only reads: `get_default_zone`,
+  `get_active_zones`, `get_services_for_zone`, `get_service_info` and
+  `is_default_zone`. It needs polkit's `…FirewallD1.info` action and
+  nothing more (rule below).
 - `get_file` reads any file or directory the account can read, and
   `get_file`, `get_man_page` and `list_log` run `getfacl`, `man` and
   `rpm`; the SELinux domain needs rules for those (see below).
@@ -277,8 +284,8 @@ bus as `USER_AVC`, not `AVC`.
 ```js
 // /etc/polkit-1/rules.d/60-mcp-sysmgmt.rules
 // The gateway's system management servers (run_as: mcp-sysmgmt) may manage
-// units and the firewall. Which calls run is decided by the gateway, which
-// requires approval for every change.
+// units and read the firewall configuration. Which calls run is decided by
+// the gateway, which requires approval for every change.
 polkit.addRule(function(action, subject) {
     if (subject.user != "mcp-sysmgmt")
         return polkit.Result.NOT_HANDLED;
@@ -286,7 +293,7 @@ polkit.addRule(function(action, subject) {
         action.id == "org.freedesktop.systemd1.manage-unit-files" ||
         action.id == "org.freedesktop.systemd1.reload-daemon")
         return polkit.Result.YES;
-    if (action.id.indexOf("org.fedoraproject.FirewallD1.") == 0)
+    if (action.id == "org.fedoraproject.FirewallD1.info")
         return polkit.Result.YES;
     return polkit.Result.NOT_HANDLED;
 });
@@ -299,7 +306,10 @@ actions, so a rule can name the units the servers may touch;
 
 firewalld allows queries (`…FirewallD1.info`) without a password only in
 an active login session, so even reading needs the rule for a background
-account.
+account. A firewalld MCP server that also changes the firewall needs the
+actions it uses as well (`…FirewallD1.config`, `…FirewallD1.all`);
+grant them only together with an approval permission for its changing
+tools.
 
 ### snapper: the snapper configuration
 
@@ -331,7 +341,7 @@ the shipped `admin`, which allows everything, never asks):
       {"server": "systemd",   "tool": "get_file", "args": {"path": "^/(etc|usr/lib)/systemd/"}},
       {"server": "systemd",   "tool": "*", "require_approval": true, "approval_channel": "oob"},
       {"server": "firewalld", "tool": "get_*"},
-      {"server": "firewalld", "tool": "list_*"},
+      {"server": "firewalld", "tool": "is_default_zone"},
       {"server": "firewalld", "tool": "*", "require_approval": true, "approval_channel": "oob"},
       {"server": "snapper",   "tool": "list_*"},
       {"server": "snapper",   "tool": "*", "require_approval": true, "approval_channel": "oob"}
