@@ -406,10 +406,11 @@ run_as: root
 selinux_type: mcpsrv_notype_t
 privileged: true
 END
-since=$(date +%s)
+# Not $since: audit_since reads it (the start of the test).
+restarted=$(date +%s)
 systemctl restart mcp-gateway.service
 wait_socket
-type_warning() { journalctl -u mcp-gateway.service -o cat --since "@$since" | grep 'not in the loaded SELinux policy' | grep -q 'selinux_type=mcpsrv_notype_t'; }
+type_warning() { journalctl -u mcp-gateway.service -o cat --since "@$restarted" | grep 'not in the loaded SELinux policy' | grep -q 'selinux_type=mcpsrv_notype_t'; }
 check "the gateway warns of the missing SELinux type at start" type_warning
 rm -f /etc/mcp-gateway/servers.d/notype.yaml
 systemctl restart mcp-gateway.service
