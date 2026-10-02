@@ -151,6 +151,23 @@ zypp-reader). A definition as a privileged server, which can install and
 remove packages with approval (role zypp-installer), is included for
 the administrator to enable.
 
+%package profile-snapper
+Summary:        mcp-server-snapper behind mcp-gateway
+Group:          System/Management
+BuildArch:      noarch
+Requires:       %{name} = %{version}
+Recommends:     mcp-server-snapper
+%sysusers_requires
+
+%description profile-snapper
+Sets up mcp-server-snapper (https://github.com/aschnell/mcp-server-snapper)
+behind mcp-gateway: listing snapper configs and snapshots and creating
+and deleting snapshots as the account mcp-snapper, in the sandbox (roles
+snapper-reader and snapper-operator). snapperd allows the account only
+the configs whose ALLOW_USERS name it. A definition as a privileged
+server, which can also change configs and roll back, is included for the
+administrator to enable.
+
 %package profile-suseconnect
 Summary:        suseconnect-mcp behind mcp-gateway
 Group:          System/Management
@@ -176,6 +193,7 @@ make selinux
 %sysusers_generate_pre profiles/systemd/sysusers.conf %{name}-profile-systemd %{name}-profile-systemd.conf
 %sysusers_generate_pre profiles/firewalld/sysusers.conf %{name}-profile-firewalld %{name}-profile-firewalld.conf
 %sysusers_generate_pre profiles/zypp/sysusers.conf %{name}-profile-zypp %{name}-profile-zypp.conf
+%sysusers_generate_pre profiles/snapper/sysusers.conf %{name}-profile-snapper %{name}-profile-snapper.conf
 
 %install
 %make_install install install-selinux install-cockpit install-desktop install-demo install-profiles \
@@ -211,17 +229,19 @@ go test ./internal/... ./profiles/...
 
 %pre profile-zypp -f %{name}-profile-zypp.pre
 
+%pre profile-snapper -f %{name}-profile-snapper.pre
+
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
 
 %post selinux
 # One line: the macro takes no continued arguments. The setup modules
 # (mcp-gateway-profile-*) come with this package.
-%selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_systemd.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_firewalld.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_zypp.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_suseconnect.pp.bz2
+%selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_systemd.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_firewalld.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_zypp.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_suseconnect.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_snapper.pp.bz2
 
 %postun selinux
 if [ $1 -eq 0 ]; then
-    %selinux_modules_uninstall -s %{selinuxtype} mcp_systemd mcp_firewalld mcp_zypp mcp_suseconnect %{modulename}
+    %selinux_modules_uninstall -s %{selinuxtype} mcp_systemd mcp_firewalld mcp_zypp mcp_suseconnect mcp_snapper %{modulename}
 fi
 
 %posttrans selinux
@@ -268,6 +288,7 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_firewalld.pp.bz2
 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_zypp.pp.bz2
 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_suseconnect.pp.bz2
+%{_datadir}/selinux/packages/%{selinuxtype}/mcp_snapper.pp.bz2
 %{_datadir}/selinux/devel/include/services/%{modulename}.if
 
 %files cockpit
@@ -301,6 +322,13 @@ fi
 %{_sysusersdir}/%{name}-profile-zypp.conf
 %dir %{_datadir}/mcp-gateway/profiles
 %{_datadir}/mcp-gateway/profiles/zypp-privileged.yaml
+
+%files profile-snapper
+%{_datadir}/mcp-gateway/servers.d/snapper.yaml
+%{_datadir}/mcp-gateway/policy/mcp/profiles/snapper
+%{_sysusersdir}/%{name}-profile-snapper.conf
+%dir %{_datadir}/mcp-gateway/profiles
+%{_datadir}/mcp-gateway/profiles/snapper-privileged.yaml
 
 %files profile-suseconnect
 %{_datadir}/mcp-gateway/servers.d/suseconnect.yaml

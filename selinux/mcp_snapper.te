@@ -1,0 +1,42 @@
+policy_module(mcp_snapper, 1.0.0)
+
+# mcp-server-snapper (aschnell/mcp-server-snapper) behind mcp-gateway:
+# package mcp-gateway-profile-snapper. Every tool but rollback is a call
+# to snapperd over the system bus, which checks the caller's uid (root,
+# or ALLOW_USERS/ALLOW_GROUPS of the config). rollback runs snapper
+# rollback, in this domain: snapperd creates the snapshots, snapper
+# itself sets the default btrfs subvolume, which needs root without the
+# sandbox (the privileged definition).
+
+mcp_gateway_backend_template(snapper)
+
+dbus_system_bus_client(mcpsrv_snapper_t)
+# snapperd: not every policy has a module for it (or snapper_dbus_chat),
+# so plainly.
+optional_policy(`
+	gen_require(`
+		type snapperd_t;
+		class dbus send_msg;
+	')
+	allow mcpsrv_snapper_t snapperd_t:dbus send_msg;
+	allow snapperd_t mcpsrv_snapper_t:dbus send_msg;
+')
+
+# rollback: /usr/bin/snapper, and what it opens to set the default
+# subvolume (BTRFS_IOC_INO_LOOKUP, BTRFS_IOC_DEFAULT_SUBVOL on / and the
+# snapshot's directory below /.snapshots).
+corecmd_exec_bin(mcpsrv_snapper_t)
+files_read_usr_files(mcpsrv_snapper_t)
+allow mcpsrv_snapper_t self:capability sys_admin;
+gen_require(`
+	type root_t;
+')
+allow mcpsrv_snapper_t root_t:dir { list_dir_perms ioctl };
+optional_policy(`
+	gen_require(`
+		type snapperd_data_t, snapperd_conf_t;
+	')
+	allow mcpsrv_snapper_t snapperd_data_t:dir { list_dir_perms ioctl };
+	read_files_pattern(mcpsrv_snapper_t, snapperd_conf_t, snapperd_conf_t)
+	list_dirs_pattern(mcpsrv_snapper_t, snapperd_conf_t, snapperd_conf_t)
+')

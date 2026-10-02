@@ -5,6 +5,22 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Added
+
+- `mcp-gateway-profile-snapper` sets up
+  [mcp-server-snapper](https://github.com/aschnell/mcp-server-snapper)
+  (0.3.0): the definition, the account `mcp-snapper`, the roles
+  `snapper-reader` (configs, settings, snapshots) and `snapper-operator`
+  (also creates snapshots; deletes them, changes configs and rolls back
+  with approval), and the SELinux module `mcp_snapper` in
+  `mcp-gateway-selinux`. snapperd answers the account for the configs
+  whose `ALLOW_USERS` name it; a privileged definition, to link into
+  `/etc/mcp-gateway/servers.d`, also changes configs and rolls back.
+- `mcp-gateway doctor` checks that snapperd allows a snapper server's
+  account some config, and no longer warns about polkit for it.
+
 ## v0.4.2 — 2026-10-02
 
 A fix for a gateway that was run by hand as root. Upgrading from 0.4.x

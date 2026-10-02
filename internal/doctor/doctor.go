@@ -179,7 +179,7 @@ func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
 	accounts := map[string][]string{} // account to servers
 	for _, name := range sortedKeys(backends) {
 		b := backends[name]
-		if b.RunAs == "principal" || b.RunAs == "root" {
+		if b.RunAs == "principal" || b.RunAs == "root" || isSnapper(b) {
 			continue
 		}
 		accounts[b.RunAs] = append(accounts[b.RunAs], name)
@@ -205,6 +205,94 @@ func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
 				"add a rule for the account (user guide, chapter 13) or install the server's setup package"}})
 	}
 	return out
+}
+
+// SnapperConfigsDir holds snapper's configs (KEY="value" lines).
+const SnapperConfigsDir = "/etc/snapper/configs"
+
+// isSnapper reports whether b runs mcp-server-snapper, which snapperd
+// authorizes by uid (Snapper), not through polkit.
+func isSnapper(b *config.Backend) bool {
+	return len(b.Command) > 0 && filepath.Base(b.Command[0]) == "mcp-server-snapper"
+}
+
+// Snapper checks the servers that run mcp-server-snapper as a system
+// account: snapperd answers such an account (not root) only for configs
+// whose ALLOW_USERS name it or whose ALLOW_GROUPS name one of its groups
+// (groupsOf). dir is SnapperConfigsDir outside tests.
+func Snapper(backends map[string]*config.Backend, dir string, groupsOf func(user string) []string) []Result {
+	var out []Result
+	for _, name := range sortedKeys(backends) {
+		b := backends[name]
+		if !isSnapper(b) || b.RunAs == "principal" || b.RunAs == "root" {
+			continue
+		}
+		r := Result{Check: "snapper " + name}
+		files, err := os.ReadDir(dir)
+		if err != nil {
+			r.Status, r.Summary = Skip, "reading snapper's configs: "+err.Error()
+			out = append(out, r)
+			continue
+		}
+		groups := map[string]bool{}
+		for _, g := range groupsOf(b.RunAs) {
+			groups[g] = true
+		}
+		var allowed, all []string
+		for _, f := range files {
+			if f.IsDir() {
+				continue
+			}
+			vars, err := readShellVars(filepath.Join(dir, f.Name()))
+			if err != nil {
+				r.Status, r.Summary = Skip, "reading snapper's configs: "+err.Error()
+				break
+			}
+			all = append(all, f.Name())
+			ok := false
+			for _, u := range strings.Fields(vars["ALLOW_USERS"]) {
+				ok = ok || u == b.RunAs
+			}
+			for _, g := range strings.Fields(vars["ALLOW_GROUPS"]) {
+				ok = ok || groups[g]
+			}
+			if ok {
+				allowed = append(allowed, f.Name())
+			}
+		}
+		switch {
+		case r.Status == Skip:
+		case len(allowed) > 0:
+			r.Status, r.Summary = OK, fmt.Sprintf("snapperd allows %s the configs %s", b.RunAs, strings.Join(allowed, ", "))
+		case len(all) == 0:
+			r.Status, r.Summary = Warn, "no snapper configs"
+		default:
+			r.Status = Warn
+			r.Summary = fmt.Sprintf("snapperd allows %s none of the configs (%s): the server can list them, nothing else", b.RunAs, strings.Join(all, ", "))
+			r.Details = []string{fmt.Sprintf("add it to ALLOW_USERS, keeping the users there: snapper -c %s set-config \"ALLOW_USERS=... %s\"", all[0], b.RunAs),
+				"(user guide, chapter 13); changing configs and rolling back need the privileged definition"}
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// readShellVars reads KEY="value" lines, as snapper writes its configs.
+func readShellVars(path string) (map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	vars := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		k, v, ok := strings.Cut(line, "=")
+		if !ok || strings.HasPrefix(line, "#") {
+			continue
+		}
+		vars[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
+	}
+	return vars, nil
 }
 
 // SELinuxTypes checks that the loaded policy knows each server's

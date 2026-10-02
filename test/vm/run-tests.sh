@@ -467,18 +467,27 @@ if [ -d "$dir/servers" ]; then
 	cp -a "$dir/servers/." /
 	# CI artifacts do not keep file modes.
 	chmod 0755 /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
-		/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp/zypp-mcp-tool
+		/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp/zypp-mcp-tool /usr/bin/mcp-server-snapper
 	restorecon -R /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
-		/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp
+		/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp /usr/bin/mcp-server-snapper
 	rpm -Uvh --nodeps "$dir"/rpms/mcp-gateway-profile-*.rpm >/dev/null || die "installing the setup packages failed"
 	zypper -n in --no-recommends firewalld man >/dev/null && systemctl enable --now firewalld >/dev/null 2>&1
+	zypper -n in --no-recommends snapper btrfsprogs >/dev/null
+	# A snapper config of its own on a small btrfs, whatever the root file
+	# system: snapperd allows it to mcp-snapper (ALLOW_USERS).
+	truncate -s 512M /root/vmtest/snapper.img
+	mkfs.btrfs -q /root/vmtest/snapper.img && mkdir -p /mnt/vmtest && mount -o loop /root/vmtest/snapper.img /mnt/vmtest &&
+		snapper -c vmtest create-config /mnt/vmtest && snapper -c vmtest set-config ALLOW_USERS=mcp-snapper ||
+		echo "  setting up the snapper config failed"
+	snapper list-configs 2>&1 | sed 's/^/  /'
 	for f in /usr/bin/systemd-mcp:mcpsrv_systemd_exec_t /usr/bin/firewalld-mcp:mcpsrv_firewalld_exec_t \
 		/usr/bin/mcp-server-zypp:mcpsrv_zypp_exec_t /usr/libexec/mcp-server-zypp/zypp-mcp-tool:rpm_exec_t \
-		/usr/bin/suseconnect-mcp:mcpsrv_suseconnect_exec_t; do
+		/usr/bin/suseconnect-mcp:mcpsrv_suseconnect_exec_t /usr/bin/mcp-server-snapper:mcpsrv_snapper_exec_t; do
 		echo "  $(file_label "${f%%:*}") ${f%%:*}"
 		check "${f%%:*} is labeled ${f##*:}" file_has_type "${f%%:*}" "${f##*:}"
 	done
 	check "the setups created mcp-sysmgmt in systemd-journal" bash -c 'id -nG mcp-sysmgmt | grep -qw systemd-journal'
+	check "the snapper setup created mcp-snapper" id mcp-snapper
 	cat >/etc/systemd/system/mcpgw-vmtest.service <<'END'
 [Unit]
 Description=mcp-gateway VM test unit
@@ -488,7 +497,7 @@ RemainAfterExit=yes
 ExecStart=/bin/true
 END
 	systemctl daemon-reload
-	jq '.bindings.users.alice += ["systemd-operator", "firewalld-reader", "zypp-reader", "suseconnect-reader"]' \
+	jq '.bindings.users.alice += ["systemd-operator", "firewalld-reader", "zypp-reader", "suseconnect-reader", "snapper-operator"]' \
 		/etc/mcp-gateway/policy/rbac/data.json >/root/vmtest/data.json &&
 		cat /root/vmtest/data.json >/etc/mcp-gateway/policy/rbac/data.json
 	check "the role data binds the shipped roles" mcp-gateway --check-policy-data
@@ -500,7 +509,7 @@ END
 	mkdir -p /root/vmtest/servers.d
 	ln -sf /usr/share/mcp-gateway/profiles/zypp-privileged.yaml /root/vmtest/servers.d/zypp.yaml
 	printf 'servers_dir: /root/vmtest/servers.d\n' >/root/vmtest/inspect-gateway.yaml
-	for s in systemd firewalld zypp suseconnect; do
+	for s in systemd firewalld zypp suseconnect snapper; do
 		conf=()
 		[ "$s" = zypp ] && conf=(-config /root/vmtest/inspect-gateway.yaml)
 		mcp-gateway inspect "${conf[@]}" -server "$s" -timeout 60s \
@@ -538,7 +547,50 @@ END
 	stool alice suseconnect RegistrationStatus '{}'
 	check "suseconnect: RegistrationStatus answers" reached_server
 
-	for s in systemd firewalld zypp suseconnect; do
+	# snapper in the sandbox, as mcp-snapper: what snapperd allows the
+	# account through ALLOW_USERS. Changing a config is root's.
+	mcp-gateway doctor --server snapper --no-start 2>&1 | grep -E '^[a-z]+ +snapper' | sed 's/^/  /'
+	check "doctor: snapperd allows mcp-snapper the vmtest config" \
+		sh -c 'mcp-gateway doctor --server snapper --no-start 2>&1 | grep -qE "^ok +snapper snapper: .*vmtest"'
+	stool alice snapper list_configs '{}'
+	check "snapper: list_configs" succeeded_with "vmtest"
+	stool alice snapper create_snapshot '{"config":"vmtest","type":"single","description":"vmtest","cleanup_algorithm":"","userdata":{}}'
+	check "snapper: create_snapshot (no approval)" test "$rc" = 0
+	snap=$(jq -r '.structuredContent.result // empty' <<<"$out" 2>/dev/null)
+	stool alice snapper list_snapshots '{"config":"vmtest"}'
+	check "snapper: list_snapshots shows it" succeeded_with '"description":"vmtest"'
+	stool_approved alice snapper delete_snapshots "{\"config\":\"vmtest\",\"numbers\":[${snap:-0}]}"
+	check "snapper: delete_snapshots after an approval" test "$rc" = 0
+	check "snapper: the snapshot is gone" sh -c "! snapper --csvout -c vmtest list --columns number | grep -qx '${snap:-x}'"
+	stool_approved alice snapper set_config '{"config":"vmtest","values":{"NUMBER_LIMIT":"7"}}'
+	# stool_approved keeps the tool error in $out (rc=2).
+	check "snapper: set_config is refused in the sandbox (snapperd: root only)" \
+		bash -c 'grep -q " rc=2 " <<<"$1" && grep -qiE "no_permissions|permission" <<<"$1"' _ "$out"
+
+	# The privileged definition (root, no sandbox): set_config, and
+	# rollback where the root file system is set up for it.
+	ln -sf /usr/share/mcp-gateway/profiles/snapper-privileged.yaml /etc/mcp-gateway/servers.d/snapper.yaml
+	systemctl restart mcp-gateway.service
+	wait_socket
+	stool_approved alice snapper set_config '{"config":"vmtest","values":{"NUMBER_LIMIT":"7"}}'
+	check "snapper (privileged): set_config after an approval" test "$rc" = 0
+	check "snapper (privileged): the config changed" grep -q '^NUMBER_LIMIT="7"' /etc/snapper/configs/vmtest
+	if snapper -c root get-config >/dev/null 2>&1 && [ "$(stat -f -c %T /)" = btrfs ]; then
+		before=$(btrfs subvolume get-default / 2>&1)
+		stool_approved alice snapper rollback '{"config":"root","description":"vmtest rollback","cleanup_algorithm":"","userdata":{}}'
+		check "snapper (privileged): rollback after an approval" test "$rc" = 0
+		after=$(btrfs subvolume get-default / 2>&1)
+		echo "  default subvolume before: $before"
+		echo "  default subvolume after:  $after"
+		check "snapper (privileged): rollback set a new default subvolume" test "$before" != "$after"
+	else
+		echo "  the root file system has no snapper config on btrfs: rollback not tested"
+	fi
+	rm -f /etc/mcp-gateway/servers.d/snapper.yaml
+	systemctl restart mcp-gateway.service
+	wait_socket
+
+	for s in systemd firewalld zypp suseconnect snapper; do
 		journalctl -u "mcp-$s-*" --no-pager -o cat 2>/dev/null | tail -5 | sed "s/^/  [$s] /"
 	done
 
