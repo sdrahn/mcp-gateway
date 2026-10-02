@@ -150,6 +150,25 @@ gen_require(`
 	class system { start stop status };
 ')
 allow mcpgw_t init_t:system { start stop status };
+# Stopping an instance (StopUnit, when the server does not exit after
+# its stdin closes) is checked on the unit's file: transient units live
+# in /run/systemd/transient, systemd_unit_file_t in Fedora-derived
+# policy, systemd_transient_unit_t in the reference policy. polkit
+# (50-mcp-gateway.rules) limits the gateway to mcp-*.service units.
+optional_policy(`
+	gen_require(`
+		type systemd_unit_file_t;
+		class service { stop status };
+	')
+	allow mcpgw_t systemd_unit_file_t:service { stop status };
+')
+optional_policy(`
+	gen_require(`
+		type systemd_transient_unit_t;
+		class service { stop status };
+	')
+	allow mcpgw_t systemd_transient_unit_t:service { stop status };
+')
 
 # The backend's stdio is one end of a socketpair created by the gateway;
 # it travels over D-Bus to systemd, which hands it to the backend.
