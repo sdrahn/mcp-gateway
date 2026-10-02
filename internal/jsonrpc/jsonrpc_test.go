@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -89,5 +90,31 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if got.Error == nil || got.Error.Code != CodeForbidden || string(got.ID) != "null" {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestCheckKeys(t *testing.T) {
+	for _, tc := range []struct {
+		raw, want string // want: substring of the error, "" for none
+	}{
+		{``, ""},
+		{`{"name":"x","arguments":{"path":"/a","mode":1}}`, ""},
+		{`[{"a":1},{"a":2}]`, ""},
+		{`"plain"`, ""},
+		{`{"a":1,"a":2}`, `key "a" appears twice`},
+		{`{"arguments":{"path":"/a","Path":"/b"}}`, `keys "path" and "Path" differ only in case`},
+		{`{"x":[{"deep":{"k":1,"K":2}}]}`, `differ only in case`},
+		{"{\"k\":1,\"K\":2}", `differ only in case`}, // Kelvin sign
+		{"{\"s\":1,\"ſ\":2}", `differ only in case`}, // long s
+		{`{"a":1} {"b":2}`, `trailing data`},
+		{`{"a":`, `EOF`},
+	} {
+		err := CheckKeys(json.RawMessage(tc.raw))
+		switch {
+		case tc.want == "" && err != nil:
+			t.Errorf("%s: %v", tc.raw, err)
+		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+			t.Errorf("%s: error %v, want %q", tc.raw, err, tc.want)
+		}
 	}
 }

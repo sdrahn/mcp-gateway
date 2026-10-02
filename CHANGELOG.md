@@ -60,6 +60,11 @@ minor release (with a warning) and removed in the next.
   (`WatchdogSec=60s`), after writing every goroutine's stack to the
   journal.
 
+- Fuzz tests for the JSON-RPC parser, the HTTP transport (no request
+  without a valid token reaches a session, none reaches another
+  principal's), the policy input and the parameters policy decides on
+  (a server must read what policy saw); CI runs each for a minute.
+
 - `mcp-gateway doctor` checks an installation for what had to be
   debugged by hand: the configuration and role data, the services and
   whether OPA decides, servers that do not start, roles naming tools a
@@ -100,6 +105,16 @@ minor release (with a warning) and removed in the next.
   fingerprint (installing a setup tells clients to list tools again).
 
 ### Fixed
+
+- Security: a client could make an MCP server act on other arguments
+  than policy decided on. The gateway decided on parameters with exact
+  keys and forwarded the arguments as sent, so `{"path": "/home/a",
+  "Path": "/etc/shadow"}`, `{"Arguments": …}` or `{"Path": …}` alone
+  was checked as one path (or none) and read as another by servers that
+  decode case-insensitively, such as Go servers using structs. Requests
+  with repeated keys, keys differing only in case, or keys differing
+  only in case from one the gateway reads or an argument the tool or
+  prompt declares are now refused (`invalid params`). Found by fuzzing.
 
 - SELinux: the gateway could not stop instances of servers that do not
   exit when their input closes (systemd-mcp, zypp, suseconnect-mcp):

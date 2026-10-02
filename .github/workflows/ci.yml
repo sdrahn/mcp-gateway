@@ -29,6 +29,33 @@ jobs:
         with:
           version: latest
 
+  # Fuzzing (roadmap step 14): each target for a minute, with its seeds and
+  # the inputs that failed before (testdata/fuzz). A failing input is
+  # uploaded; add it to testdata/fuzz with the fix.
+  fuzz:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { pkg: ./internal/jsonrpc, name: FuzzRead }
+          - { pkg: ./internal/jsonrpc, name: FuzzCheckKeys }
+          - { pkg: ./internal/router, name: FuzzCallTarget }
+          - { pkg: ./internal/transport, name: FuzzHTTPHandler }
+          - { pkg: ./internal/pep, name: FuzzVersioned }
+    name: fuzz (${{ matrix.target.name }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -run '^$' -fuzz '^${{ matrix.target.name }}$' -fuzztime 60s ${{ matrix.target.pkg }}
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.target.name }}
+          path: ${{ matrix.target.pkg }}/testdata/fuzz/${{ matrix.target.name }}
+
   policy:
     runs-on: ubuntu-24.04
     steps:

@@ -257,7 +257,8 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 			// Two pages.
 			if p.Cursor == "" {
 				respond(m, map[string]any{"tools": []map[string]any{
-					{"name": "read_file", "inputSchema": map[string]any{"type": "object"}},
+					{"name": "read_file", "inputSchema": map[string]any{"type": "object",
+						"properties": map[string]any{"path": map[string]any{"type": "string"}, "mode": map[string]any{"type": "string"}}}},
 					{"name": "write_file", "inputSchema": map[string]any{"type": "object"}},
 				}, "nextCursor": "p2"})
 			} else {
