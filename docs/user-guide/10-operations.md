@@ -61,6 +61,22 @@ Back up `/etc/mcp-gateway/` (configuration, definitions, role data,
 bundle keys, credentials) and `/var/lib/mcp-gateway/`. All files are
 written atomically; copying them while the gateway runs is safe.
 
+The files must stay owned by `mcp-gateway`; restore a backup with
+`chown -R mcp-gateway: /var/lib/mcp-gateway`. To run the gateway by hand,
+for example to watch its output, run it as that account:
+
+```bash
+systemctl stop mcp-gateway.service
+runuser -u mcp-gateway -- /usr/bin/mcp-gateway --debug
+```
+
+As root it refuses (`refusing to run as root`) unless given
+`--allow-root`: the state files it would write would be root's, and the
+service would then fail to read them. If that happened, the gateway names
+the files at start (`state files not owned by mcp-gateway`) and exits, and
+`mcp-gateway doctor` names them too; `chown -R mcp-gateway:
+/var/lib/mcp-gateway` fixes it.
+
 ## Upgrades
 
 ```bash
@@ -166,6 +182,7 @@ ok    configuration: /usr/etc/mcp-gateway/gateway.yaml, 3 servers (firewalld, fs
 ok    role data: /etc/mcp-gateway/policy/rbac/data.json valid (7 shipped roles known)
 ok    mcp-gateway.service: active
 ok    mcp-opa.service: active
+ok    state files: /var/lib/mcp-gateway owned by mcp-gateway
 ok    gateway status: running version 0.4.0
 ok    policy: OPA decides (deny for an unknown principal)
 ok    server firewalld: starts: firewalld-mcp 0.1.0, 5 tools, 0 prompts, 0 resource templates
@@ -184,6 +201,7 @@ warn  principals: 1 of 4 members of mcp-users hold no role: they may connect but
 | configuration | `gateway.yaml` and the server definitions; deprecated keys warn |
 | role data | the schema and references (as `--check-policy-data`) |
 | services, gateway status | `mcp-gateway.service` and `mcp-opa.service` active; the running version, and whether an update waits for a restart |
+| state files | that `mcp-gateway` owns every file in `/var/lib/mcp-gateway`; a file root owns (the gateway was run as root) keeps the service from starting |
 | policy | that OPA answers a decision (every request is denied otherwise) |
 | server *name* | that each server starts, as for shared discovery, and answers MCP; then whether roles name tools it does not offer (`roles` *name*; as the account it runs as, a server may hide tools) |
 | SELinux *type* | denials in the last day involving the gateway's, OPA's and the servers' types; denials in permissive mode (a profiling run) only warn |

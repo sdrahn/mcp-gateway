@@ -5,7 +5,7 @@
 ### mcp-gateway
 
 ```
-mcp-gateway [--config FILE] [--check] [--debug] [--version]
+mcp-gateway [--config FILE] [--check] [--debug] [--allow-root] [--version]
 mcp-gateway --check-policy-data [--policy-data FILE]
 mcp-gateway inspect|profile|review|doctor [options]
 mcp-gateway help [COMMAND]
@@ -24,6 +24,7 @@ unknown command is an error (status 2).
 | `--policy-data FILE` | role data for the two checks (default: `/etc/mcp-gateway/policy/rbac/data.json`; `-`: standard input; empty: none) |
 | `--shipped-policy DIR` | shipped policy with the roles of the server setups, which bindings may name; its setup role files are checked too (default: `/usr/share/mcp-gateway/policy`; empty: none) |
 | `--debug` | log debug messages |
+| `--allow-root` | run the gateway as root although the `mcp-gateway` account exists; without it the gateway refuses, since the state files it would create as root are unreadable for the service (`--check` runs as root without it) |
 | `--version` | print the version |
 
 ### mcp-gateway inspect
