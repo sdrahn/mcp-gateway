@@ -52,6 +52,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "inspect" {
 		os.Exit(runInspect(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "profile" {
+		os.Exit(runProfile(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	configPath := flag.String("config", "", "path to the gateway configuration (default: "+
 		config.DefaultConfigPath+", else "+config.DefaultVendorConfigPath+", else built-in defaults)")
 	checkOnly := flag.Bool("check", false, "validate the configuration, the backend registry and the role data, then exit")

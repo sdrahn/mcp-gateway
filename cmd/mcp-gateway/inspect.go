@@ -202,11 +202,7 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 
 // probe starts one instance of b for p and inspects it.
 func probe(ctx context.Context, l supervisor.Launcher, b *config.Backend, p principal.Principal) (*inspect.Result, error) {
-	id := make([]byte, 8)
-	if _, err := rand.Read(id); err != nil {
-		return nil, err
-	}
-	inst, err := l.Start(ctx, b, p, hex.EncodeToString(id))
+	inst, err := l.Start(ctx, b, p, randomID())
 	if err != nil {
 		return nil, fmt.Errorf("starting: %w", err)
 	}
@@ -250,3 +246,10 @@ func writeDrafts(dir, name string, command []string, b *config.Backend, res *ins
 func say(w io.Writer, a ...any) { _, _ = fmt.Fprintln(w, a...) }
 
 func sayf(w io.Writer, format string, a ...any) { _, _ = fmt.Fprintf(w, format+"\n", a...) }
+
+// randomID returns an instance id (lower-case hex).
+func randomID() string {
+	id := make([]byte, 8)
+	_, _ = rand.Read(id) // never fails (crypto/rand)
+	return hex.EncodeToString(id)
+}

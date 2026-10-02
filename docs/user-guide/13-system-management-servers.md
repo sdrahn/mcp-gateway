@@ -263,6 +263,8 @@ selinux_type: mcpsrv_zypp_t
 directory); for those servers you need no module of your own, and a
 module of yours with one of these names would be replaced. What follows
 shows how they are built, for other servers such as snapper.
+`mcp-gateway profile` drafts such a module from a run of the server
+(chapter 4, "Profiling a server").
 
 The default domain for servers, `mcpsrv_generic_t`, may not use the
 system bus, so these servers exit at start ("backend instance exited").

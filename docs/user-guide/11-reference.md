@@ -44,6 +44,30 @@ errors.
 | `--json` | print the result (server answers, classification, draft roles, findings) as JSON |
 | `--timeout D` | how long to wait for the server (default 60s) |
 
+### mcp-gateway profile
+
+```
+mcp-gateway profile [options] --server NAME --out DIR
+mcp-gateway profile [options] --server NAME --verify
+```
+
+Runs a registered server with its SELinux domain permissive, calls its
+tools and drafts a policy module and definition from the denials
+(chapter 4, "Profiling a server"). Needs root, the systemd supervisor,
+SELinux and selinux-policy-devel. Exit status 1 if the run fails (or,
+with `--verify`, on a denial), 2 on usage errors.
+
+| Flag | Meaning |
+|---|---|
+| `--server NAME` | the server of the registry to profile |
+| `--out DIR` | directory for the drafts, the report and the calls |
+| `--calls FILE` | JSON object mapping tool names to arguments, or to a list of them |
+| `--call-all` | call every tool, also those that change things (throwaway systems only) |
+| `--keep-dontaudit` | leave the policy's dontaudit rules on while profiling (faster; misses the denials they hide) |
+| `--verify` | run the calls with SELinux enforcing, load and draft nothing, fail on a denial |
+| `--config FILE` | gateway configuration, for the registry and the supervisor |
+| `--timeout D` | how long the run may take (default 5m) |
+
 ### mcp-connect
 
 ```
