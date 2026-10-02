@@ -186,6 +186,28 @@ supervisor:
 | `supervisor.mcs_range` | `c768.c1023` | the MCS categories instances get their pairs from (at least 8 categories within `c0.c1023`); see chapter 9 on coordinating with libvirt |
 | `supervisor.mcs_avoid` | `auto` | skip category pairs held by running containers and virtual machines, and replace an instance whose pair one of them takes later; `off` |
 
+### Limits
+
+```yaml
+limits:
+  sessions_per_principal: 64
+  instances_per_principal: 32
+  instances: 0
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `limits.sessions_per_principal` | `64` | open sessions of one principal (local and HTTP together). At the limit, the principal's longest-idle HTTP session (no request in flight, no stream attached) is ended to make room; otherwise the new session's `initialize` fails ("session limit reached (64)") |
+| `limits.instances_per_principal` | `32` | running instances of one principal. At the limit, its longest-idle instance that no session uses is stopped; otherwise the request that needs a new instance fails ("instance limit reached (32)") |
+| `limits.instances` | `0` (none) | running instances of all principals together, handled the same way ("gateway instance limit reached"); size it to the host's memory |
+
+A principal is a local user, or a remote token's issuer and subject.
+Discovery instances do not count. Clients that never end their HTTP
+sessions (Kit, chapter 5) leave them open until
+`http.session_idle_timeout`; the session limit ends the idle ones
+first, so such clients keep working. Refusals are audited (`mcp-limit`)
+and counted (`mcp_gateway_limit_refusals_total`).
+
 ### Remote access (HTTPS)
 
 Off unless `http.listen` is set. Chapter 5 walks through a setup.

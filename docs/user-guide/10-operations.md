@@ -113,6 +113,7 @@ at `/metrics`.
 | `mcp_gateway_opa_query_errors_total{query}` | counter | failed queries to OPA |
 | `mcp_gateway_instance_starts_total{server}` | counter | server instances started |
 | `mcp_gateway_instance_failures_total{server,stage}` | counter | instances that failed to start (`start`) or exited without being stopped (`exit`) |
+| `mcp_gateway_limit_refusals_total{limit}` | counter | sessions and instances refused at a limit (`sessions`, `instances_per_principal`, `instances`; chapter 3) |
 | `mcp_gateway_approvals_decided_total{decision}` | counter | approvals decided (`approve`, `deny`) |
 | `mcp_gateway_approvals_pending` | gauge | approvals waiting for a decision |
 | `mcp_gateway_sessions`, `mcp_gateway_instances` | gauge | client sessions, running server instances |

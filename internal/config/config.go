@@ -74,9 +74,27 @@ type Gateway struct {
 	Notifications Notifications `yaml:"notifications"`
 	// Metrics configures the metrics listener.
 	Metrics Metrics `yaml:"metrics"`
+	// Limits bound sessions and instances (decision D14).
+	Limits Limits `yaml:"limits"`
 
 	// Warnings are the deprecated keys the file uses (see deprecation).
 	Warnings []string `yaml:"-"`
+}
+
+// Limits bound how many sessions and backend instances a principal, and
+// the gateway as a whole, may have (docs/architecture.md, decision D14).
+type Limits struct {
+	// SessionsPerPrincipal limits a principal's open sessions (local and
+	// HTTP together). At the limit, the principal's longest-idle HTTP
+	// session makes room; without one, a new session is refused.
+	SessionsPerPrincipal int `yaml:"sessions_per_principal"`
+	// InstancesPerPrincipal limits a principal's running instances. At the
+	// limit, the longest-idle instance no session uses makes room;
+	// without one, the call needing a new instance fails.
+	InstancesPerPrincipal int `yaml:"instances_per_principal"`
+	// Instances limits the running instances of all principals; 0 (the
+	// default) means no limit. Discovery instances do not count.
+	Instances int `yaml:"instances"`
 }
 
 // Metrics configures where the metrics (Prometheus text format) can be
@@ -366,10 +384,12 @@ func within(path, dir string) bool {
 
 // Defaults applied to empty fields.
 const (
-	DefaultPolicyTimeout    = 250 * time.Millisecond
-	DefaultApprovalTimeout  = 120 * time.Second
-	DefaultProgressInterval = 15 * time.Second
-	DefaultIdleTimeout      = 15 * time.Minute
+	DefaultPolicyTimeout         = 250 * time.Millisecond
+	DefaultApprovalTimeout       = 120 * time.Second
+	DefaultProgressInterval      = 15 * time.Second
+	DefaultIdleTimeout           = 15 * time.Minute
+	DefaultSessionsPerPrincipal  = 64
+	DefaultInstancesPerPrincipal = 32
 	// DefaultMCSRange is the upper quarter of the targeted policy's
 	// categories; libvirt is confined to the rest by the shipped drop-ins.
 	DefaultMCSRange        = "c768.c1023"
@@ -471,6 +491,12 @@ func (g *Gateway) setDefaults() {
 	if g.Supervisor.IdleTimeout == 0 {
 		g.Supervisor.IdleTimeout = DefaultIdleTimeout
 	}
+	if g.Limits.SessionsPerPrincipal == 0 {
+		g.Limits.SessionsPerPrincipal = DefaultSessionsPerPrincipal
+	}
+	if g.Limits.InstancesPerPrincipal == 0 {
+		g.Limits.InstancesPerPrincipal = DefaultInstancesPerPrincipal
+	}
 	if g.Approvals.ControlSocket == "" {
 		g.Approvals.ControlSocket = DefaultControl
 	}
@@ -569,6 +595,9 @@ func (g *Gateway) Validate() error {
 		if (e.Username == "") != (e.PasswordFile == "") {
 			return errors.New("notifications.email: username and password_file go together")
 		}
+	}
+	if g.Limits.SessionsPerPrincipal < 0 || g.Limits.InstancesPerPrincipal < 0 || g.Limits.Instances < 0 {
+		return errors.New("limits: must not be negative")
 	}
 	if l := g.Metrics.Listen; l != "" {
 		if _, port, err := net.SplitHostPort(l); err != nil || port == "" {

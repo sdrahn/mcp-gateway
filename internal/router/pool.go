@@ -49,6 +49,10 @@ type pool struct {
 	// drainTimeout bounds how long closeAll waits for privileged calls.
 	drainTimeout time.Duration
 
+	// maxPerPrincipal and maxTotal limit running instances (decision
+	// D14); 0 means no limit. Discovery instances do not count.
+	maxPerPrincipal, maxTotal int
+
 	mu      sync.Mutex
 	entries map[string]*poolEntry
 	failing map[string]*failures
@@ -64,6 +68,9 @@ type poolEntry struct {
 	refs      int
 	timer     *time.Timer
 	started   time.Time
+	// released is when the last reference went (the instance waits out
+	// the idle timeout since).
+	released time.Time
 	// stopping is set when the pool stops the instance, to tell that
 	// apart from the instance exiting on its own.
 	stopping bool
@@ -97,6 +104,72 @@ func newPool(l supervisor.Launcher, idle time.Duration, log *slog.Logger) *pool 
 		entries: map[string]*poolEntry{}, failing: map[string]*failures{}}
 }
 
+// makeRoom checks the instance limits for a new instance of pr. At a
+// limit it takes the longest-idle instance that nobody uses (one waiting
+// out its idle timeout) out of the pool and returns it, for the caller to
+// close after unlocking; if there is none, it returns a *LimitError.
+// p.mu must be held.
+func (p *pool) makeRoom(pr principal.Principal) ([]*poolEntry, error) {
+	if isDiscovery(pr) {
+		return nil, nil
+	}
+	var victims []*poolEntry
+	check := func(limit string, max int, counts func(*poolEntry) bool) error {
+		if max <= 0 {
+			return nil
+		}
+		n := 0
+		var victim *poolEntry
+		for _, e := range p.entries {
+			if !counts(e) {
+				continue
+			}
+			n++
+			if p.idleEntry(e) && (victim == nil || e.released.Before(victim.released)) {
+				victim = e
+			}
+		}
+		if n < max {
+			return nil
+		}
+		if victim == nil {
+			return &LimitError{Limit: limit, Max: max}
+		}
+		victim.timer.Stop()
+		victim.timer = nil
+		victim.stopping = true
+		delete(p.entries, victim.key)
+		victims = append(victims, victim)
+		return nil
+	}
+	key := principalKey(pr)
+	if err := check("instances_per_principal", p.maxPerPrincipal, func(e *poolEntry) bool {
+		return principalKey(e.principal) == key
+	}); err != nil {
+		return victims, err
+	}
+	err := check("instances", p.maxTotal, func(e *poolEntry) bool {
+		return !isDiscovery(e.principal)
+	})
+	return victims, err
+}
+
+// isDiscovery reports whether p is the gateway's own discovery principal.
+func isDiscovery(p principal.Principal) bool {
+	return p.Transport == discoveryPrincipal.Transport && p.Sub == discoveryPrincipal.Sub
+}
+
+// idleEntry reports whether e is a running instance nobody uses, waiting
+// out its idle timeout; p.mu must be held.
+func (p *pool) idleEntry(e *poolEntry) bool {
+	select {
+	case <-e.ready:
+	default:
+		return false // starting
+	}
+	return e.err == nil && e.refs == 0 && e.timer != nil && !e.stopping && !mustKeep(e)
+}
+
 func instanceKey(b *config.Backend, p principal.Principal) string {
 	if b.Isolation == config.IsolationSession {
 		return "session:" + p.SessionID + ":" + b.Name
@@ -118,9 +191,19 @@ func (p *pool) acquire(ctx context.Context, b *config.Backend, pr principal.Prin
 					return nil, nil, &BackoffError{Server: b.Name, RetryIn: wait}
 				}
 			}
-			e = &poolEntry{key: key, principal: pr, isolation: b.Isolation, ready: make(chan struct{}), refs: 1}
-			p.entries[key] = e
+			victims, err := p.makeRoom(pr)
+			if err == nil {
+				e = &poolEntry{key: key, principal: pr, isolation: b.Isolation, ready: make(chan struct{}), refs: 1}
+				p.entries[key] = e
+			}
 			p.mu.Unlock()
+			for _, v := range victims {
+				p.log.Info("instance stopped for a new one at the instance limit", "server", v.up.backend.Name, "instance", v.up.id)
+				v.up.close()
+			}
+			if err != nil {
+				return nil, nil, err
+			}
 			e.up, e.err = p.start(ctx, b, pr)
 			e.started = p.now()
 			close(e.ready)
@@ -258,6 +341,7 @@ func (p *pool) release(e *poolEntry) {
 	if e.refs > 0 || p.entries[e.key] != e {
 		return
 	}
+	e.released = p.now()
 	p.scheduleStop(e)
 }
 

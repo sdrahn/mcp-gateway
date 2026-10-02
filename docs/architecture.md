@@ -1181,7 +1181,7 @@ either says about itself (client info, tool annotations).
 | Policy tampering | signed bundles verified by OPA (file or bundle server; never with `--watch`), OPA in own domain, config/bundle dirs writable only by admin | root |
 | OPA outage | fail closed; `mcp-gateway doctor` and metrics show it | no service while it lasts |
 | Gateway hang | watchdog (`WatchdogSec=60s`) on the locks of sessions, instances and approvals; goroutine dump on SIGABRT | sessions end with the restart |
-| Resource exhaustion by a client | message size limits (32 MiB), instance memory and task limits, idle stop, restart backoff, rate-limit obligations | no cap on sessions or instances per principal (§12) |
+| Resource exhaustion by a client | message size limits (32 MiB), instance memory and task limits, idle stop, restart backoff, rate-limit obligations, limits on sessions and instances per principal (D14) | many principals together, unless `limits.instances` is set; memory per session (replay buffers) within the session limit |
 | Rate limits reset by a restart | counters in memory (D11); a restart needs root or a crash, both audited | an agent that can crash the gateway; no such crash is known |
 | Telemetry disclosure | metrics only for root on the control socket; the HTTP listener is opt-in and carries counts, no names or arguments | counts per server and action to whoever reaches the listener |
 | Local user spoofing identity | kernel-provided peer credentials; `clientInfo` never trusted | — |
@@ -1392,6 +1392,28 @@ without a race; the gateway's string check plus the server's own
 confinement plus the instance's confinement are three independent
 layers.
 
+**D14 — Sessions and instances are limited per principal.**
+*Decision (accepted 2026-10-02, roadmap step 15):* a principal
+(transport, issuer, subject) may have at most
+`limits.sessions_per_principal` open sessions (64) and
+`limits.instances_per_principal` running instances (32); optionally,
+`limits.instances` bounds the instances of all principals (off by
+default). At the session limit, the principal's longest-idle HTTP session
+without a request in flight or a stream attached is ended to make room;
+without one, the new session's `initialize` is refused. At an instance
+limit, the longest-idle instance no session uses (one waiting out its
+idle timeout) is stopped; without one, the request needing the instance
+fails. Discovery instances do not count. Refusals are audited
+(`mcp-limit`) and counted (`mcp_gateway_limit_refusals_total`).
+*Rationale:* the clients tested in step 15 keep one session per server
+and window (Claude Code: tens at most), but over HTTP some never end
+their sessions (Kit), which then linger until
+`http.session_idle_timeout`; ending the idle ones keeps such clients
+working without raising the limit. Instances of `isolation: principal`
+servers are bounded by the number of servers anyway; the instance limit
+matters for `isolation: session`, where each session starts one.
+Refusing beats queueing: the agent sees a clear error at once.
+
 ## 10. Repository layout
 
 ```
@@ -1585,7 +1607,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       and Claude Code's behaviour against a probe server, in the user
       guide (chapter 5) (done);
     - a limit on sessions and instances per principal, decided with what
-      the clients showed (§12).
+      the clients showed (D14) (done).
 
 ## 12. Open items
 
@@ -1606,10 +1628,6 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
   late); OPA has no change notification over its REST API.
 - The kernel audit subsystem is optional (`audit.kernel: auto`); in
   containers without `CAP_AUDIT_WRITE` only the journal records remain.
-- No cap on sessions or instances per principal: a local user can open
-  many sessions, and with `isolation: session` each starts an instance
-  (each limited to its memory and tasks). A limit per principal is to be
-  decided with step 15 (how clients use sessions).
 - MCS pairs of stopped containers (their files keep the pair) are not
   known to the gateway, and a container can take an instance's pair for up
   to 30 s before the instance is replaced (§5.8).

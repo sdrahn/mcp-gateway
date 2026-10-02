@@ -247,6 +247,10 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 
 		IdleTimeout:      gw.Supervisor.IdleTimeout,
 		ProgressInterval: gw.Approvals.ProgressInterval,
+
+		MaxSessionsPerPrincipal:  gw.Limits.SessionsPerPrincipal,
+		MaxInstancesPerPrincipal: gw.Limits.InstancesPerPrincipal,
+		MaxInstances:             gw.Limits.Instances,
 	}
 
 	registerGauges(r, b)
