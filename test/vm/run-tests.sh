@@ -21,6 +21,14 @@ check() { # check <description> <command...>
 	if "$@"; then pass "$desc"; else fail "$desc"; fi
 }
 section() { printf '\n=== %s\n' "$*"; }
+eventually() { # eventually <seconds> <command...>: retry until it succeeds
+	local deadline=$((SECONDS + $1))
+	shift
+	until "$@"; do
+		[ "$SECONDS" -ge "$deadline" ] && return 1
+		sleep 0.2
+	done
+}
 die() {
 	echo "FATAL: $*"
 	exit 1
@@ -508,7 +516,9 @@ END
 	check "systemd: list_log reads the system journal" succeeded_with "configuration valid"
 	stool_approved alice systemd change_unit_state '{"name":"mcpgw-vmtest.service","action":"start","timeout":30}'
 	check "systemd: change_unit_state after an approval" test "$rc" = 0
-	check "systemd: the unit was started" systemctl is-active --quiet mcpgw-vmtest.service
+	# systemd-mcp reports the start job finished; the unit's state may
+	# follow a moment later.
+	check "systemd: the unit was started" eventually 10 systemctl is-active --quiet mcpgw-vmtest.service
 	# Listed once started (an inactive unit nothing refers to is unloaded).
 	stool alice systemd list_loaded_units '{"state":"active","patterns":["mcpgw-vmtest*"]}'
 	check "systemd: list_loaded_units" succeeded_with "mcpgw-vmtest.service"
