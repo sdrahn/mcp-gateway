@@ -7,7 +7,14 @@
 ```
 mcp-gateway [--config FILE] [--check] [--debug] [--version]
 mcp-gateway --check-policy-data [--policy-data FILE]
+mcp-gateway inspect|profile|review|doctor [options]
+mcp-gateway help [COMMAND]
 ```
+
+Without a command it runs the gateway (as `mcp-gateway.service` does).
+`mcp-gateway -h` or `help` lists the commands (below) and the options;
+`mcp-gateway COMMAND -h` or `help COMMAND` shows a command's options. An
+unknown command is an error (status 2).
 
 | Flag | Meaning |
 |---|---|
