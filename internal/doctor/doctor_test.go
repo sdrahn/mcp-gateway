@@ -113,3 +113,47 @@ func TestSELinuxTypes(t *testing.T) {
 		t.Fatalf("cannot check: %+v", rs)
 	}
 }
+
+func TestSnapper(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("root", "SUBVOLUME=\"/\"\nALLOW_USERS=\"\"\nALLOW_GROUPS=\"\"\n")
+	write("home", "# comment\nSUBVOLUME=\"/home\"\nALLOW_USERS=\"alice mcp-snapper\"\n")
+	backends := map[string]*config.Backend{
+		"snapper": {Name: "snapper", Command: []string{"/usr/bin/mcp-server-snapper"}, RunAs: "mcp-snapper"},
+		"fs":      {Name: "fs", Command: []string{"/usr/bin/fs"}, RunAs: "principal"},
+	}
+	noGroups := func(string) []string { return nil }
+	rs := Snapper(backends, dir, noGroups)
+	if len(rs) != 1 || rs[0].Status != OK || !strings.Contains(rs[0].Summary, "configs home") {
+		t.Fatalf("allowed by user: %+v", rs)
+	}
+
+	write("home", "ALLOW_USERS=\"alice\"\nALLOW_GROUPS=\"snap\"\n")
+	rs = Snapper(backends, dir, func(string) []string { return []string{"snap"} })
+	if rs[0].Status != OK {
+		t.Fatalf("allowed by group: %+v", rs)
+	}
+	rs = Snapper(backends, dir, noGroups)
+	if rs[0].Status != Warn || !strings.Contains(rs[0].Details[0], "set-config") {
+		t.Fatalf("not allowed: %+v", rs)
+	}
+
+	// Root needs no ALLOW_USERS; a missing directory skips.
+	backends["snapper"].RunAs = "root"
+	if rs := Snapper(backends, dir, noGroups); len(rs) != 0 {
+		t.Fatalf("root: %+v", rs)
+	}
+	backends["snapper"].RunAs = "mcp-snapper"
+	if rs := Snapper(backends, filepath.Join(dir, "missing"), noGroups); rs[0].Status != Skip {
+		t.Fatalf("missing dir: %+v", rs)
+	}
+	// The polkit check leaves the snapper server alone.
+	if rs := Polkit(backends, []string{dir}); len(rs) != 0 {
+		t.Fatalf("polkit: %+v", rs)
+	}
+}

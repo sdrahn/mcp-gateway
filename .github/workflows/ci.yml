@@ -212,7 +212,7 @@ jobs:
         run: |
           zypper -n --gpg-auto-import-keys in --allow-unsigned-rpm ~/rpmbuild/RPMS/noarch/mcp-gateway-selinux-*.rpm
           semodule -l | grep -x mcp_gateway
-          for m in systemd firewalld zypp suseconnect; do semodule -l | grep -x "mcp_$m"; done
+          for m in systemd firewalld zypp suseconnect snapper; do semodule -l | grep -x "mcp_$m"; done
       - name: Collect the packages for the VM test
         run: mkdir rpms && cp ~/rpmbuild/RPMS/*/*.rpm rpms/
       - uses: actions/upload-artifact@v4

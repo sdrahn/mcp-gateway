@@ -1,0 +1,1 @@
+/usr/bin/mcp-server-snapper		--	gen_context(system_u:object_r:mcpsrv_snapper_exec_t,s0)

@@ -36,12 +36,13 @@ const doctorUsage = `usage: mcp-gateway doctor [flags]
 Checks the installation for what usually goes wrong with MCP servers
 behind the gateway: the configuration and role data, the services and
 OPA, state files the service cannot read (left by running the gateway
-as root), servers that do not start (each registered server is started once,
-as for shared discovery), roles naming tools a server does not have,
-SELinux denials for the gateway and its servers, servers running as an
-account no polkit rule names, and users who may connect but hold no
-role. Run it as root; without root, the checks that need it are
-skipped. Exits 1 if a check failed.
+as root), servers that do not start (each registered server is started
+once, as for shared discovery), roles naming tools a server does not
+have, SELinux denials for the gateway and its servers, servers running
+as an account no polkit rule names, a snapper server no snapper config
+allows, and users who may connect but hold no role. Run it as root;
+without root, the checks that need it are skipped. Exits 1 if a check
+failed.
 
 `
 
@@ -130,6 +131,7 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 		add(doctor.SELinuxTypes(d.selected(), supervisor.ContextValid)...)
 	}
 	add(doctor.Polkit(d.selected(), nil)...)
+	add(doctor.Snapper(d.selected(), doctor.SnapperConfigsDir, userGroups)...)
 	add(d.principals())
 	return rs
 }

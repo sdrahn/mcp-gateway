@@ -35,7 +35,7 @@ BINARIES := bin/mcp-gateway bin/mcp-connect bin/mcp-gateway-notify bin/mcp-fs-de
 
 # Server setups (profiles/<name>, SELinux module selinux/mcp_<name>.te),
 # packaged as mcp-gateway-profile-<name>.
-PROFILES := systemd firewalld zypp suseconnect
+PROFILES := systemd firewalld zypp suseconnect snapper
 
 .PHONY: all build test vet lint fmt-check policy-check policy-test selinux check \
 	install install-gateway install-selinux install-cockpit install-desktop install-demo \
@@ -132,6 +132,7 @@ install-profiles:
 		  install -Dm0644 profiles/$$p/sysusers.conf $(DESTDIR)$(SYSUSERSDIR)/mcp-gateway-profile-$$p.conf; } || exit 1; \
 	done
 	install -Dm0644 profiles/zypp/zypp-privileged.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/profiles/zypp-privileged.yaml
+	install -Dm0644 profiles/snapper/snapper-privileged.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/profiles/snapper-privileged.yaml
 
 install-cockpit:
 	install -d $(DESTDIR)$(COCKPITDIR)
