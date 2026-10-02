@@ -53,6 +53,10 @@ func (r initResult) has(capability string) bool {
 type progressRoute struct {
 	s     *Session
 	token json.RawMessage
+	// offset is added to the backend's progress and total: the gateway
+	// reported that much progress itself before (while the call waited
+	// for approval), and progress must keep increasing.
+	offset float64
 }
 
 // upstream is the gateway's own MCP session with one backend instance. It
@@ -261,10 +265,10 @@ func (u *upstream) request(ctx context.Context, s *Session, method string, param
 
 // registerProgress maps a client's progress token to a gateway token that
 // is unique on this upstream.
-func (u *upstream) registerProgress(s *Session, token json.RawMessage) json.RawMessage {
+func (u *upstream) registerProgress(s *Session, token json.RawMessage, offset float64) json.RawMessage {
 	gw := json.RawMessage(strconv.Quote("gw-" + strconv.FormatInt(u.nextID.Add(1), 10)))
 	u.mu.Lock()
-	u.progress[string(gw)] = progressRoute{s: s, token: token}
+	u.progress[string(gw)] = progressRoute{s: s, token: token, offset: offset}
 	u.mu.Unlock()
 	return gw
 }
@@ -366,6 +370,10 @@ func (u *upstream) notification(m *jsonrpc.Message) {
 			return
 		}
 		p["progressToken"] = r.token
+		if r.offset > 0 {
+			shiftProgress(p, "progress", r.offset)
+			shiftProgress(p, "total", r.offset)
+		}
 		params, err := json.Marshal(p)
 		if err != nil {
 			return

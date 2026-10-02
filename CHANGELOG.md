@@ -104,7 +104,34 @@ minor release (with a warning) and removed in the next.
   `GET /v1/policy` and shown in Cockpit, and part of the policy
   fingerprint (installing a setup tells clients to list tools again).
 
+- Client compatibility tests (roadmap step 15): CI runs the official
+  TypeScript and Python MCP SDKs and mcp-go (the library Kit uses)
+  against the gateway, over `mcp-connect` and HTTPS, on discovery, calls,
+  approvals out of band and in the client's dialog, `list_changed` and
+  cancellation (`test/clients`). The user guide (chapter 5) lists how
+  they behave.
+
+- Calls waiting for approval report progress to agents that asked for
+  it (a `progressToken`): at once and every `approvals.progress_interval`
+  (new, default 15 s). Agents with a request timeout, such as those built
+  on the TypeScript SDK (60 s by default), no longer give up on a call
+  before the approval arrives (`approval_timeout`, 120 s), provided they
+  let progress extend the timeout. The server's own progress afterwards
+  continues from the gateway's.
+
 ### Changed
+
+- A server's capabilities reach agents only for what the gateway
+  implements (tools, prompts, resources, completions, logging). Tasks
+  (MCP 2025-11-25) and experimental capabilities are no longer passed
+  on: the gateway routes neither, and task results would bypass policy
+  and obligations. A call that asks for a task (Kit does when a server
+  offers them) runs synchronously.
+
+- A `server/discover` probe, sent by clients of MCP 2026-07-28 (the
+  Python SDK 2, mcp-go 1.1 and so Kit) before they fall back to
+  initialize, is answered "method not found" and no longer recorded in
+  the audit log as a denied request.
 
 - The threat model in the architecture document was reviewed and now
   lists, for each threat, the mitigation and the risk that remains.

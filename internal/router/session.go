@@ -217,6 +217,12 @@ func (s *Session) handlers(method string) (handler, bool) {
 
 func (s *Session) clientRequest(m *jsonrpc.Message) {
 	h, ok := s.handlers(m.Method)
+	if !ok && m.Method == "server/discover" {
+		// Clients of MCP 2026-07-28 probe for it before falling back to
+		// initialize: negotiation, not a refused operation, so not audited.
+		_ = s.client.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeMethodNotFound, "method not found"))
+		return
+	}
 	if !ok {
 		p := s.snapshotPrincipal()
 		s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: m.Method,
@@ -335,12 +341,21 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 	}, nil
 }
 
+// gatewayCapabilities are the server capabilities the gateway implements
+// and passes on from a backend; others (tasks, experimental features)
+// would let a client use methods the gateway does not route or results
+// it does not see (and cannot apply obligations to).
+var gatewayCapabilities = map[string]bool{"tools": true, "prompts": true, "resources": true, "completions": true, "logging": true}
+
 // withListChanged returns the backend's capabilities with listChanged set
 // for tools, prompts and resources: the gateway notifies clients when
 // policy changes what they may see, whatever the backend supports.
 func withListChanged(caps map[string]json.RawMessage) map[string]json.RawMessage {
 	out := make(map[string]json.RawMessage, len(caps))
 	for k, v := range caps {
+		if !gatewayCapabilities[k] {
+			continue
+		}
 		out[k] = v
 		if k != "tools" && k != "prompts" && k != "resources" {
 			continue
@@ -502,6 +517,8 @@ type callTarget struct {
 	args     map[string]any
 	// rewrite puts the backend's name/URI back into the params.
 	rewrite func(params map[string]json.RawMessage)
+	// progress is the progress the client asked for, if it did.
+	progress *clientProgress
 }
 
 func (s *Session) target(method string, params map[string]json.RawMessage) (*callTarget, *jsonrpc.Error) {
@@ -607,6 +624,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	if err := s.checkArgNames(ctx, t); err != nil {
 		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params: "+err.Error())
 	}
+	t.progress = s.progressOf(params)
 
 	decisionID := newDecisionID()
 	dec, grantID, in := s.decide(ctx, t, decisionID)
@@ -647,7 +665,12 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		return nil, unavailable(err)
 	}
 	t.rewrite(params)
-	if gw := s.rewriteProgressToken(u, params); gw != nil {
+	// A task-augmented request (params.task, MCP 2025-11-25) would make the
+	// backend answer with a task to poll through methods the gateway does
+	// not route; it runs synchronously instead. The gateway does not offer
+	// tasks, but some clients ask regardless.
+	delete(params, "task")
+	if gw := s.rewriteProgressToken(u, params, t.progress.offset()); gw != nil {
 		defer u.unregisterProgress(gw)
 	}
 	resp, err := u.request(ctx, s, m.Method, params)
@@ -716,7 +739,9 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 	if dec.Effect != pep.Ask {
 		return dec, "", in
 	}
+	stop := s.reportWaiting(t)
 	g, err := s.r.Broker.Approve(ctx, s, in, *dec.Ask)
+	stop()
 	switch {
 	case errors.Is(err, broker.ErrNoChannel):
 		return pep.Decision{Effect: pep.Deny, Reason: fmt.Sprintf("approval via %s required but not available", dec.Ask.Channel)}, "", in
@@ -823,7 +848,8 @@ func (s *Session) denial(method, reason string) (any, *jsonrpc.Error) {
 
 // rewriteProgressToken replaces params._meta.progressToken with a token
 // unique on u and returns it (nil if there was none).
-func (s *Session) rewriteProgressToken(u *upstream, params map[string]json.RawMessage) json.RawMessage {
+// The backend's progress values are shifted by offset (see clientProgress).
+func (s *Session) rewriteProgressToken(u *upstream, params map[string]json.RawMessage, offset float64) json.RawMessage {
 	var meta map[string]json.RawMessage
 	if json.Unmarshal(params["_meta"], &meta) != nil {
 		return nil
@@ -832,7 +858,7 @@ func (s *Session) rewriteProgressToken(u *upstream, params map[string]json.RawMe
 	if !ok {
 		return nil
 	}
-	gw := u.registerProgress(s, token)
+	gw := u.registerProgress(s, token, offset)
 	meta["progressToken"] = gw
 	params["_meta"], _ = json.Marshal(meta)
 	return gw

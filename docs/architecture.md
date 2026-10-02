@@ -1569,7 +1569,21 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       `os.Root`) (done).
 15. **Client compatibility:** tested and documented behaviour with Kit,
     Claude Code and other MCP clients (sessions, elicitation, approval
-    timeouts, `list_changed`).
+    timeouts, `list_changed`), in three stages:
+    - client libraries in CI (`test/clients`, `e2e/clients_test.go`): the
+      official TypeScript and Python SDKs and mcp-go (Kit's), over
+      `mcp-connect` and HTTPS, on discovery, calls, both kinds of
+      approval, `list_changed` and cancellation. Found and fixed: calls
+      waiting for approval reported nothing, so clients with request
+      timeouts (the TypeScript SDK: 60 s) gave up before the approval
+      timeout (120 s); they report progress now. Task and experimental
+      capabilities of servers were passed on, though the gateway routes
+      neither; a `server/discover` probe (MCP 2026-07-28) was audited as
+      a denial (done);
+    - Kit, Claude Code and other agents: setup, session behaviour,
+      timeouts and approvals per client, documented in the user guide;
+    - a limit on sessions and instances per principal, decided with what
+      the clients showed (§12).
 
 ## 12. Open items
 

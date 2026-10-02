@@ -34,6 +34,9 @@ type Router struct {
 	// IdleTimeout keeps an instance running this long after its last
 	// session ended.
 	IdleTimeout time.Duration
+	// ProgressInterval is how often a call waiting for approval reports
+	// progress to a client that asked for it (default 15 s).
+	ProgressInterval time.Duration
 
 	once      sync.Once
 	pool      *pool

@@ -242,7 +242,8 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		Audit:    auditLog,
 		Log:      log,
 
-		IdleTimeout: gw.Supervisor.IdleTimeout,
+		IdleTimeout:      gw.Supervisor.IdleTimeout,
+		ProgressInterval: gw.Approvals.ProgressInterval,
 	}
 
 	registerGauges(r, b)

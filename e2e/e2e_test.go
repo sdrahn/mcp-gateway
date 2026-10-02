@@ -282,6 +282,7 @@ state_dir: %s
 policy:
   opa_socket: %s
   timeout: 2s
+  watch_interval: 1s
 approval_timeout: 5s
 supervisor:
   mode: exec
@@ -289,6 +290,7 @@ supervisor:
 approvals:
   control_socket: %s
   url_template: https://gw.example.com/approvals/{id}
+  progress_interval: 1s
 %s`, gwSock, filepath.Join(tmp, "servers.d"), filepath.Join(tmp, "state"), opaSock, filepath.Join(tmp, "control.sock"), extra))
 	gwCmd, gwLogs := start(t, gateway, "--config", filepath.Join(tmp, "gateway.yaml"))
 	waitFor(t, gwSock)
