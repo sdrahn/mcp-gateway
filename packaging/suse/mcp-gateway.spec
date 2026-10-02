@@ -110,6 +110,8 @@ Group:          System/Management
 BuildArch:      noarch
 Requires:       %{name} = %{version}
 Recommends:     systemd-mcp
+# systemd-mcp offers get_man_page (in the roles) only if man is installed.
+Recommends:     man
 %sysusers_requires
 
 %description profile-systemd

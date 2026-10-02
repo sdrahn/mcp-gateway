@@ -25,6 +25,60 @@ systemctl restart mcp-gateway.service
 A server is only usable by principals whose roles have permissions for it
 (chapter 6). A server nobody has permissions for is invisible.
 
+### Inspecting a server
+
+`mcp-gateway inspect` starts a server, lists its tools, prompts and
+resource templates, classifies each tool as reading or changing, and
+drafts roles for it. Use it before writing roles, and to check roles
+after a server update:
+
+```bash
+# A registered server, started as the gateway starts it for discovery
+# (through systemd, in its sandbox and SELinux domain; as root):
+mcp-gateway inspect --server git
+
+# Check role data against the tools the server really has:
+mcp-gateway inspect --server git --roles /etc/mcp-gateway/policy/rbac/data.json
+
+# A server not registered yet, as a plain child process of yours (no
+# sandbox: only for servers you trust; refused as root). Writes the
+# drafts git.yaml and roles.json to ./git-drafts:
+mcp-gateway inspect --name git --out ./git-drafts -- /usr/libexec/mcp-servers/mcp-git
+```
+
+The report shows for each tool its class and why: the MCP annotations
+the server gives (`readOnlyHint`, `destructiveHint`) and the first word
+of its name (`get`, `list`, … read; `set`, `delete`, `install`, …
+change). Arguments that look like paths are listed as candidates for an
+`args` constraint (chapter 6).
+
+The drafted roles are `<server>-reader`, with the tools the server marks
+read-only by exact name, and `<server>-operator`, which adds every other
+tool after an out-of-band approval. Tools that only their name marks as
+reading need approval in the draft: annotations and names come from the
+server and prove nothing. Review the report, move tools you have checked
+into the reader role (or use `--read-by-name`), and copy the roles into
+your role data or a setup package.
+
+The role check reports a permission that names a tool or prompt the
+server does not have as an error (exit status 1), a pattern that matches
+none as a warning, and tools no permission names as information. A
+server that changes its tools in an update shows up this way before
+users miss them.
+
+What a server lists can depend on how it runs: mcp-server-zypp offers
+its installing tools only as root (the privileged definition), and
+systemd-mcp offers `get_man_page` only where `man` is installed.
+`inspect` reports what the definition it starts offers on this system;
+check roles meant for another definition with that definition (for
+example through `--config` with a configuration whose `servers_dir`
+holds it).
+
+What `inspect` does not find out is what the server needs from the
+system: SELinux rules, polkit actions, an account, the network. Start it
+through the gateway and look at the denials (chapter 13, "SELinux
+domains").
+
 ### Overriding and disabling package definitions
 
 A file in `/etc/mcp-gateway/servers.d/` replaces the package file **of

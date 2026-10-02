@@ -22,12 +22,7 @@ import (
 // resources/list is user data and always comes from the user's instance.
 
 // discoveryPrincipal is the identity shared discovery instances run for.
-var discoveryPrincipal = principal.Principal{
-	Sub:       "mcp-discovery",
-	Home:      "/",
-	Transport: principal.TransportInternal,
-	SessionID: "discovery",
-}
+var discoveryPrincipal = principal.Discovery
 
 // sharedMethods are the list methods served from shared discovery.
 var sharedMethods = map[string]bool{"tools/list": true, "prompts/list": true, "resources/templates/list": true}

@@ -625,6 +625,10 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 	return backends, nil
 }
 
+// ApplyDefaults fills in the defaults of a definition built in code (a
+// file's are filled in by LoadBackends).
+func (b *Backend) ApplyDefaults() { b.setDefaults() }
+
 func (b *Backend) setDefaults() {
 	if b.SELinuxType == "" {
 		b.SELinuxType = DefaultSELinuxType

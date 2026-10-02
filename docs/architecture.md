@@ -1306,6 +1306,7 @@ internal/
   pep/                    # OPA client, decision application, obligations
   pseudo/                 # pseudonymization: detectors, per-session vault
   broker/                 # approvals, grants store, elicitation
+  inspect/                # mcp-gateway inspect: server inventory, draft roles, role check
   supervisor/             # systemd transient units, instance pool, MCS allocator
   audit/
   config/
@@ -1356,7 +1357,7 @@ with real MCP servers (systemd, firewalld, snapper, zypp, suseconnect)
 showed where it is not yet a product: every server needed SELinux rules,
 polkit rules or sandbox settings worked out by hand, the packages broke
 on SLES 16 although CI (Tumbleweed only) was green, and agents differ in
-how they use sessions. Steps 10–14 lead to a 1.0 for SLES 16 and Leap 16.
+how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
 
 10. **Server profiles, tested on the target distributions:**
     - setup packages `mcp-gateway-profile-<name>` (installing one
@@ -1379,23 +1380,48 @@ how they use sessions. Steps 10–14 lead to a 1.0 for SLES 16 and Leap 16.
       versions and VM-tests on Leap 16 and Tumbleweed (SLES 16 through
       the OBS builds; testing it in CI would need a registration code),
       plus an upgrade test from the previous release.
-11. **Stable interfaces:** versioned `gateway.yaml`, server definitions,
+11. **Server onboarding:** tools that draft what step 10 worked out by
+    hand for each server. They propose and an administrator decides:
+    who may call what is a policy decision, and what a server says about
+    its tools (MCP tool annotations) is not to be trusted.
+    - `mcp-gateway inspect` starts a server (through its definition and
+      the supervisor, or a bare command) and asks it for its tools,
+      prompts and resource templates. It reports names, argument
+      schemas, annotations and a read/change classification, drafts a
+      server definition and roles (a reader role with the tools the
+      server marks read-only and whose names do not say otherwise, an
+      operator role that adds every other tool with approval), and checks role
+      data against the tools the server really has: a permission that
+      names a missing tool is an error (a shipped systemd role named
+      `list_units`, which systemd-mcp does not have);
+    - a profiling mode in the VM test harness runs a server in its own
+      domain, permissive for that domain only, calls its reading tools
+      with arguments from their schemas (changing tools only on
+      request, in the throwaway VM) and records SELinux denials, D-Bus
+      peers, polkit actions, network connections, helpers it executes
+      and the user it needs; from these it drafts the SELinux module and
+      file contexts, polkit rule, account and the definition's sandbox
+      settings, with a report of what needs review (paths not exercised,
+      rules broader than needed);
+    - optionally, a review of the server's source for code paths that
+      profiling did not reach, as was done by hand for systemd-mcp.
+12. **Stable interfaces:** versioned `gateway.yaml`, server definitions,
     role data, the policy input and decision documents and the control
     API; a deprecation policy (warn for one minor release, then remove);
     CI checks that the configuration of the previous release still works.
-12. **Operability:** `Type=notify` with a systemd watchdog for the
+13. **Operability:** `Type=notify` with a systemd watchdog for the
     gateway; metrics (decisions, pending approvals, instance starts and
     failures, OPA latency); a self-check command that finds what had to
     be debugged by hand: servers that do not start, SELinux denials for a
     backend, missing polkit rules, role data that does not validate,
     principals without roles.
-13. **Security assurance:** fuzzing of the JSON-RPC parser, the HTTP
+14. **Security assurance:** fuzzing of the JSON-RPC parser, the HTTP
     transport and the policy input; a review of the threat model (§8);
     an external review of identity, approvals and the control socket;
     decisions on the open items that matter in production (rate-limit
     counters across restarts, grants expiring during a call, path
     arguments through symlinks).
-14. **Client compatibility:** tested and documented behaviour with Kit,
+15. **Client compatibility:** tested and documented behaviour with Kit,
     Claude Code and other MCP clients (sessions, elicitation, approval
     timeouts, `list_changed`).
 

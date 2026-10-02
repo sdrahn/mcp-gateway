@@ -436,7 +436,7 @@ if [ -d "$dir/servers" ]; then
 	restorecon -R /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
 		/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp
 	rpm -Uvh --nodeps "$dir"/rpms/mcp-gateway-profile-*.rpm >/dev/null || die "installing the setup packages failed"
-	zypper -n in --no-recommends firewalld >/dev/null && systemctl enable --now firewalld >/dev/null 2>&1
+	zypper -n in --no-recommends firewalld man >/dev/null && systemctl enable --now firewalld >/dev/null 2>&1
 	for f in /usr/bin/systemd-mcp:mcpsrv_systemd_exec_t /usr/bin/firewalld-mcp:mcpsrv_firewalld_exec_t \
 		/usr/bin/mcp-server-zypp:mcpsrv_zypp_exec_t /usr/libexec/mcp-server-zypp/zypp-mcp-tool:rpm_exec_t \
 		/usr/bin/suseconnect-mcp:mcpsrv_suseconnect_exec_t; do
@@ -457,6 +457,23 @@ END
 		/etc/mcp-gateway/policy/rbac/data.json >/root/vmtest/data.json &&
 		cat /root/vmtest/data.json >/etc/mcp-gateway/policy/rbac/data.json
 	check "the role data binds the shipped roles" mcp-gateway --check-policy-data
+	# Each server, started as for shared discovery, has every tool its
+	# shipped roles name (mcp-gateway inspect, roadmap step 11). zypp
+	# offers the tools of zypp-installer only as root: its roles are
+	# checked against the privileged definition, in a configuration of
+	# its own.
+	mkdir -p /root/vmtest/servers.d
+	ln -sf /usr/share/mcp-gateway/profiles/zypp-privileged.yaml /root/vmtest/servers.d/zypp.yaml
+	printf 'servers_dir: /root/vmtest/servers.d\n' >/root/vmtest/inspect-gateway.yaml
+	for s in systemd firewalld zypp suseconnect; do
+		conf=()
+		[ "$s" = zypp ] && conf=(-config /root/vmtest/inspect-gateway.yaml)
+		mcp-gateway inspect "${conf[@]}" -server "$s" -timeout 60s \
+			-roles "/usr/share/mcp-gateway/policy/mcp/profiles/$s/data.json" >"/root/vmtest/inspect-$s.txt" 2>&1
+		rc=$?
+		sed -n '1p;/^Tools/,$p' "/root/vmtest/inspect-$s.txt" | sed "s/^/  [$s] /"
+		check "inspect: the $s roles name only tools the server has" test "$rc" = 0
+	done
 	systemctl restart mcp-gateway.service
 	wait_socket
 
