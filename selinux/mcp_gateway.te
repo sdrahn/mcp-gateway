@@ -135,6 +135,11 @@ filetrans_pattern(mcpgw_t, mcpgw_runtime_t, mcpgw_ctl_sock_t, sock_file, "contro
 
 read_files_pattern(mcpgw_t, mcpgw_etc_t, mcpgw_etc_t)
 list_dirs_pattern(mcpgw_t, mcpgw_etc_t, mcpgw_etc_t)
+# Symlinks in servers.d: a shipped definition linked in (the privileged
+# zypp and snapper definitions in /usr/share/mcp-gateway/profiles), or a
+# server masked with a link to /dev/null (only stat'ed).
+read_lnk_files_pattern(mcpgw_t, mcpgw_etc_t, mcpgw_etc_t)
+dev_rw_null(mcpgw_t)
 # Vendor backend definitions in /usr/share/mcp-gateway/servers.d.
 files_read_usr_files(mcpgw_t)
 manage_files_pattern(mcpgw_t, mcpgw_var_lib_t, mcpgw_var_lib_t)
