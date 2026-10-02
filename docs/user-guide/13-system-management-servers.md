@@ -217,6 +217,10 @@ over the system bus: `list_configs`, `get_config`, `list_snapshots`,
   `once`).
 - Leave `SYNC_ACL` off in configs that name `mcp-snapper`: with it,
   snapper gives the allowed users read access to the snapshots' files.
+- Its input schemas mark every argument as required, also those a call
+  does not use (`pre_number` of a single snapshot, the `number` of
+  `rollback`, which may be null); a client that leaves one out gets a
+  validation error from the server, not from the gateway.
 
 ### suseconnect-mcp
 
