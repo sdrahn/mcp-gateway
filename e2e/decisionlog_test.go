@@ -93,9 +93,17 @@ func TestDecisionLogShipping(t *testing.T) {
 		t.Fatal("write_file was allowed")
 	}
 
-	ids := regexp.MustCompile(`"decision_id":"([0-9a-f]{32})"`).FindAllStringSubmatch(e.gwLogs.String(), -1)
-	if len(ids) < 2 {
-		t.Fatalf("gateway audit records lack decision ids: %s", e.gwLogs.String())
+	// The gateway logs a call's audit record as it answers; the line can
+	// reach the captured output after the answer reached the client.
+	idRE := regexp.MustCompile(`"decision_id":"([0-9a-f]{32})"`)
+	var ids [][]string
+	for wait := time.Now().Add(5 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if ids = idRE.FindAllStringSubmatch(e.gwLogs.String(), -1); len(ids) >= 2 {
+			break
+		}
+		if time.Now().After(wait) {
+			t.Fatalf("gateway audit records lack decision ids: %s", e.gwLogs.String())
+		}
 	}
 	deadline := time.Now().Add(20 * time.Second)
 	for {
