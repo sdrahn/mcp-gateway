@@ -62,6 +62,14 @@ minor release (with a warning) and removed in the next.
   previous minor release (0.3) is still read. The shipped files and the
   drafts of `mcp-gateway inspect` and `profile` carry `version: 1`.
 
+- Policy documents and control API: every policy input (decisions, the
+  filter, approver rules, "what changes?") has `"version": 1`, and a
+  decision may name its version (`"version": 1`; another version
+  denies). `GET /v1/status` also reports the gateway's `version`. The
+  fields of the policy documents and of the control API's requests and
+  responses are listed in contract files, and a test fails when one
+  disappears.
+
 - Roles shipped with server setups: files in
   `/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.json`
   (`data.mcp.profiles`) add roles that bindings may name; a role of the

@@ -1,0 +1,46 @@
+# Input of data.mcp.approvals.allow, manage_grant, manage_instance, review_policy (approver
+# and one of request, grant, instance) and notify (request); the OPA client adds "version" (1).
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+approver
+approver.groups
+approver.name
+approver.uid
+grant
+grant.approved_by
+grant.args_match
+grant.channel
+grant.expires
+grant.id
+grant.iss
+grant.scope
+grant.server
+grant.session_id
+grant.sub
+grant.tool
+grant.uid
+instance
+instance.server
+instance.uid
+request
+request.action
+request.name
+request.principal
+request.principal.cert
+request.principal.cert.dns
+request.principal.cert.emails
+request.principal.cert.subject
+request.principal.cert.uris
+request.principal.cert.x5t#S256
+request.principal.client
+request.principal.client.name
+request.principal.client.version
+request.principal.groups
+request.principal.home
+request.principal.iss
+request.principal.roles
+request.principal.selinux
+request.principal.session_id
+request.principal.sub
+request.principal.transport
+request.principal.uid
+request.server

@@ -106,12 +106,15 @@ func (o *OPA) Decide(ctx context.Context, in Input) (Decision, error) {
 	return d, nil
 }
 
+// VisibleInput is the input of data.mcp.filter.visible.
+type VisibleInput struct {
+	Principal principal.Principal `json:"principal"`
+	Resources []Resource          `json:"resources"`
+}
+
 // Visible implements Filterer. On any error nothing is visible.
 func (o *OPA) Visible(ctx context.Context, p principal.Principal, rs []Resource) ([]Resource, error) {
-	in := struct {
-		Principal principal.Principal `json:"principal"`
-		Resources []Resource          `json:"resources"`
-	}{p, rs}
+	in := VisibleInput{p, rs}
 	var out []Resource
 	if err := o.query(ctx, VisiblePath, in, &out); err != nil {
 		return nil, err
@@ -272,9 +275,13 @@ func (o *OPA) query(ctx context.Context, path string, input, result any) error {
 func (o *OPA) queryWithin(ctx context.Context, timeout time.Duration, path string, input, result any) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	in, err := versioned(input)
+	if err != nil {
+		return err
+	}
 	body, err := json.Marshal(struct {
-		Input any `json:"input"`
-	}{input})
+		Input json.RawMessage `json:"input"`
+	}{in})
 	if err != nil {
 		return err
 	}
@@ -305,4 +312,21 @@ func (o *OPA) queryWithin(ctx context.Context, timeout time.Duration, path strin
 		return errors.New("opa: undefined result for " + path)
 	}
 	return json.Unmarshal(envelope.Result, result)
+}
+
+// versioned returns input as JSON with "version" (InputVersion) added.
+// Every input is a JSON object; none has a "version" of its own.
+func versioned(input any) (json.RawMessage, error) {
+	data, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) < 2 || data[0] != '{' {
+		return nil, fmt.Errorf("opa: policy input must be a JSON object, got %.20s", data)
+	}
+	v := fmt.Sprintf(`{"version":%d`, InputVersion)
+	if string(data) == "{}" {
+		return json.RawMessage(v + "}"), nil
+	}
+	return json.RawMessage(v + "," + string(data[1:])), nil
 }

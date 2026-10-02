@@ -133,7 +133,7 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | Method and path | Body / result |
 |---|---|
 | `GET /v1/whoami` | the caller: `{"name", "uid", "groups"}` |
-| `GET /v1/status` | `{"restart_pending": true}` when the gateway's program was updated and the gateway not yet restarted |
+| `GET /v1/status` | `{"version", "restart_pending"}`: the running gateway's version, and `true` when its program was updated and the gateway not yet restarted |
 | `GET /v1/approvals` | pending approvals the caller may decide on (list of approvals, below) |
 | `GET /v1/approvals/{id}` | one approval; `404` if unknown or not the caller's to decide |
 | `POST /v1/approvals/{id}` | `{"decision": "approve"\|"deny", "scope": "once"\|"session"\|<duration>}`; returns the grant (`200`) or nothing (`204`, denied); `400 scope not offered` |
@@ -146,6 +146,11 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `GET /v1/events` | server-sent events (`event: approval`) for the approvals the caller may decide on: first all pending, then changes; `data` is `{"type": "pending"\|"resolved", "id", "new", "pending", "url"}` |
 
 Errors are `{"error": "…"}` with a matching status.
+
+The API is versioned by its path. Within `/v1`, new releases only add
+endpoints and fields; clients must ignore fields they do not know. A
+field is never renamed or dropped within `/v1`: that would be `/v2`,
+with `/v1` kept for one more minor release.
 
 **Approval** fields: `id`, `channel`, `principal` (as policy sees it:
 `sub`, `iss`, `uid`, `groups`, `home`, `transport`, `selinux`,

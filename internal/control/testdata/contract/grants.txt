@@ -1,0 +1,14 @@
+# GET /v1/grants
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+[].approved_by
+[].args_match
+[].channel
+[].expires
+[].id
+[].iss
+[].scope
+[].server
+[].session_id
+[].sub
+[].tool
+[].uid

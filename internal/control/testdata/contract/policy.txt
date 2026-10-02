@@ -1,0 +1,8 @@
+# GET /v1/policy
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+bundles
+mode
+shipped_roles
+shipped_roles{}.description
+shipped_roles{}.permissions
+shipped_roles{}.setup

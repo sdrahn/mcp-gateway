@@ -1,0 +1,22 @@
+# GET /v1/servers
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+[].instances
+[].instances[].busy
+[].instances[].id
+[].instances[].isolation
+[].instances[].iss
+[].instances[].privileged
+[].instances[].server
+[].instances[].session_id
+[].instances[].sessions
+[].instances[].started
+[].instances[].sub
+[].instances[].transport
+[].instances[].uid
+[].instances[].unit
+[].isolation
+[].name
+[].network
+[].privileged
+[].run_as
+[].selinux_type

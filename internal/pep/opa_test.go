@@ -170,3 +170,49 @@ func TestOPABundles(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+// Every query's input carries "version".
+func TestOPAInputVersion(t *testing.T) {
+	var mu sync.Mutex
+	var inputs []string
+	o := fakeOPA(t, func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Input json.RawMessage }
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		inputs = append(inputs, string(body.Input))
+		mu.Unlock()
+		switch r.URL.Path {
+		case DecisionPath:
+			_, _ = w.Write([]byte(`{"result":{"effect":"deny"}}`))
+		case VisiblePath:
+			_, _ = w.Write([]byte(`{"result":[]}`))
+		default:
+			_, _ = w.Write([]byte(`{"result":true}`))
+		}
+	})
+	ctx := context.Background()
+	if _, err := o.Decide(ctx, Input{Action: "tools.call"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Visible(ctx, principal.Principal{Sub: "alice"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range []any{map[string]any{}, map[string]any{"grant": 1}} {
+		if _, err := o.Bool(ctx, "/v1/data/x", in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := o.Bool(ctx, "/v1/data/x", []string{"not an object"}); err == nil {
+		t.Error("a list as input: no error")
+	}
+	want := []string{`"action":"tools.call"`, `"sub":"alice"`, `{"version":1}`, `"grant":1`}
+	if len(inputs) != len(want) {
+		t.Fatalf("inputs %q", inputs)
+	}
+	for i, in := range inputs {
+		var v struct{ Version int }
+		if err := json.Unmarshal([]byte(in), &v); err != nil || v.Version != InputVersion || !strings.Contains(in, want[i]) {
+			t.Errorf("input %s: version %d, err %v, want %s in it", in, v.Version, err, want[i])
+		}
+	}
+}
