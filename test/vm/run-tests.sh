@@ -533,6 +533,14 @@ END
 	rc=$?
 	sed 's/^/  /' "$prof-verify.txt" | head -40
 	check "profile: with the drafted module the server runs enforcing without denials" test "$rc" = 0
+	if [ "$rc" != 0 ]; then
+		# Diagnostics: the instance's messages, and the run once more with
+		# dontaudit rules disabled (denials the policy keeps silent).
+		journalctl -u 'mcp-fwprof-*' --no-pager -o cat 2>/dev/null | tail -15 | sed 's/^/  [fwprof] /'
+		semodule -DB
+		mcp-gateway profile -server fwprof -verify 2>&1 | sed -n '/SELinux denials/,/^$/p' | sed 's/^/  [-DB] /'
+		semodule -B
+	fi
 else
 	echo "  no servers given (test/vm/run-vm.sh <...> <servers dir>); skipped"
 fi
