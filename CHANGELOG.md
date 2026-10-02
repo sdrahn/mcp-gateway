@@ -5,6 +5,16 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Fixed
+
+- `mcp-gateway -h` listed only the gateway's options, not the commands
+  `inspect`, `profile`, `review` and `doctor`. It now lists them with a
+  line each, and `mcp-gateway help [COMMAND]` shows the overview or a
+  command's options. An unknown command (a typo) is an error; it used to
+  start the gateway.
+
 ## v0.4.0 — 2026-10-02
 
 The first release with stable interfaces: from 0.4 on, configuration,
