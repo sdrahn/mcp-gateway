@@ -205,6 +205,14 @@ gen_require(`
 ')
 dontaudit mcpgw_t kernel_t:unix_stream_socket connectto;
 
+# Type=notify: readiness, status and watchdog pings go to systemd's
+# notification socket (/run/systemd/notify; init_stream_connect covers
+# the directory and the socket file). Where PID 1 runs as kernel_t (see
+# above) the datagrams go to kernel_t: without them systemd would never
+# see the gateway ready.
+allow mcpgw_t self:unix_dgram_socket create_socket_perms;
+allow mcpgw_t { init_t kernel_t }:unix_dgram_socket sendto;
+
 # Approval mail (notifications.email): SMTP when enabled, and getent to
 # expand approver groups through NSS.
 tunable_policy(`mcpgw_can_send_mail',`

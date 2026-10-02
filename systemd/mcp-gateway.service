@@ -9,7 +9,13 @@ After=mcp-opa.service network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+# Ready once its sockets are up; the status line shows sessions, server
+# instances and pending approvals. The watchdog restarts a gateway whose
+# sessions, instances or approvals stay locked (the Go runtime writes
+# every goroutine's stack to the journal first, on SIGABRT).
+Type=notify
+NotifyAccess=main
+WatchdogSec=60s
 User=mcp-gateway
 Group=mcp-gateway
 # The client socket is chgrp'ed to socket_group (gateway.yaml); the gateway

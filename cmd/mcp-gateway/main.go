@@ -30,6 +30,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/coreos/go-systemd/v22/daemon"
 	"github.com/sdrahn/mcp-gateway/internal/audit"
 	"github.com/sdrahn/mcp-gateway/internal/authn"
 	"github.com/sdrahn/mcp-gateway/internal/broker"
@@ -273,14 +274,28 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	served := make(chan error, 1)
 	go func() { served <- r.Serve(ctx, l) }()
 	var httpErr error
+	var httpErrs chan error
+	stopHTTP := func() {}
 	if gw.HTTP.Listen != "" {
-		httpErrs := make(chan error, 1)
-		stopHTTP, err := serveHTTP(log, gw.HTTP, r, httpErrs)
-		if err != nil {
+		httpErrs = make(chan error, 1)
+		if stopHTTP, err = serveHTTP(log, gw.HTTP, r, httpErrs); err != nil {
 			stop()
 			<-served
 			return err
 		}
+	}
+
+	// Type=notify: ready once every listener is up.
+	watchdog, err := daemon.SdWatchdogEnabled(false)
+	if err != nil {
+		log.Warn("systemd watchdog setting not understood", "err", err)
+	}
+	go notifySystemd(ctx, log, sdNotify, watchdog, func() string {
+		sessions, instances := r.Stats()
+		return statusLine(sessions, instances, b.PendingCount())
+	})
+
+	if httpErrs != nil {
 		select {
 		case httpErr = <-httpErrs:
 		case <-ctx.Done():
