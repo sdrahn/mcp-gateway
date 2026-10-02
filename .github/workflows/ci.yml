@@ -200,13 +200,15 @@ jobs:
         run: |
           rpm -ivh --nodeps ~/rpmbuild/RPMS/noarch/mcp-gateway-profile-*.rpm
           getent passwd mcp-sysmgmt
+          getent passwd mcp-snapper
           id -nG mcp-sysmgmt | grep -qw systemd-journal
           mcp-gateway --check 2>&1 | tee /tmp/check.log
-          grep -q 'backends=5' /tmp/check.log
+          grep -q 'backends=6' /tmp/check.log
           test -f /usr/share/polkit-1/rules.d/60-mcp-gateway-systemd.rules
           test -f /usr/share/mcp-gateway/profiles/zypp-privileged.yaml
+          test -f /usr/share/mcp-gateway/profiles/snapper-privileged.yaml
           # Bindings may name the roles the setups ship.
-          echo '{"roles": {}, "bindings": {"users": {"root": ["systemd-operator", "zypp-reader"]}}}' |
+          echo '{"roles": {}, "bindings": {"users": {"root": ["systemd-operator", "zypp-reader", "snapper-operator"]}}}' |
             mcp-gateway --check-policy-data --policy-data -
       - name: Install the SELinux module
         run: |
