@@ -5,7 +5,29 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.4.2 — 2026-10-02
+
+A fix for a gateway that was run by hand as root. Upgrading from 0.4.x
+needs no changes; restart the gateway when convenient. If the service
+fails at start, `mcp-gateway doctor` or the gateway's log names files to
+give back to `mcp-gateway` (`chown -R mcp-gateway: /var/lib/mcp-gateway`).
+
+### Fixed
+
+- `mcp-gateway.service` failed at start, restarting until systemd gave
+  up, after the gateway had been run by hand as root: the state files it
+  wrote (`pending.json`) were root's, and the service, running as
+  `mcp-gateway`, could not read them. The gateway now refuses to run as
+  root when the `mcp-gateway` account exists (`--allow-root` overrides;
+  `--check` is not affected), and names state files another user owns,
+  with the `chown` that fixes it, instead of failing with a bare
+  permission error. `mcp-gateway doctor` checks the ownership of
+  `/var/lib/mcp-gateway`.
+
+## v0.4.1 — 2026-10-02
+
+A fix of the command line's help. Upgrading from 0.4.0 needs no changes;
+restart the gateway when convenient.
 
 ### Fixed
 
@@ -14,15 +36,6 @@ minor release (with a warning) and removed in the next.
   line each, and `mcp-gateway help [COMMAND]` shows the overview or a
   command's options. An unknown command (a typo) is an error; it used to
   start the gateway.
-- `mcp-gateway.service` failed at start, restarting until systemd gave
-  up, after the gateway had been run by hand as root: the state files it
-  wrote (`pending.json`) were root's, and the service, running as
-  `mcp-gateway`, could not read them. The gateway now refuses to run as
-  root when the `mcp-gateway` account exists (`--allow-root` overrides;
-  `--check` is not affected); names state files another user owns, with
-  the `chown` that fixes it, instead of failing with a bare permission
-  error; and `mcp-gateway doctor` checks the ownership of
-  `/var/lib/mcp-gateway`.
 
 ## v0.4.0 — 2026-10-02
 
@@ -233,6 +246,25 @@ the package does not. Things to know:
   its root: a link inside the root to `/etc` let policy allow a path
   under the root while the server read outside it. It now opens every
   path beneath its root with `os.Root`.
+
+## v0.3.5 — 2026-10-02
+
+A fix for a gateway that was run by hand as root. Update the packages
+and restart the gateway (`systemctl restart mcp-gateway.service`); the
+configuration and the role data need no changes. If the service fails at
+start, the gateway's log names files to give back to `mcp-gateway`
+(`chown -R mcp-gateway: /var/lib/mcp-gateway`).
+
+### Fixed
+
+- `mcp-gateway.service` failed at start, restarting until systemd gave
+  up, after the gateway had been run by hand as root: the state files it
+  wrote (`pending.json`) were root's, and the service, running as
+  `mcp-gateway`, could not read them. The gateway now refuses to run as
+  root when the `mcp-gateway` account exists (`--allow-root` overrides;
+  `--check` is not affected), and names state files another user owns,
+  with the `chown` that fixes it, instead of failing with a bare
+  permission error.
 
 ## v0.3.4 — 2026-10-02
 
