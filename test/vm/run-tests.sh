@@ -568,9 +568,11 @@ END
 	check "snapper: delete_snapshots after an approval" test "$rc" = 0
 	check "snapper: the snapshot is gone" sh -c "! snapper --csvout -c vmtest list --columns number | grep -qx '${snap:-x}'"
 	stool_approved alice snapper set_config '{"config":"vmtest","values":{"NUMBER_LIMIT":"7"}}'
-	# stool_approved keeps the tool error in $out (rc=2).
+	# stool_approved keeps the tool error in $out (rc=2); snapperd's
+	# refusal reaches the server only as org.freedesktop.DBus.Error.Failed.
 	check "snapper: set_config is refused in the sandbox (snapperd: root only)" \
-		bash -c 'grep -q " rc=2 " <<<"$1" && grep -qiE "no_permissions|permission" <<<"$1"' _ "$out"
+		bash -c 'grep -q " rc=2 " <<<"$1" && grep -q "SetConfig.*D-Bus call failed" <<<"$1"' _ "$out"
+	check "snapper: ... and the config is unchanged" bash -c '! grep -q "^NUMBER_LIMIT=\"7\"" /etc/snapper/configs/vmtest'
 
 	# The privileged definition (root, no sandbox): set_config, and
 	# rollback where the root file system is set up for it.
