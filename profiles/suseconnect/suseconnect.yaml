@@ -3,6 +3,7 @@
 # mcp-gateway-profile-suseconnect. It needs root (in the sandbox), talks to
 # SCC or an RMT server, and updates the system credentials (roles
 # suseconnect-reader and suseconnect-admin).
+version: 1
 name: suseconnect
 command: ["/usr/bin/suseconnect-mcp"]
 run_as: root

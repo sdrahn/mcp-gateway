@@ -29,6 +29,11 @@ func TestCheck(t *testing.T) {
 		want       []string // substrings, one per problem, in order
 	}{
 		{"minimal", `{"roles": {}}`, nil},
+		{"version 1", `{"version": 1, "roles": {}}`, nil},
+		{"newer version", `{"version": 2, "roles": {}}`, []string{"/version: 2 is newer than this gateway reads (1)"}},
+		{"version 0", `{"version": 0, "roles": {}}`, []string{"/version: 0 is not supported"}},
+		{"version not a number", `{"version": "1", "roles": {}}`, []string{"/version: must be a number"}},
+		{"version not an integer", `{"version": 1.5, "roles": {}}`, []string{"/version: must be an integer"}},
 		{"full permission", `{"roles": {"r": {"description": "d", "permissions": [
 			{"server": "fs", "tool": "write_*", "require_approval": true, "approval_channel": "form",
 			 "args": {"path": "^/srv/"}, "require_client_cert": true,

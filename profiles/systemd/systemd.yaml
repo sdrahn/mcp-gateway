@@ -3,6 +3,7 @@
 # the account mcp-sysmgmt manage units without a password; the gateway's
 # policy decides who may call which tool (roles systemd-reader and
 # systemd-operator). Override or mask in /etc/mcp-gateway/servers.d.
+version: 1
 name: systemd
 command: ["/usr/bin/systemd-mcp"]
 run_as: mcp-sysmgmt

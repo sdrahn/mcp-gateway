@@ -39,6 +39,23 @@ at start; a restart ends open sessions (agents reconnect).
 All keys, with their defaults. Durations are written like `250ms`, `10s`,
 `15m`, `8h`.
 
+### Format version
+
+```yaml
+version: 1
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `version` | `1` | the version of the file's format. The gateway refuses a version it does not read (a file written for a newer gateway) instead of misreading it. |
+
+Within a version, new gateway releases only add keys. A key that is going
+away keeps working for one minor release: the gateway logs "… is
+deprecated since …" at start and with `mcp-gateway --check`, with what
+to write instead, and the release notes list it under "Deprecated".
+Server definitions and role data have a `version` of their own and
+follow the same rules.
+
 ### Local socket
 
 ```yaml

@@ -977,6 +977,8 @@ denies, which always apply), `obligations` (§6.3, conditions on an allowed call
 and for `client` permissions `allow_sensitive` (backend elicitations that
 look like they ask for secrets, §5.6.2).
 
+An optional `version` (1) names the format of the role data (D10).
+
 `approvers` maps a server name, or `default`, to the rules for who may
 decide on that server's approvals and manage its grants: `self`,
 `role:<role>`, `group:<group>`, `user:<user>` (§5.6.1). Without it, only
@@ -1292,6 +1294,30 @@ is limited by admin-only definitions, approval for every call not
 explicitly allowed, kernel audit, and confinement of the part that
 speaks MCP.
 
+**D10 — Interface stability and deprecation.**
+*Decision (accepted 2026-10-02, roadmap step 12):* what administrators
+write and what other programs use is a stable interface: `gateway.yaml`,
+server definitions, role data, the policy input and decision documents
+(§6.2, §6.3) and the control API. The files carry a format `version`
+(1; a file without one is read as 1). A gateway refuses a version it
+does not read, naming the version it reads, rather than misreading a
+newer file. Within a version, changes are compatible: new optional
+keys and values, never a changed meaning. A key that goes away, or
+whose meaning changes, is **deprecated** in a minor release: it keeps
+working, the gateway logs a warning at start and with `--check`, and
+the changelog lists it under "Deprecated". It is removed in the next
+minor release. A change that cannot be made that way raises the
+version, and the gateway reads the old version for one more minor
+release. CI loads the configuration of the previous minor release
+(`test/compat`, taken from its tag by `snapshot.sh`). The rule holds
+from 0.4 on,
+so that 1.0 does not start with a break.
+*Rationale:* administrators upgrade with `zypper up` and must not find
+their gateway refusing to start, or worse, reading their policy
+differently. One minor release of warnings fits the release rhythm of
+the target distributions, where a minor release reaches users through
+maintenance updates.
+
 ## 10. Repository layout
 
 ```
@@ -1316,6 +1342,8 @@ policy/                   # default Rego bundle + tests
 selinux/                  # mcp_gateway.te / .fc / .if
 systemd/                  # mcp-gateway.service, mcp-gateway.socket, mcp-opa.service
 packaging/                # OBS/RPM (suse/), sysusers, polkit, demo server definition
+profiles/                 # server setups (mcp-gateway-profile-*)
+test/compat/              # previous minor release's configuration (D10)
 docs/
 ```
 
@@ -1417,10 +1445,15 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       (as `rpm -qdf` in systemd-mcp's `list_log`, found by hand in step
       10). The CI job that builds the setup servers reviews their sources
       (done).
-12. **Stable interfaces:** versioned `gateway.yaml`, server definitions,
-    role data, the policy input and decision documents and the control
-    API; a deprecation policy (warn for one minor release, then remove);
-    CI checks that the configuration of the previous release still works.
+12. **Stable interfaces** (D10):
+    - versioned `gateway.yaml`, server definitions and role data
+      (`version: 1`; other versions are refused with a clear error);
+      deprecated keys are read with a warning at start and with
+      `--check`; CI loads the previous minor release's configuration
+      (`test/compat`) (done);
+    - versioned policy input and decision documents, and the control
+      API (`/v1`) with its fields fixed by contract tests, so that a
+      field cannot be renamed or dropped unnoticed.
 13. **Operability:** `Type=notify` with a systemd watchdog for the
     gateway; metrics (decisions, pending approvals, instance starts and
     failures, OPA latency); a self-check command that finds what had to

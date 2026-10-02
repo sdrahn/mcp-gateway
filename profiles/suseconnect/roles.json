@@ -1,4 +1,5 @@
 {
+  "version": 1,
   "roles": {
     "suseconnect-reader": {
       "description": "suseconnect: registration status and available extensions",

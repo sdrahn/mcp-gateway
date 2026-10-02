@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/sdrahn/mcp-gateway/internal/policydata"
 )
 
 // Class is how a tool appears to act.
@@ -182,7 +184,7 @@ func Roles(server string, verdicts []Verdict) map[string]any {
 		"approval_scopes":  []string{"once", "session", "1h"},
 	})
 	roles[server+"-operator"] = map[string]any{"description": opDesc, "permissions": op}
-	return map[string]any{"roles": roles}
+	return map[string]any{"version": policydata.Version, "roles": roles}
 }
 
 // globEscape escapes the characters the policy's globs give a meaning, so
@@ -203,6 +205,7 @@ func Definition(server string, command []string, res *Result) string {
 	b.WriteString(`; review before use.
 # Install as /etc/mcp-gateway/servers.d/` + server + `.yaml, then
 # mcp-gateway --check && systemctl restart mcp-gateway.service.
+version: 1
 name: ` + server + `
 command: ` + string(cmd) + `
 # Who the server runs as: each user (principal, the default), a system

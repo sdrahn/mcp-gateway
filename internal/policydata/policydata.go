@@ -28,6 +28,11 @@ import (
 // maxGrantDuration is the longest duration scope (broker.MaxGrantTTL).
 const maxGrantDuration = 30 * 24 * time.Hour
 
+// Version is the version of the role data format this gateway reads. Data
+// without "version" is read as this version; data of another version is
+// refused (docs/architecture.md, decision D10).
+const Version = 1
+
 // DefaultPath is the role data file of a package installation.
 const DefaultPath = "/etc/mcp-gateway/policy/rbac/data.json"
 
@@ -73,6 +78,9 @@ func CheckWith(data []byte, shipped map[string]string) ([]string, error) {
 	if err != nil {
 		return []string{"not valid JSON: " + err.Error()}, nil
 	}
+	if p := checkVersion(inst); p != "" {
+		return []string{p}, nil
+	}
 	if err := sch.Validate(inst); err != nil {
 		ve, ok := err.(*jsonschema.ValidationError)
 		if !ok {
@@ -88,6 +96,33 @@ func CheckWith(data []byte, shipped map[string]string) ([]string, error) {
 		return []string{err.Error()}, nil
 	}
 	return d.check(shipped), nil
+}
+
+// checkVersion returns a problem if the data names a version other than
+// Version, before the schema reports it less clearly.
+func checkVersion(inst any) string {
+	obj, ok := inst.(map[string]any)
+	if !ok {
+		return ""
+	}
+	v, ok := obj["version"]
+	if !ok {
+		return ""
+	}
+	n, ok := v.(json.Number)
+	if !ok {
+		return fmt.Sprintf("/version: must be a number, got %v", v)
+	}
+	switch i, err := n.Int64(); {
+	case err != nil:
+		return fmt.Sprintf("/version: must be an integer, got %s", n)
+	case i == Version:
+		return ""
+	case i > Version:
+		return fmt.Sprintf("/version: %d is newer than this gateway reads (%d); update mcp-gateway", i, Version)
+	default:
+		return fmt.Sprintf("/version: %d is not supported (this gateway reads %d)", i, Version)
+	}
 }
 
 // ShippedRoles reads the roles the server setup packages installed below

@@ -1,8 +1,9 @@
 # Changelog
 
 All notable changes to mcp-gateway. Versions follow
-[Semantic Versioning](https://semver.org/); before 1.0, minor versions may
-change configuration, policy data or APIs.
+[Semantic Versioning](https://semver.org/). From 0.4 on, configuration,
+role data and APIs change compatibly: what goes away is deprecated in one
+minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
@@ -51,6 +52,15 @@ change configuration, policy data or APIs.
   `--verify` repeats the
   calls enforcing and fails on a denial. The VM test profiles
   firewalld-mcp as an unknown server and verifies the draft.
+
+- Format versions: `gateway.yaml`, server definitions and role data may
+  name their format with `version: 1` (`"version": 1`); files without
+  one are read as version 1, and other versions are refused with an
+  error that names the version the gateway reads. Deprecated keys are
+  logged as warnings at start and by `mcp-gateway --check`, and removed
+  a minor release later. CI checks that the configuration of the
+  previous minor release (0.3) is still read. The shipped files and the
+  drafts of `mcp-gateway inspect` and `profile` carry `version: 1`.
 
 - Roles shipped with server setups: files in
   `/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.json`
