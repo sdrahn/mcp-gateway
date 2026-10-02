@@ -7,6 +7,10 @@
 # defaults. All values shown are the defaults, except socket_group
 # (default: empty).
 
+# Version of this file's format. A newer gateway reads it as long as it
+# supports the version, and warns about keys it is going to remove.
+version: 1
+
 # Unix socket for local clients (directly or via mcp-connect).
 socket: /run/mcp-gateway/mcp.sock
 # Group owning the socket (mode 0660). Empty: the gateway's own group.
@@ -42,6 +46,9 @@ approvals:
   # Empty disables the url channel. With the Cockpit page, e.g.:
   #   https://gateway.example.com:9090/mcp-gateway#/approvals/{id}
   url_template: ""
+  # How often a call waiting for approval reports progress to an agent
+  # that asked for progress, so that it does not give up on the call.
+  progress_interval: 15s
   # Who may decide on approvals and revoke grants is policy: "approvers"
   # in /etc/mcp-gateway/policy/rbac/data.json (default: the principal
   # themself and the admin role).
@@ -89,6 +96,13 @@ supervisor:
   # whose pair a container or machine started later takes. off.
   mcs_avoid: auto
 
+# Metrics in the Prometheus text format. Root can always read them on the
+# control socket (GET /v1/metrics). listen also serves them over plain
+# HTTP at /metrics, without authentication: prefer a loopback address.
+# SELinux: semanage port -a -t mcp_metrics_port_t -p tcp 9464
+# metrics:
+#   listen: 127.0.0.1:9464
+
 # Remote access via MCP Streamable HTTP with OAuth bearer tokens.
 # Disabled unless listen is set. Endpoints: /mcp (aggregated) and
 # /mcp/<server>; metadata at /.well-known/oauth-protected-resource.
@@ -117,3 +131,12 @@ supervisor:
 #   client_ca_file: /etc/mcp-gateway/tls/client-ca.pem
 #   client_auth: optional
 #   require_bound_tokens: false
+
+# Limits per principal (a local user, or a remote token's subject) and
+# for the gateway as a whole. At a limit, idle HTTP sessions and idle
+# instances make room; otherwise the new session or instance is refused.
+# limits.instances: 0 means no limit for all principals together.
+limits:
+  sessions_per_principal: 64
+  instances_per_principal: 32
+  instances: 0

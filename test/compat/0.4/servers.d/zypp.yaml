@@ -1,0 +1,12 @@
+# mcp-server-zypp (https://github.com/openSUSE/mcp-server-zypp), set up by
+# the package mcp-gateway-profile-zypp: searching, dependencies, updates
+# and planned installations, in the sandbox as mcp-sysmgmt (role
+# zypp-reader). To let it install and remove packages, make it a
+# privileged server (chapter 13):
+#   ln -s /usr/share/mcp-gateway/profiles/zypp-privileged.yaml \
+#         /etc/mcp-gateway/servers.d/zypp.yaml
+version: 1
+name: zypp
+command: ["/usr/bin/mcp-server-zypp"]
+run_as: mcp-sysmgmt
+selinux_type: mcpsrv_zypp_t

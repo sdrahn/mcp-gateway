@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "roles": {
+    "zypp-reader": {
+      "description": "zypp: search packages, dependencies and updates, plan installations",
+      "permissions": [
+        {
+          "server": "zypp",
+          "tool": "search_packages"
+        },
+        {
+          "server": "zypp",
+          "tool": "find_providers"
+        },
+        {
+          "server": "zypp",
+          "tool": "find_dependents"
+        },
+        {
+          "server": "zypp",
+          "tool": "check_updates"
+        },
+        {
+          "server": "zypp",
+          "tool": "plan_install"
+        },
+        {
+          "server": "zypp",
+          "tool": "plan_remove"
+        }
+      ]
+    },
+    "zypp-installer": {
+      "description": "zypp-reader, and with approval: install and remove packages (privileged server)",
+      "permissions": [
+        {
+          "server": "zypp",
+          "tool": "search_packages"
+        },
+        {
+          "server": "zypp",
+          "tool": "find_providers"
+        },
+        {
+          "server": "zypp",
+          "tool": "find_dependents"
+        },
+        {
+          "server": "zypp",
+          "tool": "check_updates"
+        },
+        {
+          "server": "zypp",
+          "tool": "plan_install"
+        },
+        {
+          "server": "zypp",
+          "tool": "plan_remove"
+        },
+        {
+          "server": "zypp",
+          "tool": "confirm_install",
+          "require_approval": true,
+          "approval_channel": "oob",
+          "approval_scopes": [
+            "once",
+            "session",
+            "1h"
+          ]
+        },
+        {
+          "server": "zypp",
+          "tool": "confirm_remove",
+          "require_approval": true,
+          "approval_channel": "oob",
+          "approval_scopes": [
+            "once",
+            "session",
+            "1h"
+          ]
+        }
+      ]
+    }
+  }
+}
