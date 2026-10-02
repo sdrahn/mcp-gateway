@@ -90,9 +90,25 @@ audited() { audit_since TRUSTED_APP | grep -q "op=$1"; }
 denial_res_complete() { audit_since TRUSTED_APP | grep 'op=mcp-decision' | grep -q "res=failed'"; }
 audit_log_works() { audit_since SERVICE_START | grep -q 'unit=mcp-gateway'; }
 journal_has_audit() { journalctl -u mcp-gateway.service -o cat | grep -qF '"audit":true'; }
+# outside_dontaudit_off: the records (stdin) outside the profiling run,
+# which turns dontaudit rules off for the whole system: accesses the
+# policy keeps silent (such as the gateway's MCS scan of /proc) are logged
+# while it runs.
+dontaudit_off_from=0 dontaudit_off_to=0
+outside_dontaudit_off() {
+	local line ts
+	while IFS= read -r line; do
+		ts=${line#*msg=audit(}
+		ts=${ts%%.*}
+		[[ $ts =~ ^[0-9]+$ ]] && [ "$ts" -ge "$dontaudit_off_from" ] && [ "$ts" -le "$dontaudit_off_to" ] && continue
+		printf '%s\n' "$line"
+	done
+}
 # Denials in a permissive domain (permissive=1) are those mcp-gateway
 # profile records on purpose.
-no_mcp_denials() { ! grep -E 'mcpgw_|mcpopa_|mcpsrv_|mcp_port_t' <<<"$avc" | grep -v 'permissive=1' | grep -q .; }
+no_mcp_denials() {
+	! outside_dontaudit_off <<<"$avc" | grep -E 'mcpgw_|mcpopa_|mcpsrv_|mcp_port_t' | grep -v 'permissive=1' | grep -q .
+}
 not_loaded() { ! semodule -l | awk '{print $1}' | grep -qx "$1"; }
 # ptool <user> <tool> <args>: a call to the privileged test server.
 ptool() {
@@ -521,8 +537,10 @@ command: ["/usr/libexec/mcpgw-fwprof"]
 run_as: mcp-sysmgmt
 END
 	prof=/root/vmtest/fwprof
+	dontaudit_off_from=$(date +%s)
 	mcp-gateway profile -server fwprof -out "$prof" >"$prof.txt" 2>&1
 	rc=$?
+	dontaudit_off_to=$(date +%s)
 	sed 's/^/  /' "$prof.txt" | head -70
 	check "profile: the run completed" test "$rc" = 0
 	check "profile: get_default_zone answered" grep -q '^  ok     get_default_zone' "$prof.txt"
@@ -577,6 +595,8 @@ avc=$(audit_since AVC,USER_AVC,SELINUX_ERR)
 grep -E 'avc:|type=SELINUX_ERR' <<<"$avc" |
 	sed -E 's/^.*(avc: |type=SELINUX_ERR)/\1/; s/ (pid|ino)=[0-9]+//g; s/ name="[0-9]+"//' |
 	sort | uniq -c | sort -rn | sed 's/^/  /' | head -60
+[ "$dontaudit_off_to" = 0 ] ||
+	echo "  (denials from $(date -d "@$dontaudit_off_from" +%T) to $(date -d "@$dontaudit_off_to" +%T), while profiling turned dontaudit rules off, do not count)"
 check "no denials involving the gateway, OPA or MCP servers" no_mcp_denials
 
 section "Logs"
