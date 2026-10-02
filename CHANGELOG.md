@@ -155,6 +155,19 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
+- A server definition naming a `selinux_type` that is not in the loaded
+  policy (installed without its module) failed only when an instance
+  started, with systemd's "Failed to change SELinux context ...:
+  Operation not permitted", also in permissive mode. The gateway now
+  warns at start of each such type and the servers naming it, and
+  `mcp-gateway doctor` fails the new check `SELinux types`. The SELinux
+  module lets the gateway ask the kernel whether a context is valid.
+
+- In permissive mode, the gateway's scan of the processes' MCS pairs
+  (`supervisor.mcs_avoid`) logged a `process getattr` denial for every
+  process on every scan. The SELinux module no longer audits them; in
+  enforcing mode nothing changes.
+
 - firewalld-mcp's `get_services_for_zone` and `get_service_info` read
   the permanent firewall configuration, which needs polkit's
   `org.fedoraproject.FirewallD1.config.info`: the polkit rule of

@@ -186,6 +186,7 @@ warn  principals: 1 of 4 members of mcp-users hold no role: they may connect but
 | policy | that OPA answers a decision (every request is denied otherwise) |
 | server *name* | that each server starts, as for shared discovery, and answers MCP; then whether roles name tools it does not offer (`roles` *name*; as the account it runs as, a server may hide tools) |
 | SELinux *type* | denials in the last day involving the gateway's, OPA's and the servers' types; denials in permissive mode (a profiling run) only warn |
+| SELinux types | that the loaded policy knows each server's `selinux_type`; a server whose module is missing cannot start, also in permissive mode |
 | polkit *account* | servers running as a system account that no polkit rule names: servers that act through polkit (systemd, firewalld) are refused without one |
 | principals | members of `socket_group` bound to no role, by name or group (users whose primary group it is, and remote principals, are not checked) |
 

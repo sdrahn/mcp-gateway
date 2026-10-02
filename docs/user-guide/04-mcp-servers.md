@@ -542,6 +542,14 @@ Then set `selinux_type: mcpsrv_git_t` in the definition.
 
 Notes:
 
+- The type must be in the loaded policy before a definition names it.
+  Without its module, systemd cannot start instances, in permissive
+  mode too ("Failed to change SELinux context to
+  system_u:system_r:mcpsrv_git_t:s0"). The gateway warns at start of
+  every `selinux_type` the policy does not know ("selinux_type is not in
+  the loaded SELinux policy"), and `mcp-gateway doctor` fails the check
+  `SELinux type`; `semodule -l` lists the loaded modules.
+
 - `mcp-gateway-selinux` installs the template's interface file
   (`/usr/share/selinux/devel/include/services/mcp_gateway.if`), so
   building a module needs only `selinux-policy-devel`.

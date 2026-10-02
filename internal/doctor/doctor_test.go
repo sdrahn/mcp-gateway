@@ -90,3 +90,26 @@ func TestWriteText(t *testing.T) {
 		t.Error("Failed")
 	}
 }
+
+func TestSELinuxTypes(t *testing.T) {
+	backends := map[string]*config.Backend{
+		"fs":   {Name: "fs", SELinuxType: "mcpsrv_fs_t"},
+		"zypp": {Name: "zypp", SELinuxType: "mcpsrv_zypp_t"},
+		"pkg":  {Name: "pkg", SELinuxType: "mcpsrv_zypp_t"},
+	}
+	known := map[string]bool{"system_u:system_r:mcpsrv_fs_t:s0": true}
+	valid := func(ctx string) (bool, error) { return known[ctx], nil }
+	rs := SELinuxTypes(backends, valid)
+	if len(rs) != 1 || rs[0].Status != Fail || !strings.Contains(rs[0].Summary, "mcpsrv_zypp_t") ||
+		!strings.Contains(rs[0].Summary, "pkg, zypp") {
+		t.Fatalf("missing type: %+v", rs)
+	}
+	known["system_u:system_r:mcpsrv_zypp_t:s0"] = true
+	if rs := SELinuxTypes(backends, valid); len(rs) != 1 || rs[0].Status != OK {
+		t.Fatalf("all known: %+v", rs)
+	}
+	denied := func(string) (bool, error) { return false, os.ErrPermission }
+	if rs := SELinuxTypes(backends, denied); len(rs) != 1 || rs[0].Status != Skip {
+		t.Fatalf("cannot check: %+v", rs)
+	}
+}

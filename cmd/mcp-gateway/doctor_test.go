@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/doctor"
 )
 
@@ -77,5 +79,22 @@ func TestDoctorOffline(t *testing.T) {
 	out.Reset()
 	if rc := runDoctor([]string{"-config", cfg, "-server", "nope", "-json"}, &out, &errb); rc != 1 || !strings.Contains(out.String(), "not in the registry") {
 		t.Errorf("-server nope: rc %d, %s", rc, out.String())
+	}
+}
+
+func TestWarnMissingSELinuxTypes(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	backends := map[string]*config.Backend{
+		"zypp": {Name: "zypp", SELinuxType: "mcpsrv_zypp_t"},
+		"fs":   {Name: "fs", SELinuxType: "mcpsrv_fs_t"},
+	}
+	warnMissingSELinuxTypes(log, backends, func(ctx string) (bool, error) {
+		return ctx == "system_u:system_r:mcpsrv_fs_t:s0", nil
+	})
+	out := buf.String()
+	if !strings.Contains(out, "level=WARN") || !strings.Contains(out, "selinux_type=mcpsrv_zypp_t servers=zypp") ||
+		strings.Contains(out, "mcpsrv_fs_t") {
+		t.Fatalf("log: %s", out)
 	}
 }
