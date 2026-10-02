@@ -14,6 +14,15 @@ minor release (with a warning) and removed in the next.
   line each, and `mcp-gateway help [COMMAND]` shows the overview or a
   command's options. An unknown command (a typo) is an error; it used to
   start the gateway.
+- `mcp-gateway.service` failed at start, restarting until systemd gave
+  up, after the gateway had been run by hand as root: the state files it
+  wrote (`pending.json`) were root's, and the service, running as
+  `mcp-gateway`, could not read them. The gateway now refuses to run as
+  root when the `mcp-gateway` account exists (`--allow-root` overrides;
+  `--check` is not affected); names state files another user owns, with
+  the `chown` that fixes it, instead of failing with a bare permission
+  error; and `mcp-gateway doctor` checks the ownership of
+  `/var/lib/mcp-gateway`.
 
 ## v0.4.0 — 2026-10-02
 

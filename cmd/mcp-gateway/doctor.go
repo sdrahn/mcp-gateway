@@ -17,6 +17,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,7 +35,8 @@ const doctorUsage = `usage: mcp-gateway doctor [flags]
 
 Checks the installation for what usually goes wrong with MCP servers
 behind the gateway: the configuration and role data, the services and
-OPA, servers that do not start (each registered server is started once,
+OPA, state files the service cannot read (left by running the gateway
+as root), servers that do not start (each registered server is started once,
 as for shared discovery), roles naming tools a server does not have,
 SELinux denials for the gateway and its servers, servers running as an
 account no polkit rule names, and users who may connect but hold no
@@ -120,6 +122,7 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 	}
 	add(d.roleData())
 	add(d.services()...)
+	add(d.stateFiles())
 	add(d.opa())
 	add(d.servers()...)
 	add(d.selinux()...)
@@ -241,6 +244,37 @@ func (d *doctorRun) services() []doctor.Result {
 		}
 	}
 	return rs
+}
+
+// stateFiles finds files in the gateway's state directory that its
+// account does not own, usually left by running the gateway as root: the
+// service then fails to read them at start. (/run/mcp-gateway also holds
+// OPA's socket; the gateway replaces a stale socket of its own whoever
+// owns it.)
+func (d *doctorRun) stateFiles() doctor.Result {
+	r := doctor.Result{Check: "state files"}
+	u, err := user.Lookup(gatewayUser)
+	if err != nil {
+		r.Status, r.Summary = doctor.Skip, "no "+gatewayUser+" account"
+		return r
+	}
+	uid, _ := strconv.ParseUint(u.Uid, 10, 32)
+	dir := d.gw.StateDir
+	foreign, err := foreignFiles(dir, uint32(uid))
+	if err != nil {
+		return skipOrFail(r, err)
+	}
+	for _, f := range foreign {
+		r.Details = append(r.Details, f.String())
+	}
+	if len(r.Details) > 0 {
+		r.Status = doctor.Fail
+		r.Summary = fmt.Sprintf("not owned by %s: %d (was the gateway run as root?); the service fails to read them: chown -R %s: %s",
+			gatewayUser, len(r.Details), gatewayUser, dir)
+		return r
+	}
+	r.Status, r.Summary = doctor.OK, dir+" owned by "+gatewayUser
+	return r
 }
 
 // opa asks OPA for a decision a principal named mcp-doctor would get.

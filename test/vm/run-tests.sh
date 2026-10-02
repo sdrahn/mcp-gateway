@@ -668,6 +668,27 @@ check "the gateway warns of the missing SELinux type at start" type_warning
 rm -f /etc/mcp-gateway/servers.d/notype.yaml
 systemctl restart mcp-gateway.service
 wait_socket
+
+# Run by hand as root, the gateway would leave state files the service
+# cannot read: it refuses, and a root-owned file in the state directory
+# is named by the doctor and at start.
+timeout 10 /usr/bin/mcp-gateway >/root/as-root.txt 2>&1
+sed 's/^/  /' /root/as-root.txt
+check "the gateway refuses to run as root" grep -q 'refusing to run as root' /root/as-root.txt
+echo '[]' >/var/lib/mcp-gateway/stray.json
+mcp-gateway doctor --no-start >/root/doctor-state.txt 2>&1
+grep 'state files' /root/doctor-state.txt | sed 's/^/  /'
+check "doctor: names the state file root owns" \
+	grep -qE '^fail +state files: not owned by mcp-gateway: 1 ' /root/doctor-state.txt
+restarted=$(date +%s)
+systemctl restart mcp-gateway.service 2>/dev/null
+state_error() { journalctl -u mcp-gateway.service -o cat --since "@$restarted" | grep 'state files not owned by mcp-gateway' | grep -q 'stray.json'; }
+check "the gateway names the state file root owns" eventually 30 state_error
+rm -f /var/lib/mcp-gateway/stray.json
+systemctl reset-failed mcp-gateway.service
+systemctl restart mcp-gateway.service
+wait_socket
+check "doctor: the state files are the gateway's" sh -c 'mcp-gateway doctor --no-start 2>&1 | grep -qE "^ok +state files: "'
 userdel -r carol 2>/dev/null
 
 section "Kernel audit"
