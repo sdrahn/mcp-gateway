@@ -5,6 +5,25 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## v0.4.2 — 2026-10-02
+
+A fix for a gateway that was run by hand as root. Upgrading from 0.4.x
+needs no changes; restart the gateway when convenient. If the service
+fails at start, `mcp-gateway doctor` or the gateway's log names files to
+give back to `mcp-gateway` (`chown -R mcp-gateway: /var/lib/mcp-gateway`).
+
+### Fixed
+
+- `mcp-gateway.service` failed at start, restarting until systemd gave
+  up, after the gateway had been run by hand as root: the state files it
+  wrote (`pending.json`) were root's, and the service, running as
+  `mcp-gateway`, could not read them. The gateway now refuses to run as
+  root when the `mcp-gateway` account exists (`--allow-root` overrides;
+  `--check` is not affected), and names state files another user owns,
+  with the `chown` that fixes it, instead of failing with a bare
+  permission error. `mcp-gateway doctor` checks the ownership of
+  `/var/lib/mcp-gateway`.
+
 ## v0.4.1 — 2026-10-02
 
 A fix of the command line's help. Upgrading from 0.4.0 needs no changes;
