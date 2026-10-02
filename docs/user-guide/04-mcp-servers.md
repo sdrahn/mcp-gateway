@@ -25,6 +25,10 @@ systemctl restart mcp-gateway.service
 A server is only usable by principals whose roles have permissions for it
 (chapter 6). A server nobody has permissions for is invisible.
 
+`mcp-gateway doctor --server git` (as root) then checks that the server
+starts, that roles do not name tools it lacks, and whether SELinux
+denied it something (chapter 10, "Self-check").
+
 ### Inspecting a server
 
 `mcp-gateway inspect` starts a server, lists its tools, prompts and
