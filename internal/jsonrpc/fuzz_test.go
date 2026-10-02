@@ -82,9 +82,10 @@ func FuzzRead(f *testing.F) {
 	})
 }
 
-// tagSafe reports keys usable as a struct tag name by encoding/json.
+// tagSafe reports keys usable as a struct tag name by encoding/json
+// ("-" is not a name: it leaves the field out).
 func tagSafe(k string) bool {
-	if k == "" {
+	if k == "" || k == "-" {
 		return false
 	}
 	for _, r := range k {
