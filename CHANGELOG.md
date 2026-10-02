@@ -32,6 +32,16 @@ change configuration, policy data or APIs.
   lets backend instances use a socket from an administrator's shell for
   this.
 
+- `mcp-gateway profile` runs a registered server with its SELinux domain
+  permissive (a new domain from the template for a server without one),
+  calls its reading tools with arguments from their schemas (others from
+  a calls file, or all with `--call-all`) and drafts from the denials a
+  policy module, file contexts and the definition, with hints on what
+  allow rules cannot express (helpers needing a transition,
+  capabilities, refused polkit authorizations). `--verify` repeats the
+  calls enforcing and fails on a denial. The VM test profiles
+  firewalld-mcp as an unknown server and verifies the draft.
+
 - Roles shipped with server setups: files in
   `/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.json`
   (`data.mcp.profiles`) add roles that bindings may name; a role of the

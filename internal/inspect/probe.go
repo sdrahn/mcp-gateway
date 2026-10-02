@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
 	"github.com/sdrahn/mcp-gateway/internal/version"
@@ -74,24 +75,101 @@ type Item struct {
 // server are answered (ping) or refused; notifications are ignored. rw is
 // closed when ctx ends, which ends a probe that hangs.
 func Probe(ctx context.Context, rw io.ReadWriteCloser) (*Result, error) {
-	stop := make(chan struct{})
-	defer close(stop)
+	s, res, err := Open(ctx, rw)
+	if err != nil {
+		return nil, err
+	}
+	s.Close()
+	return res, nil
+}
+
+// Session is an initialized server, open for tool calls.
+type Session struct {
+	ctx  context.Context
+	c    *client
+	stop chan struct{}
+}
+
+// Open initializes the server on rw and lists what it offers, like Probe,
+// and keeps the session open for calls. rw is closed when ctx ends; Close
+// ends the session without closing rw.
+func Open(ctx context.Context, rw io.ReadWriteCloser) (*Session, *Result, error) {
+	s := &Session{ctx: ctx, c: &client{conn: jsonrpc.NewConn(rw)}, stop: make(chan struct{})}
 	go func() {
 		select {
 		case <-ctx.Done():
 			_ = rw.Close()
-		case <-stop:
+		case <-s.stop:
 		}
 	}()
-	c := &client{conn: jsonrpc.NewConn(rw)}
-	res, err := c.probe()
-	switch {
-	case ctx.Err() != nil:
-		return nil, fmt.Errorf("no answer from the server: %w", ctx.Err())
-	case errors.Is(err, io.EOF):
-		return nil, fmt.Errorf("%w: the server exited or closed its output (see its messages above)", err)
+	res, err := s.c.probe()
+	if err != nil {
+		s.Close()
+		return nil, nil, s.explain(err)
 	}
-	return res, err
+	return s, res, nil
+}
+
+// Close ends the session.
+func (s *Session) Close() {
+	select {
+	case <-s.stop:
+	default:
+		close(s.stop)
+	}
+}
+
+// explain words an error that came from the session ending.
+func (s *Session) explain(err error) error {
+	switch {
+	case s.ctx.Err() != nil:
+		return fmt.Errorf("no answer from the server: %w", s.ctx.Err())
+	case errors.Is(err, io.EOF):
+		return fmt.Errorf("%w: the server exited or closed its output (see its messages above)", err)
+	}
+	return err
+}
+
+// CallResult is the outcome of a tool call that the server answered.
+type CallResult struct {
+	// IsError: the tool reported an error (isError), or the server
+	// answered with a JSON-RPC error.
+	IsError bool `json:"is_error"`
+	// Text is the text content of the result (or the error message).
+	Text string `json:"text"`
+}
+
+// Call calls a tool. An error means the session failed (the server
+// exited or did not answer in time); a tool error is a CallResult.
+func (s *Session) Call(tool string, args map[string]any) (CallResult, error) {
+	if args == nil {
+		args = map[string]any{}
+	}
+	raw, err := s.c.call("tools/call", map[string]any{"name": tool, "arguments": args})
+	var rpcErr *jsonrpc.Error
+	if errors.As(err, &rpcErr) {
+		return CallResult{IsError: true, Text: rpcErr.Message}, nil
+	}
+	if err != nil {
+		return CallResult{}, s.explain(err)
+	}
+	var res struct {
+		IsError bool `json:"isError"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return CallResult{}, fmt.Errorf("tools/call %s: %w", tool, err)
+	}
+	var texts []string
+	for _, c := range res.Content {
+		if c.Type == "text" {
+			texts = append(texts, c.Text)
+		}
+	}
+	return CallResult{IsError: res.IsError, Text: strings.Join(texts, "\n")}, nil
 }
 
 type client struct {

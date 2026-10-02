@@ -75,9 +75,78 @@ example through `--config` with a configuration whose `servers_dir`
 holds it).
 
 What `inspect` does not find out is what the server needs from the
-system: SELinux rules, polkit actions, an account, the network. Start it
-through the gateway and look at the denials (chapter 13, "SELinux
-domains").
+system: SELinux rules, polkit actions, an account, the network. That is
+what `mcp-gateway profile` is for.
+
+### Profiling a server
+
+`mcp-gateway profile` runs a registered server with its SELinux domain
+permissive (only that domain), calls its tools and drafts a policy
+module from the denials of the run:
+
+```bash
+# Register the server first (with run_as, if it should run as an account):
+cat >/etc/mcp-gateway/servers.d/git.yaml <<'END'
+name: git
+command: ["/usr/libexec/mcp-servers/mcp-git"]
+END
+
+# As root, with selinux-policy-devel installed:
+mcp-gateway profile --server git --out ./git-profile
+```
+
+A server that still runs in the default domain `mcpsrv_generic_t` gets a
+new domain, `mcpsrv_git_t`, from the gateway's template; for one with a
+domain of its own, the draft adds to it (`mcp_git_local`). While it
+runs, a temporary module `mcpprof_git` makes the domain permissive (and
+labels the program); it is removed at the end.
+
+It calls the tools that read (chapter 4, "Inspecting a server") with
+arguments made up from their schemas: enough to run the code that talks
+to the system, not to succeed. Real arguments, and calls of other tools,
+come from a file:
+
+```json
+{"get_file": {"path": "/etc/hosts"}, "log": [{"count": 5}, {"count": 0}]}
+```
+
+```bash
+mcp-gateway profile --server git --out ./git-profile --calls calls.json
+```
+
+`--call-all` calls every tool with made-up arguments: only on a system
+that may be changed, such as a test VM.
+
+The drafts directory then holds:
+
+| File | Content |
+|---|---|
+| `mcp_git.te`, `mcp_git.fc` | the module: the template and one allow rule per kind of access seen, with paths and programs as comments; already compiled to `mcp_git.pp` |
+| `git.yaml` | the definition with `selinux_type: mcpsrv_git_t` (and `network: true` if the server connected to the network) |
+| `report.txt` | the calls and their answers, the denials, and hints |
+| `calls.json` | the calls and their answers, for scripts |
+
+The hints say what allow rules cannot: a helper the server runs that
+belongs in its own domain (zypper: `rpm_t`, see
+`mcp_gateway_backend_rpm`), capabilities it used (perhaps it should run
+as another account), authorizations a service refused (a polkit rule for
+the account), and SELINUX_ERR records.
+
+Review the module before loading it: it allows what one run did, which
+can be more than the server needs (a path it only looked at), and lacks
+what the run did not reach. Replace rules by interfaces of the reference
+policy where one fits (`sesearch`, `audit2allow -R`). Then:
+
+```bash
+cd git-profile
+make -f /usr/share/selinux/devel/Makefile mcp_git.pp && semodule -i mcp_git.pp
+restorecon -F /usr/libexec/mcp-servers/mcp-git
+cp git.yaml /etc/mcp-gateway/servers.d/    # after comparing it with yours
+mcp-gateway --check && systemctl restart mcp-gateway.service
+
+# The same calls, enforcing; fails if there is a denial:
+mcp-gateway profile --server git --verify
+```
 
 ### Overriding and disabling package definitions
 

@@ -1307,6 +1307,7 @@ internal/
   pseudo/                 # pseudonymization: detectors, per-session vault
   broker/                 # approvals, grants store, elicitation
   inspect/                # mcp-gateway inspect: server inventory, draft roles, role check
+  profile/                # mcp-gateway profile: permissive run, denials, drafted module
   supervisor/             # systemd transient units, instance pool, MCS allocator
   audit/
   config/
@@ -1393,16 +1394,19 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       operator role that adds every other tool with approval), and checks role
       data against the tools the server really has: a permission that
       names a missing tool is an error (a shipped systemd role named
-      `list_units`, which systemd-mcp does not have);
-    - a profiling mode in the VM test harness runs a server in its own
-      domain, permissive for that domain only, calls its reading tools
-      with arguments from their schemas (changing tools only on
-      request, in the throwaway VM) and records SELinux denials, D-Bus
-      peers, polkit actions, network connections, helpers it executes
-      and the user it needs; from these it drafts the SELinux module and
-      file contexts, polkit rule, account and the definition's sandbox
-      settings, with a report of what needs review (paths not exercised,
-      rules broader than needed);
+      `list_units`, which systemd-mcp does not have) (done);
+    - `mcp-gateway profile` runs a server in its own domain, permissive
+      for that domain only (a new domain from the template for a server
+      without one), calls its reading tools with arguments from their
+      schemas (others only from a calls file or on request, on a
+      throwaway system) and records the SELinux denials in both
+      directions (D-Bus replies, polkit reading the process); from these
+      it drafts the module, file contexts and definition (domain,
+      network), and reports what allow rules cannot express: helpers
+      that need a transition, capabilities (the account), refused
+      authorizations (polkit), SELINUX_ERR records. `--verify` repeats
+      the calls enforcing and fails on a denial; the VM test profiles
+      firewalld-mcp as an unknown server and verifies the draft (done);
     - optionally, a review of the server's source for code paths that
       profiling did not reach, as was done by hand for systemd-mcp.
 12. **Stable interfaces:** versioned `gateway.yaml`, server definitions,

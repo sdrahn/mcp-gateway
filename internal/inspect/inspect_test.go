@@ -63,6 +63,17 @@ func fakeServer(t *testing.T, conn net.Conn) {
 					{"name":"plan_x"}
 				]}`)
 			}
+		case "tools/call":
+			var p struct{ Name string }
+			_ = json.Unmarshal(m.Params, &p)
+			switch p.Name {
+			case "get_status":
+				reply(m.ID, `{"content":[{"type":"text","text":"fine"},{"type":"image","data":"x"},{"type":"text","text":"really"}]}`)
+			case "boom":
+				_ = c.Write(jsonrpc.NewError(m.ID, -32602, "unknown tool"))
+			default:
+				reply(m.ID, `{"isError":true,"content":[{"type":"text","text":"bad args"}]}`)
+			}
 		case "prompts/list":
 			reply(m.ID, `{"prompts":[{"name":"summary"}]}`)
 		case "resources/templates/list":
@@ -317,5 +328,38 @@ func TestReport(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in\n%s", want, out)
 		}
+	}
+}
+
+func TestSessionCall(t *testing.T) {
+	a, b := net.Pipe()
+	go fakeServer(t, b)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	s, res, err := Open(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { s.Close(); _ = a.Close() }()
+	if len(res.Tools) != 5 {
+		t.Fatalf("tools = %v", res.Tools)
+	}
+	for _, c := range []struct {
+		tool    string
+		isError bool
+		text    string
+	}{
+		{"get_status", false, "fine\nreally"},
+		{"remove_all", true, "bad args"},
+		{"boom", true, "unknown tool"},
+	} {
+		r, err := s.Call(c.tool, nil)
+		if err != nil || r.IsError != c.isError || r.Text != c.text {
+			t.Errorf("%s: %+v %v", c.tool, r, err)
+		}
+	}
+	_ = b.Close()
+	if _, err := s.Call("get_status", nil); err == nil {
+		t.Error("call on a closed session succeeded")
 	}
 }

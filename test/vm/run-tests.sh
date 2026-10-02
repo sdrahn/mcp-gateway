@@ -90,7 +90,10 @@ audited() { audit_since TRUSTED_APP | grep -q "op=$1"; }
 denial_res_complete() { audit_since TRUSTED_APP | grep 'op=mcp-decision' | grep -q "res=failed'"; }
 audit_log_works() { audit_since SERVICE_START | grep -q 'unit=mcp-gateway'; }
 journal_has_audit() { journalctl -u mcp-gateway.service -o cat | grep -qF '"audit":true'; }
-no_mcp_denials() { ! grep -E 'mcpgw_|mcpopa_|mcpsrv_|mcp_port_t' <<<"$avc" | grep -q .; }
+# Denials in a permissive domain (permissive=1) are those mcp-gateway
+# profile records on purpose.
+no_mcp_denials() { ! grep -E 'mcpgw_|mcpopa_|mcpsrv_|mcp_port_t' <<<"$avc" | grep -v 'permissive=1' | grep -q .; }
+not_loaded() { ! semodule -l | awk '{print $1}' | grep -qx "$1"; }
 # ptool <user> <tool> <args>: a call to the privileged test server.
 ptool() {
 	out=$(runuser -u "$1" -- /usr/local/bin/mcpcall --server privtest --method tools/call \
@@ -499,6 +502,37 @@ END
 	for s in systemd firewalld zypp suseconnect; do
 		journalctl -u "mcp-$s-*" --no-pager -o cat 2>/dev/null | tail -5 | sed "s/^/  [$s] /"
 	done
+
+	section "Profiling a new server"
+	# Roadmap step 11, stage 2: firewalld-mcp under another name and path,
+	# as a server nobody has written a module for. mcp-gateway profile
+	# drafts its domain from a permissive run; with the drafted module
+	# and definition it runs enforcing without denials.
+	install -m 0755 /usr/bin/firewalld-mcp /usr/libexec/mcpgw-fwprof
+	restorecon /usr/libexec/mcpgw-fwprof
+	cat >/etc/mcp-gateway/servers.d/fwprof.yaml <<'END'
+name: fwprof
+command: ["/usr/libexec/mcpgw-fwprof"]
+run_as: mcp-sysmgmt
+END
+	prof=/root/vmtest/fwprof
+	mcp-gateway profile -server fwprof -out "$prof" >"$prof.txt" 2>&1
+	rc=$?
+	sed 's/^/  /' "$prof.txt" | head -70
+	check "profile: the run completed" test "$rc" = 0
+	check "profile: get_default_zone answered" grep -q '^  ok     get_default_zone' "$prof.txt"
+	check "profile: the drafted module builds" test -f "$prof/mcp_fwprof.pp"
+	check "profile: the temporary module is removed" not_loaded mcpprof_fwprof
+	sed 's/^/  | /' "$prof/mcp_fwprof.te" | head -60
+	semodule -i "$prof/mcp_fwprof.pp" && restorecon -F /usr/libexec/mcpgw-fwprof
+	echo "  $(file_label /usr/libexec/mcpgw-fwprof) /usr/libexec/mcpgw-fwprof"
+	check "profile: the program has the new domain's label" file_has_type /usr/libexec/mcpgw-fwprof mcpsrv_fwprof_exec_t
+	cp "$prof/fwprof.yaml" /etc/mcp-gateway/servers.d/fwprof.yaml
+	check "profile: the drafted definition is valid" mcp-gateway --check --policy-data=
+	mcp-gateway profile -server fwprof -verify >"$prof-verify.txt" 2>&1
+	rc=$?
+	sed 's/^/  /' "$prof-verify.txt" | head -40
+	check "profile: with the drafted module the server runs enforcing without denials" test "$rc" = 0
 else
 	echo "  no servers given (test/vm/run-vm.sh <...> <servers dir>); skipped"
 fi
