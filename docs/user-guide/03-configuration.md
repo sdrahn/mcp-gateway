@@ -134,6 +134,26 @@ configuration. Chapter 7 explains who receives what.
 | `notifications.email.username`, `password_file` | empty | PLAIN authentication; both or neither. The password is read from the file at start. The password is only sent over TLS or to localhost. |
 | `notifications.email.include_args` | `false` | include the call's arguments in the mail |
 
+### Metrics
+
+```yaml
+metrics:
+  listen: 127.0.0.1:9464     # default: empty (off)
+```
+
+Root can always read the metrics on the control socket
+(`GET /v1/metrics`, chapter 10). `metrics.listen` also serves them over
+plain HTTP at `/metrics`, for Prometheus. The listener has no
+authentication: whoever reaches the address reads the counts (calls per
+action and outcome, instance starts and failures per server, pending
+approvals; no names or arguments). Prefer a loopback address and let
+Prometheus scrape locally or through a proxy. SELinux: label the port
+with `semanage port -a -t mcp_metrics_port_t -p tcp 9464`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `metrics.listen` | empty (off) | `host:port` to serve `GET /metrics` on, e.g. `127.0.0.1:9464`; must differ from `http.listen` |
+
 ### Audit
 
 ```yaml

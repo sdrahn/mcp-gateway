@@ -93,6 +93,40 @@ contains the policy logic of the version it was built with.
 
 ## Monitoring
 
+### Metrics
+
+Root reads the metrics, in the Prometheus text format, on the control
+socket:
+
+```bash
+curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/metrics
+```
+
+With `metrics.listen` (chapter 3) Prometheus can scrape them over HTTP
+at `/metrics`.
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `mcp_gateway_decisions_total{action,effect}` | counter | decisions enforced; a call asked again after an approval counts twice |
+| `mcp_gateway_policy_failures_total{reason}` | counter | decisions that failed closed: `error` (OPA did not answer), `invalid` (malformed decision) |
+| `mcp_gateway_opa_query_duration_seconds{query}` | histogram | time of queries to OPA, e.g. `query="mcp/authz/decision"` |
+| `mcp_gateway_opa_query_errors_total{query}` | counter | failed queries to OPA |
+| `mcp_gateway_instance_starts_total{server}` | counter | server instances started |
+| `mcp_gateway_instance_failures_total{server,stage}` | counter | instances that failed to start (`start`) or exited without being stopped (`exit`) |
+| `mcp_gateway_approvals_decided_total{decision}` | counter | approvals decided (`approve`, `deny`) |
+| `mcp_gateway_approvals_pending` | gauge | approvals waiting for a decision |
+| `mcp_gateway_sessions`, `mcp_gateway_instances` | gauge | client sessions, running server instances |
+| `mcp_gateway_restart_pending` | gauge | `1` after an update until the gateway is restarted |
+| `mcp_gateway_build_info{version}` | gauge | always `1`; the version as a label |
+
+Worth an alert: a rising `mcp_gateway_policy_failures_total` (OPA is
+down or the policy is broken: everything is denied), a rising
+`mcp_gateway_instance_failures_total` (a server crashes; see its
+journal), `mcp_gateway_approvals_pending` staying above zero (nobody
+decides), and `mcp_gateway_restart_pending` staying at 1.
+
+### Other signals
+
 Useful signals:
 
 - `systemctl is-active mcp-gateway.service mcp-opa.service`;

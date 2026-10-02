@@ -11,6 +11,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/authn"
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
+	"github.com/sdrahn/mcp-gateway/internal/metrics"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 )
@@ -180,6 +181,7 @@ func (p *pool) start(ctx context.Context, b *config.Backend, pr principal.Princi
 	id := authn.NewSessionID()
 	inst, err := p.launcher.Start(ctx, b, pr, id)
 	if err != nil {
+		metrics.InstanceFailures.Inc(b.Name, "start")
 		return nil, err
 	}
 	up, err := newUpstream(ctx, b, id, inst, p.log, upstreamHooks{
@@ -187,8 +189,10 @@ func (p *pool) start(ctx context.Context, b *config.Backend, pr principal.Princi
 		onListChanged: p.onListChanged,
 	})
 	if err != nil {
+		metrics.InstanceFailures.Inc(b.Name, "start")
 		return nil, err
 	}
+	metrics.InstanceStarts.Inc(b.Name)
 	p.log.Info("instance started", "server", b.Name, "instance", inst.Name(), "sub", pr.Sub)
 	return up, nil
 }
@@ -215,6 +219,7 @@ func (p *pool) ended(e *poolEntry) {
 		return
 	}
 	uptime := p.now().Sub(e.started)
+	metrics.InstanceFailures.Inc(e.up.backend.Name, "exit")
 	p.log.Warn("instance exited unexpectedly", "server", e.up.backend.Name, "instance", e.up.id, "uptime", uptime.Round(time.Millisecond))
 	p.failed(e.key, e.up.backend.Name, uptime)
 }

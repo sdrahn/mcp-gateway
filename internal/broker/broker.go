@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/audit"
+	"github.com/sdrahn/mcp-gateway/internal/metrics"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 )
@@ -759,6 +760,11 @@ func (b *Broker) Resolve(ctx context.Context, a Approver, id string, approve boo
 			return nil, err
 		}
 	}
+	decision := "deny"
+	if approve {
+		decision = "approve"
+	}
+	metrics.ApprovalsDecided.Inc(decision)
 	b.log.Info("approval resolved", "id", id, "approved", approve, "by", a.Name, "scope", scope, "waiting", c.result != nil)
 	b.auditApproval(id, approve, c.Principal, c.Server, c.Name, a.Name, scope, c.Channel)
 	if c.result != nil {

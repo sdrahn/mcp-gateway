@@ -21,6 +21,7 @@
 //	GET    /v1/policy           active policy bundles and their revisions, roles shipped by server setups
 //	POST   /v1/policy/whatif    role data → the decisions it would change
 //	GET    /v1/events           server-sent events: approvals the caller may decide on
+//	GET    /v1/metrics          metrics in the Prometheus text format (root only)
 //
 // The fields of requests and responses are fixed in testdata/contract:
 // within /v1, fields are only added (docs/architecture.md, decision D10).
@@ -42,6 +43,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/metrics"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/router"
@@ -103,6 +105,8 @@ type Server struct {
 	// RestartPending, if set, tells whether the gateway's program was
 	// replaced (the package does not restart it on update).
 	RestartPending func() bool
+	// Metrics serves GET /v1/metrics; optional.
+	Metrics *metrics.Registry
 
 	stopping <-chan struct{} // closed when Serve's context ends
 }
@@ -177,6 +181,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/policy", s.with(s.policy))
 	mux.HandleFunc("POST /v1/policy/whatif", s.with(s.whatIf))
 	mux.HandleFunc("GET /v1/events", s.with(s.events))
+	mux.HandleFunc("GET /v1/metrics", s.with(s.metrics))
 	return mux
 }
 
@@ -214,6 +219,21 @@ type resolveRequest struct {
 // errorResponse is the body of every error.
 type errorResponse struct {
 	Error string `json:"error"`
+}
+
+// metrics writes the metrics, to root only: they count every
+// principal's calls.
+func (s *Server) metrics(w http.ResponseWriter, _ *http.Request, a broker.Approver) {
+	if s.Metrics == nil {
+		writeError(w, http.StatusNotFound, "no metrics")
+		return
+	}
+	if a.UID != 0 {
+		writeError(w, http.StatusForbidden, "metrics are for root")
+		return
+	}
+	w.Header().Set("Content-Type", metrics.ContentType)
+	_ = s.Metrics.WriteText(w)
 }
 
 // serverInfo is a registry entry as the API shows it (without command

@@ -60,6 +60,13 @@ minor release (with a warning) and removed in the next.
   (`WatchdogSec=60s`), after writing every goroutine's stack to the
   journal.
 
+- Metrics in the Prometheus text format: decisions by action and
+  effect, decisions that failed closed, OPA query latency and errors,
+  server instance starts and failures, approvals decided and pending,
+  sessions, instances, a pending restart. Root reads them on the control
+  socket (`GET /v1/metrics`); `metrics.listen` also serves them over
+  plain HTTP (`/metrics`, SELinux port type `mcp_metrics_port_t`).
+
 - Format versions: `gateway.yaml`, server definitions and role data may
   name their format with `version: 1` (`"version": 1`); files without
   one are read as version 1, and other versions are refused with an
@@ -86,6 +93,12 @@ minor release (with a warning) and removed in the next.
   fingerprint (installing a setup tells clients to list tools again).
 
 ### Fixed
+
+- SELinux: the gateway could not stop instances of servers that do not
+  exit when their input closes (systemd-mcp, zypp, suseconnect-mcp):
+  systemd checks stopping a transient unit on its file, which
+  `mcpgw_t` could not stop. Such instances kept running after their
+  idle timeout, a stop from the Cockpit page, or the gateway's own stop.
 
 - firewalld-mcp's `get_services_for_zone` and `get_service_info` read
   the permanent firewall configuration, which needs polkit's

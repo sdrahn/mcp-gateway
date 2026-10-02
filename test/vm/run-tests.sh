@@ -585,6 +585,35 @@ status=$(control alice GET /v1/status)
 echo "  $status"
 check "the control API reports the pending restart" grep -qF '"restart_pending":true' <<<"$status"
 
+section "Metrics"
+# The counters start with each gateway process, and earlier sections
+# restarted it: count calls of this one.
+tool alice read_file '{"path":"/home/alice/secret.txt"}'
+tool alice delete_file '{"path":"/home/alice/secret.txt"}'
+metrics=$(curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/metrics)
+grep -E '^mcp_gateway_(decisions_total|instance_starts_total|approvals_decided_total|policy_failures_total|sessions|instances|approvals_pending|restart_pending|build_info)' <<<"$metrics" |
+	sed 's/^/  /' | head -40
+check "metrics count allowed calls" grep -qE '^mcp_gateway_decisions_total\{action="tools.call",effect="allow"\} [1-9]' <<<"$metrics"
+check "metrics count denied calls" grep -qE '^mcp_gateway_decisions_total\{action="tools.call",effect="deny"\} [1-9]' <<<"$metrics"
+check "metrics count instance starts" grep -qE '^mcp_gateway_instance_starts_total\{server="fs"\} [1-9]' <<<"$metrics"
+check "metrics time OPA's decisions" grep -qE '^mcp_gateway_opa_query_duration_seconds_count\{query="mcp/authz/decision"\} [1-9]' <<<"$metrics"
+check "metrics show the pending restart" grep -qx 'mcp_gateway_restart_pending 1' <<<"$metrics"
+metrics_refused() { control alice GET /v1/metrics | grep -q 'metrics are for root'; }
+check "metrics are for root only" metrics_refused
+# The listener (metrics.listen) on a port labelled mcp_metrics_port_t.
+zypper -n in --no-recommends policycoreutils-python-utils >/dev/null 2>&1 || true
+if command -v semanage >/dev/null; then
+	semanage port -a -t mcp_metrics_port_t -p tcp 9464 2>/dev/null || semanage port -m -t mcp_metrics_port_t -p tcp 9464
+	{ cat /usr/etc/mcp-gateway/gateway.yaml; printf 'metrics:\n  listen: 127.0.0.1:9464\n'; } >/etc/mcp-gateway/gateway.yaml
+	restorecon /etc/mcp-gateway/gateway.yaml
+	systemctl restart mcp-gateway.service
+	check "the metrics listener serves /metrics" bash -c "curl -sf http://127.0.0.1:9464/metrics | grep -q '^# TYPE mcp_gateway_decisions_total counter'"
+	rm -f /etc/mcp-gateway/gateway.yaml
+	systemctl restart mcp-gateway.service
+else
+	echo "  semanage not available; metrics listener not tested"
+fi
+
 section "Kernel audit"
 echo "  auditd: $(systemctl is-active auditd); records since the install: $(audit_since ALL | wc -l)"
 audit_since SERVICE_START | grep -o 'unit=mcp-[a-z-]*' | sort | uniq -c | sed 's/^/  /'

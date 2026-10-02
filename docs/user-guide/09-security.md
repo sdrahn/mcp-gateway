@@ -28,7 +28,7 @@ their own domains:
 
 | Domain | Runs | May |
 |---|---|---|
-| `mcpgw_t` | the gateway | read its configuration, write its state, serve its sockets, bind `mcp_port_t`, ask systemd over D-Bus to start `mcp-*` units, talk to OPA; mail with `mcpgw_can_send_mail` |
+| `mcpgw_t` | the gateway | read its configuration, write its state, serve its sockets, bind `mcp_port_t` and `mcp_metrics_port_t`, ask systemd over D-Bus to start `mcp-*` units, talk to OPA; mail with `mcpgw_can_send_mail` |
 | `mcpopa_t` | OPA | read the policy, serve its socket; network only with `mcpopa_can_network` |
 | `mcpsrv_generic_t` | MCP servers without `selinux_type` | stdio, libraries, `/etc`, syslog |
 | `mcpsrv_fs_t` | the demo file server | additionally user home content (read/write) |

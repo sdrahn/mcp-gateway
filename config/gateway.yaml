@@ -93,6 +93,13 @@ supervisor:
   # whose pair a container or machine started later takes. off.
   mcs_avoid: auto
 
+# Metrics in the Prometheus text format. Root can always read them on the
+# control socket (GET /v1/metrics). listen also serves them over plain
+# HTTP at /metrics, without authentication: prefer a loopback address.
+# SELinux: semanage port -a -t mcp_metrics_port_t -p tcp 9464
+# metrics:
+#   listen: 127.0.0.1:9464
+
 # Remote access via MCP Streamable HTTP with OAuth bearer tokens.
 # Disabled unless listen is set. Endpoints: /mcp (aggregated) and
 # /mcp/<server>; metadata at /.well-known/oauth-protected-resource.

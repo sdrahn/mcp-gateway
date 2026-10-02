@@ -143,6 +143,7 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `DELETE /v1/instances/{id}` | stop an instance; `204`; `409` for a privileged instance with a call running |
 | `GET /v1/policy` | `{"mode": "directories"\|"bundle", "bundles": {name: revision}, "shipped_roles": {role: {"setup", "description", "permissions"}}}`; `502` if OPA is unavailable |
 | `POST /v1/policy/whatif` | body: proposed role data (as `data.json`); returns `{"changes": [{"principal", "server", "kind", "name", "before", "after"}], "principals", "resources", "unchecked": {server: reason}}`: the decisions that would change, for the users (`user:<name>`) and groups (`group:<name>`) either role data binds; `403` unless `data.mcp.approvals.review_policy` allows the caller |
+| `GET /v1/metrics` | metrics in the Prometheus text format (chapter 10); `403` unless the caller is root |
 | `GET /v1/events` | server-sent events (`event: approval`) for the approvals the caller may decide on: first all pending, then changes; `data` is `{"type": "pending"\|"resolved", "id", "new", "pending", "url"}` |
 
 Errors are `{"error": "…"}` with a matching status.
@@ -239,6 +240,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcpgw_var_lib_t` | `/var/lib/mcp-gateway` |
 | `mcpgw_runtime_t`, `mcpgw_sock_t`, `mcpgw_ctl_sock_t`, `mcpopa_sock_t` | `/run/mcp-gateway` and its sockets |
 | `mcp_port_t` | the HTTPS port (`semanage port -a -t mcp_port_t -p tcp 8443`) |
+| `mcp_metrics_port_t` | the metrics port (`semanage port -a -t mcp_metrics_port_t -p tcp 9464`) |
 
 | Boolean | Default | Allows |
 |---|---|---|
