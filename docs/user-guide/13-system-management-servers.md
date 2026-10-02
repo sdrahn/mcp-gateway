@@ -436,6 +436,12 @@ the shipped `admin`, which allows everything, never asks):
 
 ## Checking and troubleshooting
 
+`mcp-gateway inspect --server systemd --roles
+/usr/share/mcp-gateway/policy/mcp/profiles/systemd/data.json` (as root)
+starts the server as the gateway does and reports roles that name tools
+it does not have, for example after a server update (chapter 4,
+"Inspecting a server").
+
 ```bash
 # Can the gateway list each server's tools? (lists servers it could not)
 curl -s --unix-socket /run/mcp-gateway/control.sock -X POST \

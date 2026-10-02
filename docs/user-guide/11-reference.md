@@ -19,6 +19,31 @@ mcp-gateway --check-policy-data [--policy-data FILE]
 | `--debug` | log debug messages |
 | `--version` | print the version |
 
+### mcp-gateway inspect
+
+```
+mcp-gateway inspect [options] --server NAME
+mcp-gateway inspect [options] --name NAME -- COMMAND [ARG...]
+```
+
+Starts an MCP server, reports its tools, prompts and resource templates
+with a classification of the tools, drafts roles, and checks role data
+against the server (chapter 4, "Inspecting a server"). Exit status 1 if
+the server cannot be inspected or a role check finds errors, 2 on usage
+errors.
+
+| Flag | Meaning |
+|---|---|
+| `--server NAME` | a server of the registry, started as for shared discovery (through the configured supervisor; with systemd as root) |
+| `--name NAME -- COMMAND…` | a server started by command, as a plain child process of the caller, without sandbox (refused as root) |
+| `--config FILE` | gateway configuration, for the registry and the supervisor |
+| `--exec` | start a `--server` definition as a plain child process, without sandbox (refused as root) |
+| `--roles FILE` | role data or a setup's roles to check against the server; repeatable |
+| `--out DIR` | write the drafts there: `roles.json`, and `NAME.yaml` for a command (existing files are kept) |
+| `--read-by-name` | also put tools that read by their name alone into the reader role |
+| `--json` | print the result (server answers, classification, draft roles, findings) as JSON |
+| `--timeout D` | how long to wait for the server (default 60s) |
+
 ### mcp-connect
 
 ```

@@ -457,6 +457,15 @@ END
 		/etc/mcp-gateway/policy/rbac/data.json >/root/vmtest/data.json &&
 		cat /root/vmtest/data.json >/etc/mcp-gateway/policy/rbac/data.json
 	check "the role data binds the shipped roles" mcp-gateway --check-policy-data
+	# Each server, started as for shared discovery, has every tool its
+	# shipped roles name (mcp-gateway inspect, roadmap step 11).
+	for s in systemd firewalld zypp suseconnect; do
+		mcp-gateway inspect -server "$s" -timeout 60s \
+			-roles "/usr/share/mcp-gateway/policy/mcp/profiles/$s/data.json" >"/root/vmtest/inspect-$s.txt" 2>&1
+		rc=$?
+		sed -n '1p;/^Tools/,$p' "/root/vmtest/inspect-$s.txt" | sed "s/^/  [$s] /"
+		check "inspect: the $s roles name only tools the server has" test "$rc" = 0
+	done
 	systemctl restart mcp-gateway.service
 	wait_socket
 

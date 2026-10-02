@@ -20,6 +20,16 @@ change configuration, policy data or APIs.
   `mcp_suseconnect` come with `mcp-gateway-selinux`; they replace modules
   of the same names built from the user guide's examples.
 
+- `mcp-gateway inspect` starts an MCP server (a registered one as for
+  shared discovery, or a command), lists its tools, prompts and resource
+  templates, classifies the tools as reading or changing from their
+  annotations and names, drafts a reader and an operator role (and a
+  server definition for a command), and checks role data against the
+  tools the server has. The VM test checks the shipped roles of the
+  setup packages against the real servers this way. The SELinux module
+  lets backend instances use a socket from an administrator's shell for
+  this.
+
 - Roles shipped with server setups: files in
   `/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.json`
   (`data.mcp.profiles`) add roles that bindings may name; a role of the

@@ -21,6 +21,15 @@ const (
 	TransportInternal Transport = "internal"
 )
 
+// Discovery is the identity of the gateway's shared discovery instances
+// (and of servers started by mcp-gateway inspect): no user, home "/".
+var Discovery = Principal{
+	Sub:       "mcp-discovery",
+	Home:      "/",
+	Transport: TransportInternal,
+	SessionID: "discovery",
+}
+
 // Client is the self-asserted clientInfo from the MCP initialize request.
 // It must never be used as a security boundary.
 type Client struct {
