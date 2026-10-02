@@ -105,7 +105,10 @@ a permissive domain, and the server would fail on it once enforcing
 (firewalld-mcp needs to search `/run/dbus`, which the policy denies
 silently). At the end the module is removed and the rules are back on;
 both switches rebuild the policy and take a while. `--keep-dontaudit`
-skips the switch.
+skips the switch. The rules are off for the whole system, so the audit
+log has denials of other programs from that time too (the gateway's
+own scan of `/proc` for MCS categories, for one); they are not
+problems.
 
 It calls the tools that read (chapter 4, "Inspecting a server") with
 arguments made up from their schemas: enough to run the code that talks
