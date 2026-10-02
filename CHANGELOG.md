@@ -106,28 +106,41 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
-- Security: a client could make an MCP server act on other arguments
-  than policy decided on. The gateway decided on parameters with exact
-  keys and forwarded the arguments as sent, so `{"path": "/home/a",
-  "Path": "/etc/shadow"}`, `{"Arguments": …}` or `{"Path": …}` alone
-  was checked as one path (or none) and read as another by servers that
-  decode case-insensitively, such as Go servers using structs. Requests
-  with repeated keys, keys differing only in case, or keys differing
-  only in case from one the gateway reads or an argument the tool or
-  prompt declares are now refused (`invalid params`). Found by fuzzing.
-
-- SELinux: the gateway could not stop instances of servers that do not
-  exit when their input closes (systemd-mcp, zypp, suseconnect-mcp):
-  systemd checks stopping a transient unit on its file, which
-  `mcpgw_t` could not stop. Such instances kept running after their
-  idle timeout, a stop from the Cockpit page, or the gateway's own stop.
-
 - firewalld-mcp's `get_services_for_zone` and `get_service_info` read
   the permanent firewall configuration, which needs polkit's
   `org.fedoraproject.FirewallD1.config.info`: the polkit rule of
   `mcp-gateway-profile-firewalld` and the example in the user guide
   (chapter 13) granted only `FirewallD1.info`, so both tools were refused
   ("Not Authorized(polkit)"). Found by `mcp-gateway profile`.
+
+## v0.3.3 — 2026-10-02
+
+A security fix, and an SELinux fix. Update and restart the gateway
+(`systemctl restart mcp-gateway.service`); the configuration and the
+role data need no changes. A client that sends repeated keys, or keys
+differing only in case, now gets `invalid params`; no MCP client does
+that on purpose.
+
+### Fixed
+
+- Security: a client could make an MCP server act on other arguments
+  than policy decided on. The gateway decided on parameters with exact
+  keys and forwarded the arguments as sent, so `{"path": "/home/a",
+  "Path": "/etc/shadow"}`, `{"Arguments": …}` or `{"Path": …}` alone
+  was checked as one path (or none) and read as another by servers that
+  decode case-insensitively, such as Go servers using structs, or that
+  keep the first of repeated keys. Requests with repeated keys, keys
+  differing only in case, or keys differing only in case from one the
+  gateway reads or an argument the tool or prompt declares are now
+  refused (`invalid params`). Found by fuzzing; the fuzz tests and a CI
+  job running them come with the fix.
+
+- SELinux: the gateway could not stop instances of servers that do not
+  exit when their input closes (for example systemd-mcp, zypp,
+  suseconnect-mcp): systemd checks stopping a transient unit on its
+  file, which `mcpgw_t` could not stop. Such instances kept running
+  after their idle timeout, a stop from the Cockpit page, or the
+  gateway's own stop.
 
 ## v0.3.2 — 2026-10-02
 
