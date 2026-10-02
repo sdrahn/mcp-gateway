@@ -433,8 +433,9 @@ the shipped `admin`, which allows everything, never asks):
   than the default two minutes.
 - Without `self` in the server's approver rule, users cannot approve
   their own changes: someone holding `admin` must.
-- Agents that open a new MCP session for every prompt (Kit does) lose
-  "session" grants after each prompt. Offer a short duration instead,
+- Agents that open new MCP sessions often (Kit: one per run, and a new
+  one after 5 minutes without calls; chapter 5) lose "session" grants
+  early. Offer a short duration instead,
   e.g. `"approval_scopes": ["once", "1h"]` on the approval permissions
   (chapter 7).
 - Do not also bind these users to `admin`: its permissions allow every

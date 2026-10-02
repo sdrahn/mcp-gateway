@@ -1581,7 +1581,9 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       neither; a `server/discover` probe (MCP 2026-07-28) was audited as
       a denial (done);
     - Kit, Claude Code and other agents: setup, session behaviour,
-      timeouts and approvals per client, documented in the user guide;
+      timeouts, approvals and policy changes per agent, from Kit's source
+      and Claude Code's behaviour against a probe server, in the user
+      guide (chapter 5) (done);
     - a limit on sessions and instances per principal, decided with what
       the clients showed (§12).
 

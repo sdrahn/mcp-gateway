@@ -111,6 +111,14 @@ minor release (with a warning) and removed in the next.
   cancellation (`test/clients`). The user guide (chapter 5) lists how
   they behave.
 
+- The user guide (chapter 5) describes Claude Code and Kit with the
+  gateway: configuration for local and remote use, sessions, approvals,
+  timeouts and how each learns of policy changes, plus what to check
+  for other agents. Kit replaces an idle MCP session after 5 minutes and
+  cannot answer elicitations (its approvals go out of band); Claude Code
+  shows the gateway's "waiting for approval" progress and lists tools
+  again on `list_changed`.
+
 - Calls waiting for approval report progress to agents that asked for
   it (a `progressToken`): at once and every `approvals.progress_interval`
   (new, default 15 s). Agents with a request timeout, such as those built

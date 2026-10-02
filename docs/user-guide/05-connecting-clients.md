@@ -287,3 +287,83 @@ What the gateway does for clients:
   `server/discover` probe (MCP 2026-07-28) gets "method not found" (over
   HTTP, before a session exists, status 400), on which clients fall back
   to the initialize handshake; the probe is not audited as a denial.
+
+## Agents
+
+How the agents in common use work with the gateway, as of the versions
+named; the libraries underneath are tested in CI (above).
+
+### Claude Code
+
+Tested: 2.1.287. It speaks MCP 2025-11-25 and supports form and URL
+elicitation, progress, roots and `list_changed`.
+
+```bash
+# local: one server, or everything through one entry
+claude mcp add --scope user fs -- mcp-connect --server fs
+claude mcp add --scope user gateway -- mcp-connect
+
+# remote, with OAuth (the IdP must allow dynamic client registration, or
+# register a client and pass --client-id, and --callback-port for a fixed
+# redirect URI)
+claude mcp add --scope user --transport http fs https://gw.example.com:8443/mcp/fs
+
+# remote, with a token obtained otherwise
+claude mcp add --scope user --transport http fs https://gw.example.com:8443/mcp/fs \
+  --header "Authorization: Bearer $TOKEN"
+```
+
+| Topic | Behaviour |
+|---|---|
+| Sessions | one MCP session per server for the life of a Claude Code session; a "session" grant lasts as long |
+| Approvals | `url` (the default channel): Claude Code asks the user to open the approval page (URL elicitation); `form`: its own dialog. While a call waits, it shows the gateway's progress message ("Waiting for approval of fs/write_file") |
+| Timeouts | a tool call may take `MCP_TOOL_TIMEOUT` (per server: `timeout` in its configuration; default about 28 hours); a call that reports nothing is abandoned after `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` (default 30 minutes for local servers, 5 minutes for remote ones). The gateway's progress while waiting keeps it alive, so any `approval_timeout` works |
+| Policy changes | it lists tools again on `list_changed`, locally and over HTTP: role changes reach it within `policy.watch_interval` (10 s) |
+
+### Kit
+
+Tested: Kit 0.117 (mcp-go 1.1.1). It asks for MCP 2026-07-28 and falls
+back to 2025-11-25. It supports neither elicitation nor progress, and
+ignores notifications.
+
+```yaml
+# ~/.kit.yml
+mcpServers:
+  fs:
+    type: local
+    command: ["mcp-connect", "--server", "fs"]
+  # remote, with OAuth (dynamic client registration, or oauthClientId)
+  fs-remote:
+    type: remote
+    url: https://gw.example.com:8443/mcp/fs
+  # remote, with a token obtained otherwise
+  fs-token:
+    type: remote
+    url: https://gw.example.com:8443/mcp/fs
+    noOAuth: true
+    headers: ["Authorization: Bearer <token>"]
+```
+
+| Topic | Behaviour |
+|---|---|
+| Sessions | one MCP session per server per `kit` run (`kit -p` runs are one each); within a run, Kit replaces a session that has been idle for 5 minutes. "Session" grants end with it: offer a duration (`approval_scopes`) to Kit users |
+| Approvals | Kit cannot answer elicitations, so `url` and `form` fall back to `oob` (the shipped policy's fallback). Kit shows nothing while a call waits: approvers learn of it from the desktop notification or mail (chapter 7) and decide in Cockpit; the call returns when they do, or after `approval_timeout` |
+| Timeouts | none of its own on tool calls; `approval_timeout` decides |
+| Policy changes | Kit reads the tool list when it starts and does not act on `list_changed` (over HTTP it does not receive it either); start Kit again after role changes. Tools that policy removed meanwhile are refused when called |
+| Load | before each tool call Kit lists the server's tools as a health check |
+| Tasks | with `tasksMode: always` Kit asks for a task; the gateway runs the call synchronously (it offers no tasks, so `auto` never asks) |
+
+### Other agents
+
+Agents configured with the common `mcpServers` JSON (above) work
+through `mcp-connect`. Most are built on the TypeScript or Python SDK;
+check two things:
+
+- **Approvals:** an agent without URL elicitation gets out-of-band
+  approvals for `url`, one without any elicitation also for `form`;
+  set up desktop notifications or mail for them (chapter 7).
+- **Timeouts:** an agent that gives up on calls after a fixed time
+  (the TypeScript SDK's default is 60 s) fails approvals that take
+  longer, unless it asks for progress and lets progress extend the
+  timeout. Raise the agent's timeout, or keep `approval_timeout` below
+  it so that the agent at least gets the gateway's denial.
