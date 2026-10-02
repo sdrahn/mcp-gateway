@@ -1,8 +1,13 @@
 // mcp-gateway-profile-firewalld: firewalld-mcp behind mcp-gateway runs as
 // mcp-sysmgmt, without a login session, and may read the firewall
-// configuration. It has no changing tools, so nothing more is granted.
+// configuration: the runtime state (FirewallD1.info: zones) and the
+// permanent configuration (FirewallD1.config.info: services of a zone, a
+// service's settings). It has no changing tools, so nothing that changes
+// the firewall is granted.
 polkit.addRule(function(action, subject) {
-    if (subject.user == "mcp-sysmgmt" && action.id == "org.fedoraproject.FirewallD1.info")
+    if (subject.user == "mcp-sysmgmt" &&
+        (action.id == "org.fedoraproject.FirewallD1.info" ||
+         action.id == "org.fedoraproject.FirewallD1.config.info"))
         return polkit.Result.YES;
     return polkit.Result.NOT_HANDLED;
 });

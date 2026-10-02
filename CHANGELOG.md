@@ -52,6 +52,15 @@ change configuration, policy data or APIs.
   `GET /v1/policy` and shown in Cockpit, and part of the policy
   fingerprint (installing a setup tells clients to list tools again).
 
+### Fixed
+
+- firewalld-mcp's `get_services_for_zone` and `get_service_info` read
+  the permanent firewall configuration, which needs polkit's
+  `org.fedoraproject.FirewallD1.config.info`: the polkit rule of
+  `mcp-gateway-profile-firewalld` and the example in the user guide
+  (chapter 13) granted only `FirewallD1.info`, so both tools were refused
+  ("Not Authorized(polkit)"). Found by `mcp-gateway profile`.
+
 ## v0.3.1 — 2026-10-01
 
 The gateway starts confined on openSUSE Leap 16. Upgrading from 0.3.0

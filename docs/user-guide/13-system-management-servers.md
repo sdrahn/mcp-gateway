@@ -163,7 +163,9 @@ Notes:
   `--noauth`, which is meant for its HTTP mode.
 - `firewalld-mcp` (0.1.0) only reads: `get_default_zone`,
   `get_active_zones`, `get_services_for_zone`, `get_service_info` and
-  `is_default_zone`. It needs polkit's `…FirewallD1.info` action and
+  `is_default_zone`. It needs polkit's `…FirewallD1.info` (runtime
+  state) and, for `get_services_for_zone` and `get_service_info`,
+  `…FirewallD1.config.info` (reading the permanent configuration), and
   nothing more (rule below).
 - `get_file` reads any file or directory the account can read, and
   `get_file`, `get_man_page` and `list_log` run `getfacl`, `man` and
@@ -354,7 +356,8 @@ polkit.addRule(function(action, subject) {
         action.id == "org.freedesktop.systemd1.manage-unit-files" ||
         action.id == "org.freedesktop.systemd1.reload-daemon")
         return polkit.Result.YES;
-    if (action.id == "org.fedoraproject.FirewallD1.info")
+    if (action.id == "org.fedoraproject.FirewallD1.info" ||
+        action.id == "org.fedoraproject.FirewallD1.config.info")
         return polkit.Result.YES;
     return polkit.Result.NOT_HANDLED;
 });
@@ -365,10 +368,11 @@ allows: `action.lookup("unit")` holds the unit name for systemd's
 actions, so a rule can name the units the servers may touch;
 `pkaction | grep -E 'systemd1|FirewallD1'` lists the actions.
 
-firewalld allows queries (`…FirewallD1.info`) without a password only in
-an active login session, so even reading needs the rule for a background
-account. A firewalld MCP server that also changes the firewall needs the
-actions it uses as well (`…FirewallD1.config`, `…FirewallD1.all`);
+firewalld allows queries (`…FirewallD1.info`, `…FirewallD1.config.info`)
+without a password only in an active login session, so even reading
+needs the rule for a background account. A firewalld MCP server that
+also changes the firewall needs the actions it uses as well
+(`…FirewallD1.config`, `…FirewallD1.all`);
 grant them only together with an approval permission for its changing
 tools.
 

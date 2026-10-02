@@ -491,6 +491,11 @@ END
 
 	stool alice firewalld get_default_zone '{}'
 	check "firewalld: get_default_zone" test "$rc" = 0
+	# The permanent configuration: polkit's FirewallD1.config.info.
+	stool alice firewalld get_services_for_zone '{"zone":"public"}'
+	check "firewalld: get_services_for_zone" test "$rc" = 0
+	stool alice firewalld get_service_info '{"service":"ssh"}'
+	check "firewalld: get_service_info" test "$rc" = 0
 
 	stool alice zypp search_packages '{"pattern":"bash"}'
 	check "zypp: search_packages" succeeded_with "bash"
