@@ -152,6 +152,48 @@ but keeps running.
 
 ## Troubleshooting
 
+### Self-check
+
+Start with the self-check, as root:
+
+```bash
+mcp-gateway doctor
+```
+
+```
+ok    configuration: /usr/etc/mcp-gateway/gateway.yaml, 3 servers (firewalld, fs, systemd)
+ok    role data: /etc/mcp-gateway/policy/rbac/data.json valid (7 shipped roles known)
+ok    mcp-gateway.service: active
+ok    mcp-opa.service: active
+ok    gateway status: running version 0.4.0
+ok    policy: OPA decides (deny for an unknown principal)
+ok    server firewalld: starts: firewalld-mcp 0.1.0, 5 tools, 0 prompts, 0 resource templates
+fail  server fs: does not start: starting: …
+        journalctl -u 'mcp-fs-*' shows its output; mcp-gateway inspect -server fs for more
+ok    server systemd: starts: systemd-mcp 0.3.0, 9 tools, 0 prompts, 0 resource templates
+fail  SELinux mcpsrv_firewalld_t: 2 denials (1 distinct) since 2026-10-01 09:12:00
+        2  mcpsrv_firewalld_t system_dbusd_var_run_t:dir { search } dbus (firewalld-mcp)
+ok    polkit mcp-sysmgmt: a polkit rule names mcp-sysmgmt (servers firewalld, systemd)
+warn  principals: 1 of 4 members of mcp-users hold no role: they may connect but see no server
+        carol
+```
+
+| Check | Looks at |
+|---|---|
+| configuration | `gateway.yaml` and the server definitions; deprecated keys warn |
+| role data | the schema and references (as `--check-policy-data`) |
+| services, gateway status | `mcp-gateway.service` and `mcp-opa.service` active; the running version, and whether an update waits for a restart |
+| policy | that OPA answers a decision (every request is denied otherwise) |
+| server *name* | that each server starts, as for shared discovery, and answers MCP; then whether roles name tools it does not offer (`roles` *name*; as the account it runs as, a server may hide tools) |
+| SELinux *type* | denials in the last day involving the gateway's, OPA's and the servers' types; denials in permissive mode (a profiling run) only warn |
+| polkit *account* | servers running as a system account that no polkit rule names: servers that act through polkit (systemd, firewalld) are refused without one |
+| principals | members of `socket_group` bound to no role, by name or group (users whose primary group it is, and remote principals, are not checked) |
+
+Starting the servers runs them like the gateway would, once each; use
+`--no-start` to skip that, `--server` to check one. While someone
+profiles a server (chapter 4), dontaudit rules are off and the audit log
+has denials that do not matter otherwise; they show up here too.
+
 ### The agent cannot connect
 
 | Symptom | Cause and fix |

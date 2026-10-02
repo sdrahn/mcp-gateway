@@ -1348,6 +1348,7 @@ internal/
   broker/                 # approvals, grants store, elicitation
   contract/               # JSON field lists of the stable interfaces (D10)
   metrics/                # counters and histograms, Prometheus text format
+  doctor/                 # mcp-gateway doctor: checks of an installation
   inspect/                # mcp-gateway inspect: server inventory, draft roles, role check
   profile/                # mcp-gateway profile: permissive run, denials, drafted module
   review/                 # mcp-gateway review: source scan for what a server does to the system
@@ -1486,7 +1487,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     - a self-check command that finds what had to be debugged by hand:
       servers that do not start, SELinux denials for a backend, missing
       polkit rules, role data that does not validate, principals without
-      roles.
+      roles: `mcp-gateway doctor` also checks the services, that OPA
+      decides, and roles naming tools a server does not offer (done).
 14. **Security assurance:** fuzzing of the JSON-RPC parser, the HTTP
     transport and the policy input; a review of the threat model (§8);
     an external review of identity, approvals and the control socket;

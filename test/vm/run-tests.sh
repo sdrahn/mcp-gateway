@@ -614,6 +614,26 @@ else
 	echo "  semanage not available; metrics listener not tested"
 fi
 
+section "Self-check"
+# carol may connect (mcp-users) but holds no role: the doctor names her.
+useradd -m carol && usermod -aG mcp-users carol
+mcp-gateway doctor >/root/doctor.txt 2>&1
+rc=$?
+sed 's/^/  /' /root/doctor.txt | head -100
+echo "  exit status $rc (the profiling run's denials count as failures)"
+doctor_says() { grep -qE "$1" /root/doctor.txt; }
+check "doctor: the gateway and OPA are active" doctor_says '^ok +mcp-(gateway|opa)\.service: active'
+check "doctor: the role data is valid" doctor_says '^ok +role data: '
+check "doctor: OPA decides" doctor_says '^ok +policy: OPA decides'
+check "doctor: the demo server starts" doctor_says '^ok +server fs: starts: .*[1-9][0-9]* tools'
+check "doctor: names the user without a role" doctor_says '^warn +principals: .*hold no role'
+check "doctor: ... and it is carol" doctor_says '^ +carol$'
+if [ -d "$dir/servers" ]; then
+	check "doctor: systemd-mcp starts" doctor_says '^ok +server systemd: starts'
+	check "doctor: a polkit rule names mcp-sysmgmt" doctor_says '^ok +polkit mcp-sysmgmt: '
+fi
+userdel -r carol 2>/dev/null
+
 section "Kernel audit"
 echo "  auditd: $(systemctl is-active auditd); records since the install: $(audit_since ALL | wc -l)"
 audit_since SERVICE_START | grep -o 'unit=mcp-[a-z-]*' | sort | uniq -c | sed 's/^/  /'

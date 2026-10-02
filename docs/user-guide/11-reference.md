@@ -86,6 +86,27 @@ source"). Needs no root. Exit status 1 on errors, 2 on usage errors.
 | `--profile DIR` | drafts directory of a profiling run, whose `denials.json` marks what the run reached |
 | `--json` | print the findings as JSON |
 
+### mcp-gateway doctor
+
+```
+mcp-gateway doctor [options]
+```
+
+Checks the installation (chapter 10, "Self-check"). Run it as root;
+without root, the checks that need it are skipped. Exit status 1 if a
+check failed, 2 on usage errors.
+
+| Flag | Meaning |
+|---|---|
+| `--config FILE` | gateway configuration (as for `mcp-gateway`) |
+| `--policy-data FILE` | role data (default: `/etc/mcp-gateway/policy/rbac/data.json`) |
+| `--shipped-policy DIR` | shipped policy with the roles of the server setups (default: `/usr/share/mcp-gateway/policy`; empty: none) |
+| `--server NAME` | check only this server |
+| `--no-start` | do not start the servers |
+| `--since DURATION` | how far back to look for SELinux denials (default `24h`) |
+| `--timeout DURATION` | how long to wait for each server (default `30s`) |
+| `--json` | print the results as JSON |
+
 ### mcp-connect
 
 ```

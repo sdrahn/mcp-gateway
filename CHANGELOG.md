@@ -60,6 +60,13 @@ minor release (with a warning) and removed in the next.
   (`WatchdogSec=60s`), after writing every goroutine's stack to the
   journal.
 
+- `mcp-gateway doctor` checks an installation for what had to be
+  debugged by hand: the configuration and role data, the services and
+  whether OPA decides, servers that do not start, roles naming tools a
+  server does not offer, SELinux denials involving the gateway, OPA and
+  the servers, servers running as an account no polkit rule names, and
+  members of `socket_group` without a role.
+
 - Metrics in the Prometheus text format: decisions by action and
   effect, decisions that failed closed, OPA query latency and errors,
   server instance starts and failures, approvals decided and pending,
