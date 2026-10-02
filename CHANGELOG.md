@@ -4,6 +4,28 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## v0.3.4 — 2026-10-02
+
+Two SELinux fixes. Update the packages and restart the gateway
+(`systemctl restart mcp-gateway.service`); the configuration and the
+role data need no changes.
+
+### Fixed
+
+- A server definition naming a `selinux_type` that is not in the loaded
+  policy (for example one of the user guide's examples installed without
+  building its module) failed only when an instance started, with
+  systemd's "Failed to change SELinux context ...: Operation not
+  permitted", also in permissive mode. The gateway now warns at start of
+  each such type and the servers naming it ("selinux_type is not in the
+  loaded SELinux policy"). The SELinux module lets the gateway ask the
+  kernel whether a context is valid.
+
+- In permissive mode, the gateway's scan of the processes' MCS pairs
+  (`supervisor.mcs_avoid`) logged a `process getattr` denial for every
+  process on every scan. The SELinux module no longer audits them; in
+  enforcing mode nothing changes.
+
 ## v0.3.3 — 2026-10-02
 
 A security fix, and an SELinux fix. Update and restart the gateway
