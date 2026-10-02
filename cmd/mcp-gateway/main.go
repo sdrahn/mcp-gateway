@@ -186,6 +186,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	}
 	sd, _ := launcher.(*supervisor.Systemd)
 	mcsAvoid := sd != nil && sd.SELinux && gw.Supervisor.MCSAvoid == "auto"
+	if sd != nil && sd.SELinux {
+		warnMissingSELinuxTypes(log, backends, supervisor.ContextValid)
+	}
 
 	l, err := transport.ListenUnix(gw.Socket, 0o660, gw.SocketGroup)
 	if err != nil {
@@ -504,6 +507,27 @@ func watchMCS(ctx context.Context, log *slog.Logger, auditLog *audit.Logger, sd 
 	}
 	check(supervisor.ScanMCS("/proc"))
 	supervisor.WatchMCS(ctx, "/proc", mcsWatchInterval, check)
+}
+
+// warnMissingSELinuxTypes logs servers whose selinux_type the loaded
+// policy does not know: their instances would fail to start with only
+// systemd's "Failed to change SELinux context" to go by. The gateway
+// still starts, for the other servers.
+func warnMissingSELinuxTypes(log *slog.Logger, backends map[string]*config.Backend, valid func(string) (bool, error)) {
+	missing, err := supervisor.MissingSELinuxTypes(backends, valid)
+	if err != nil {
+		log.Info("cannot check the servers' SELinux types", "err", err)
+		return
+	}
+	types := make([]string, 0, len(missing))
+	for t := range missing {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	for _, t := range types {
+		log.Warn("selinux_type is not in the loaded SELinux policy; install its module, or instances of these servers fail to start",
+			"selinux_type", t, "servers", strings.Join(missing[t], ","))
+	}
 }
 
 func newLauncher(log *slog.Logger, s config.Supervisor) (supervisor.Launcher, error) {

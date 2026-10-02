@@ -27,6 +27,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/policydata"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/profile"
+	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 )
 
 const doctorUsage = `usage: mcp-gateway doctor [flags]
@@ -122,6 +123,9 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 	add(d.opa())
 	add(d.servers()...)
 	add(d.selinux()...)
+	if supervisor.SELinuxEnabled() {
+		add(doctor.SELinuxTypes(d.selected(), supervisor.ContextValid)...)
+	}
 	add(doctor.Polkit(d.selected(), nil)...)
 	add(d.principals())
 	return rs

@@ -632,6 +632,31 @@ if [ -d "$dir/servers" ]; then
 	check "doctor: systemd-mcp starts" doctor_says '^ok +server systemd: starts'
 	check "doctor: a polkit rule names mcp-sysmgmt" doctor_says '^ok +polkit mcp-sysmgmt: '
 fi
+check "doctor: every server's SELinux type is in the policy" doctor_says '^ok +SELinux types: '
+no_type_warning() { ! journalctl -u mcp-gateway.service -o cat | grep -q 'not in the loaded SELinux policy'; }
+check "the gateway found every server's SELinux type" no_type_warning
+# A definition whose selinux_type has no module (as when a server
+# definition is installed without it): systemd could not start it, even
+# in permissive mode. The doctor and the gateway say why.
+cat >/etc/mcp-gateway/servers.d/notype.yaml <<'END'
+name: notype
+command: ["/usr/libexec/mcpgw-privtest"]
+run_as: root
+selinux_type: mcpsrv_notype_t
+privileged: true
+END
+mcp-gateway doctor --server notype --no-start >/root/doctor-notype.txt 2>&1
+sed 's/^/  /' /root/doctor-notype.txt | grep -i 'selinux type'
+check "doctor: names the SELinux type that is not in the policy" \
+	grep -qE '^fail +SELinux type mcpsrv_notype_t: .*servers notype cannot start' /root/doctor-notype.txt
+since=$(date +%s)
+systemctl restart mcp-gateway.service
+wait_socket
+type_warning() { journalctl -u mcp-gateway.service -o cat --since "@$since" | grep 'not in the loaded SELinux policy' | grep -q 'selinux_type=mcpsrv_notype_t'; }
+check "the gateway warns of the missing SELinux type at start" type_warning
+rm -f /etc/mcp-gateway/servers.d/notype.yaml
+systemctl restart mcp-gateway.service
+wait_socket
 userdel -r carol 2>/dev/null
 
 section "Kernel audit"

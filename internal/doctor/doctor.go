@@ -20,6 +20,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/profile"
+	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 )
 
 // Status is the outcome of a check.
@@ -202,6 +203,28 @@ func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
 			Summary: fmt.Sprintf("servers %s run as %s, which no polkit rule names", servers, acct),
 			Details: []string{"if the server acts through polkit (systemd, firewalld, ...), polkit refuses it: there is no session to ask in;",
 				"add a rule for the account (user guide, chapter 13) or install the server's setup package"}})
+	}
+	return out
+}
+
+// SELinuxTypes checks that the loaded policy knows each server's
+// selinux_type (valid: supervisor.ContextValid). A server whose type it
+// does not know cannot start, also in permissive mode; the usual cause
+// is a server definition installed without its SELinux module.
+func SELinuxTypes(backends map[string]*config.Backend, valid func(string) (bool, error)) []Result {
+	missing, err := supervisor.MissingSELinuxTypes(backends, valid)
+	if err != nil {
+		return []Result{{Check: "SELinux types", Status: Skip, Summary: "checking contexts: " + err.Error()}}
+	}
+	if len(missing) == 0 {
+		return []Result{{Check: "SELinux types", Status: OK, Summary: "the loaded policy knows every server's selinux_type"}}
+	}
+	var out []Result
+	for _, t := range sortedKeys(missing) {
+		out = append(out, Result{Check: "SELinux type " + t, Status: Fail,
+			Summary: fmt.Sprintf("%s is not in the loaded policy: servers %s cannot start", t, strings.Join(missing[t], ", ")),
+			Details: []string{"install the SELinux module that defines it (semodule -l lists the loaded ones),",
+				"or remove selinux_type from the definition to use mcpsrv_generic_t"}})
 	}
 	return out
 }
