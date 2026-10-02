@@ -1,0 +1,30 @@
+# Input of data.mcp.whatif.changes; the OPA client adds "version" (1).
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+principals
+principals[].label
+principals[].principal
+principals[].principal.cert
+principals[].principal.cert.dns
+principals[].principal.cert.emails
+principals[].principal.cert.subject
+principals[].principal.cert.uris
+principals[].principal.cert.x5t#S256
+principals[].principal.client
+principals[].principal.client.name
+principals[].principal.client.version
+principals[].principal.groups
+principals[].principal.home
+principals[].principal.iss
+principals[].principal.roles
+principals[].principal.selinux
+principals[].principal.session_id
+principals[].principal.sub
+principals[].principal.transport
+principals[].principal.uid
+proposed
+resources
+resources[].annotations
+resources[].kind
+resources[].name
+resources[].privileged
+resources[].server

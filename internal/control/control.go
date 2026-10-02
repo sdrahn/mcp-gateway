@@ -10,7 +10,7 @@
 // API (JSON):
 //
 //	GET    /v1/whoami
-//	GET    /v1/status           {"restart_pending": true} after an update
+//	GET    /v1/status           {"version": "0.4.0", "restart_pending": true} after an update
 //	GET    /v1/approvals
 //	GET    /v1/approvals/{id}
 //	POST   /v1/approvals/{id}   {"decision": "approve"|"deny", "scope": "session"}
@@ -21,6 +21,9 @@
 //	GET    /v1/policy           active policy bundles and their revisions, roles shipped by server setups
 //	POST   /v1/policy/whatif    role data → the decisions it would change
 //	GET    /v1/events           server-sent events: approvals the caller may decide on
+//
+// The fields of requests and responses are fixed in testdata/contract:
+// within /v1, fields are only added (docs/architecture.md, decision D10).
 package control
 
 import (
@@ -43,6 +46,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/router"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
+	"github.com/sdrahn/mcp-gateway/internal/version"
 )
 
 // Instances lists and stops backend instances (router.Router).
@@ -144,7 +148,7 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, a)
 	}))
 	mux.HandleFunc("GET /v1/status", s.with(func(w http.ResponseWriter, _ *http.Request, _ broker.Approver) {
-		writeJSON(w, http.StatusOK, map[string]bool{"restart_pending": s.RestartPending != nil && s.RestartPending()})
+		writeJSON(w, http.StatusOK, statusResponse{Version: version.Version, RestartPending: s.RestartPending != nil && s.RestartPending()})
 	}))
 	mux.HandleFunc("GET /v1/approvals", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
 		writeJSON(w, http.StatusOK, s.Broker.ListPending(r.Context(), a))
@@ -174,6 +178,42 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/policy/whatif", s.with(s.whatIf))
 	mux.HandleFunc("GET /v1/events", s.with(s.events))
 	return mux
+}
+
+// statusResponse is the body of GET /v1/status.
+type statusResponse struct {
+	// Version is the version of the running gateway.
+	Version string `json:"version"`
+	// RestartPending tells that the program was updated and the gateway
+	// not yet restarted.
+	RestartPending bool `json:"restart_pending"`
+}
+
+// policyResponse is the body of GET /v1/policy.
+type policyResponse struct {
+	Mode    string            `json:"mode"` // "directories" or "bundle"
+	Bundles map[string]string `json:"bundles"`
+	// ShippedRoles is missing if the policy engine cannot list them.
+	ShippedRoles *map[string]shippedRole `json:"shipped_roles,omitempty"`
+}
+
+// whatIfResponse is the body of POST /v1/policy/whatif.
+type whatIfResponse struct {
+	Changes    []pep.Change      `json:"changes"`
+	Principals int               `json:"principals"`
+	Resources  int               `json:"resources"`
+	Unchecked  map[string]string `json:"unchecked"`
+}
+
+// resolveRequest is the body of POST /v1/approvals/{id}.
+type resolveRequest struct {
+	Decision string `json:"decision"` // "approve" or "deny"
+	Scope    string `json:"scope"`
+}
+
+// errorResponse is the body of every error.
+type errorResponse struct {
+	Error string `json:"error"`
 }
 
 // serverInfo is a registry entry as the API shows it (without command
@@ -246,7 +286,7 @@ func (s *Server) policy(w http.ResponseWriter, r *http.Request, _ broker.Approve
 	if len(bundles) > 0 {
 		mode = "bundle"
 	}
-	resp := map[string]any{"mode": mode, "bundles": bundles}
+	resp := policyResponse{Mode: mode, Bundles: bundles}
 	if src, ok := s.Policy.(ShippedRoleSource); ok {
 		raw, err := src.ShippedRoles(r.Context())
 		if err != nil {
@@ -269,7 +309,7 @@ func (s *Server) policy(w http.ResponseWriter, r *http.Request, _ broker.Approve
 				roles[name] = role
 			}
 		}
-		resp["shipped_roles"] = roles
+		resp.ShippedRoles = &roles
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -338,11 +378,11 @@ func (s *Server) whatIf(w http.ResponseWriter, r *http.Request, a broker.Approve
 	if changes == nil {
 		changes = []pep.Change{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"changes":    changes,
-		"principals": len(in.Principals),
-		"resources":  len(in.Resources),
-		"unchecked":  catalog.Unchecked,
+	writeJSON(w, http.StatusOK, whatIfResponse{
+		Changes:    changes,
+		Principals: len(in.Principals),
+		Resources:  len(in.Resources),
+		Unchecked:  catalog.Unchecked,
 	})
 }
 
@@ -486,10 +526,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a broker.Approve
 }
 
 func (s *Server) resolve(w http.ResponseWriter, r *http.Request, a broker.Approver) {
-	var body struct {
-		Decision string `json:"decision"`
-		Scope    string `json:"scope"`
-	}
+	var body resolveRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
@@ -564,5 +601,5 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+	writeJSON(w, status, errorResponse{Error: msg})
 }

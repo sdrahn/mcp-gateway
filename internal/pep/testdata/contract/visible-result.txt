@@ -1,0 +1,7 @@
+# Result of data.mcp.filter.visible
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+[].annotations
+[].kind
+[].name
+[].privileged
+[].server

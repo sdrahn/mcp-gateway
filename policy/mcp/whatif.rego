@@ -54,6 +54,7 @@ changes contains change if {
 		"resource": r,
 		"grants": [],
 		"discovery": true,
+		"version": object.get(input, "version", 1),
 	}
 
 	# regal ignore:with-outside-test-context

@@ -1,0 +1,32 @@
+# GET /v1/approvals (GET /v1/approvals/{id}: one element)
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+[].action
+[].args
+[].channel
+[].created
+[].expires
+[].id
+[].name
+[].principal
+[].principal.cert
+[].principal.cert.dns
+[].principal.cert.emails
+[].principal.cert.subject
+[].principal.cert.uris
+[].principal.cert.x5t#S256
+[].principal.client
+[].principal.client.name
+[].principal.client.version
+[].principal.groups
+[].principal.home
+[].principal.iss
+[].principal.roles
+[].principal.selinux
+[].principal.session_id
+[].principal.sub
+[].principal.transport
+[].principal.uid
+[].prompt
+[].scopes
+[].server
+[].waiting

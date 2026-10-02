@@ -23,6 +23,8 @@ func TestValidate(t *testing.T) {
 		{"ask unknown channel", Decision{Effect: Ask, Ask: &AskSpec{Channel: "carrier-pigeon"}}, true},
 		{"empty effect", Decision{}, true},
 		{"unknown effect", Decision{Effect: "maybe"}, true},
+		{"version 1", Decision{Version: 1, Effect: Allow}, false},
+		{"newer version", Decision{Version: 2, Effect: Allow}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

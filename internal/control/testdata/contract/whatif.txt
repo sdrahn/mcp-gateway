@@ -1,0 +1,12 @@
+# POST /v1/policy/whatif (request body: role data, rbac.schema.json)
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+changes
+changes[].after
+changes[].before
+changes[].kind
+changes[].name
+changes[].principal
+changes[].server
+principals
+resources
+unchecked

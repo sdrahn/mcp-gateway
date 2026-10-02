@@ -1,0 +1,8 @@
+# Result of data.mcp.whatif.changes
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+[].after
+[].before
+[].kind
+[].name
+[].principal
+[].server

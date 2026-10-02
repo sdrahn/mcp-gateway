@@ -75,6 +75,17 @@ type Context struct {
 	ClientCapabilities map[string]any `json:"client_capabilities,omitempty"`
 }
 
+// InputVersion is the version of the policy input documents. The OPA
+// client adds it as "version" to the input of every query, so that a
+// policy can tell which gateway asks; changes within a version only add
+// fields (docs/architecture.md, decision D10).
+const InputVersion = 1
+
+// DecisionVersion is the version of the decision document this gateway
+// enforces. A decision may name it in "version"; a decision of another
+// version is invalid and denies.
+const DecisionVersion = 1
+
 // Input is the policy input document (docs/architecture.md, section 6.2).
 type Input struct {
 	Principal principal.Principal `json:"principal"`
@@ -122,6 +133,9 @@ type Obligations struct {
 // Decision is the policy decision document (docs/architecture.md, section
 // 6.3).
 type Decision struct {
+	// Version is the decision document's version (DecisionVersion);
+	// optional.
+	Version     int          `json:"version,omitempty"`
 	Effect      Effect       `json:"effect"`
 	Reason      string       `json:"reason,omitempty"`
 	Ask         *AskSpec     `json:"ask,omitempty"`
@@ -131,6 +145,9 @@ type Decision struct {
 // Validate reports whether d is well-formed enough to be enforced,
 // including its obligations.
 func (d Decision) Validate() error {
+	if d.Version != 0 && d.Version != DecisionVersion {
+		return fmt.Errorf("decision: version %d, this gateway enforces version %d", d.Version, DecisionVersion)
+	}
 	if d.Obligations != nil {
 		if _, err := d.Obligations.Compile(); err != nil {
 			return err

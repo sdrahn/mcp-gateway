@@ -78,10 +78,19 @@ undefined or invalid `decision` denies ("policy evaluation failed",
 undefined `allow`, `manage_grant` or `manage_instance` refuses. Give
 your rules `default` values so they are never undefined by accident.
 
+**Versions.** Every input has `"version": 1`, the version of the input
+documents. Within a version, new gateway releases only add fields; a
+field is never renamed, dropped or given another meaning without a new
+version (chapter 3, [Format version](03-configuration.md#format-version)).
+A decision may say which version of the decision document it is written
+for (`"version": 1`); the gateway denies a decision of a version it does
+not enforce.
+
 ### Decision input
 
 ```json
 {
+  "version": 1,
   "principal": {
     "sub": "alice",
     "iss": "https://idp.example.com/realms/mcp",
@@ -118,6 +127,7 @@ your rules `default` values so they are never undefined by accident.
 
 | Field | Meaning |
 |---|---|
+| `version` | the version of the input documents (`1`) |
 | `principal.sub` | the local user name (local clients, and remote users mapped to a local account), else the token subject |
 | `principal.iss` | token issuer; remote principals only |
 | `principal.uid`, `home` | local account; absent for remote principals without one |
@@ -154,6 +164,7 @@ makes an expression undefined, so the rule simply does not apply).
 
 | Field | Values |
 |---|---|
+| `version` | optional: the version of the decision document it is written for (`1`); another version is invalid (deny) |
 | `effect` | `allow`, `deny` or `ask`; anything else is invalid (deny) |
 | `reason` | free text; shown to the agent (`mcp-gateway: <reason>`) and in the audit record |
 | `obligations` | as in chapter 6: `redact_output`, `max_output_bytes`, `rate_limit`, `arg_constraints`, `audit`, `pseudonymize` (`{"detect": [...], "patterns": {...}, "fields": {...}}`), `reidentify` (argument names); a malformed obligation makes the decision invalid (deny) |
@@ -197,7 +208,8 @@ listing and calling consistent.
 `approver` is identified by the kernel on the control socket. For
 `manage_grant` the input has `grant` (a grant object as above) instead
 of `request`; for `manage_instance` it has `instance`
-(`{"server", "uid"}`). `notify` gets `request` without `approver`.
+(`{"server", "uid"}`). `notify` gets `request` without `approver`. Filter and approval inputs
+have `version` too.
 `root` may always decide, whatever the policy says.
 
 ## Three ways to customise

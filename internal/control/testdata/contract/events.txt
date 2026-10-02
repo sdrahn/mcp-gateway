@@ -1,0 +1,37 @@
+# GET /v1/events: data of each event
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+id
+new
+pending
+pending.action
+pending.args
+pending.channel
+pending.created
+pending.expires
+pending.id
+pending.name
+pending.principal
+pending.principal.cert
+pending.principal.cert.dns
+pending.principal.cert.emails
+pending.principal.cert.subject
+pending.principal.cert.uris
+pending.principal.cert.x5t#S256
+pending.principal.client
+pending.principal.client.name
+pending.principal.client.version
+pending.principal.groups
+pending.principal.home
+pending.principal.iss
+pending.principal.roles
+pending.principal.selinux
+pending.principal.session_id
+pending.principal.sub
+pending.principal.transport
+pending.principal.uid
+pending.prompt
+pending.scopes
+pending.server
+pending.waiting
+type
+url

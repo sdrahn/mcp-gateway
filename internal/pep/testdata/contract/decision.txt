@@ -1,0 +1,22 @@
+# data.mcp.authz.decision; "version" is optional, other versions than 1 deny.
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+ask
+ask.channel
+ask.fallback
+ask.prompt
+ask.scopes
+effect
+obligations
+obligations.arg_constraints
+obligations.arg_constraints{}
+obligations.audit
+obligations.max_output_bytes
+obligations.pseudonymize
+obligations.pseudonymize.detect
+obligations.pseudonymize.fields
+obligations.pseudonymize.patterns
+obligations.rate_limit
+obligations.redact_output
+obligations.reidentify
+reason
+version

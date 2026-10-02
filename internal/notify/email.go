@@ -112,9 +112,7 @@ func (e *Email) notify(ctx context.Context, p broker.Pending) {
 
 // Recipients returns the addresses to mail about p.
 func (e *Email) Recipients(ctx context.Context, p broker.Pending) ([]string, error) {
-	names, err := e.policy.Strings(ctx, notifyPath, map[string]any{"request": map[string]any{
-		"principal": p.Principal, "server": p.Server, "name": p.Name, "action": p.Action,
-	}})
+	names, err := e.policy.Strings(ctx, notifyPath, broker.ApproverInput{Request: p.Target()})
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,4 @@
+# POST /v1/approvals/{id}: request body
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+decision
+scope

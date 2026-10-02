@@ -77,17 +77,17 @@ func input() pep.Input {
 type fakePolicy struct{}
 
 func (fakePolicy) Bool(_ context.Context, path string, input any) (bool, error) {
-	in := input.(map[string]any)
-	a := in["approver"].(Approver)
+	in := input.(ApproverInput)
+	a := in.Approver
 	if slices.Contains(a.Groups, "wheel") {
 		return true, nil
 	}
 	var uid *uint32
 	switch path {
 	case approvePath:
-		uid = in["request"].(map[string]any)["principal"].(principal.Principal).UID
+		uid = in.Request.Principal.UID
 	case manageGrantPath:
-		uid = in["grant"].(pep.Grant).UID
+		uid = in.Grant.UID
 	}
 	return uid != nil && *uid == a.UID, nil
 }

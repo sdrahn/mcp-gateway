@@ -846,6 +846,7 @@ instead of OPA's default `/system/log/mask`, and bundles from
 
 ```json
 {
+  "version": 1,
   "principal": { "...": "see §5.2" },
   "action": "tools.call",
   "resource": {
@@ -866,6 +867,10 @@ instead of OPA's default `/system/log/mask`, and bundles from
 }
 ```
 
+`version` is the version of the input documents (D10); the OPA client
+adds it to the input of every query, also the filter's and the approver
+rules'.
+
 Tool annotations are taken from the backend's `tools/list` and are
 **untrusted hints**; policy may use them for defaults (e.g. destructive ⇒
 ask) but never to grant access.
@@ -876,6 +881,7 @@ ask) but never to grant access.
 
 ```json
 {
+  "version": 1,
   "effect": "allow | deny | ask",
   "reason": "human-readable, safe to show to the client",
   "ask": {
@@ -899,6 +905,9 @@ ask) but never to grant access.
   }
 }
 ```
+
+`version` is optional; a decision naming a version other than the one
+the gateway enforces is invalid and denies (D10).
 
 Obligations, as the gateway enforces them:
 
@@ -1309,8 +1318,12 @@ the changelog lists it under "Deprecated". It is removed in the next
 minor release. A change that cannot be made that way raises the
 version, and the gateway reads the old version for one more minor
 release. CI loads the configuration of the previous minor release
-(`test/compat`, taken from its tag by `snapshot.sh`). The rule holds
-from 0.4 on,
+(`test/compat`, taken from its tag by `snapshot.sh`). The fields of the
+policy documents and of the control API's requests and responses are
+listed in `testdata/contract` files (internal/pep, internal/broker,
+internal/control); a test fails when a field disappears, and when a new
+one is not added to the list. The control API carries its version in
+the path (`/v1`). The rule holds from 0.4 on,
 so that 1.0 does not start with a break.
 *Rationale:* administrators upgrade with `zypper up` and must not find
 their gateway refusing to start, or worse, reading their policy
@@ -1332,6 +1345,7 @@ internal/
   pep/                    # OPA client, decision application, obligations
   pseudo/                 # pseudonymization: detectors, per-session vault
   broker/                 # approvals, grants store, elicitation
+  contract/               # JSON field lists of the stable interfaces (D10)
   inspect/                # mcp-gateway inspect: server inventory, draft roles, role check
   profile/                # mcp-gateway profile: permissive run, denials, drafted module
   review/                 # mcp-gateway review: source scan for what a server does to the system
@@ -1451,9 +1465,10 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       deprecated keys are read with a warning at start and with
       `--check`; CI loads the previous minor release's configuration
       (`test/compat`) (done);
-    - versioned policy input and decision documents, and the control
-      API (`/v1`) with its fields fixed by contract tests, so that a
-      field cannot be renamed or dropped unnoticed.
+    - versioned policy input and decision documents (`version`), and
+      the control API (`/v1`), with their fields fixed by contract
+      tests so that a field cannot be renamed or dropped unnoticed
+      (done).
 13. **Operability:** `Type=notify` with a systemd watchdog for the
     gateway; metrics (decisions, pending approvals, instance starts and
     failures, OPA latency); a self-check command that finds what had to

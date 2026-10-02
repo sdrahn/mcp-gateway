@@ -580,16 +580,44 @@ func sameUID(a, b *uint32) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
+// ApproverInput is the input of the approver rules (data.mcp.approvals):
+// the approver and what they want to act on.
+type ApproverInput struct {
+	Approver *Approver       `json:"approver,omitempty"`
+	Request  *ApprovalTarget `json:"request,omitempty"`
+	Instance *InstanceTarget `json:"instance,omitempty"`
+	Grant    *pep.Grant      `json:"grant,omitempty"`
+}
+
+// ApprovalTarget is the call an approval is about, as approver rules see it.
+type ApprovalTarget struct {
+	Principal principal.Principal `json:"principal"`
+	Server    string              `json:"server"`
+	Name      string              `json:"name"`
+	Action    string              `json:"action"`
+}
+
+// Target returns the call p is about.
+func (p *Pending) Target() *ApprovalTarget {
+	return &ApprovalTarget{Principal: p.Principal, Server: p.Server, Name: p.Name, Action: p.Action}
+}
+
+// InstanceTarget is a backend instance, as approver rules see it.
+type InstanceTarget struct {
+	Server string  `json:"server"`
+	UID    *uint32 `json:"uid"`
+}
+
 // ask queries the approver policy; errors deny. Root may always act: it
 // controls the host (and the policy) anyway.
-func (b *Broker) ask(ctx context.Context, a Approver, path string, input map[string]any) bool {
+func (b *Broker) ask(ctx context.Context, a Approver, path string, input ApproverInput) bool {
 	if a.UID == 0 {
 		return true
 	}
 	if b.opts.Policy == nil {
 		return false
 	}
-	input["approver"] = a
+	input.Approver = &a
 	ok, err := b.opts.Policy.Bool(ctx, path, input)
 	if err != nil {
 		b.log.Warn("approver policy failed", "path", path, "err", err)
@@ -608,16 +636,14 @@ func (b *Broker) mayApprove(ctx context.Context, a Approver, p *Pending) bool {
 	if b.opts.Policy == nil && a.UID != 0 {
 		return p.Principal.UID != nil && *p.Principal.UID == a.UID
 	}
-	return b.ask(ctx, a, approvePath, map[string]any{"request": map[string]any{
-		"principal": p.Principal, "server": p.Server, "name": p.Name, "action": p.Action,
-	}})
+	return b.ask(ctx, a, approvePath, ApproverInput{Request: p.Target()})
 }
 
 // MayReviewPolicy reports whether a may see how a role data change would
 // change decisions ("what changes?"), which shows every principal's
 // access: as policy says; without policy, root only.
 func (b *Broker) MayReviewPolicy(ctx context.Context, a Approver) bool {
-	return b.ask(ctx, a, reviewPolicyPath, map[string]any{})
+	return b.ask(ctx, a, reviewPolicyPath, ApproverInput{})
 }
 
 // mayManage: as policy says; without policy, the principal's own grants.
@@ -628,14 +654,14 @@ func (b *Broker) MayManageInstance(ctx context.Context, a Approver, server strin
 	if b.opts.Policy == nil && a.UID != 0 {
 		return uid != nil && *uid == a.UID
 	}
-	return b.ask(ctx, a, manageInstancePath, map[string]any{"instance": map[string]any{"server": server, "uid": uid}})
+	return b.ask(ctx, a, manageInstancePath, ApproverInput{Instance: &InstanceTarget{Server: server, UID: uid}})
 }
 
 func (b *Broker) mayManage(ctx context.Context, a Approver, g pep.Grant) bool {
 	if b.opts.Policy == nil && a.UID != 0 {
 		return g.UID != nil && *g.UID == a.UID
 	}
-	return b.ask(ctx, a, manageGrantPath, map[string]any{"grant": g})
+	return b.ask(ctx, a, manageGrantPath, ApproverInput{Grant: &g})
 }
 
 // snapshotPending copies the pending approvals.
