@@ -222,6 +222,9 @@ allow mcpgw_t mcpgw_exec_t:file getattr;
 # SELinux detection (supervisor.SELinuxEnabled).
 selinux_get_fs_mount(mcpgw_t)
 selinux_get_enforce_mode(mcpgw_t)
+# Check at start that the servers' selinux_type exists in the policy
+# (security_check_context).
+selinux_validate_context(mcpgw_t)
 
 # MCS coordination (supervisor.mcs_avoid): read the contexts of containers,
 # virtual machines and libvirt daemons to skip the category pairs they hold
@@ -233,6 +236,10 @@ gen_require(`
 ')
 dontaudit mcpgw_t domain:dir search_dir_perms;
 dontaudit mcpgw_t domain:file read_file_perms;
+# Reading a context also checks process getattr; in enforcing mode the
+# directory search above fails first, in permissive mode this would log
+# one denial per process and scan.
+dontaudit mcpgw_t domain:process getattr;
 allow mcpgw_t self:process getattr;
 optional_policy(`
 	gen_require(`type container_t;')

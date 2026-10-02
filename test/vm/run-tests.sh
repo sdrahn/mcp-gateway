@@ -393,6 +393,28 @@ check "the gateway logged that it waited" journal_since_start_has 'waiting for p
 systemctl start mcp-gateway.service
 wait_socket
 
+section "SELinux types"
+no_type_warning() { ! journalctl -u mcp-gateway.service -o cat | grep -q 'not in the loaded SELinux policy'; }
+check "the gateway found every server's SELinux type" no_type_warning
+# A definition whose selinux_type has no module (as when a server
+# definition is installed without it): systemd could not start it, even
+# in permissive mode. The gateway says why at start.
+cat >/etc/mcp-gateway/servers.d/notype.yaml <<'END'
+name: notype
+command: ["/usr/libexec/mcpgw-privtest"]
+run_as: root
+selinux_type: mcpsrv_notype_t
+privileged: true
+END
+since=$(date +%s)
+systemctl restart mcp-gateway.service
+wait_socket
+type_warning() { journalctl -u mcp-gateway.service -o cat --since "@$since" | grep 'not in the loaded SELinux policy' | grep -q 'selinux_type=mcpsrv_notype_t'; }
+check "the gateway warns of the missing SELinux type at start" type_warning
+rm -f /etc/mcp-gateway/servers.d/notype.yaml
+systemctl restart mcp-gateway.service
+wait_socket
+
 section "Update without restart"
 gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
 ls -li /usr/bin/mcp-gateway | sed 's/^/  before: /'
