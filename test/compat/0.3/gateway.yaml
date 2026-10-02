@@ -7,10 +7,6 @@
 # defaults. All values shown are the defaults, except socket_group
 # (default: empty).
 
-# Version of this file's format. A newer gateway reads it as long as it
-# supports the version, and warns about keys it is going to remove.
-version: 1
-
 # Unix socket for local clients (directly or via mcp-connect).
 socket: /run/mcp-gateway/mcp.sock
 # Group owning the socket (mode 0660). Empty: the gateway's own group.

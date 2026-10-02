@@ -2,6 +2,7 @@
 # package mcp-gateway-profile-firewalld. It only reads the firewall
 # configuration (role firewalld-reader). Override or mask in
 # /etc/mcp-gateway/servers.d.
+version: 1
 name: firewalld
 command: ["/usr/bin/firewalld-mcp"]
 run_as: mcp-sysmgmt

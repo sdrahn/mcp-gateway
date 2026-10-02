@@ -75,8 +75,18 @@ the previous version; it logs "mcp-gateway was updated", and the
 Cockpit page shows a notice. A restart waits for calls to privileged
 servers (up to 28 minutes) and ends all sessions.
 
-Your files below `/etc` are left alone. If the package's default
-configuration changed, compare it with your copy:
+Your files below `/etc` are left alone, and a new release reads the
+files of the release before it. Before restarting, check them with the
+new version:
+
+```bash
+mcp-gateway --check
+```
+
+It fails on what the new version cannot read, and warns about keys that
+are deprecated: they still work, but go away with the next minor
+release, so change them now. If the package's default configuration
+changed, compare it with your copy:
 `diff /usr/etc/mcp-gateway/gateway.yaml /etc/mcp-gateway/gateway.yaml`.
 In signed bundle mode, rebuild the bundle after an update: the bundle
 contains the policy logic of the version it was built with.

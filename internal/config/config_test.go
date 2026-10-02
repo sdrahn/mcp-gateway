@@ -240,3 +240,67 @@ func TestLoadBackendsErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestVersion(t *testing.T) {
+	dir := t.TempDir()
+	g, err := LoadGateway(writeFile(t, dir, "gateway.yaml", "version: 1\n"))
+	if err != nil || g.Version != Version {
+		t.Fatalf("version 1: %v, %+v", err, g)
+	}
+	if g, err := LoadGateway(writeFile(t, dir, "none.yaml", "{}\n")); err != nil || g.Version != Version {
+		t.Fatalf("no version: %v, %+v", err, g)
+	}
+	for _, tc := range []struct{ content, want string }{
+		{"version: 2\n", "version: 2 is newer than this gateway reads (1)"},
+		{"version: -1\n", "version: -1 is not supported"},
+	} {
+		if _, err := LoadGateway(writeFile(t, dir, "bad.yaml", tc.content)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: error %v, want %q", tc.content, err, tc.want)
+		}
+	}
+
+	vendor := t.TempDir()
+	writeFile(t, vendor, "a.yaml", "version: 1\nname: a\ncommand: [/usr/bin/a]\n")
+	writeFile(t, vendor, "b.yaml", "name: b\ncommand: [/usr/bin/b]\n")
+	bs, err := LoadBackends(vendor)
+	if err != nil || bs["a"].Version != Version || bs["b"].Version != Version {
+		t.Fatalf("backends: %v, %+v", err, bs)
+	}
+	writeFile(t, vendor, "c.yaml", "version: 2\nname: c\ncommand: [/usr/bin/c]\n")
+	if _, err := LoadBackends(vendor); err == nil || !strings.Contains(err.Error(), "c.yaml: version: 2 is newer") {
+		t.Errorf("backend version 2: %v", err)
+	}
+}
+
+func TestDeprecations(t *testing.T) {
+	defer func(g, b []deprecation) { gatewayDeprecations, backendDeprecations = g, b }(gatewayDeprecations, backendDeprecations)
+	gatewayDeprecations = []deprecation{
+		{Key: "supervisor.idle_timeout", Since: "0.4", Use: "write x instead"},
+		{Key: "audit.kernel", Since: "0.4", Use: "write y instead"},
+	}
+	backendDeprecations = []deprecation{{Key: "network", Since: "0.4", Use: "write z instead"}}
+
+	dir := t.TempDir()
+	g, err := LoadGateway(writeFile(t, dir, "gateway.yaml", "supervisor:\n  idle_timeout: 5m\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "supervisor.idle_timeout is deprecated since 0.4 and will be removed in the next minor release: write x instead"
+	if len(g.Warnings) != 1 || g.Warnings[0] != want {
+		t.Errorf("warnings %q, want [%q]", g.Warnings, want)
+	}
+	if g.Supervisor.IdleTimeout != 5*time.Minute {
+		t.Errorf("deprecated key not read: %v", g.Supervisor.IdleTimeout)
+	}
+
+	servers := t.TempDir()
+	writeFile(t, servers, "a.yaml", "name: a\ncommand: [/usr/bin/a]\nnetwork: true\n")
+	writeFile(t, servers, "b.yaml", "name: b\ncommand: [/usr/bin/b]\nenv: {network: x}\n")
+	bs, err := LoadBackends(servers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bs["a"].Warnings) != 1 || len(bs["b"].Warnings) != 0 {
+		t.Errorf("a %q, b %q", bs["a"].Warnings, bs["b"].Warnings)
+	}
+}

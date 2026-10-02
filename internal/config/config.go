@@ -4,6 +4,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -34,8 +35,18 @@ const (
 	DefaultCredentialsDir = "/etc/mcp-gateway/credentials"
 )
 
+// Version is the version of the configuration formats this gateway reads:
+// gateway.yaml and server definitions. A file without a version is read
+// as this version; a file of another version is refused. Compatible
+// changes (new keys) keep the version; a key that goes away is deprecated
+// first (see deprecation) and removed a minor release later
+// (docs/architecture.md, decision D10).
+const Version = 1
+
 // Gateway is the main configuration file.
 type Gateway struct {
+	// Version of the file's format (Version).
+	Version int `yaml:"version"`
 	// Socket is the unix socket local clients connect to.
 	Socket string `yaml:"socket"`
 	// SocketGroup, if set, owns the socket (mode 0660).
@@ -61,6 +72,9 @@ type Gateway struct {
 	Audit Audit `yaml:"audit"`
 	// Notifications configures the push channels for approvals.
 	Notifications Notifications `yaml:"notifications"`
+
+	// Warnings are the deprecated keys the file uses (see deprecation).
+	Warnings []string `yaml:"-"`
 }
 
 // Notifications configures how approvers learn about pending approvals
@@ -197,6 +211,8 @@ type Policy struct {
 
 // Backend is one MCP server definition from the registry.
 type Backend struct {
+	// Version of the file's format (Version).
+	Version     int       `yaml:"version"`
 	Name        string    `yaml:"name"`
 	Command     []string  `yaml:"command"`
 	SELinuxType string    `yaml:"selinux_type"`
@@ -221,6 +237,9 @@ type Backend struct {
 	// as a whole (package installation). Only the administrator's
 	// directory may define one, and only with run_as: root.
 	Privileged bool `yaml:"privileged"`
+
+	// Warnings are the deprecated keys the file uses (see deprecation).
+	Warnings []string `yaml:"-"`
 }
 
 // Credential is a parsed credentials entry.
@@ -355,9 +374,11 @@ var (
 // LoadGateway reads and validates the gateway configuration at path.
 func LoadGateway(path string) (*Gateway, error) {
 	g := &Gateway{}
-	if err := decodeFile(path, g); err != nil {
+	warnings, err := decodeFile(path, g, gatewayDeprecations)
+	if err != nil {
 		return nil, err
 	}
+	g.Warnings = warnings
 	g.setDefaults()
 	if err := g.Validate(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -388,6 +409,9 @@ func Resolve(explicit string) (*Gateway, string, error) {
 }
 
 func (g *Gateway) setDefaults() {
+	if g.Version == 0 {
+		g.Version = Version
+	}
 	if g.Socket == "" {
 		g.Socket = DefaultSocket
 	}
@@ -455,6 +479,9 @@ func (g *Gateway) setDefaults() {
 
 // Validate checks the configuration for consistency.
 func (g *Gateway) Validate() error {
+	if err := checkVersion(g.Version); err != nil {
+		return err
+	}
 	if !filepath.IsAbs(g.Socket) {
 		return fmt.Errorf("socket: must be an absolute path, got %q", g.Socket)
 	}
@@ -607,9 +634,11 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 	backends := make(map[string]*Backend, len(paths))
 	for _, p := range paths {
 		b := &Backend{}
-		if err := decodeFile(p, b); err != nil {
+		warnings, err := decodeFile(p, b, backendDeprecations)
+		if err != nil {
 			return nil, err
 		}
+		b.Warnings = warnings
 		b.setDefaults()
 		if err := b.Validate(); err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
@@ -630,6 +659,9 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 func (b *Backend) ApplyDefaults() { b.setDefaults() }
 
 func (b *Backend) setDefaults() {
+	if b.Version == 0 {
+		b.Version = Version
+	}
 	if b.SELinuxType == "" {
 		b.SELinuxType = DefaultSELinuxType
 	}
@@ -649,6 +681,9 @@ func (b *Backend) setDefaults() {
 
 // Validate checks a backend definition.
 func (b *Backend) Validate() error {
+	if err := checkVersion(b.Version); err != nil {
+		return err
+	}
 	if !backendName.MatchString(b.Name) {
 		return fmt.Errorf("name: %q must match %s", b.Name, backendName)
 	}
@@ -685,16 +720,77 @@ func (b *Backend) Validate() error {
 	return nil
 }
 
-func decodeFile(path string, v any) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
+// checkVersion accepts the format version this gateway reads.
+func checkVersion(v int) error {
+	switch {
+	case v == Version:
+		return nil
+	case v > Version:
+		return fmt.Errorf("version: %d is newer than this gateway reads (%d); update mcp-gateway", v, Version)
 	}
-	defer func() { _ = f.Close() }()
-	dec := yaml.NewDecoder(f)
+	return fmt.Errorf("version: %d is not supported (this gateway reads %d)", v, Version)
+}
+
+// deprecation is a key that is still read, but goes away a minor release
+// after the one that deprecated it (docs/architecture.md, decision D10).
+// Its field stays in the struct until then, and setDefaults moves its
+// value to the replacement.
+type deprecation struct {
+	Key   string // dotted path, e.g. "supervisor.mode"
+	Since string // the release that deprecated it, e.g. "0.4"
+	Use   string // what to write instead
+}
+
+// The deprecated keys of gateway.yaml and of server definitions.
+var gatewayDeprecations, backendDeprecations []deprecation
+
+func (d deprecation) warning() string {
+	return fmt.Sprintf("%s is deprecated since %s and will be removed in the next minor release: %s", d.Key, d.Since, d.Use)
+}
+
+// decodeFile decodes the YAML file at path into v, refusing unknown keys,
+// and returns a warning for each deprecated key the file uses.
+func decodeFile(path string, v any, deprecated []deprecation) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(v); err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	return nil
+	if len(deprecated) == 0 {
+		return nil, nil
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	var warnings []string
+	for _, d := range deprecated {
+		if hasKey(&doc, strings.Split(d.Key, ".")) {
+			warnings = append(warnings, d.warning())
+		}
+	}
+	return warnings, nil
+}
+
+// hasKey reports whether the mapping path exists in the YAML document n.
+func hasKey(n *yaml.Node, path []string) bool {
+	if n.Kind == yaml.DocumentNode && len(n.Content) == 1 {
+		n = n.Content[0]
+	}
+	if len(path) == 0 {
+		return true
+	}
+	if n.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		if n.Content[i].Value == path[0] {
+			return hasKey(n.Content[i+1], path[1:])
+		}
+	}
+	return false
 }

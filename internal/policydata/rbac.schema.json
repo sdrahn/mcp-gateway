@@ -5,6 +5,10 @@
   "description": "Roles, bindings and approver rules: /etc/mcp-gateway/policy/rbac/data.json, data.mcp.rbac in OPA. Further data belongs in files of its own (rbac/<name>/data.json).",
   "type": "object",
   "properties": {
+    "version": {
+      "description": "Version of the role data format; without it, version 1.",
+      "const": 1
+    },
     "roles": {
       "description": "Role name to role.",
       "type": "object",

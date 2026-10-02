@@ -157,7 +157,13 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		return fmt.Errorf("loading backend registry: %w", err)
 	}
 	log.Info("configuration valid", "config", used, "socket", gw.Socket, "backends", len(backends))
+	for _, w := range gw.Warnings {
+		log.Warn(w, "config", used)
+	}
 	for _, name := range slices.Sorted(maps.Keys(backends)) {
+		for _, w := range backends[name].Warnings {
+			log.Warn(w, "server", name)
+		}
 		if backends[name].Privileged {
 			log.Warn("privileged server: runs as root without sandbox; every call is decided by policy and approval", "server", name)
 		}

@@ -1,4 +1,5 @@
 {
+  "version": 1,
   "roles": {
     "systemd-reader": {
       "description": "systemd: list units, read logs, man pages and unit files",

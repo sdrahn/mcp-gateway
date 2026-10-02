@@ -213,6 +213,7 @@ Server names must be unique across all files.
 
 | Key | Default | Meaning |
 |---|---|---|
+| `version` | `1` | the version of the definition format (see chapter 3, [Format version](03-configuration.md#format-version)) |
 | `name` | — (required) | the server's name: lower case letters, digits and `-`, starting with a letter, at most 32 characters. It appears in endpoint paths (`--server git`, `/mcp/git`), in tool name prefixes (`git__commit`) and in policy (`"server": "git"`). |
 | `command` | — (required) | the command line; the first element must be an absolute path. `${HOME}` and `${USER}` are replaced by the principal's home directory and name; other `${…}` are left as they are. |
 | `env` | none | extra environment variables (map); `${HOME}` and `${USER}` are replaced as in `command` |

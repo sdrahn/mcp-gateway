@@ -1,4 +1,5 @@
 {
+  "version": 1,
   "roles": {
     "zypp-reader": {
       "description": "zypp: search packages, dependencies and updates, plan installations",

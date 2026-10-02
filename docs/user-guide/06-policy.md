@@ -15,6 +15,7 @@ For most installations, editing the data is all that is needed.
 
 ```json
 {
+  "version": 1,
   "roles": {
     "developer": {
       "permissions": [
@@ -40,6 +41,8 @@ For most installations, editing the data is all that is needed.
 }
 ```
 
+- **version**: the version of the format (optional, `1`); a gateway
+  refuses role data of a version it does not read.
 - **roles**: named sets of permissions.
 - **bindings**: which users (by principal name) and groups hold which
   roles. A principal's roles are the union of its user binding and the
