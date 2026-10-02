@@ -36,7 +36,7 @@ func structField(t *testing.T, raw json.RawMessage, key string) (json.RawMessage
 			return nil, false
 		}
 	}
-	if key == "" {
+	if key == "" || key == "-" { // "-" leaves the field out
 		return nil, false
 	}
 	typ := reflect.StructOf([]reflect.StructField{{Name: "F", Type: reflect.TypeFor[json.RawMessage](), Tag: reflect.StructTag(`json:"` + key + `"`)}})
