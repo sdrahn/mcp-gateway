@@ -51,17 +51,10 @@ import (
 const mcsWatchInterval = 30 * time.Second
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "inspect" {
-		os.Exit(runInspect(os.Args[2:], os.Stdout, os.Stderr))
-	}
-	if len(os.Args) > 1 && os.Args[1] == "profile" {
-		os.Exit(runProfile(os.Args[2:], os.Stdout, os.Stderr))
-	}
-	if len(os.Args) > 1 && os.Args[1] == "review" {
-		os.Exit(runReview(os.Args[2:], os.Stdout, os.Stderr))
-	}
-	if len(os.Args) > 1 && os.Args[1] == "doctor" {
-		os.Exit(runDoctor(os.Args[2:], os.Stdout, os.Stderr))
+	if len(os.Args) > 1 {
+		if c := findCommand(os.Args[1]); c != nil {
+			os.Exit(c.run(os.Args[2:], os.Stdout, os.Stderr))
+		}
 	}
 	configPath := flag.String("config", "", "path to the gateway configuration (default: "+
 		config.DefaultConfigPath+", else "+config.DefaultVendorConfigPath+", else built-in defaults)")
@@ -73,7 +66,18 @@ func main() {
 		"shipped policy whose server setup roles bindings may name (empty: none)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	debug := flag.Bool("debug", false, "log debug messages")
+	flag.Usage = func() { usage(os.Stderr, flag.CommandLine) }
+	if len(os.Args) > 1 && os.Args[1] == "help" {
+		os.Exit(runHelp(os.Args[2:], os.Stdout, os.Stderr, flag.CommandLine))
+	}
 	flag.Parse()
+	if flag.NArg() > 0 {
+		// Not a command: without this, a mistyped one would start the
+		// gateway.
+		fmt.Fprintf(os.Stderr, "mcp-gateway: unknown command %q\n\n", flag.Arg(0))
+		flag.Usage()
+		os.Exit(2)
+	}
 
 	if *showVersion {
 		fmt.Println("mcp-gateway", version.Version)
