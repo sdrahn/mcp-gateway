@@ -32,6 +32,14 @@ change configuration, policy data or APIs.
   lets backend instances use a socket from an administrator's shell for
   this.
 
+- `mcp-gateway review` scans a server's source (Go, Python,
+  JavaScript/TypeScript, C/C++, Rust) for the programs it runs, D-Bus
+  names and polkit actions, paths, network access, root checks and
+  environment variables, with file and line and the SELinux type on the
+  system, and with a profiling run's `denials.json` marks what that run
+  did not reach. The CI job that builds the setup servers reviews their
+  sources.
+
 - `mcp-gateway profile` runs a registered server with its SELinux domain
   permissive (a new domain from the template for a server without one),
   calls its reading tools with arguments from their schemas (others from

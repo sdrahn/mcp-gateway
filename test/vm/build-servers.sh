@@ -53,4 +53,26 @@ install -m 0755 "$src/zypp-build/worker/zypp-mcp-tool" "$out/usr/libexec/mcp-ser
 	-ldflags "-X 'github.com/openSUSE/mcp-server-zypp/internal/config.DefaultWorkerDir=/usr/libexec/mcp-server-zypp'" \
 	-o "$out/usr/bin/mcp-server-zypp" ./cmd/mcp-server-zypp)
 
+# mcp-gateway review on the real sources (roadmap step 11, stage 3): the
+# reports go to the job log; the helpers systemd-mcp is known to run must
+# be found.
+repo=$(cd "$(dirname "$0")/../.." && pwd)
+(cd "$repo" && go build -buildvcs=false -o "$src/mcp-gateway" ./cmd/mcp-gateway)
+review() { # review <name> <dir> [--main PKG]
+	local name=$1 dir=$2
+	shift 2
+	echo "== review $name"
+	"$src/mcp-gateway" review --source "$dir" "$@" | tee "$src/review-$name.txt"
+}
+review systemd-mcp "$src/systemd-mcp" --main .
+review firewalld-mcp "$src/firewalld-mcp" --main ./cmd/firewalld-mcp
+review suseconnect-mcp "$src/connect-ng" --main ./cmd/suseconnect-mcp
+review mcp-server-zypp "$src/mcp-server-zypp"
+for p in rpm man getfacl; do
+	grep -q "^  $p  " "$src/review-systemd-mcp.txt" || {
+		echo "review: systemd-mcp runs $p, not found" >&2
+		exit 1
+	}
+done
+
 ls -lR "$out"

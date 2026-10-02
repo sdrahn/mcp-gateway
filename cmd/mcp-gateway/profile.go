@@ -227,11 +227,14 @@ func runProfile(args []string, stdout, stderr io.Writer) int {
 			say(stderr, err)
 			return 1
 		}
-		rep.Files = append(rep.Files, b.Name+".yaml", "report.txt", "calls.json")
+		rep.Files = append(rep.Files, b.Name+".yaml", "report.txt", "calls.json", "denials.json")
 		calls, _ := json.MarshalIndent(rep.Calls, "", "  ")
-		if err := os.WriteFile(filepath.Join(*outDir, "calls.json"), append(calls, '\n'), 0o644); err != nil {
-			say(stderr, err)
-			return 1
+		denials, _ := json.MarshalIndent(profile.DenialsFile{Domain: d.Type, Denials: rep.Denials}, "", "  ")
+		for name, data := range map[string][]byte{"calls.json": calls, "denials.json": denials} {
+			if err := os.WriteFile(filepath.Join(*outDir, name), append(data, '\n'), 0o644); err != nil {
+				say(stderr, err)
+				return 1
+			}
 		}
 		f, err := os.Create(filepath.Join(*outDir, "report.txt"))
 		if err == nil {
