@@ -5,7 +5,7 @@
 ### mcp-gateway
 
 ```
-mcp-gateway [--config FILE] [--check] [--debug] [--version]
+mcp-gateway [--config FILE] [--check] [--debug] [--allow-root] [--version]
 mcp-gateway --check-policy-data [--policy-data FILE]
 ```
 
@@ -16,6 +16,7 @@ mcp-gateway --check-policy-data [--policy-data FILE]
 | `--check-policy-data` | validate only the role data against its schema, print each problem, exit (status 1 on problems) |
 | `--policy-data FILE` | role data for the two checks (default: `/etc/mcp-gateway/policy/rbac/data.json`; `-`: standard input; empty: none) |
 | `--debug` | log debug messages |
+| `--allow-root` | run the gateway as root although the `mcp-gateway` account exists; without it the gateway refuses, since the state files it would create as root are unreadable for the service (`--check` runs as root without it) |
 | `--version` | print the version |
 
 ### mcp-connect

@@ -61,6 +61,21 @@ Back up `/etc/mcp-gateway/` (configuration, definitions, role data,
 bundle keys, credentials) and `/var/lib/mcp-gateway/`. All files are
 written atomically; copying them while the gateway runs is safe.
 
+The files must stay owned by `mcp-gateway`; restore a backup with
+`chown -R mcp-gateway: /var/lib/mcp-gateway`. To run the gateway by hand,
+for example to watch its output, run it as that account:
+
+```bash
+systemctl stop mcp-gateway.service
+runuser -u mcp-gateway -- /usr/bin/mcp-gateway --debug
+```
+
+As root it refuses (`refusing to run as root`) unless given
+`--allow-root`: the state files it would write would be root's, and the
+service would then fail to read them. If that happened, the gateway names
+the files at start (`state files not owned by mcp-gateway`) and exits;
+`chown -R mcp-gateway: /var/lib/mcp-gateway` fixes it.
+
 ## Upgrades
 
 ```bash

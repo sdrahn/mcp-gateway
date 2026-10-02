@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -57,6 +58,8 @@ func main() {
 		"role data to validate with -check and -check-policy-data (\"-\": standard input; empty: none)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	debug := flag.Bool("debug", false, "log debug messages")
+	allowRoot := flag.Bool("allow-root", false, "run as root although the "+gatewayUser+" account exists "+
+		"(the state files it creates are then root's; the service cannot read them)")
 	flag.Parse()
 
 	if *showVersion {
@@ -76,6 +79,12 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	}
+	if !*checkOnly {
+		if err := refuseRoot(os.Geteuid(), *allowRoot, user.Lookup); err != nil {
+			log.Error("fatal", "err", err)
+			os.Exit(1)
+		}
 	}
 	if err := run(log, *configPath, *checkOnly, *policyData); err != nil {
 		log.Error("fatal", "err", err)
@@ -156,6 +165,10 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		warnMissingSELinuxTypes(log, backends, supervisor.ContextValid)
 	}
 
+	// Before listening: a failed start leaves no socket behind.
+	if err := checkStateOwnership(gw.StateDir, os.Geteuid()); err != nil {
+		return err
+	}
 	l, err := transport.ListenUnix(gw.Socket, 0o660, gw.SocketGroup)
 	if err != nil {
 		return fmt.Errorf("listening on %s: %w", gw.Socket, err)

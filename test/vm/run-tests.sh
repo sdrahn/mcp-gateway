@@ -416,6 +416,25 @@ rm -f /etc/mcp-gateway/servers.d/notype.yaml
 systemctl restart mcp-gateway.service
 wait_socket
 
+section "State files"
+# Run by hand as root, the gateway would leave state files the service
+# cannot read: it refuses, and names a root-owned file in the state
+# directory at start.
+timeout 10 /usr/bin/mcp-gateway >/root/as-root.txt 2>&1
+sed 's/^/  /' /root/as-root.txt
+check "the gateway refuses to run as root" grep -q 'refusing to run as root' /root/as-root.txt
+echo '[]' >/var/lib/mcp-gateway/stray.json
+restarted=$(date +%s)
+systemctl restart mcp-gateway.service 2>/dev/null
+state_error() { journalctl -u mcp-gateway.service -o cat --since "@$restarted" | grep 'state files not owned by mcp-gateway' | grep -q 'stray.json'; }
+state_error_soon() { for _ in $(seq 30); do state_error && return; sleep 1; done; return 1; }
+check "the gateway names the state file root owns" state_error_soon
+rm -f /var/lib/mcp-gateway/stray.json
+systemctl reset-failed mcp-gateway.service
+systemctl restart mcp-gateway.service
+wait_socket
+check "the gateway starts again" systemctl is-active --quiet mcp-gateway.service
+
 section "Update without restart"
 gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
 ls -li /usr/bin/mcp-gateway | sed 's/^/  before: /'
