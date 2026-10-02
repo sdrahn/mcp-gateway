@@ -1153,6 +1153,7 @@ instances started later, without starting any.
 | Policy tampering | signed bundles verified by OPA (file or bundle server; never with `--watch`), OPA in own domain, config/bundle dirs writable only by admin |
 | OPA outage | fail closed |
 | Local user spoofing identity | kernel-provided peer credentials; `clientInfo` never trusted |
+| Parser differential: policy decides on parameters the server reads differently | requests whose objects repeat a key or have keys differing only in case, and keys differing only in case from one the gateway reads or from an argument the tool or prompt declares, are refused (`invalid params`); the gateway decodes with exact keys, Go servers decode case-insensitively and keep the last match, other parsers the first |
 
 ## 9. Decisions
 

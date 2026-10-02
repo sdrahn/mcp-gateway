@@ -75,6 +75,7 @@ type Session struct {
 	outbound    map[string]chan *jsonrpc.Message
 	inflight    map[string]context.CancelFunc
 	annotations map[string]map[string]any // by exposed tool name
+	declared    map[string][]string       // declared argument names, by argKey
 
 	// vault holds the session's pseudonyms (obligation "pseudonymize");
 	// they end with the session.
@@ -387,6 +388,7 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		items = append(items, got...)
 	}
 
+	s.rememberArgs(spec.kind, items)
 	resources := make([]pep.Resource, len(items))
 	for i, it := range items {
 		resources[i] = pep.Resource{Server: it.server, Kind: spec.kind, Name: it.name, Privileged: s.r.privileged(it.server)}
@@ -586,13 +588,24 @@ func (s *Session) target(method string, params map[string]json.RawMessage) (*cal
 }
 
 func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error) {
+	// Policy decides on the parameters as the gateway decodes them; the
+	// server must not be able to read them differently.
+	if err := jsonrpc.CheckKeys(m.Params); err != nil {
+		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params: "+err.Error())
+	}
 	var params map[string]json.RawMessage
 	if err := json.Unmarshal(m.Params, &params); err != nil {
 		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params")
 	}
+	if err := checkParamKeys(params); err != nil {
+		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params: "+err.Error())
+	}
 	t, rpcErr := s.target(m.Method, params)
 	if rpcErr != nil {
 		return nil, rpcErr
+	}
+	if err := s.checkArgNames(ctx, t); err != nil {
+		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params: "+err.Error())
 	}
 
 	decisionID := newDecisionID()

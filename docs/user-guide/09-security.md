@@ -117,6 +117,24 @@ warning. Use it for development only.
 - The bundle signing key is readable by root only, and better kept off
   the host (chapter 6).
 
+## Parameters servers read differently
+
+The gateway decides on a call's parameters as it decodes them, with
+exact keys. An MCP server may decode them differently: Go servers match
+struct fields case-insensitively and keep the last of several matches,
+other parsers keep the first. With `{"path": "/home/alice/x", "Path":
+"/etc/shadow"}` policy would check one path and the server open the
+other. The gateway therefore refuses, with `invalid params`:
+
+- objects (at any depth) with a repeated key, or with keys that differ
+  only in case;
+- keys that differ only in case from one the gateway reads (`name`,
+  `arguments`, `uri`, `ref`, `_meta`, …);
+- arguments whose name differs only in case from an argument the tool
+  (its `inputSchema`) or prompt declares.
+
+No MCP client sends such requests on purpose.
+
 ## Fail-closed behaviour
 
 | Situation | Result |
