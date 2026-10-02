@@ -19,6 +19,8 @@ change configuration, policy data or APIs.
   modules `mcp_systemd`, `mcp_firewalld`, `mcp_zypp` and
   `mcp_suseconnect` come with `mcp-gateway-selinux`; they replace modules
   of the same names built from the user guide's examples.
+  `mcp-gateway-profile-systemd` recommends `man`, without which
+  systemd-mcp does not offer `get_man_page`.
 
 - `mcp-gateway inspect` starts an MCP server (a registered one as for
   shared discovery, or a command), lists its tools, prompts and resource

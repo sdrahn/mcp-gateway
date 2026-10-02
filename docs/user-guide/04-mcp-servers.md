@@ -66,6 +66,14 @@ none as a warning, and tools no permission names as information. A
 server that changes its tools in an update shows up this way before
 users miss them.
 
+What a server lists can depend on how it runs: mcp-server-zypp offers
+its installing tools only as root (the privileged definition), and
+systemd-mcp offers `get_man_page` only where `man` is installed.
+`inspect` reports what the definition it starts offers on this system;
+check roles meant for another definition with that definition (for
+example through `--config` with a configuration whose `servers_dir`
+holds it).
+
 What `inspect` does not find out is what the server needs from the
 system: SELinux rules, polkit actions, an account, the network. Start it
 through the gateway and look at the denials (chapter 13, "SELinux
