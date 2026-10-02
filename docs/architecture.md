@@ -1171,6 +1171,7 @@ instances started later, without starting any.
 | Policy tampering | signed bundles verified by OPA (file or bundle server; never with `--watch`), OPA in own domain, config/bundle dirs writable only by admin |
 | OPA outage | fail closed |
 | Local user spoofing identity | kernel-provided peer credentials; `clientInfo` never trusted |
+| Parser differential: policy decides on parameters the server reads differently | requests whose objects repeat a key or have keys differing only in case, and keys differing only in case from one the gateway reads or from an argument the tool or prompt declares, are refused (`invalid params`); the gateway decodes with exact keys, Go servers decode case-insensitively and keep the last match, other parsers the first |
 
 ## 9. Decisions
 
@@ -1489,12 +1490,20 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       polkit rules, role data that does not validate, principals without
       roles: `mcp-gateway doctor` also checks the services, that OPA
       decides, and roles naming tools a server does not offer (done).
-14. **Security assurance:** fuzzing of the JSON-RPC parser, the HTTP
-    transport and the policy input; a review of the threat model (§8);
-    an external review of identity, approvals and the control socket;
-    decisions on the open items that matter in production (rate-limit
-    counters across restarts, grants expiring during a call, path
-    arguments through symlinks).
+14. **Security assurance:**
+    - fuzzing of the JSON-RPC parser, the HTTP transport and the policy
+      input, as Go fuzz targets with security properties (no request
+      without a valid token reaches a session, none reaches another
+      principal's; what policy decides on is what the server reads); CI
+      runs each for a minute. It found that a server decoding arguments
+      case-insensitively could read `{"Path": …}` or a repeated key
+      differently from policy; such requests are refused now (§8)
+      (done);
+    - a review of the threat model (§8);
+    - an external review of identity, approvals and the control socket;
+    - decisions on the open items that matter in production (rate-limit
+      counters across restarts, grants expiring during a call, path
+      arguments through symlinks).
 15. **Client compatibility:** tested and documented behaviour with Kit,
     Claude Code and other MCP clients (sessions, elicitation, approval
     timeouts, `list_changed`).

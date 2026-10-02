@@ -725,3 +725,30 @@ func TestPseudonymization(t *testing.T) {
 		t.Errorf("audit contains personal data: %s", out)
 	}
 }
+
+// Parameters a server could read differently from the gateway are
+// refused before policy is asked: repeated keys, keys differing only in
+// case from one the gateway reads or from a declared argument, also
+// without a tools/list in the session first.
+func TestParamKeysRefused(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	c := connect(t, r, alice(), "fs", nil)
+	for i, tc := range []struct{ params, want string }{
+		{`{"name":"read_file","arguments":{"path":"/home/alice/x","Path":"/etc/shadow"}}`, `differ only in case`},
+		{`{"name":"read_file","arguments":{"path":"/home/alice/x","path":"/etc/shadow"}}`, `appears twice`},
+		{`{"name":"read_file","Arguments":{"path":"/etc/shadow"}}`, `key "Arguments" differs from "arguments" only in case`},
+		{`{"Name":"read_file","name":"read_file"}`, `differ only in case`},
+		{`{"name":"read_file","arguments":{"Path":"/etc/shadow"}}`, `arguments: key "Path" differs from "path" only in case`},
+		{`{"name":"read_file","_meta":{"ProgressToken":1}}`, `_meta: key "ProgressToken"`},
+	} {
+		m := c.roundTrip(10+i, "tools/call", json.RawMessage(tc.params))
+		if m.Error == nil || m.Error.Code != jsonrpc.CodeInvalidParams || !strings.Contains(m.Error.Message, tc.want) {
+			t.Errorf("%s: got %+v %+v", tc.params, m.Error, string(m.Result))
+		}
+	}
+	// Declared names, other arguments and nested objects pass.
+	m := c.roundTrip(30, "tools/call", json.RawMessage(`{"name":"read_file","arguments":{"path":"/home/alice/x","mode":"r","extra":{"Path":1}}}`))
+	if text, isErr := toolText(t, m); isErr || text != "fs did read_file" {
+		t.Fatalf("got %q %v %+v", text, isErr, m.Error)
+	}
+}

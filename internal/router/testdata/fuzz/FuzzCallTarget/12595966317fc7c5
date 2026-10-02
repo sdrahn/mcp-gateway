@@ -1,0 +1,4 @@
+go test fuzz v1
+byte('\x00')
+bool(false)
+[]byte("{\"name\":\"read_file\",\"Arguments\":{\"0\":{\"0\":0}}}")
