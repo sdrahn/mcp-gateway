@@ -94,6 +94,12 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
+- SELinux: the gateway could not stop instances of servers that do not
+  exit when their input closes (systemd-mcp, zypp, suseconnect-mcp):
+  systemd checks stopping a transient unit on its file, which
+  `mcpgw_t` could not stop. Such instances kept running after their
+  idle timeout, a stop from the Cockpit page, or the gateway's own stop.
+
 - firewalld-mcp's `get_services_for_zone` and `get_service_info` read
   the permanent firewall configuration, which needs polkit's
   `org.fedoraproject.FirewallD1.config.info`: the polkit rule of
