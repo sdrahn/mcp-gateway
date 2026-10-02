@@ -57,7 +57,7 @@ install -m 0755 "$src/zypp-build/worker/zypp-mcp-tool" "$out/usr/libexec/mcp-ser
 # reports go to the job log; the helpers systemd-mcp is known to run must
 # be found.
 repo=$(cd "$(dirname "$0")/../.." && pwd)
-(cd "$repo" && go build -o "$src/mcp-gateway" ./cmd/mcp-gateway)
+(cd "$repo" && go build -buildvcs=false -o "$src/mcp-gateway" ./cmd/mcp-gateway)
 review() { # review <name> <dir> [--main PKG]
 	local name=$1 dir=$2
 	shift 2
