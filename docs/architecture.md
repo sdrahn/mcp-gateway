@@ -1491,11 +1491,12 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
 10. **Server profiles, tested on the target distributions:**
     - setup packages `mcp-gateway-profile-<name>` (installing one
       enables the server) for systemd-mcp (openSUSE/systemd-mcp),
-      firewalld-mcp (janvhs/firewalld-mcp), mcp-server-zypp and
-      suseconnect-mcp (SUSE/connect-ng): server definition with sandbox
+      firewalld-mcp (janvhs/firewalld-mcp), mcp-server-zypp,
+      suseconnect-mcp (SUSE/connect-ng) and mcp-server-snapper
+      (aschnell/mcp-server-snapper): server definition with sandbox
       settings, account and polkit rule where needed, and shipped roles
       (`data.mcp.profiles`, §6.4) to bind users to; the SELinux domains
-      in `mcp-gateway-selinux` (done; snapper has no known upstream);
+      in `mcp-gateway-selinux` (done);
     - privileged backends (§5.7.1, D9) for package installation with
       mcp-server-zypp, with a VM test that installs and removes a
       package through the gateway after an approval (done);

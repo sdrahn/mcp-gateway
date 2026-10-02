@@ -1,0 +1,17 @@
+# mcp-server-snapper (https://github.com/aschnell/mcp-server-snapper), set
+# up by the package mcp-gateway-profile-snapper: lists snapper configs and
+# snapshots, creates and deletes snapshots through snapperd, in the
+# sandbox as mcp-snapper (roles snapper-reader and snapper-operator).
+# snapperd allows an account only for configs whose ALLOW_USERS (or
+# ALLOW_GROUPS) name it:
+#   snapper -c root set-config "ALLOW_USERS=mcp-snapper"
+# (keep the users already there; see chapter 13). Changing configs and
+# rolling back need root without the sandbox: link the privileged
+# definition instead,
+#   ln -s /usr/share/mcp-gateway/profiles/snapper-privileged.yaml \
+#         /etc/mcp-gateway/servers.d/snapper.yaml
+version: 1
+name: snapper
+command: ["/usr/bin/mcp-server-snapper"]
+run_as: mcp-snapper
+selinux_type: mcpsrv_snapper_t

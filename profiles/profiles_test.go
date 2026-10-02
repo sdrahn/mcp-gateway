@@ -14,7 +14,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/policydata"
 )
 
-var setups = []string{"systemd", "firewalld", "zypp", "suseconnect"}
+var setups = []string{"systemd", "firewalld", "zypp", "suseconnect", "snapper"}
 
 // vendorDir returns a directory laid out like the installed
 // /usr/share/mcp-gateway/servers.d with the definition of setup name.
@@ -54,20 +54,34 @@ func TestDefinitions(t *testing.T) {
 	}
 }
 
-// The privileged zypp variant is accepted from the administrator's
-// directory (linked there), never as a vendor definition.
-func TestZyppPrivileged(t *testing.T) {
-	admin := t.TempDir()
-	src, _ := filepath.Abs(filepath.Join("zypp", "zypp-privileged.yaml"))
-	if err := os.Symlink(src, filepath.Join(admin, "zypp.yaml")); err != nil {
-		t.Fatal(err)
-	}
-	bs, err := config.LoadBackends(vendorDir(t, "zypp"), admin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bs["zypp"].Privileged || bs["zypp"].RunAs != "root" {
-		t.Errorf("zypp %+v", bs["zypp"])
+// The privileged variants (zypp, snapper) are accepted from the
+// administrator's directory (linked there), never as vendor definitions.
+func TestPrivileged(t *testing.T) {
+	for _, name := range []string{"zypp", "snapper"} {
+		t.Run(name, func(t *testing.T) {
+			src, _ := filepath.Abs(filepath.Join(name, name+"-privileged.yaml"))
+			admin := t.TempDir()
+			if err := os.Symlink(src, filepath.Join(admin, name+".yaml")); err != nil {
+				t.Fatal(err)
+			}
+			bs, err := config.LoadBackends(vendorDir(t, name), admin)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b := bs[name]
+			if !b.Privileged || b.RunAs != "root" || b.SELinuxType != "mcpsrv_"+name+"_t" {
+				t.Errorf("%s %+v", name, b)
+			}
+			// As a vendor definition it is refused.
+			vendor := t.TempDir()
+			data, _ := os.ReadFile(src)
+			if err := os.WriteFile(filepath.Join(vendor, name+".yaml"), data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := config.LoadBackends(vendor, t.TempDir()); err == nil {
+				t.Error("privileged vendor definition accepted")
+			}
+		})
 	}
 }
 

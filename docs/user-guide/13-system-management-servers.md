@@ -1,7 +1,7 @@
 # 13. System management servers (systemd, firewalld, zypp, suseconnect, snapper)
 
 MCP servers that manage the host itself, such as `systemd-mcp`,
-`firewalld-mcp` and a snapper MCP server, differ from servers that work
+`firewalld-mcp` and `mcp-server-snapper`, differ from servers that work
 on a user's files: they talk to system services over D-Bus, and those
 services decide for themselves (through polkit or their own
 configuration) what a caller may do. This chapter shows how to run them
@@ -14,19 +14,20 @@ behind the gateway so that:
 
 The examples use the program names of the openSUSE/SLES packages
 (`/usr/bin/systemd-mcp`, `/usr/bin/firewalld-mcp`,
-`/usr/bin/snapper-mcp`); adjust the paths to your installation.
+`/usr/bin/mcp-server-snapper`); adjust the paths to your installation.
 Upstream projects: [systemd-mcp](https://github.com/openSUSE/systemd-mcp)
 (notes below are for version 0.3.5),
 [firewalld-mcp](https://github.com/janvhs/firewalld-mcp) (0.1.0),
 [mcp-server-zypp](https://github.com/openSUSE/mcp-server-zypp) (0.1.2),
-and `suseconnect-mcp`, package
+[mcp-server-snapper](https://github.com/aschnell/mcp-server-snapper)
+(0.3.0), and `suseconnect-mcp`, package
 `mcp-server-suseconnect`, part of
 [connect-ng](https://github.com/SUSE/connect-ng).
 
 ## Setup packages
 
-For systemd-mcp, firewalld-mcp, mcp-server-zypp and suseconnect-mcp, a
-package sets everything in this chapter up:
+For systemd-mcp, firewalld-mcp, mcp-server-zypp, suseconnect-mcp and
+mcp-server-snapper, a package sets everything in this chapter up:
 
 | Package | Server | Roles to bind |
 |---|---|---|
@@ -34,11 +35,12 @@ package sets everything in this chapter up:
 | `mcp-gateway-profile-firewalld` | `firewalld` | `firewalld-reader` |
 | `mcp-gateway-profile-zypp` | `zypp` | `zypp-reader` (search, dependencies, updates, plans); `zypp-installer` (also install and remove, with approval; privileged server) |
 | `mcp-gateway-profile-suseconnect` | `suseconnect` | `suseconnect-reader`; `suseconnect-admin` (also registration changes, with approval) |
+| `mcp-gateway-profile-snapper` | `snapper` | `snapper-reader` (configs, settings, snapshots); `snapper-operator` (also creates snapshots; deletes them, changes configs and rolls back with approval) |
 
 Each installs the server definition (in
 `/usr/share/mcp-gateway/servers.d`), its roles (chapter 6, "Roles of
-server setups"), and where needed the account `mcp-sysmgmt` and a polkit
-rule. The SELinux domains come with `mcp-gateway-selinux`. The server
+server setups"), and where needed an account (`mcp-sysmgmt`, for snapper
+`mcp-snapper`) and a polkit rule. The SELinux domains come with `mcp-gateway-selinux`. The server
 itself is only recommended, since it may come from elsewhere.
 
 ```bash
@@ -71,6 +73,13 @@ Then bind users or groups to the roles, in Cockpit or in the role data:
 
   Users then need `zypp-installer`; every installation and removal waits
   for an approval.
+- mcp-server-snapper talks to snapperd, which answers an account only for
+  the configs whose `ALLOW_USERS` name it ("snapper: the snapper
+  configuration" below). Until you add `mcp-snapper` there, the server
+  can list the configs and nothing else; `mcp-gateway doctor` says so.
+  Changing configs and rolling back need root: link
+  `/usr/share/mcp-gateway/profiles/snapper-privileged.yaml` as
+  `/etc/mcp-gateway/servers.d/snapper.yaml`, as for zypp.
 
 The rest of this chapter explains what the packages set up, and how to
 do the same by hand for other servers.
@@ -146,8 +155,8 @@ selinux_type: mcpsrv_firewalld_t
 ```yaml
 # /etc/mcp-gateway/servers.d/snapper.yaml
 name: snapper
-command: ["/usr/bin/snapper-mcp"]
-run_as: mcp-sysmgmt
+command: ["/usr/bin/mcp-server-snapper"]
+run_as: mcp-snapper
 selinux_type: mcpsrv_snapper_t
 ```
 
@@ -178,6 +187,40 @@ Notes:
   option to log to stderr or a file.
 - The definitions are read at start: `mcp-gateway --check && systemctl
   restart mcp-gateway.service`.
+
+### mcp-server-snapper
+
+[mcp-server-snapper](https://github.com/aschnell/mcp-server-snapper)
+(notes for version 0.3.0) has seven tools. Six are calls to snapperd
+over the system bus: `list_configs`, `get_config`, `list_snapshots`,
+`create_snapshot` (single, or a pre/post pair around a change),
+`delete_snapshots` and `set_config`. The seventh, `rollback`, runs
+`snapper rollback`.
+
+- snapperd checks the caller's uid. `list_configs` works for anyone;
+  the snapshot tools need root, or an account in the config's
+  `ALLOW_USERS` (or a group in `ALLOW_GROUPS`); `set_config` needs root.
+  The setup runs the server as an account of its own, `mcp-snapper`, so
+  that naming it in `ALLOW_USERS` grants nothing to the other servers.
+- `rollback` creates its snapshots through snapperd but sets the
+  default btrfs subvolume itself, which needs root and a writable root
+  file system: no sandbox allows it. For `set_config` and `rollback`,
+  run the server privileged (`snapper-privileged.yaml`: root, no
+  sandbox, still in `mcpsrv_snapper_t`). A rollback takes effect at the
+  next boot.
+- `create_snapshot` only adds a snapshot, which the config's cleanup
+  removes again; `snapper-operator` allows it without approval, so that
+  an agent can take a pre snapshot before a change and the post
+  snapshot after it. Deleting snapshots, changing configs (which can
+  turn the cleanup or the snapshots themselves off) and rolling back
+  wait for an approval, a rollback always for one of its own (scope
+  `once`).
+- Leave `SYNC_ACL` off in configs that name `mcp-snapper`: with it,
+  snapper gives the allowed users read access to the snapshots' files.
+- Its input schemas mark every argument as required, also those a call
+  does not use (`pre_number` of a single snapshot, the `number` of
+  `rollback`, which may be null); a client that leaves one out gets a
+  validation error from the server, not from the gateway.
 
 ### suseconnect-mcp
 
@@ -261,10 +304,11 @@ selinux_type: mcpsrv_zypp_t
 ## SELinux domains
 
 `mcp-gateway-selinux` ships the modules `mcp_systemd`, `mcp_firewalld`,
-`mcp_zypp` and `mcp_suseconnect` (sources in the gateway's `selinux/`
-directory); for those servers you need no module of your own, and a
-module of yours with one of these names would be replaced. What follows
-shows how they are built, for other servers such as snapper.
+`mcp_zypp`, `mcp_suseconnect` and `mcp_snapper` (sources in the
+gateway's `selinux/` directory); for those servers you need no module of
+your own, and a module of yours with one of these names would be
+replaced. What follows
+shows how they are built, for other servers.
 `mcp-gateway profile` drafts such a module from a run of the server
 (chapter 4, "Profiling a server").
 
@@ -292,7 +336,7 @@ optional_policy(`
 /usr/bin/systemd-mcp  --  gen_context(system_u:object_r:mcpsrv_systemd_exec_t,s0)
 ```
 
-For firewalld and snapper, the same with their names, and instead of
+For firewalld (or snapper), the same with their names, and instead of
 `init_dbus_chat` the service's interface:
 
 ```
@@ -318,7 +362,7 @@ Build, install and label:
 ```bash
 make -f /usr/share/selinux/devel/Makefile mcp_systemd.pp mcp_firewalld.pp mcp_snapper.pp
 semodule -i mcp_systemd.pp mcp_firewalld.pp mcp_snapper.pp
-restorecon -v /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/snapper-mcp
+restorecon -v /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-snapper
 ```
 
 Install the modules **before** naming the domains in the definitions: an
@@ -379,14 +423,19 @@ tools.
 ### snapper: the snapper configuration
 
 snapperd does not use polkit; it lets non-root callers use a snapper
-configuration named in `ALLOW_USERS` or `ALLOW_GROUPS`:
+configuration whose `ALLOW_USERS` names them or whose `ALLOW_GROUPS`
+names one of their groups. `set-config` replaces the value, so keep the
+users already there:
 
 ```bash
-snapper -c root set-config ALLOW_USERS="mcp-sysmgmt"
+snapper -c root get-config | grep ALLOW_          # who is allowed now
+snapper -c root set-config "ALLOW_USERS=mcp-snapper"   # plus those, space-separated
+mcp-gateway doctor --server snapper --no-start    # "snapperd allows mcp-snapper the configs root"
 ```
 
 Allowed callers can list, create and delete snapshots of that
-configuration; rollbacks need root.
+configuration; changing it and rollbacks need root (the privileged
+definition).
 
 ## Roles and approvals
 
@@ -468,5 +517,5 @@ journalctl -u 'mcp-systemd-*' -u 'mcp-firewalld-*' -u 'mcp-snapper-*' -b
 | audit: `ask`, but nothing appears in Cockpit | the approval could not be delivered | `journalctl -u mcp-gateway.service \| grep -iE 'approval\|elicit'`; the control socket must be enabled |
 | "calling method was canceled by user" | `systemd-mcp`'s own authorization | `--allow-read` / `--allow-write`, or `--noauth ThisIsInsecure` behind the gateway |
 | "Interactive authentication required", `NOT_AUTHORIZED` after approval | the service's polkit check for the instance's account | the polkit rule above, for the account in `run_as` |
-| snapper calls refused after approval | the account is not in the snapper configuration's `ALLOW_USERS`/`ALLOW_GROUPS` | `snapper -c <config> set-config ALLOW_USERS=…` |
+| snapper calls fail with "D-Bus call failed: org.freedesktop.DBus.Error.Failed" | the account is not in the snapper configuration's `ALLOW_USERS`/`ALLOW_GROUPS` (`mcp-gateway doctor` names it), or the tool needs root (`set_config`, `rollback`) | `snapper -c <config> set-config ALLOW_USERS=…`; for root, the privileged definition |
 | role data edits do not take effect | OPA did not notice the change (some editors replace the file) | `systemctl restart mcp-opa.service`; compare `curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/bindings` with the file |
