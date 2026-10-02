@@ -586,6 +586,10 @@ echo "  $status"
 check "the control API reports the pending restart" grep -qF '"restart_pending":true' <<<"$status"
 
 section "Metrics"
+# The counters start with each gateway process, and earlier sections
+# restarted it: count calls of this one.
+tool alice read_file '{"path":"/home/alice/secret.txt"}'
+tool alice delete_file '{"path":"/home/alice/secret.txt"}'
 metrics=$(curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/metrics)
 grep -E '^mcp_gateway_(decisions_total|instance_starts_total|approvals_decided_total|policy_failures_total|sessions|instances|approvals_pending|restart_pending|build_info)' <<<"$metrics" |
 	sed 's/^/  /' | head -40
