@@ -649,10 +649,11 @@ mcp-gateway doctor --server notype --no-start >/root/doctor-notype.txt 2>&1
 sed 's/^/  /' /root/doctor-notype.txt | grep -i 'selinux type'
 check "doctor: names the SELinux type that is not in the policy" \
 	grep -qE '^fail +SELinux type mcpsrv_notype_t: .*servers notype cannot start' /root/doctor-notype.txt
-since=$(date +%s)
+# Not $since: audit_since reads it (the start of the test).
+restarted=$(date +%s)
 systemctl restart mcp-gateway.service
 wait_socket
-type_warning() { journalctl -u mcp-gateway.service -o cat --since "@$since" | grep 'not in the loaded SELinux policy' | grep -q 'selinux_type=mcpsrv_notype_t'; }
+type_warning() { journalctl -u mcp-gateway.service -o cat --since "@$restarted" | grep 'not in the loaded SELinux policy' | grep -q 'selinux_type=mcpsrv_notype_t'; }
 check "the gateway warns of the missing SELinux type at start" type_warning
 rm -f /etc/mcp-gateway/servers.d/notype.yaml
 systemctl restart mcp-gateway.service
