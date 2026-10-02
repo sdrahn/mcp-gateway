@@ -104,6 +104,20 @@ minor release (with a warning) and removed in the next.
   `GET /v1/policy` and shown in Cockpit, and part of the policy
   fingerprint (installing a setup tells clients to list tools again).
 
+### Changed
+
+- The threat model in the architecture document was reviewed and now
+  lists, for each threat, the mitigation and the risk that remains.
+  Decisions on three open questions: rate-limit counters stay in memory
+  and start afresh after a restart (D11); policy and grants are checked
+  when a call starts, not while it runs (D12); paths are checked as
+  strings, and servers confine themselves beneath their root (D13).
+  The user guide describes all three (chapters 4, 6, 7 and 9).
+
+- The rate limiter drops the counters of keys that have not been used
+  for an hour, so its memory no longer grows with every principal,
+  server and tool seen since the start.
+
 ### Fixed
 
 - firewalld-mcp's `get_services_for_zone` and `get_service_info` read
@@ -112,6 +126,17 @@ minor release (with a warning) and removed in the next.
   `mcp-gateway-profile-firewalld` and the example in the user guide
   (chapter 13) granted only `FirewallD1.info`, so both tools were refused
   ("Not Authorized(polkit)"). Found by `mcp-gateway profile`.
+
+- Updates of a subscribed resource (`notifications/resources/updated`)
+  were passed on even after a policy change took away the agent's
+  access to that resource, and for any URI the server named, even one
+  the agent may not subscribe to. Each update is now decided again as
+  it arrives and dropped if denied.
+
+- The demo file server `mcp-fs-demo` followed symbolic links out of
+  its root: a link inside the root to `/etc` let policy allow a path
+  under the root while the server read outside it. It now opens every
+  path beneath its root with `os.Root`.
 
 ## v0.3.3 — 2026-10-02
 

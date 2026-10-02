@@ -170,7 +170,7 @@ Obligations attach conditions to an allowed call:
 |---|---|
 | `redact_output` | regular expressions (a string or a list); matches in any string of the result are replaced by `[redacted]` |
 | `max_output_bytes` | a larger result is withheld; the agent gets "output withheld: …" |
-| `rate_limit` | `N/s`, `N/m` or `N/h` (a string or a list); per principal, server and tool, sliding window; excess calls are denied ("rate limit exceeded") |
+| `rate_limit` | `N/s`, `N/m` or `N/h` (a string or a list); per principal, server and tool, sliding window; excess calls are denied ("rate limit exceeded"); counted in the gateway's memory, so a restart starts the windows afresh |
 | `arg_constraints` | argument name → regular expressions the (string) argument must all match, otherwise the call is denied |
 | `audit: "full"` | the audit record contains the arguments verbatim instead of a keyed digest, and OPA's decision log keeps them |
 | `pseudonymize` | replace personal or confidential values in the result by per-session pseudonyms such as `[EMAIL_1]`, see [Pseudonymization](#pseudonymization) |
@@ -352,6 +352,9 @@ Cockpit, chapter 8). OPA watches the policy directories and loads
 changes within seconds; the gateway notices within `policy.watch_interval`
 (10 s), tells connected agents to list their tools again and writes a
 `mcp-policy-change` audit event. No restart is needed.
+
+Changes apply to calls that start afterwards; a call already forwarded to
+the server runs to its end (chapter 9).
 
 Check the file first:
 

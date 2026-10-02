@@ -453,6 +453,15 @@ sandbox:
 Policy decides what the principal may do within the home (for example:
 read freely, write only with approval, never delete; chapter 6).
 
+Policy checks paths as strings and does not follow symbolic links
+(chapter 9). If you write or choose a file server, make sure it opens
+every path beneath its root, so that a link inside the home cannot
+lead to files policy did not allow: in Go with `os.OpenRoot` and the
+methods of `os.Root`, in C with `openat2(2)` and `RESOLVE_BENEATH`,
+in Python by opening relative to a directory descriptor and refusing
+links (`O_NOFOLLOW`) or by checking `os.path.realpath` of the opened
+file. `mcp-fs-demo` shows the Go way.
+
 ### A server with network access and an API token
 
 ```yaml

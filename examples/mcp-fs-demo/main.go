@@ -3,7 +3,10 @@
 // write_file and delete_file, the files in the root as resources (plus a
 // file:// template), and a summarize_file prompt. It does no access
 // control of its own beyond staying inside the root: that is the gateway's
-// job.
+// job. It stays inside the root also through symbolic links: every file
+// operation goes through an os.Root, so a link inside the root that
+// points out of it is refused (the gateway's policy only sees the path
+// as a string; docs/architecture.md, decision D13).
 package main
 
 import (
@@ -12,6 +15,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,13 +35,20 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
-var root string
+var (
+	root   string
+	rootFS *os.Root // all file operations go through it
+)
 
 func main() {
 	flag.StringVar(&root, "root", ".", "directory the tools operate in")
 	flag.Parse()
 	var err error
 	if root, err = filepath.Abs(root); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if rootFS, err = os.OpenRoot(root); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -141,7 +152,7 @@ func handle(method string, params json.RawMessage) (any, *rpcError) {
 		if err != nil {
 			return nil, &rpcError{-32002, "resource not found"}
 		}
-		b, err := os.ReadFile(path)
+		b, err := readFile(path)
 		if err != nil {
 			return nil, &rpcError{-32002, "resource not found"}
 		}
@@ -172,7 +183,9 @@ func toolResult(text string, isError bool) map[string]any {
 }
 
 // resolve maps a path argument (absolute, or relative to the root) to a
-// path inside the root.
+// name relative to the root, for rootFS. Paths that leave the root by
+// name are refused here; those that leave it through a symbolic link,
+// by rootFS.
 func resolve(p string) (string, error) {
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(root, p)
@@ -181,7 +194,20 @@ func resolve(p string) (string, error) {
 	if p != root && !strings.HasPrefix(p, root+string(filepath.Separator)) {
 		return "", errors.New("path outside root")
 	}
-	return p, nil
+	rel, err := filepath.Rel(root, p)
+	if err != nil {
+		return "", err
+	}
+	return rel, nil
+}
+
+func readFile(name string) ([]byte, error) {
+	f, err := rootFS.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(f)
 }
 
 func call(name string, args map[string]string) (string, error) {
@@ -191,7 +217,12 @@ func call(name string, args map[string]string) (string, error) {
 	}
 	switch name {
 	case "list_dir":
-		entries, err := os.ReadDir(path)
+		d, err := rootFS.Open(path)
+		if err != nil {
+			return "", err
+		}
+		entries, err := d.ReadDir(-1)
+		_ = d.Close()
 		if err != nil {
 			return "", err
 		}
@@ -201,18 +232,26 @@ func call(name string, args map[string]string) (string, error) {
 		}
 		return strings.Join(names, "\n"), nil
 	case "read_file":
-		b, err := os.ReadFile(path)
+		b, err := readFile(path)
 		return string(b), err
 	case "write_file":
-		if err := os.WriteFile(path, []byte(args["content"]), 0o644); err != nil {
+		f, err := rootFS.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+		if err != nil {
 			return "", err
 		}
-		return "wrote " + path, nil
+		_, err = f.WriteString(args["content"])
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return "", err
+		}
+		return "wrote " + filepath.Join(root, path), nil
 	case "delete_file":
-		if err := os.Remove(path); err != nil {
+		if err := rootFS.Remove(path); err != nil {
 			return "", err
 		}
-		return "deleted " + path, nil
+		return "deleted " + filepath.Join(root, path), nil
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }

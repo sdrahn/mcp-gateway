@@ -192,12 +192,22 @@ func (c *Compiled) redact(v any) any {
 }
 
 // Limiter enforces rate-limit obligations with sliding windows per key.
+// Its counters live in memory and start anew with the gateway
+// (docs/architecture.md, decision D11).
 type Limiter struct {
 	now func() time.Time
 
 	mu     sync.Mutex
 	events map[string][]time.Time
+	calls  int // since the last sweep
 }
+
+// maxRatePer is the longest window a rate can have ("N/h"); sweepEvery
+// is how many calls pass between sweeps of keys without recent events.
+const (
+	maxRatePer = time.Hour
+	sweepEvery = 1024
+)
 
 // NewLimiter returns an empty limiter.
 func NewLimiter() *Limiter {
@@ -212,6 +222,10 @@ func (l *Limiter) Allow(key string, rates []Rate) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
+	if l.calls++; l.calls >= sweepEvery {
+		l.calls = 0
+		l.sweep(now)
+	}
 	var window time.Duration
 	for _, r := range rates {
 		window = max(window, r.Per)
@@ -236,4 +250,14 @@ func (l *Limiter) Allow(key string, rates []Rate) bool {
 	}
 	l.events[key] = append(kept, now)
 	return true
+}
+
+// sweep drops the keys whose last event is older than any window, so
+// counters of principals and targets not seen again do not pile up.
+func (l *Limiter) sweep(now time.Time) {
+	for k, ts := range l.events {
+		if len(ts) == 0 || now.Sub(ts[len(ts)-1]) >= maxRatePer {
+			delete(l.events, k)
+		}
+	}
 }

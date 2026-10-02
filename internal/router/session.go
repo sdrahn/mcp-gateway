@@ -935,6 +935,12 @@ func (s *Session) upstreamNotification(u *upstream, m *jsonrpc.Message) {
 		if json.Unmarshal(m.Params, &p) != nil || json.Unmarshal(p["uri"], &uri) != nil {
 			return
 		}
+		// The subscription was decided when it was made; access may have
+		// been revoked since, and then the client hears no more about the
+		// resource (docs/architecture.md, decision D12).
+		if !s.stillAllowed(u.backend.Name, "resources.subscribe", pep.Resource{Server: u.backend.Name, Kind: "resource", Name: uri}) {
+			return
+		}
 		p["uri"], _ = json.Marshal(s.ep.exposeURI(u.backend.Name, uri))
 		params, _ := json.Marshal(p)
 		_ = s.client.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: m.Method, Params: params})
@@ -958,6 +964,20 @@ func (s *Session) upstreamNotification(u *upstream, m *jsonrpc.Message) {
 	default: // */list_changed
 		_ = s.client.Write(m)
 	}
+}
+
+// stillAllowed asks policy whether the principal may still do action on
+// r, for what a server sends after an earlier decision; anything but an
+// allow (an error, a deny, an ask) is no.
+func (s *Session) stillAllowed(server, action string, r pep.Resource) bool {
+	r.Privileged = s.r.privileged(server)
+	dec := pep.Evaluate(s.ctx, s.r.PDP, pep.Input{
+		Principal: s.snapshotPrincipal(),
+		Action:    action,
+		Resource:  r,
+		Context:   s.policyContext(newDecisionID()),
+	})
+	return dec.Effect == pep.Allow
 }
 
 // relayBackendRequest decides and relays a request from backend u to this
