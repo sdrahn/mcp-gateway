@@ -4,6 +4,21 @@ All notable changes to mcp-gateway. Versions follow
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 change configuration, policy data or APIs.
 
+## v0.3.2 — 2026-10-02
+
+A correction to the user guide; the programs, the policy and the SELinux
+module are unchanged. Upgrading from 0.3.1 needs no changes and no
+restart. If you set up firewalld-mcp from the user guide, add the action
+below to your polkit rule.
+
+### Fixed
+
+- User guide, chapter 13: firewalld-mcp's `get_services_for_zone` and
+  `get_service_info` read the permanent firewall configuration, which
+  needs polkit's `org.fedoraproject.FirewallD1.config.info`; the example
+  rule granted only `FirewallD1.info`, so both tools were refused ("Not
+  Authorized(polkit)").
+
 ## v0.3.1 — 2026-10-01
 
 The gateway starts confined on openSUSE Leap 16. Upgrading from 0.3.0
