@@ -247,6 +247,25 @@ the package does not. Things to know:
   under the root while the server read outside it. It now opens every
   path beneath its root with `os.Root`.
 
+## v0.3.5 — 2026-10-02
+
+A fix for a gateway that was run by hand as root. Update the packages
+and restart the gateway (`systemctl restart mcp-gateway.service`); the
+configuration and the role data need no changes. If the service fails at
+start, the gateway's log names files to give back to `mcp-gateway`
+(`chown -R mcp-gateway: /var/lib/mcp-gateway`).
+
+### Fixed
+
+- `mcp-gateway.service` failed at start, restarting until systemd gave
+  up, after the gateway had been run by hand as root: the state files it
+  wrote (`pending.json`) were root's, and the service, running as
+  `mcp-gateway`, could not read them. The gateway now refuses to run as
+  root when the `mcp-gateway` account exists (`--allow-root` overrides;
+  `--check` is not affected), and names state files another user owns,
+  with the `chown` that fixes it, instead of failing with a bare
+  permission error.
+
 ## v0.3.4 — 2026-10-02
 
 Two SELinux fixes. Update the packages and restart the gateway
