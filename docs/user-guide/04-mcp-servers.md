@@ -154,6 +154,44 @@ mcp-gateway --check && systemctl restart mcp-gateway.service
 mcp-gateway profile --server git --verify
 ```
 
+### Reviewing a server's source
+
+A profiling run sees only the code its calls reach. `mcp-gateway review`
+reads the server's source for what it does to the system, to find the
+rest:
+
+```bash
+# The source of the server (for Go: --main, the server's main package,
+# so that other programs and tools in the repository are left out).
+# --profile: the drafts directory of a profiling run, for its denials.
+mcp-gateway review --source ./mcp-git --main ./cmd/mcp-git --profile ./git-profile
+```
+
+It lists, each with file and line:
+
+| Kind | What it finds | What it may need |
+|---|---|---|
+| Programs it runs | `exec.Command`, `subprocess`, `spawn`, `popen`, `Command::new`, paths in `bin`/`libexec` | execute rights, or a transition (zypper, rpm: `rpm_t`) |
+| D-Bus | names, interfaces and polkit actions (`org.freedesktop.…`) | talking to the service; a polkit rule for actions |
+| Paths | absolute paths in the code | access to their type; writable paths in the sandbox |
+| Network | HTTP clients, sockets, URLs | `network: true`, connect rules |
+| Root checks | `geteuid()` and the like | the right `run_as`: some servers hide tools from non-root users |
+| Environment | variables it reads | `env` in the definition |
+
+On the system it runs on, programs are looked up on root's PATH and each
+program and path shows its SELinux type. With `--profile`, every finding
+with a type says whether the profiling run recorded a denial for that
+type; one without ("not reached, or allowed already") is a code path to
+give a call for (`--calls`), or to look at in the code. For systemd-mcp
+the review lists `rpm`, `man` and `getfacl`, the polkit actions it
+checks itself and `/run/log/journal`, each of which step 10 had to find
+by hand.
+
+The scan is textual: it shows what the code mentions, not what each
+tool does, and misses what the code puts together at run time. Tests,
+vendored code and comments are left out. `--json` prints the findings
+for scripts.
+
 ### Overriding and disabling package definitions
 
 A file in `/etc/mcp-gateway/servers.d/` replaces the package file **of

@@ -60,13 +60,31 @@ with `--verify`, on a denial), 2 on usage errors.
 | Flag | Meaning |
 |---|---|
 | `--server NAME` | the server of the registry to profile |
-| `--out DIR` | directory for the drafts, the report and the calls |
+| `--out DIR` | directory for the drafts, the report, the calls and the denials (`denials.json`, for `review`) |
 | `--calls FILE` | JSON object mapping tool names to arguments, or to a list of them |
 | `--call-all` | call every tool, also those that change things (throwaway systems only) |
 | `--keep-dontaudit` | leave the policy's dontaudit rules on while profiling (faster; misses the denials they hide) |
 | `--verify` | run the calls with SELinux enforcing, load and draft nothing, fail on a denial |
 | `--config FILE` | gateway configuration, for the registry and the supervisor |
 | `--timeout D` | how long the run may take (default 5m) |
+
+### mcp-gateway review
+
+```
+mcp-gateway review [options] --source DIR
+```
+
+Scans a server's source for programs it runs, D-Bus names and polkit
+actions, paths, network access, root checks and environment variables,
+with file, line and SELinux type (chapter 4, "Reviewing a server's
+source"). Needs no root. Exit status 1 on errors, 2 on usage errors.
+
+| Flag | Meaning |
+|---|---|
+| `--source DIR` | the server's source tree |
+| `--main PKG` | Go: the server's main package relative to the module root; only the packages it imports are scanned |
+| `--profile DIR` | drafts directory of a profiling run, whose `denials.json` marks what the run reached |
+| `--json` | print the findings as JSON |
 
 ### mcp-connect
 

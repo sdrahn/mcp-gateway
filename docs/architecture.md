@@ -1308,6 +1308,7 @@ internal/
   broker/                 # approvals, grants store, elicitation
   inspect/                # mcp-gateway inspect: server inventory, draft roles, role check
   profile/                # mcp-gateway profile: permissive run, denials, drafted module
+  review/                 # mcp-gateway review: source scan for what a server does to the system
   supervisor/             # systemd transient units, instance pool, MCS allocator
   audit/
   config/
@@ -1407,8 +1408,15 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       authorizations (polkit), SELINUX_ERR records. `--verify` repeats
       the calls enforcing and fails on a denial; the VM test profiles
       firewalld-mcp as an unknown server and verifies the draft (done);
-    - optionally, a review of the server's source for code paths that
-      profiling did not reach, as was done by hand for systemd-mcp.
+    - `mcp-gateway review` scans the server's source (Go, Python,
+      JavaScript/TypeScript, C/C++, Rust; for Go only the packages its
+      main package imports) for programs it runs, D-Bus names and polkit
+      actions, paths, network access, root checks and environment
+      variables, with file and line and the SELinux type on the system;
+      with a profiling run's denials it marks what that run did not reach
+      (as `rpm -qdf` in systemd-mcp's `list_log`, found by hand in step
+      10). The CI job that builds the setup servers reviews their sources
+      (done).
 12. **Stable interfaces:** versioned `gateway.yaml`, server definitions,
     role data, the policy input and decision documents and the control
     API; a deprecation policy (warn for one minor release, then remove);

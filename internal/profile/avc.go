@@ -16,15 +16,22 @@ import (
 // Denial is one SELinux denial (AVC from the kernel, USER_AVC from a
 // userspace object manager such as D-Bus or systemd).
 type Denial struct {
-	Time       time.Time
-	Source     string // source type
-	Target     string // target type
-	Class      string
-	Perms      []string
-	Comm       string
-	Path       string // path= or name=
-	Permissive bool
-	User       bool // a USER_AVC
+	Time       time.Time `json:"time"`
+	Source     string    `json:"source"` // source type
+	Target     string    `json:"target"` // target type
+	Class      string    `json:"class"`
+	Perms      []string  `json:"perms"`
+	Comm       string    `json:"comm,omitempty"`
+	Path       string    `json:"path,omitempty"` // path= or name=
+	Permissive bool      `json:"permissive,omitempty"`
+	User       bool      `json:"user,omitempty"` // a USER_AVC
+}
+
+// DenialsFile is denials.json of a profiling run: the domain and the
+// denials involving it (read by mcp-gateway review).
+type DenialsFile struct {
+	Domain  string   `json:"domain"`
+	Denials []Denial `json:"denials"`
 }
 
 // Record is a SELINUX_ERR (e.g. a refused bounded or NNP transition): no
