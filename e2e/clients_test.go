@@ -183,7 +183,9 @@ func TestClients(t *testing.T) {
 	audience := fmt.Sprintf("https://127.0.0.1:%d/mcp", port)
 
 	// fs: writes approved out of band; fsform: in the client's dialog.
-	// The local user and the remote token subject hold the same role.
+	// The local user and the remote token subject hold the same role, and
+	// the local user (who runs the test) approves the remote one's calls
+	// too (root could anyway; CI does not run as root).
 	inHome := "^" + regexp.QuoteMeta(home) + "/"
 	rbac := func(extra string) string {
 		return fmt.Sprintf(`{
@@ -195,8 +197,9 @@ func TestClients(t *testing.T) {
 	    {"server": "fs", "tool": "write_file", "require_approval": true, "approval_channel": "oob", "args": {"path": %q}},
 	    {"server": "fsform", "tool": "write_file", "require_approval": true, "approval_channel": "form", "args": {"path": %q}}%s
 	  ]}},
-	  "bindings": {"groups": {}, "users": {%q: ["developer"], "u-remote": ["developer"]}}
-	}`, inHome, inHome, extra, me.Username)
+	  "bindings": {"groups": {}, "users": {%q: ["developer"], "u-remote": ["developer"]}},
+	  "approvers": {"default": ["self", "user:%s"]}
+	}`, inHome, inHome, extra, me.Username, me.Username)
 	}
 	e := setup(t, rbac(""), map[string]string{"fs": home, "fsform": home}, fmt.Sprintf(`http:
   listen: 127.0.0.1:%d
@@ -212,7 +215,9 @@ func TestClients(t *testing.T) {
 
 	clients := compatClients(t, filepath.Join(e.tmp, "bin"))
 
-	// pending waits for an approval of server/tool and returns its id.
+	// pending waits for an approval of server/write_file and returns its
+	// id, or "" (with an error) if none appears. It runs beside the client,
+	// so it must not end the test itself.
 	pending := func(t *testing.T, server string) string {
 		t.Helper()
 		deadline := time.Now().Add(30 * time.Second)
@@ -226,7 +231,7 @@ func TestClients(t *testing.T) {
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
-		t.Fatalf("no pending approval for %s/write_file", server)
+		t.Errorf("no pending approval for %s/write_file", server)
 		return ""
 	}
 
@@ -262,16 +267,17 @@ func TestClients(t *testing.T) {
 				})
 
 				t.Run("approval out of band", func(t *testing.T) {
-					done := make(chan string, 1)
-					go func() { done <- pending(t, "fs") }()
 					approved := make(chan struct{})
 					go func() {
-						id := <-done
+						defer close(approved)
+						id := pending(t, "fs")
+						if id == "" {
+							return
+						}
 						// Longer than the client's request timeout
 						// (MCPGW_TIMEOUT_MS): progress must keep the call alive.
 						time.Sleep(4 * time.Second)
 						controlDo(t, ctl, "POST", "/v1/approvals/"+id, `{"decision":"approve","scope":"once"}`, nil)
-						close(approved)
 					}()
 					r := runClient(t, c, "approval", envFor("fs"), nil)
 					<-approved
