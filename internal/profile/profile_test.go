@@ -62,7 +62,7 @@ func TestDraftNewDomain(t *testing.T) {
 		"mcp_gateway_backend_template(fw)",
 		"\ttype system_dbusd_t;",
 		"\tclass dbus send_msg;",
-		"\tclass file { execute execute_no_trans read };",
+		"\tclass file { execute execute_no_trans };",
 		"allow mcpsrv_fw_t system_dbusd_t:unix_stream_socket connectto;",
 		"# /run/dbus/system_bus_socket (fw-mcp)",
 		"allow firewalld_t mcpsrv_fw_t:dbus send_msg;",
@@ -71,6 +71,9 @@ func TestDraftNewDomain(t *testing.T) {
 		if !strings.Contains(dr.TE, want) {
 			t.Errorf("missing %q in\n%s", want, dr.TE)
 		}
+	}
+	if strings.Contains(dr.TE, "sysfs_t") {
+		t.Error("the template's dontaudited sysfs probe was drafted")
 	}
 	if strings.Contains(dr.TE, "type mcpsrv_fw_t;") {
 		t.Error("the new domain is required instead of declared")

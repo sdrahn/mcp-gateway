@@ -63,6 +63,7 @@ with `--verify`, on a denial), 2 on usage errors.
 | `--out DIR` | directory for the drafts, the report and the calls |
 | `--calls FILE` | JSON object mapping tool names to arguments, or to a list of them |
 | `--call-all` | call every tool, also those that change things (throwaway systems only) |
+| `--keep-dontaudit` | leave the policy's dontaudit rules on while profiling (faster; misses the denials they hide) |
 | `--verify` | run the calls with SELinux enforcing, load and draft nothing, fail on a denial |
 | `--config FILE` | gateway configuration, for the registry and the supervisor |
 | `--timeout D` | how long the run may take (default 5m) |

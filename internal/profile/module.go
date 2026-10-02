@@ -59,6 +59,21 @@ func Relabel(ctx context.Context, path string) error {
 	return nil
 }
 
+// Dontaudit turns the policy's dontaudit rules off (semodule -DB) or back
+// on (semodule -B). Denials they keep silent are allowed in a permissive
+// domain without a trace, so profiling would miss them; with the rules
+// off they are logged. Each switch rebuilds the policy.
+func Dontaudit(ctx context.Context, on bool) error {
+	arg := "-DB"
+	if on {
+		arg = "-B"
+	}
+	if out, err := run(ctx, "", "semodule", arg); err != nil {
+		return fmt.Errorf("semodule %s: %w\n%s", arg, err, out)
+	}
+	return nil
+}
+
 // Loaded reports whether module name is loaded.
 func Loaded(ctx context.Context, name string) bool {
 	out, err := run(ctx, "", "semodule", "-l")

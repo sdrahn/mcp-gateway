@@ -99,7 +99,13 @@ A server that still runs in the default domain `mcpsrv_generic_t` gets a
 new domain, `mcpsrv_git_t`, from the gateway's template; for one with a
 domain of its own, the draft adds to it (`mcp_git_local`). While it
 runs, a temporary module `mcpprof_git` makes the domain permissive (and
-labels the program); it is removed at the end.
+labels the program), and the policy's dontaudit rules are off
+(`semodule -DB`): a denial they keep silent is allowed without a trace in
+a permissive domain, and the server would fail on it once enforcing
+(firewalld-mcp needs to search `/run/dbus`, which the policy denies
+silently). At the end the module is removed and the rules are back on;
+both switches rebuild the policy and take a while. `--keep-dontaudit`
+skips the switch.
 
 It calls the tools that read (chapter 4, "Inspecting a server") with
 arguments made up from their schemas: enough to run the code that talks

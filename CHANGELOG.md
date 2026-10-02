@@ -38,7 +38,9 @@ change configuration, policy data or APIs.
   a calls file, or all with `--call-all`) and drafts from the denials a
   policy module, file contexts and the definition, with hints on what
   allow rules cannot express (helpers needing a transition,
-  capabilities, refused polkit authorizations). `--verify` repeats the
+  capabilities, refused polkit authorizations). dontaudit rules are off
+  during the run, so silently denied accesses are recorded too.
+  `--verify` repeats the
   calls enforcing and fails on a denial. The VM test profiles
   firewalld-mcp as an unknown server and verifies the draft.
 

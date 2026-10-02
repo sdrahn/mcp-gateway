@@ -52,6 +52,10 @@ type Report struct {
 	Hints    []string
 	Files    []string
 	ExecPath string
+	// DontauditOff: dontaudit rules were off during the run.
+	DontauditOff bool
+	// SessionFailed: the server could not be started or exercised.
+	SessionFailed bool
 }
 
 // Write writes the report as text.
@@ -109,7 +113,15 @@ func (r *Report) Write(out io.Writer) error {
 			fmt.Fprintf(w, "  - %s\n", h)
 		}
 	}
+	if r.Verify && r.SessionFailed && len(sum) == 0 {
+		w.WriteString("\nThe server failed without a recorded denial. dontaudit rules may hide the\n")
+		w.WriteString("cause: semodule -DB, run --verify again, semodule -B.\n")
+	}
 	if !r.Verify {
+		if r.DontauditOff {
+			w.WriteString("\ndontaudit rules were off during the run, so the denials include accesses\n")
+			w.WriteString("the policy keeps silent; some are harmless probes the server does without.\n")
+		}
 		w.WriteString("\nWhat the run did not reach is not in the drafts: tools that were not\n")
 		w.WriteString("called, branches the sample arguments did not take. Give real arguments\n")
 		w.WriteString("with --calls to cover more.\n")

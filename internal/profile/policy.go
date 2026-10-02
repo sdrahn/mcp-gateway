@@ -102,6 +102,9 @@ func DraftModule(d Domain, denials []Denial, errs []Record) Draft {
 	classes := map[string]map[string]bool{}
 	hints := map[string]bool{}
 	for _, x := range denials {
+		if templateDontaudit(d, x) {
+			continue
+		}
 		k := ruleKey{x.Source, x.Target, x.Class}
 		if perms[k] == nil {
 			perms[k] = map[string]bool{}
@@ -180,6 +183,14 @@ func DraftModule(d Domain, denials []Denial, errs []Record) Draft {
 		hints["SELINUX_ERR (no allow rule fixes it): "+trimRecord(e.Text)] = true
 	}
 	return Draft{Module: mod, TE: b.String(), FC: d.FileContexts(), Hints: sortedSet(hints)}
+}
+
+// templateDontaudit reports a denial the backend template keeps silent on
+// purpose (the Go runtime's probe of the huge page size in sysfs): with
+// dontaudit rules off while profiling it is logged, but the server does
+// without the access.
+func templateDontaudit(d Domain, x Denial) bool {
+	return x.Source == d.Type && x.Target == "sysfs_t" && (x.Class == "file" || x.Class == "dir")
 }
 
 // hintsFor says what a denial means for the server's definition and for

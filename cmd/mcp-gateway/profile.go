@@ -44,7 +44,9 @@ fails if there is a denial.
 
 Needs root, the systemd supervisor, SELinux and, to build modules,
 selinux-policy-devel. While it runs, it loads a temporary module
-mcpprof_NAME; it removes it at the end.
+mcpprof_NAME and turns the policy's dontaudit rules off, so that denials
+they keep silent are recorded too (both rebuild the policy); at the end
+it removes the module and turns them back on.
 
 Options:
 `
@@ -63,6 +65,7 @@ func runProfile(args []string, stdout, stderr io.Writer) int {
 	callsFile := fs.String("calls", "", "JSON file mapping tool names to arguments (an object, or a list of them)")
 	callAll := fs.Bool("call-all", false, "call every tool, also those that change things (throwaway systems only)")
 	verify := fs.Bool("verify", false, "run the calls with SELinux enforcing and fail on denials; load and draft nothing")
+	keepDontaudit := fs.Bool("keep-dontaudit", false, "leave the policy's dontaudit rules on while profiling (faster; misses denials they hide)")
 	timeout := fs.Duration("timeout", 5*time.Minute, "how long the run may take")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -170,8 +173,15 @@ func runProfile(args []string, stdout, stderr io.Writer) int {
 		say(stderr, err)
 		return 1
 	}
-	since := time.Now()
 	rep := &profile.Report{Server: b.Name, Domain: d, Verify: *verify, ExecPath: d.Exec}
+	if !*verify && !*keepDontaudit {
+		if err := profile.Dontaudit(ctx, false); err != nil {
+			say(stderr, err)
+			return 1
+		}
+		rep.DontauditOff = true
+	}
+	since := time.Now()
 	failed := false
 	if err := exercise(ctx, launcher, &b, given, *callAll, rep); err != nil {
 		sayf(stderr, "%s: %v", b.Name, err)
@@ -182,9 +192,15 @@ func runProfile(args []string, stdout, stderr io.Writer) int {
 			failed = true
 		}
 	}
-
+	rep.SessionFailed = failed
 	// Audit records arrive asynchronously.
 	time.Sleep(2 * time.Second)
+	if rep.DontauditOff {
+		if err := profile.Dontaudit(cleanup, true); err != nil {
+			say(stderr, err, "(run semodule -B)")
+		}
+	}
+
 	raw, err := profile.ReadAudit(cleanup)
 	if err != nil {
 		say(stderr, "reading the audit records:", err)
