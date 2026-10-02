@@ -5,7 +5,38 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.4.0 — 2026-10-02
+
+The first release with stable interfaces: from 0.4 on, configuration,
+role data, policy input and the control API change compatibly, and
+what goes away is deprecated for a minor release first. MCP servers for
+system management (systemd, firewalld, zypp, SUSEConnect) come as
+setup packages with their roles, accounts, polkit rules and SELinux
+modules. New tools help with servers that are not packaged:
+`mcp-gateway inspect` drafts a definition and roles, `profile` drafts an
+SELinux domain from a test run, `review` reads a server's source, and
+`doctor` checks an installation. The gateway runs under a systemd
+watchdog, exports metrics, and was fuzzed, its threat model reviewed and
+its behaviour with common MCP clients tested.
+
+Upgrading from 0.3.x needs no configuration changes; the gateway reads
+0.3 configuration and role data as they are (CI checks this). After the
+update, restart the gateway (`systemctl restart mcp-gateway.service`);
+the package does not. Things to know:
+
+- If you built the SELinux modules `mcp_systemd`, `mcp_firewalld`,
+  `mcp_zypp` or `mcp_suseconnect` from the user guide, the modules of
+  the same names in `mcp-gateway-selinux` replace them; compare them if
+  you added rules. The setup packages (`mcp-gateway-profile-*`) can
+  replace your hand-made definitions, roles and polkit rules.
+- New limits apply by default: 64 sessions and 32 instances per
+  principal (`limits`, chapter 3). Idle HTTP sessions and idle
+  instances make room before anything is refused.
+- Agents no longer see servers' task and experimental capabilities, and
+  calls that ask for a task run synchronously.
+- Calls waiting for approval report progress to agents that asked for
+  it (`approvals.progress_interval`).
+
 
 ### Added
 
@@ -70,8 +101,9 @@ minor release (with a warning) and removed in the next.
   whether OPA decides, servers that do not start, roles naming tools a
   server does not offer, SELinux denials involving the gateway, OPA and
   the servers, server SELinux types the loaded policy does not know
-  (servers whose module is missing cannot start), servers running as an account no polkit rule names, and
-  members of `socket_group` without a role.
+  (servers whose module is missing cannot start), servers running as
+  an account no polkit rule names, and members of `socket_group`
+  without a role.
 
 - Metrics in the Prometheus text format: decisions by action and
   effect, decisions that failed closed, OPA query latency and errors,
