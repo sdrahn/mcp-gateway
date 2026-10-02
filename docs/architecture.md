@@ -1469,12 +1469,19 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       the control API (`/v1`), with their fields fixed by contract
       tests so that a field cannot be renamed or dropped unnoticed
       (done).
-13. **Operability:** `Type=notify` with a systemd watchdog for the
-    gateway; metrics (decisions, pending approvals, instance starts and
-    failures, OPA latency); a self-check command that finds what had to
-    be debugged by hand: servers that do not start, SELinux denials for a
-    backend, missing polkit rules, role data that does not validate,
-    principals without roles.
+13. **Operability:**
+    - `Type=notify` with a systemd watchdog for the gateway: ready once
+      its sockets are up, a status line (sessions, server instances,
+      pending approvals), and watchdog pings only while the locks of the
+      router, the instance pool and the approval broker can be taken, so
+      that a deadlocked gateway is restarted (after the Go runtime wrote
+      every goroutine's stack to the journal on SIGABRT) (done);
+    - metrics (decisions, pending approvals, instance starts and
+      failures, OPA latency);
+    - a self-check command that finds what had to be debugged by hand:
+      servers that do not start, SELinux denials for a backend, missing
+      polkit rules, role data that does not validate, principals without
+      roles.
 14. **Security assurance:** fuzzing of the JSON-RPC parser, the HTTP
     transport and the policy input; a review of the threat model (§8);
     an external review of identity, approvals and the control socket;

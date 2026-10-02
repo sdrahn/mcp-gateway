@@ -676,6 +676,15 @@ func (b *Broker) snapshotPending() []Pending {
 	return out
 }
 
+// PendingCount returns the number of pending approvals. It takes only the
+// broker's lock, so the watchdog can use it to see that the broker is not
+// stuck.
+func (b *Broker) PendingCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.pending)
+}
+
 // ListPending returns the pending approvals a may decide on.
 func (b *Broker) ListPending(ctx context.Context, a Approver) []Pending {
 	out := []Pending{}

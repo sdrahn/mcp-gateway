@@ -125,6 +125,17 @@ func (r *Router) StopInstance(id string) bool {
 	return r.pool.stop(id)
 }
 
+// Stats returns the number of client sessions and of running backend
+// instances. It takes only the router's and the pool's locks, so the
+// watchdog can use it to see that they are not stuck.
+func (r *Router) Stats() (sessions, instances int) {
+	r.init()
+	r.mu.Lock()
+	sessions = len(r.sessions)
+	r.mu.Unlock()
+	return sessions, len(r.pool.list())
+}
+
 func (r *Router) init() {
 	r.once.Do(func() {
 		if r.Log == nil {

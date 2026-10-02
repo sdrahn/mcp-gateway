@@ -96,12 +96,25 @@ contains the policy logic of the version it was built with.
 Useful signals:
 
 - `systemctl is-active mcp-gateway.service mcp-opa.service`;
+- `systemctl status mcp-gateway.service`: the status line counts
+  sessions, server instances and pending approvals;
 - the rate of `"effect":"deny"` records, especially with reason "policy
   evaluation failed" (OPA trouble);
 - `backend unavailable` in the gateway log (servers crashing);
 - kernel audit records `op=mcp-mcs-collision`;
 - `GET /v1/policy` on the control socket (as root): the active bundle
   revision on every gateway.
+
+The gateway tells systemd when it is ready (`Type=notify`) and pings
+systemd's watchdog every 20 seconds (`WatchdogSec=60s`). It pings only
+while its sessions, server instances and approvals can be reached: if
+they stay locked for a minute, systemd kills the gateway with SIGABRT
+and restarts it. Before it exits, the gateway writes the stack of every
+goroutine to the journal (`journalctl -u mcp-gateway.service`); please
+attach that to a bug report. Sessions end with the restart; calls to
+privileged servers in progress are not waited for in that case. An
+unreachable OPA does not count: the gateway then denies every request,
+but keeps running.
 
 ## Troubleshooting
 

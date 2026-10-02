@@ -53,6 +53,13 @@ minor release (with a warning) and removed in the next.
   calls enforcing and fails on a denial. The VM test profiles
   firewalld-mcp as an unknown server and verifies the draft.
 
+- The gateway is a `Type=notify` service with a watchdog: systemd sees
+  it ready once its sockets are up, `systemctl status` shows sessions,
+  server instances and pending approvals, and a gateway whose sessions,
+  instances or approvals stay locked for a minute is restarted
+  (`WatchdogSec=60s`), after writing every goroutine's stack to the
+  journal.
+
 - Format versions: `gateway.yaml`, server definitions and role data may
   name their format with `version: 1` (`"version": 1`); files without
   one are read as version 1, and other versions are refused with an

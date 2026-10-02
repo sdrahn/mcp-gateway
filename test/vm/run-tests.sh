@@ -269,6 +269,14 @@ systemctl restart mcp-opa.service
 sleep 2
 check "OPA is running after a restart" systemctl is-active --quiet mcp-opa.service
 check "mcp.sock keeps its group across an OPA restart" test "$(stat -c %G /run/mcp-gateway/mcp.sock)" = mcp-users
+# Type=notify: systemctl start returned once the gateway said it is
+# ready; the status line and the watchdog pings follow at once.
+check "systemd saw the gateway ready (Type=notify)" systemctl is-active --quiet mcp-gateway.service
+status_text=$(systemctl show -p StatusText --value mcp-gateway.service)
+echo "  status: $status_text"
+check "the status line counts sessions and instances" grep -q 'sessions, .* server instances' <<<"$status_text"
+echo "  watchdog: $(systemctl show -p WatchdogUSec --value mcp-gateway.service), last ping $(systemctl show -p WatchdogTimestamp --value mcp-gateway.service)"
+check "the gateway pings the watchdog" test "$(systemctl show -p WatchdogTimestampMonotonic --value mcp-gateway.service)" -gt 0
 
 section "Calls"
 tool alice read_file '{"path":"/home/alice/secret.txt"}'
