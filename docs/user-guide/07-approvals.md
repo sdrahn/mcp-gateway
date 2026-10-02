@@ -76,9 +76,9 @@ says otherwise (chapter 6):
  "approval_scopes": ["once", "1h", "8h"]}
 ```
 
-"Session" means the agent's MCP connection. Some agents open a new one
-for every prompt (Kit does), and a session grant then ends with the
-prompt; offer a duration instead, which also survives reconnects and
+"Session" means the agent's MCP connection. Some agents open new ones
+often (Kit: one per run, and a new one after 5 minutes without calls;
+chapter 5), and a session grant then ends early; offer a duration instead, which also survives reconnects and
 gateway restarts. Keep durations short for changing tools: the grant
 covers every call of that tool by the same principal until it expires
 or is revoked.
