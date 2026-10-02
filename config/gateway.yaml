@@ -131,3 +131,12 @@ supervisor:
 #   client_ca_file: /etc/mcp-gateway/tls/client-ca.pem
 #   client_auth: optional
 #   require_bound_tokens: false
+
+# Limits per principal (a local user, or a remote token's subject) and
+# for the gateway as a whole. At a limit, idle HTTP sessions and idle
+# instances make room; otherwise the new session or instance is refused.
+# limits.instances: 0 means no limit for all principals together.
+limits:
+  sessions_per_principal: 64
+  instances_per_principal: 32
+  instances: 0

@@ -128,6 +128,15 @@ minor release (with a warning) and removed in the next.
   let progress extend the timeout. The server's own progress afterwards
   continues from the gateway's.
 
+- Limits on sessions and instances (decision D14, roadmap step 15):
+  `limits.sessions_per_principal` (64) and
+  `limits.instances_per_principal` (32), and optionally
+  `limits.instances` for all principals together. At a limit, the
+  principal's longest-idle HTTP session, or an idle instance no session
+  uses, makes room; otherwise the new session's `initialize` or the
+  request needing an instance fails. Refusals are audited (`mcp-limit`)
+  and counted (`mcp_gateway_limit_refusals_total`).
+
 ### Changed
 
 - A server's capabilities reach agents only for what the gateway

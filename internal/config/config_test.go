@@ -26,7 +26,9 @@ func TestLoadGatewayDefaults(t *testing.T) {
 	if g.Socket != DefaultSocket || g.Policy.OPASocket != DefaultOPASocket || g.Policy.Timeout != DefaultPolicyTimeout ||
 		g.Supervisor.Mode != "systemd" || g.Supervisor.SELinux != "auto" || g.ApprovalTimeout != DefaultApprovalTimeout ||
 		g.Supervisor.IdleTimeout != DefaultIdleTimeout ||
-		g.Approvals.ControlSocket != DefaultControl || g.Policy.WatchInterval != DefaultWatchInterval {
+		g.Approvals.ControlSocket != DefaultControl || g.Policy.WatchInterval != DefaultWatchInterval ||
+		g.Limits.SessionsPerPrincipal != DefaultSessionsPerPrincipal || g.Limits.InstancesPerPrincipal != DefaultInstancesPerPrincipal ||
+		g.Limits.Instances != 0 {
 		t.Errorf("defaults not applied: %+v", g)
 	}
 }
@@ -85,6 +87,7 @@ func TestLoadGatewayErrors(t *testing.T) {
 		"http issuer url":  "http:\n  listen: ':8443'\n  cert_file: c\n  key_file: k\n  issuer: idp\n  audience: https://gw/mcp\n",
 		"http plain aud":   "http:\n  listen: ':8443'\n  cert_file: c\n  key_file: k\n  issuer: https://idp\n  audience: http://gw.example.com/mcp\n",
 		"bad selinux":      "supervisor:\n  selinux: maybe\n",
+		"negative limit":   "limits:\n  instances: -1\n",
 	}
 	for name, content := range tests {
 		t.Run(name, func(t *testing.T) {

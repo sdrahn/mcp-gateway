@@ -102,7 +102,6 @@ func newSession(r *Router, ep endpoint, client jsonrpc.MessageConn, p principal.
 func (s *Session) Run(ctx context.Context, first *jsonrpc.Message) error {
 	ctx, cancel := context.WithCancel(ctx)
 	s.ctx = ctx
-	s.r.register(s)
 	defer func() {
 		s.r.unregister(s)
 		cancel()
@@ -274,6 +273,11 @@ func (s *Session) upstream(ctx context.Context, name string) (*upstream, error) 
 		return nil, fmt.Errorf("unknown server %q", name)
 	}
 	u, release, err := s.r.pool.acquire(ctx, b, s.snapshotPrincipal())
+	var limit *LimitError
+	if errors.As(err, &limit) {
+		s.r.refused(s.snapshotPrincipal(), limit)
+		return nil, err
+	}
 	if err != nil {
 		s.log.Error("backend unavailable", "server", name, "err", err)
 		return nil, err
@@ -825,6 +829,10 @@ func (s *Session) auditPseudonymized(p principal.Principal, server, name, decisi
 // unavailable is the client's error for a backend that cannot be
 // reached; it tells when a failed backend will be tried again.
 func unavailable(err error) *jsonrpc.Error {
+	var limit *LimitError
+	if errors.As(err, &limit) {
+		return rpcError(jsonrpc.CodeInternalError, "mcp-gateway: "+limit.Error())
+	}
 	var b *BackoffError
 	if errors.As(err, &b) {
 		return rpcError(jsonrpc.CodeInternalError, fmt.Sprintf("backend unavailable; retry in %s", b.RetryIn.Round(time.Second)))

@@ -532,6 +532,21 @@ func (s *httpSession) idleSince(d time.Duration) bool {
 	return len(s.pending) == 0 && time.Since(s.lastActive) > d
 }
 
+// Idle reports how long the session has had no traffic, and whether it
+// may be ended to make room for another session of its principal: no
+// stream attached and no request pending. The router uses it at the
+// session limit (docs/architecture.md, decision D14).
+func (s *httpSession) Idle() (time.Duration, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, st := range s.streams {
+		if st.attached {
+			return 0, false
+		}
+	}
+	return time.Since(s.lastActive), len(s.pending) == 0
+}
+
 // expireStreams drops request streams that are finished (or whose
 // request was answered) and have had no connection for resumeRetention.
 func (s *httpSession) expireStreams(now time.Time) {

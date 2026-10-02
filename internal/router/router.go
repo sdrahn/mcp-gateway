@@ -34,6 +34,9 @@ type Router struct {
 	// IdleTimeout keeps an instance running this long after its last
 	// session ended.
 	IdleTimeout time.Duration
+	// MaxSessionsPerPrincipal, MaxInstancesPerPrincipal and MaxInstances are the
+	// limits of decision D14 (0: the default; for MaxInstances: none).
+	MaxSessionsPerPrincipal, MaxInstancesPerPrincipal, MaxInstances int
 	// ProgressInterval is how often a call waiting for approval reports
 	// progress to a client that asked for it (default 15 s).
 	ProgressInterval time.Duration
@@ -45,15 +48,6 @@ type Router struct {
 
 	mu       sync.Mutex
 	sessions map[*Session]struct{}
-}
-
-func (r *Router) register(s *Session) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.sessions == nil {
-		r.sessions = map[*Session]struct{}{}
-	}
-	r.sessions[s] = struct{}{}
 }
 
 func (r *Router) unregister(s *Session) {
@@ -145,6 +139,11 @@ func (r *Router) init() {
 			r.Log = slog.New(slog.DiscardHandler)
 		}
 		r.pool = newPool(r.Launcher, r.IdleTimeout, r.Log)
+		r.pool.maxPerPrincipal = r.MaxInstancesPerPrincipal
+		if r.pool.maxPerPrincipal <= 0 {
+			r.pool.maxPerPrincipal = defaultInstancesPerPrincipal
+		}
+		r.pool.maxTotal = r.MaxInstances
 		r.pool.onListChanged = r.listChanged
 		r.limiter = pep.NewLimiter()
 	})
@@ -219,16 +218,42 @@ func (r *Router) ServeClient(ctx context.Context, client jsonrpc.MessageConn, p 
 		return
 	}
 
+	s := newSession(r, ep, client, p)
+	if err := r.admit(s); err != nil {
+		refuse(client, first, err.Error())
+		return
+	}
 	log.Info("session started", "aggregated", ep.aggregated, "servers", ep.order, "selinux", p.SELinux)
-	err = newSession(r, ep, client, p).Run(ctx, first)
+	err = s.Run(ctx, first)
 	log.Info("session ended", "err", err)
 }
+
+// refuse is reject for a session whose first MCP message may not have
+// been read yet (after a hello): it waits briefly for it, so that the
+// client's initialize gets the error instead of a closed connection.
+func refuse(c jsonrpc.MessageConn, first *jsonrpc.Message, msg string) {
+	if first == nil {
+		got := make(chan *jsonrpc.Message, 1)
+		go func() {
+			m, _ := c.Read()
+			got <- m
+		}()
+		select {
+		case first = <-got:
+		case <-time.After(refuseWait):
+		}
+	}
+	reject(c, first, msg)
+}
+
+// refuseWait bounds how long refuse waits for the client's first message.
+var refuseWait = 5 * time.Second
 
 // reject answers the first message with an error if it was a request, and
 // closes the connection.
 func reject(c jsonrpc.MessageConn, first *jsonrpc.Message, msg string) {
 	defer func() { _ = c.Close() }()
-	if first.IsRequest() {
+	if first != nil && first.IsRequest() {
 		_ = c.Write(jsonrpc.NewError(first.ID, jsonrpc.CodeInvalidRequest, "mcp-gateway: "+msg))
 		return
 	}

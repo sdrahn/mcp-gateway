@@ -219,6 +219,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcp-grant-revoke` | a grant was revoked | `id`, `by`, `principal`, `server`, `target` |
 | `mcp-policy-change` | OPA loaded a different policy | `revision` |
 | `mcp-mcs-collision` | an instance's MCS pair was taken by another workload | `instance`, `pair`, `foreign_pid`, `foreign_context` |
+| `mcp-limit` | a session or instance was refused at a limit (`res=failed`) | `principal`, `transport`, `session`, `limit`, `max` |
 
 ## Files and directories
 
