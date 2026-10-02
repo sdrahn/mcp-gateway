@@ -58,6 +58,11 @@ logging_log_file(mcpgw_log_t)
 type mcp_port_t;
 corenet_port(mcp_port_t)
 
+# Metrics listener (metrics.listen, plain HTTP); label its port with
+#   semanage port -a -t mcp_metrics_port_t -p tcp 9464
+type mcp_metrics_port_t;
+corenet_port(mcp_metrics_port_t)
+
 # /run/mcp-gateway and the client socket in it.
 type mcpgw_runtime_t;
 mcp_gateway_runtime_file(mcpgw_runtime_t)
@@ -274,7 +279,7 @@ logging_send_audit_msgs(mcpgw_t)
 # Remote transport: serve HTTPS, and fetch the IdP's discovery document
 # and key set.
 allow mcpgw_t self:tcp_socket create_stream_socket_perms;
-allow mcpgw_t mcp_port_t:tcp_socket name_bind;
+allow mcpgw_t { mcp_port_t mcp_metrics_port_t }:tcp_socket name_bind;
 corenet_tcp_bind_generic_node(mcpgw_t)
 corenet_tcp_connect_http_port(mcpgw_t)
 sysnet_dns_name_resolve(mcpgw_t)

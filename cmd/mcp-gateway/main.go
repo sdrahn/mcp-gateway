@@ -36,6 +36,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	controlapi "github.com/sdrahn/mcp-gateway/internal/control"
+	"github.com/sdrahn/mcp-gateway/internal/metrics"
 	"github.com/sdrahn/mcp-gateway/internal/notify"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/policydata"
@@ -241,6 +242,15 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		IdleTimeout: gw.Supervisor.IdleTimeout,
 	}
 
+	registerGauges(r, b)
+	if gw.Metrics.Listen != "" {
+		stopMetrics, err := serveMetrics(log, gw.Metrics.Listen)
+		if err != nil {
+			return err
+		}
+		defer stopMetrics()
+	}
+
 	if control {
 		cl, err := transport.ListenUnix(gw.Approvals.ControlSocket, 0o660, gw.SocketGroup)
 		if err != nil {
@@ -248,7 +258,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		}
 		log.Info("listening", "control", gw.Approvals.ControlSocket)
 		cs := &controlapi.Server{Broker: b, Backends: backends, Instances: r, Policy: opa,
-			Review: opa, Catalog: r, Log: log, RestartPending: restartPending}
+			Review: opa, Catalog: r, Log: log, RestartPending: restartPending, Metrics: metrics.Default}
 		go func() {
 			if err := cs.Serve(ctx, cl); err != nil {
 				log.Error("control API failed", "err", err)

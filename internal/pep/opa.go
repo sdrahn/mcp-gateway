@@ -12,8 +12,10 @@ import (
 	"net"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
+	"github.com/sdrahn/mcp-gateway/internal/metrics"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 )
 
@@ -272,7 +274,14 @@ func (o *OPA) query(ctx context.Context, path string, input, result any) error {
 	return o.queryWithin(ctx, o.timeout, path, input, result)
 }
 
-func (o *OPA) queryWithin(ctx context.Context, timeout time.Duration, path string, input, result any) error {
+func (o *OPA) queryWithin(ctx context.Context, timeout time.Duration, path string, input, result any) (err error) {
+	query := strings.TrimPrefix(path, "/v1/data/")
+	defer func(start time.Time) {
+		metrics.OPADuration.Since(start, query)
+		if err != nil {
+			metrics.OPAErrors.Inc(query)
+		}
+	}(time.Now())
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	in, err := versioned(input)

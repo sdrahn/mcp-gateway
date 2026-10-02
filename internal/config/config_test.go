@@ -304,3 +304,16 @@ func TestDeprecations(t *testing.T) {
 		t.Errorf("a %q, b %q", bs["a"].Warnings, bs["b"].Warnings)
 	}
 }
+
+func TestMetricsListen(t *testing.T) {
+	dir := t.TempDir()
+	g, err := LoadGateway(writeFile(t, dir, "ok.yaml", "metrics:\n  listen: 127.0.0.1:9464\n"))
+	if err != nil || g.Metrics.Listen != "127.0.0.1:9464" {
+		t.Fatalf("%v, %+v", err, g.Metrics)
+	}
+	for _, bad := range []string{"9464", "localhost", "127.0.0.1:"} {
+		if _, err := LoadGateway(writeFile(t, dir, "bad.yaml", "metrics:\n  listen: \""+bad+"\"\n")); err == nil || !strings.Contains(err.Error(), "metrics.listen") {
+			t.Errorf("%q: error %v", bad, err)
+		}
+	}
+}

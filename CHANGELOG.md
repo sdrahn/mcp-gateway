@@ -60,6 +60,13 @@ minor release (with a warning) and removed in the next.
   (`WatchdogSec=60s`), after writing every goroutine's stack to the
   journal.
 
+- Metrics in the Prometheus text format: decisions by action and
+  effect, decisions that failed closed, OPA query latency and errors,
+  server instance starts and failures, approvals decided and pending,
+  sessions, instances, a pending restart. Root reads them on the control
+  socket (`GET /v1/metrics`); `metrics.listen` also serves them over
+  plain HTTP (`/metrics`, SELinux port type `mcp_metrics_port_t`).
+
 - Format versions: `gateway.yaml`, server definitions and role data may
   name their format with `version: 1` (`"version": 1`); files without
   one are read as version 1, and other versions are refused with an

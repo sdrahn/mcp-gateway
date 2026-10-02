@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sdrahn/mcp-gateway/internal/metrics"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/pseudo"
 )
@@ -181,10 +182,15 @@ type Decider interface {
 func Evaluate(ctx context.Context, d Decider, in Input) Decision {
 	dec, err := d.Decide(ctx, in)
 	if err != nil {
+		metrics.PolicyFailures.Inc("error")
+		metrics.Decisions.Inc(in.Action, string(Deny))
 		return Decision{Effect: Deny, Reason: "policy evaluation failed"}
 	}
 	if err := dec.Validate(); err != nil {
+		metrics.PolicyFailures.Inc("invalid")
+		metrics.Decisions.Inc(in.Action, string(Deny))
 		return Decision{Effect: Deny, Reason: "invalid policy decision"}
 	}
+	metrics.Decisions.Inc(in.Action, string(dec.Effect))
 	return dec
 }

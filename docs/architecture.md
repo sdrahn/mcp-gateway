@@ -670,10 +670,11 @@ Types:
 | `mcpsrv_<name>_t` / `mcpsrv_<name>_exec_t` | per-backend domain / binary |
 | `mcpsrv_generic_t` | fallback for backends without a dedicated type |
 | `mcp_port_t` | gateway HTTPS port |
+| `mcp_metrics_port_t` | gateway metrics port (`metrics.listen`) |
 
 Key rules (sketch):
 
-- `mcpgw_t` may: bind `mcp_port_t`, create/listen on `mcpgw_sock_t`,
+- `mcpgw_t` may: bind `mcp_port_t` and `mcp_metrics_port_t`, create/listen on `mcpgw_sock_t`,
   `connectto` `mcpopa_t` via `mcpopa_sock_t`, talk to systemd over D-Bus,
   read `mcpgw_etc_t`, manage `mcpgw_var_lib_t`. It may **not** read user
   home directories or exec backends directly (systemd does).
@@ -1346,6 +1347,7 @@ internal/
   pseudo/                 # pseudonymization: detectors, per-session vault
   broker/                 # approvals, grants store, elicitation
   contract/               # JSON field lists of the stable interfaces (D10)
+  metrics/                # counters and histograms, Prometheus text format
   inspect/                # mcp-gateway inspect: server inventory, draft roles, role check
   profile/                # mcp-gateway profile: permissive run, denials, drafted module
   review/                 # mcp-gateway review: source scan for what a server does to the system
@@ -1477,7 +1479,10 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       that a deadlocked gateway is restarted (after the Go runtime wrote
       every goroutine's stack to the journal on SIGABRT) (done);
     - metrics (decisions, pending approvals, instance starts and
-      failures, OPA latency);
+      failures, OPA latency) in the Prometheus text format, for root on
+      the control socket (`GET /v1/metrics`) and optionally over plain
+      HTTP (`metrics.listen`, port type `mcp_metrics_port_t`), without
+      names or arguments in labels (done);
     - a self-check command that finds what had to be debugged by hand:
       servers that do not start, SELinux denials for a backend, missing
       polkit rules, role data that does not validate, principals without

@@ -72,9 +72,20 @@ type Gateway struct {
 	Audit Audit `yaml:"audit"`
 	// Notifications configures the push channels for approvals.
 	Notifications Notifications `yaml:"notifications"`
+	// Metrics configures the metrics listener.
+	Metrics Metrics `yaml:"metrics"`
 
 	// Warnings are the deprecated keys the file uses (see deprecation).
 	Warnings []string `yaml:"-"`
+}
+
+// Metrics configures where the metrics (Prometheus text format) can be
+// read besides the control socket (GET /v1/metrics, root only).
+type Metrics struct {
+	// Listen is a host:port for plain HTTP (GET /metrics), without
+	// authentication: anyone who can reach it reads the counts. Empty
+	// (the default) disables it; prefer a loopback address.
+	Listen string `yaml:"listen"`
 }
 
 // Notifications configures how approvers learn about pending approvals
@@ -545,6 +556,14 @@ func (g *Gateway) Validate() error {
 		}
 		if (e.Username == "") != (e.PasswordFile == "") {
 			return errors.New("notifications.email: username and password_file go together")
+		}
+	}
+	if l := g.Metrics.Listen; l != "" {
+		if _, port, err := net.SplitHostPort(l); err != nil || port == "" {
+			return fmt.Errorf("metrics.listen: want host:port, got %q", l)
+		}
+		if l == g.HTTP.Listen {
+			return errors.New("metrics.listen: must differ from http.listen")
 		}
 	}
 	if g.HTTP.Listen != "" {

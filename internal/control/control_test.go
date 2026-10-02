@@ -16,6 +16,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/metrics"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/router"
@@ -464,5 +465,26 @@ func TestWhatIf(t *testing.T) {
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("not an object: %d", rec.Code)
+	}
+}
+
+func TestMetrics(t *testing.T) {
+	s, _, _ := setup(t)
+	if rec := call(t, s, 1001, "GET", "/v1/metrics", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("without metrics: %d", rec.Code)
+	}
+	reg := &metrics.Registry{}
+	reg.Register(metrics.NewGauge("test_gauge", "a gauge", func() float64 { return 3 }))
+	s.Metrics = reg
+	if rec := call(t, s, 1001, "GET", "/v1/metrics", ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("alice: %d", rec.Code)
+	}
+	s.Identify = func(transport.PeerCred) (broker.Approver, error) { return broker.Approver{Name: "root", UID: 0}, nil }
+	req := httptest.NewRequest("GET", "/v1/metrics", nil)
+	req = req.WithContext(WithPeer(req.Context(), transport.PeerCred{UID: 0}))
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != metrics.ContentType || !strings.Contains(rec.Body.String(), "test_gauge 3\n") {
+		t.Fatalf("root: %d %q %s", rec.Code, rec.Header().Get("Content-Type"), rec.Body)
 	}
 }
