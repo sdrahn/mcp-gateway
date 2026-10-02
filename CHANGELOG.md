@@ -5,7 +5,13 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.4.3 — 2026-10-02
+
+A setup for mcp-server-snapper, and an SELinux fix for definitions
+linked into `/etc/mcp-gateway/servers.d`. Upgrading from 0.4.x needs no
+changes; restart the gateway when convenient. If you copied the
+privileged zypp definition there instead of linking it, you can link it
+again (chapter 13).
 
 ### Added
 
