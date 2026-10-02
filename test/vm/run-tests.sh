@@ -474,11 +474,15 @@ if [ -d "$dir/servers" ]; then
 	zypper -n in --no-recommends firewalld man >/dev/null && systemctl enable --now firewalld >/dev/null 2>&1
 	zypper -n in --no-recommends snapper btrfsprogs >/dev/null
 	# A snapper config of its own on a small btrfs, whatever the root file
-	# system: snapperd allows it to mcp-snapper (ALLOW_USERS).
+	# system: snapperd allows it to mcp-snapper (ALLOW_USERS). Created
+	# without snapperd (its domain may not write /etc/sysconfig/snapper on
+	# every policy), which is then restarted to read it.
 	truncate -s 512M /root/vmtest/snapper.img
 	mkfs.btrfs -q /root/vmtest/snapper.img && mkdir -p /mnt/vmtest && mount -o loop /root/vmtest/snapper.img /mnt/vmtest &&
-		snapper -c vmtest create-config /mnt/vmtest && snapper -c vmtest set-config ALLOW_USERS=mcp-snapper ||
+		snapper --no-dbus -c vmtest create-config /mnt/vmtest &&
+		snapper --no-dbus -c vmtest set-config ALLOW_USERS=mcp-snapper ||
 		echo "  setting up the snapper config failed"
+	systemctl stop snapperd.service 2>/dev/null
 	snapper list-configs 2>&1 | sed 's/^/  /'
 	for f in /usr/bin/systemd-mcp:mcpsrv_systemd_exec_t /usr/bin/firewalld-mcp:mcpsrv_firewalld_exec_t \
 		/usr/bin/mcp-server-zypp:mcpsrv_zypp_exec_t /usr/libexec/mcp-server-zypp/zypp-mcp-tool:rpm_exec_t \
@@ -554,7 +558,8 @@ END
 		sh -c 'mcp-gateway doctor --server snapper --no-start 2>&1 | grep -qE "^ok +snapper snapper: .*vmtest"'
 	stool alice snapper list_configs '{}'
 	check "snapper: list_configs" succeeded_with "vmtest"
-	stool alice snapper create_snapshot '{"config":"vmtest","type":"single","description":"vmtest","cleanup_algorithm":"","userdata":{}}'
+	# The server's input schemas require every argument.
+	stool alice snapper create_snapshot '{"config":"vmtest","type":"single","pre_number":0,"description":"vmtest","cleanup_algorithm":"","userdata":{}}'
 	check "snapper: create_snapshot (no approval)" test "$rc" = 0
 	snap=$(jq -r '.structuredContent.result // empty' <<<"$out" 2>/dev/null)
 	stool alice snapper list_snapshots '{"config":"vmtest"}'
@@ -577,7 +582,7 @@ END
 	check "snapper (privileged): the config changed" grep -q '^NUMBER_LIMIT="7"' /etc/snapper/configs/vmtest
 	if snapper -c root get-config >/dev/null 2>&1 && [ "$(stat -f -c %T /)" = btrfs ]; then
 		before=$(btrfs subvolume get-default / 2>&1)
-		stool_approved alice snapper rollback '{"config":"root","description":"vmtest rollback","cleanup_algorithm":"","userdata":{}}'
+		stool_approved alice snapper rollback '{"config":"root","number":null,"description":"vmtest rollback","cleanup_algorithm":"","userdata":{}}'
 		check "snapper (privileged): rollback after an approval" test "$rc" = 0
 		after=$(btrfs subvolume get-default / 2>&1)
 		echo "  default subvolume before: $before"
