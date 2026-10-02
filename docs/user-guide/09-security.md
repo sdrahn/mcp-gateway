@@ -135,6 +135,29 @@ other. The gateway therefore refuses, with `invalid params`:
 
 No MCP client sends such requests on purpose.
 
+## Paths and symbolic links
+
+Permissions with `args` conditions and `arg_constraints` check a path
+as a string: `/home/alice/notes/x` matches `/home/alice/**` even if
+`notes` is a symbolic link to `/etc`. The gateway cannot resolve the
+link itself (it does not see the server's file system, and the link
+may change between the decision and the call). Confinement does the
+rest: SELinux and the sandbox limit what the server can reach at all,
+and a server that serves a directory should open paths beneath it so
+that links cannot lead out (Go's `os.Root`, Linux's `openat2` with
+`RESOLVE_BENEATH`; chapter 4). The demo server `mcp-fs-demo` does so.
+Decision D13 in the architecture document has the reasoning.
+
+## Revoked access and running calls
+
+Policy and grants are checked when a call starts. A change to the role
+data, a revoked grant or an expiring one applies to the next call, not
+to one already forwarded to the server (decision D12); to stop a
+running call, cancel it or stop the instance (Cockpit, Instances tab).
+Notifications that hand out data later are decided again as they
+arrive: an update to a subscribed resource reaches the agent only if
+the agent may still subscribe to that resource.
+
 ## Fail-closed behaviour
 
 | Situation | Result |

@@ -347,6 +347,14 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 			respond(m, map[string]any{"resourceTemplates": []map[string]any{{"uriTemplate": "file:///ok/{name}", "name": "ok"}}})
 		case "resources/read":
 			respond(m, map[string]any{"contents": []map[string]any{{"uri": p.URI, "text": f.name + " content"}}})
+		case "resources/subscribe":
+			respond(m, map[string]any{})
+			// An update of the subscribed resource, and one of a resource
+			// policy does not allow (as after a revocation).
+			for _, uri := range []string{p.URI, "file:///secret"} {
+				n, _ := jsonrpc.NewNotification("notifications/resources/updated", map[string]any{"uri": uri})
+				_ = c.Write(n)
+			}
 		case "completion/complete":
 			respond(m, map[string]any{"completion": map[string]any{"values": []string{f.name}}})
 		default:

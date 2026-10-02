@@ -752,3 +752,40 @@ func TestParamKeysRefused(t *testing.T) {
 		t.Fatalf("got %q %v %+v", text, isErr, m.Error)
 	}
 }
+
+// An update of a subscribed resource reaches the client only while policy
+// still allows the subscription.
+func TestResourceUpdatesFollowPolicy(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	c := connect(t, r, alice(), "fs", nil)
+	c.send(1, "resources/subscribe", map[string]any{"uri": "file:///ok/a.txt"})
+	var updates []string
+	gotResponse := false
+	deadline := time.After(3 * time.Second)
+	for !gotResponse || len(updates) == 0 {
+		select {
+		case m := <-c.msgs:
+			switch {
+			case m.Key() == "1":
+				if m.Error != nil {
+					t.Fatalf("subscribe: %+v", m.Error)
+				}
+				gotResponse = true
+			case m.Method == "notifications/resources/updated":
+				updates = append(updates, string(m.Params))
+			}
+		case <-deadline:
+			t.Fatalf("response %v, updates %v", gotResponse, updates)
+		}
+	}
+	// The second update (file:///secret) follows the first; it must not
+	// arrive.
+	select {
+	case m := <-c.msgs:
+		t.Fatalf("unexpected message %s %s", m.Method, m.Params)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if len(updates) != 1 || !strings.Contains(updates[0], "file:///ok/a.txt") {
+		t.Fatalf("updates %v", updates)
+	}
+}

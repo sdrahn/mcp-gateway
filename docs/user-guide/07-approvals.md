@@ -84,6 +84,9 @@ restarts. See and revoke them on the Approvals tab in Cockpit or with
 the control API; revoking one makes the next call ask again and is
 audited (`mcp-grant-revoke`).
 
+A grant is checked when a call starts: a call that started under a
+grant finishes even if the grant expires or is revoked meanwhile.
+
 ## Who may approve
 
 Approver rules in the policy data decide who may see and decide on a

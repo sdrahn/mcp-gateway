@@ -140,3 +140,25 @@ func TestApplyOutputPseudonymizes(t *testing.T) {
 		t.Errorf("limit on the pseudonymized size: %v", err)
 	}
 }
+
+// Keys whose last event is older than any window are dropped now and
+// then, so counters do not pile up; recent ones are kept.
+func TestLimiterSweep(t *testing.T) {
+	l := NewLimiter()
+	now := time.Unix(1000, 0)
+	l.now = func() time.Time { return now }
+	rates := []Rate{{N: 100, Per: time.Hour}}
+	l.Allow("old", rates)
+	now = now.Add(maxRatePer)
+	l.Allow("recent", rates)
+	for range sweepEvery {
+		l.Allow("busy", rates)
+	}
+	l.mu.Lock()
+	_, old := l.events["old"]
+	_, recent := l.events["recent"]
+	l.mu.Unlock()
+	if old || !recent {
+		t.Errorf("after a sweep: old kept %v, recent kept %v", old, recent)
+	}
+}

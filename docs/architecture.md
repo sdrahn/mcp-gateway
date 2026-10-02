@@ -1159,19 +1159,32 @@ instances started later, without starting any.
 
 ## 8. Threat model (summary)
 
-| Threat | Mitigation |
-|---|---|
-| Agent calls tools it shouldn't | RBAC + OPA per call; discovery filtering; default deny |
-| Agent auto-approves its own elicitation | URL / OOB approvals authenticated outside the agent; `form` only for low-risk |
-| Prompt-injected agent exfiltrates via allowed tool | argument constraints, rate limits, output limits, approvals on destructive/egress tools, audit |
-| Malicious/compromised backend | per-backend SELinux domain, no access to gateway/OPA sockets, systemd sandboxing, no network by default, per-session MCS |
-| Backend phishing the user via elicitation | policy on `elicitation.create`, origin labelling, secret-field blocking |
-| Cross-tenant data leakage | instance per principal (or session), MCS categories, separate Unix users where possible |
-| Token theft / confused deputy | audience-bound tokens, no token passthrough, backend creds via systemd credentials |
-| Policy tampering | signed bundles verified by OPA (file or bundle server; never with `--watch`), OPA in own domain, config/bundle dirs writable only by admin |
-| OPA outage | fail closed |
-| Local user spoofing identity | kernel-provided peer credentials; `clientInfo` never trusted |
-| Parser differential: policy decides on parameters the server reads differently | requests whose objects repeat a key or have keys differing only in case, and keys differing only in case from one the gateway reads or from an argument the tool or prompt declares, are refused (`invalid params`); the gateway decodes with exact keys, Go servers decode case-insensitively and keep the last match, other parsers the first |
+Reviewed for 1.0 (roadmap step 14). Who is trusted: administrators;
+users as far as their accounts go (they decide their own approvals unless
+policy says otherwise); not the agents, not the MCP servers, and not what
+either says about itself (client info, tool annotations).
+
+| Threat | Mitigation | Residual risk |
+|---|---|---|
+| Agent calls tools it shouldn't | RBAC + OPA per call; discovery filtering; default deny | the policy's quality |
+| Agent auto-approves its own elicitation | URL / OOB approvals authenticated outside the agent; `form` only for low-risk | `form` approvals are answered by the agent's client |
+| Prompt-injected agent exfiltrates via allowed tool | argument constraints, rate limits, output limits, approvals on destructive/egress tools, pseudonymization, audit | what an allowed tool returns reaches the model |
+| Parser differential: policy decides on parameters the server reads differently | requests whose objects repeat a key or have keys differing only in case, and keys differing only in case from one the gateway reads or from an argument the tool or prompt declares, are refused (`invalid params`); found and checked by fuzzing (step 14) | a server with its own notion of argument names (e.g. aliases) |
+| Path arguments leaving an allowed tree through symbolic links | path constraints are on the string (D13); servers confine their own file access (`os.Root`, `openat2` `RESOLVE_BENEATH`; the demo server does), and account, sandbox and SELinux domain bound what any path reaches | servers that follow links without confining themselves, within what their account and domain may access |
+| Access revoked while activity goes on | grants and decisions apply when a call starts (D12); updates of subscribed resources are decided again; instances can be stopped (Cockpit, control API) | a call in progress runs to its end; a privileged call is not stopped halfway |
+| Malicious/compromised backend | per-backend SELinux domain, no access to gateway/OPA sockets, systemd sandboxing (memory and task limits), no network by default, per-session MCS | what its own domain allows (a profile drafted too wide) |
+| Compromised privileged backend (D9) | admin-only definitions, `run_as: root` explicitly, approval for every call not explicitly allowed, kernel audit, the MCP-facing part confined | root while it runs |
+| Backend phishing the user via elicitation | policy on `elicitation.create`, origin labelling, secret-field blocking | the user's judgement |
+| Cross-tenant data leakage | instance per principal (or session), MCS categories, separate Unix users where possible | principals sharing a dynamic user rely on MCS and the instance split |
+| Token theft / confused deputy | audience-bound tokens, optional certificate binding (mTLS), no token passthrough, backend creds via systemd credentials | a stolen token until it expires; an open SSE stream outlives its token (§12) |
+| Approval spoofing | approval ids from 128 random bits; decisions only over the control socket with kernel-identified approvers and approver rules, or the Cockpit page (Cockpit login) | an approver tricked into approving |
+| Policy tampering | signed bundles verified by OPA (file or bundle server; never with `--watch`), OPA in own domain, config/bundle dirs writable only by admin | root |
+| OPA outage | fail closed; `mcp-gateway doctor` and metrics show it | no service while it lasts |
+| Gateway hang | watchdog (`WatchdogSec=60s`) on the locks of sessions, instances and approvals; goroutine dump on SIGABRT | sessions end with the restart |
+| Resource exhaustion by a client | message size limits (32 MiB), instance memory and task limits, idle stop, restart backoff, rate-limit obligations | no cap on sessions or instances per principal (§12) |
+| Rate limits reset by a restart | counters in memory (D11); a restart needs root or a crash, both audited | an agent that can crash the gateway; no such crash is known |
+| Telemetry disclosure | metrics only for root on the control socket; the HTTP listener is opt-in and carries counts, no names or arguments | counts per server and action to whoever reaches the listener |
+| Local user spoofing identity | kernel-provided peer credentials; `clientInfo` never trusted | — |
 
 ## 9. Decisions
 
@@ -1332,6 +1345,52 @@ their gateway refusing to start, or worse, reading their policy
 differently. One minor release of warnings fits the release rhythm of
 the target distributions, where a minor release reaches users through
 maintenance updates.
+
+**D11 — Rate-limit counters stay in memory.**
+*Decision (accepted 2026-10-02, roadmap step 14):* the sliding windows
+of `rate_limit` obligations live in the gateway's memory, per principal,
+action and target, and start anew when the gateway does. Counters of
+principals and targets not seen for longer than any window (an hour) are
+dropped.
+*Rationale:* rate limits brake a runaway or manipulated agent; they are
+not a quota to bill against. Resetting them takes a restart, which needs
+root or a crash; both are audited, and a crash an agent could cause is a
+bug to fix rather than a reason to persist counters. Persisting them
+would add state to keep consistent across restarts and gateways for
+little gain. A quota that must hold across restarts belongs in the
+server or in a policy with data of its own.
+
+**D12 — Decisions and grants apply when a call starts.**
+*Decision (accepted 2026-10-02, roadmap step 14):* policy, and grants
+from approvals, are checked when a call starts. A call in progress is
+not interrupted when its grant expires, is revoked, or the policy
+changes; it runs to its end. What a server sends later on its own is
+decided anew: updates of subscribed resources reach the client only
+while policy still allows the subscription (an `allow` for
+`resources.subscribe`); requests to the client (sampling, elicitation,
+roots) are decided when they arrive. To end work in progress, stop the
+instance (Cockpit, `DELETE /v1/instances/{id}`); a privileged instance
+is not stopped during a call.
+*Rationale:* interrupting a call halfway leaves the system in an
+unknown state (half-installed packages, partly written files); a grant
+authorizes an action, and the action is taken when it starts. The
+window is the length of one call, bounded by the server, and revocation
+takes effect for the next call.
+
+**D13 — Path arguments are constrained as strings.**
+*Decision (accepted 2026-10-02, roadmap step 14):* `args` and
+`arg_constraints` match the path as the client sends it; the policy
+rejects `..` segments. The gateway does not resolve paths: it does not
+share the server's mount namespace, account or sandbox, and a path
+resolved by the gateway could change before the server opens it.
+Servers that take paths confine their own file access to their tree,
+through symbolic links too (Go `os.Root`, Linux `openat2` with
+`RESOLVE_BENEATH`); the demo server does. Account, sandbox and SELinux
+domain bound what any path can reach.
+*Rationale:* only the server can resolve a path in its own view and
+without a race; the gateway's string check plus the server's own
+confinement plus the instance's confinement are three independent
+layers.
 
 ## 10. Repository layout
 
@@ -1499,21 +1558,21 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       case-insensitively could read `{"Path": …}` or a repeated key
       differently from policy; such requests are refused now (§8)
       (done);
-    - a review of the threat model (§8);
+    - a review of the threat model (§8), with residual risks per threat
+      (done);
     - an external review of identity, approvals and the control socket;
-    - decisions on the open items that matter in production (rate-limit
-      counters across restarts, grants expiring during a call, path
-      arguments through symlinks).
+    - decisions on the open items that matter in production: rate-limit
+      counters stay in memory (D11), decisions and grants apply when a
+      call starts while updates of subscribed resources are decided
+      anew (D12), path arguments are constrained as strings and servers
+      confine their own file access (D13, the demo server with
+      `os.Root`) (done).
 15. **Client compatibility:** tested and documented behaviour with Kit,
     Claude Code and other MCP clients (sessions, elicitation, approval
     timeouts, `list_changed`).
 
 ## 12. Open items
 
-- Path arguments: policy rejects `..` segments, but symlinks inside an
-  allowed tree can still point elsewhere. Resolving paths needs knowledge
-  of the backend's filesystem view; until then DAC and SELinux are the
-  backstop.
 - HTTP streams: with several requests in flight on one session, a server
   notification or request goes to the most recently opened request stream,
   which may belong to another of the client's requests. Clients treat all
@@ -1527,16 +1586,14 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
   every new request needs a valid token.
 - Exact JSON-RPC error codes for policy denials (align with any future
   MCP-spec guidance).
-- Behaviour of long-running `tools/call` when a grant expires mid-call
-  (proposal: grants are checked at call start only).
-- Handling of `resources/subscribe` notifications after access is revoked
-  (proposal: gateway drops notifications and unsubscribes).
 - Policy changes are noticed by polling (up to `policy.watch_interval`
   late); OPA has no change notification over its REST API.
 - The kernel audit subsystem is optional (`audit.kernel: auto`); in
   containers without `CAP_AUDIT_WRITE` only the journal records remain.
-- Rate-limit counters live in the gateway's memory (sliding windows per
-  principal, action and target); a restart resets them.
+- No cap on sessions or instances per principal: a local user can open
+  many sessions, and with `isolation: session` each starts an instance
+  (each limited to its memory and tasks). A limit per principal is to be
+  decided with step 15 (how clients use sessions).
 - MCS pairs of stopped containers (their files keep the pair) are not
   known to the gateway, and a container can take an instance's pair for up
   to 30 s before the instance is replaced (§5.8).
