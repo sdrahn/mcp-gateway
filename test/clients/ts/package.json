@@ -1,0 +1,9 @@
+{
+  "name": "mcp-gateway-client-ts",
+  "private": true,
+  "description": "Compatibility test client: the official MCP TypeScript SDK against the gateway (e2e/clients_test.go)",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.31.0"
+  }
+}

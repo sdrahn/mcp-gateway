@@ -321,9 +321,17 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 				}(m)
 			case "read_secret":
 				respond(m, text("user=bob token=abc123 done"))
+			case "read_task":
+				var raw map[string]json.RawMessage
+				_ = json.Unmarshal(m.Params, &raw)
+				if _, ok := raw["task"]; ok {
+					respond(m, text("task requested"))
+				} else {
+					respond(m, text("no task"))
+				}
 			case "read_big":
 				respond(m, text(strings.Repeat("x", 200)))
-			case "progress":
+			case "progress", "write_progress":
 				var meta struct {
 					ProgressToken json.RawMessage `json:"progressToken"`
 				}

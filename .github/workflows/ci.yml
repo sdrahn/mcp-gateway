@@ -29,6 +29,36 @@ jobs:
         with:
           version: latest
 
+  # Client compatibility (roadmap step 15): MCP client libraries as agents
+  # use them, against the gateway over the local socket and HTTPS
+  # (e2e/clients_test.go, test/clients).
+  clients:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            test/clients/go/go.sum
+      - uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci --no-audit --no-fund
+        working-directory: test/clients/ts
+      - run: pip install -r test/clients/py/requirements.txt
+      - run: go test -count=1 -v -run TestClients ./e2e/
+        env:
+          MCPGW_CLIENTS: ts,py,go
+          GOTOOLCHAIN: auto
+
   # Fuzzing (roadmap step 14): each target for a minute, with its seeds and
   # the inputs that failed before (testdata/fuzz). A failing input is
   # uploaded; add it to testdata/fuzz with the fix.

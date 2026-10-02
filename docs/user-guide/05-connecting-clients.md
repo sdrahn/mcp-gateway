@@ -252,3 +252,38 @@ http:
 | `404 unknown session` / `session ended` | the session expired or belongs to someone else; initialize again |
 | `400 unknown or expired Last-Event-ID` | the stream to resume is gone; send the request again |
 | `409 stream already open` | a second `GET` stream (without `Last-Event-ID`) while the session's stream is open |
+
+## Client compatibility
+
+The gateway speaks MCP 2024-11-05 to 2025-11-25 with agents. CI runs the
+common client libraries against it, the way agents use them, over
+`mcp-connect` and over HTTPS (`test/clients`):
+
+| Library (version tested) | Used by | Notes |
+|---|---|---|
+| `@modelcontextprotocol/sdk` 1.31 (TypeScript) | Claude Code, most Node-based agents and IDEs | gives up on a request after 60 s by default; only progress notifications keep it going, and only if the agent asked for them and let them extend the timeout |
+| `mcp` 2.2 (Python) | Python agents and frameworks | tries MCP 2026-07-28 first (`server/discover`) and falls back to the initialize handshake |
+| `mcp-go` 1.1 | Kit and other Go agents | asks for 2026-07-28 and falls back likewise; over HTTP it hears of tool-list changes only with continuous listening, which Kit does not turn on |
+
+Each is tested on: discovery and calls filtered by policy, an approval
+out of band that takes longer than the client's request timeout, an
+approval in the client's own dialog (form elicitation), `list_changed`
+after a policy change, and cancelling a call while it waits for approval
+(the request leaves the approval inbox).
+
+What the gateway does for clients:
+
+- **Waiting calls report progress.** A call waiting for approval sends
+  progress notifications (`approvals.progress_interval`, 15 s) if the
+  agent asked for progress (chapter 7). After the approval, the MCP
+  server's own progress continues where the gateway's left off.
+- **Only what the gateway implements is offered.** A server's
+  capabilities reach the agent only for tools, prompts, resources,
+  completions and logging. Tasks (MCP 2025-11-25) and experimental
+  features are not passed on: their requests and results would bypass
+  policy and obligations. A call that asks for a task anyway runs
+  synchronously.
+- **Newer protocol versions** are answered with the gateway's own. A
+  `server/discover` probe (MCP 2026-07-28) gets "method not found" (over
+  HTTP, before a session exists, status 400), on which clients fall back
+  to the initialize handshake; the probe is not audited as a denial.

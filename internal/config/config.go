@@ -135,6 +135,11 @@ type Approvals struct {
 	// id, sent to clients in URL-mode elicitations. Empty disables the url
 	// channel.
 	URLTemplate string `yaml:"url_template"`
+	// ProgressInterval is how often a call waiting for approval reports
+	// progress to the client, when the client asked for progress (MCP
+	// clients may give up on requests that report nothing; the TypeScript
+	// SDK does after 60 s).
+	ProgressInterval time.Duration `yaml:"progress_interval"`
 }
 
 // Supervisor configures backend instance launching.
@@ -361,9 +366,10 @@ func within(path, dir string) bool {
 
 // Defaults applied to empty fields.
 const (
-	DefaultPolicyTimeout   = 250 * time.Millisecond
-	DefaultApprovalTimeout = 120 * time.Second
-	DefaultIdleTimeout     = 15 * time.Minute
+	DefaultPolicyTimeout    = 250 * time.Millisecond
+	DefaultApprovalTimeout  = 120 * time.Second
+	DefaultProgressInterval = 15 * time.Second
+	DefaultIdleTimeout      = 15 * time.Minute
 	// DefaultMCSRange is the upper quarter of the targeted policy's
 	// categories; libvirt is confined to the rest by the shipped drop-ins.
 	DefaultMCSRange        = "c768.c1023"
@@ -456,6 +462,9 @@ func (g *Gateway) setDefaults() {
 	if g.Supervisor.MCSAvoid == "" {
 		g.Supervisor.MCSAvoid = "auto"
 	}
+	if g.Approvals.ProgressInterval == 0 {
+		g.Approvals.ProgressInterval = DefaultProgressInterval
+	}
 	if g.ApprovalTimeout == 0 {
 		g.ApprovalTimeout = DefaultApprovalTimeout
 	}
@@ -504,6 +513,9 @@ func (g *Gateway) Validate() error {
 	}
 	if g.ApprovalTimeout < 0 {
 		return errors.New("approval_timeout: must not be negative")
+	}
+	if g.Approvals.ProgressInterval < time.Second {
+		return errors.New("approvals.progress_interval: must be at least 1s")
 	}
 	if g.Approvals.ControlSocket != "-" && !filepath.IsAbs(g.Approvals.ControlSocket) {
 		return fmt.Errorf("approvals.control_socket: must be an absolute path or \"-\", got %q", g.Approvals.ControlSocket)

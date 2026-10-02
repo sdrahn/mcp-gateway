@@ -407,6 +407,103 @@ func TestProgressTokenMapped(t *testing.T) {
 	}
 }
 
+// While a call waits for approval, the gateway reports progress itself
+// (to a client that asked for it); the backend's progress afterwards is
+// shifted so that it keeps increasing.
+func TestProgressWhileWaitingForApproval(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	r.ProgressInterval = 20 * time.Millisecond
+	c := connect(t, r, alice(), "fs", map[string]any{"elicitation": map[string]any{}})
+	c.send(1, "tools/call", map[string]any{"name": "write_progress", "_meta": map[string]any{"progressToken": 7}})
+	var el *jsonrpc.Message
+	var waiting []float64
+	for el == nil || len(waiting) < 3 {
+		m := c.read()
+		switch m.Method {
+		case "elicitation/create":
+			el = m
+		case "notifications/progress":
+			var p struct {
+				ProgressToken json.RawMessage
+				Progress      float64
+				Message       string
+			}
+			_ = json.Unmarshal(m.Params, &p)
+			if string(p.ProgressToken) != "7" || p.Message != "Waiting for approval of fs/write_progress" {
+				t.Fatalf("progress while waiting: %s", m.Params)
+			}
+			waiting = append(waiting, p.Progress)
+		default:
+			t.Fatalf("unexpected %+v", m)
+		}
+	}
+	c.write(result(t, el.ID, map[string]any{"action": "accept", "content": map[string]any{"scope": "once"}}))
+	last := 0.0
+	for {
+		m := c.read()
+		if m.Method == "notifications/progress" {
+			var p struct{ Progress, Total float64 }
+			_ = json.Unmarshal(m.Params, &p)
+			if p.Total == 0 {
+				waiting = append(waiting, p.Progress) // sent before the approval arrived
+				continue
+			}
+			last = p.Progress
+			// The backend reports 1 of 2.
+			if n := waiting[len(waiting)-1]; p.Progress != n+1 || p.Total != n+2 {
+				t.Fatalf("backend progress after %v: %s", waiting, m.Params)
+			}
+			continue
+		}
+		if text, isErr := toolText(t, m); isErr || text != "done" {
+			t.Fatalf("got %q %v", text, isErr)
+		}
+		break
+	}
+	for i, v := range waiting {
+		if v != float64(i+1) {
+			t.Fatalf("progress while waiting not increasing: %v", waiting)
+		}
+	}
+	if last == 0 {
+		t.Fatal("backend progress not passed on")
+	}
+}
+
+// Clients of MCP 2026-07-28 (the Python SDK 2, mcp-go 1.1 and so Kit)
+// probe server/discover first: they get "method not found", fall back to
+// initialize, and the probe is not audited as a denial.
+func TestDiscoverProbeFallsBack(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	var logs strings.Builder
+	r.Audit = audit.New(&syncWriter{w: &logs})
+	cTest, cGw := net.Pipe()
+	c := jsonrpc.NewConn(cTest)
+	hello, _ := transport.NewHello("fs")
+	go r.ServeClient(context.Background(), jsonrpc.NewConn(cGw), alice(), hello)
+	probe, _ := jsonrpc.NewRequest(json.RawMessage(`1`), "server/discover", map[string]any{})
+	if err := c.Write(probe); err != nil {
+		t.Fatal(err)
+	}
+	m, err := c.Read()
+	if err != nil || m.Error == nil || m.Error.Code != jsonrpc.CodeMethodNotFound {
+		t.Fatalf("probe: %+v %v", m, err)
+	}
+	init, _ := jsonrpc.NewRequest(json.RawMessage(`2`), "initialize", map[string]any{
+		"protocolVersion": "2025-11-25", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "test"},
+	})
+	if err := c.Write(init); err != nil {
+		t.Fatal(err)
+	}
+	if m, err := c.Read(); err != nil || m.Error != nil || !strings.Contains(string(m.Result), `"protocolVersion":"2025-11-25"`) {
+		t.Fatalf("initialize after probe: %+v %v", m, err)
+	}
+	_ = c.Close()
+	if strings.Contains(logs.String(), "server/discover") {
+		t.Errorf("probe audited: %s", logs.String())
+	}
+}
+
 func TestUnknownServerRejected(t *testing.T) {
 	r, _ := testRouter(t, 0)
 	cTest, cGw := net.Pipe()
@@ -591,9 +688,11 @@ func TestPolicyChangedNotifiesSessions(t *testing.T) {
 
 func TestSingleEndpointAdvertisesListChanged(t *testing.T) {
 	caps := withListChanged(map[string]json.RawMessage{
-		"tools":     json.RawMessage(`{}`),
-		"resources": json.RawMessage(`{"subscribe":true}`),
-		"logging":   json.RawMessage(`{}`),
+		"tools":        json.RawMessage(`{}`),
+		"resources":    json.RawMessage(`{"subscribe":true}`),
+		"logging":      json.RawMessage(`{}`),
+		"tasks":        json.RawMessage(`{"requests":{"tools":{"call":{}}}}`),
+		"experimental": json.RawMessage(`{"x":{}}`),
 	})
 	if string(caps["tools"]) != `{"listChanged":true}` || string(caps["resources"]) != `{"listChanged":true,"subscribe":true}` ||
 		string(caps["logging"]) != `{}` {
@@ -601,6 +700,23 @@ func TestSingleEndpointAdvertisesListChanged(t *testing.T) {
 	}
 	if _, ok := caps["prompts"]; ok {
 		t.Fatal("capability added that the backend does not have")
+	}
+	if _, ok := caps["tasks"]; ok {
+		t.Fatal("tasks passed on, which the gateway does not route")
+	}
+	if _, ok := caps["experimental"]; ok {
+		t.Fatal("experimental capabilities passed on")
+	}
+}
+
+// A client asking for a task gets a plain result; the backend never sees
+// the task request.
+func TestTaskRequestRunsSynchronously(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	c := connect(t, r, alice(), "fs", nil)
+	m := c.roundTrip(1, "tools/call", map[string]any{"name": "read_task", "task": map[string]any{"ttl": 60000}})
+	if text, isErr := toolText(t, m); isErr || text != "no task" {
+		t.Fatalf("got %q %v", text, isErr)
 	}
 }
 

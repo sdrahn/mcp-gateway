@@ -98,6 +98,7 @@ approval_timeout: 120s
 approvals:
   control_socket: /run/mcp-gateway/control.sock
   url_template: ""
+  progress_interval: 15s
 ```
 
 | Key | Default | Meaning |
@@ -105,6 +106,7 @@ approvals:
 | `approval_timeout` | `120s` | how long a call waits for a human decision before it is denied |
 | `approvals.control_socket` | `/run/mcp-gateway/control.sock` | control API for the Cockpit page, the desktop agent and scripts; `"-"` disables it, and with it the `url` and `oob` channels |
 | `approvals.url_template` | empty | the approval page sent to agents in URL-mode approvals, with `{id}` for the approval id, e.g. `https://gw.example.com:9090/mcp-gateway#/approvals/{id}`; empty disables the `url` channel (policy falls back to `oob`) |
+| `approvals.progress_interval` | `15s` | how often a call waiting for approval reports progress (`notifications/progress`) to an agent that asked for progress; at least `1s` (chapter 7) |
 
 Who may decide on approvals is policy (chapter 6), not configuration.
 

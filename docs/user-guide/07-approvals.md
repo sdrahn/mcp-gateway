@@ -15,6 +15,15 @@ long it counts, and how approvers learn that something is waiting.
    agent gets a tool error ("declined by user", "approval failed").
 4. The decision is audited (`mcp-approval`, also in the kernel audit log).
 
+While a call waits, an agent that asked for progress on it (a
+`progressToken`) gets a progress notification at once and then every
+`approvals.progress_interval` (15 s), with the message "Waiting for
+approval of *server*/*tool*". Agents give up on calls that stay silent:
+the TypeScript SDK after 60 s by default, unless progress arrives and
+the agent let progress extend the timeout. An agent that sends no
+`progressToken` gets nothing, and may give up before `approval_timeout`
+(120 s); chapter 5 lists how known clients behave.
+
 ## Channels
 
 | Channel | Where the decision is made | Trust | Requirements |
