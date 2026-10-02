@@ -5,7 +5,10 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.4.1 — 2026-10-02
+
+A fix of the command line's help. Upgrading from 0.4.0 needs no changes;
+restart the gateway when convenient.
 
 ### Fixed
 
