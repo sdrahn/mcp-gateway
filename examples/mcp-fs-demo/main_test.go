@@ -14,12 +14,8 @@ func TestStaysInsideRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(outside, "secret"), []byte("outside"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	root = t.TempDir()
-	var err error
-	if rootFS, err = os.OpenRoot(root); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = rootFS.Close() }()
+	root, rootFS = t.TempDir(), nil // opened on first use
+	defer func() { _ = rootFS.Close(); rootFS = nil }()
 	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
 		t.Fatal(err)
 	}

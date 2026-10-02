@@ -37,7 +37,7 @@ type rpcError struct {
 
 var (
 	root   string
-	rootFS *os.Root // all file operations go through it
+	rootFS *os.Root // all file operations go through it; see openRoot
 )
 
 func main() {
@@ -48,11 +48,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if rootFS, err = os.OpenRoot(root); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-
 	// A log line on stderr, which belongs in the journal, never on the
 	// MCP connection (the VM tests check where it ends up).
 	fmt.Fprintln(os.Stderr, "mcp-fs-demo: serving", root)
@@ -201,8 +196,25 @@ func resolve(p string) (string, error) {
 	return rel, nil
 }
 
+// openRoot opens the root on first use, not at start: a discovery
+// instance (which only lists tools) runs with a root it may not read.
+func openRoot() (*os.Root, error) {
+	if rootFS == nil {
+		r, err := os.OpenRoot(root)
+		if err != nil {
+			return nil, err
+		}
+		rootFS = r
+	}
+	return rootFS, nil
+}
+
 func readFile(name string) ([]byte, error) {
-	f, err := rootFS.Open(name)
+	rfs, err := openRoot()
+	if err != nil {
+		return nil, err
+	}
+	f, err := rfs.Open(name)
 	if err != nil {
 		return nil, err
 	}
@@ -215,9 +227,13 @@ func call(name string, args map[string]string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	rfs, err := openRoot()
+	if err != nil {
+		return "", err
+	}
 	switch name {
 	case "list_dir":
-		d, err := rootFS.Open(path)
+		d, err := rfs.Open(path)
 		if err != nil {
 			return "", err
 		}
@@ -235,7 +251,7 @@ func call(name string, args map[string]string) (string, error) {
 		b, err := readFile(path)
 		return string(b), err
 	case "write_file":
-		f, err := rootFS.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+		f, err := rfs.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 		if err != nil {
 			return "", err
 		}
@@ -248,7 +264,7 @@ func call(name string, args map[string]string) (string, error) {
 		}
 		return "wrote " + filepath.Join(root, path), nil
 	case "delete_file":
-		if err := rootFS.Remove(path); err != nil {
+		if err := rfs.Remove(path); err != nil {
 			return "", err
 		}
 		return "deleted " + filepath.Join(root, path), nil
