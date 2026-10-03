@@ -180,7 +180,7 @@ jobs:
       - name: Install and smoke-test
         run: |
           # opa is a runtime dependency only; not needed for this test.
-          rpm -ivh --nodeps ~/rpmbuild/RPMS/x86_64/mcp-gateway-[0-9]*.rpm ~/rpmbuild/RPMS/x86_64/mcp-gateway-demo-server-*.rpm
+          rpm -ivh --nodeps ~/rpmbuild/RPMS/x86_64/mcp-gateway-[0-9]*.rpm ~/rpmbuild/RPMS/x86_64/mcp-gateway-fs-server-*.rpm
           getent passwd mcp-gateway mcp-opa
           getent group mcp-users
           mcp-gateway --version

@@ -2,7 +2,7 @@
 # Runs the proof of concept in development mode as the current user:
 # OPA with the shipped policy and the PoC role data, and the gateway with
 # the exec supervisor (no systemd, no SELinux confinement) in front of
-# mcp-fs-demo operating on $HOME.
+# mcp-server-fs operating on $HOME.
 #
 # Usage: examples/poc/run-dev.sh [workdir]   (default: a new temp dir)
 set -eu
@@ -21,7 +21,7 @@ sed "s/\"users\": {}/\"users\": {\"$(id -un)\": [\"developer\"]}/" \
 
 cat >"$work/servers.d/fs.yaml" <<YAML
 name: fs
-command: ["$repo/bin/mcp-fs-demo", "--root", "\${HOME}"]
+command: ["$repo/bin/mcp-server-fs", "--root", "\${HOME}"]
 run_as: gateway
 YAML
 

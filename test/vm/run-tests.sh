@@ -3,7 +3,7 @@
 # SELinux enforcing: domains, MCS pairs, polkit, credentials, kernel audit
 # and no SELinux denials. Runs inside the VM as root (test/vm/run-vm.sh
 # copies it there), with, next to it:
-#   rpms/     mcp-gateway, mcp-gateway-selinux and mcp-gateway-demo-server
+#   rpms/     mcp-gateway, mcp-gateway-selinux and mcp-gateway-fs-server
 #   mcpcall   the test client (test/vm/mcpcall)
 #   opa       OPA binary, used if the distribution has no opa package
 #   privsrv   test server for privileged backends (test/vm/privsrv)
@@ -224,11 +224,11 @@ install -m 0755 "$dir/mcpcall" /usr/local/bin/mcpcall
 install -D -m 0755 "$dir/privsrv" /usr/libexec/mcpgw-privtest
 since=$(date +%s)
 rpm -Uvh --nodeps "$dir"/rpms/mcp-gateway-[0-9]*.rpm "$dir"/rpms/mcp-gateway-selinux-*.rpm \
-	"$dir"/rpms/mcp-gateway-demo-server-*.rpm || die "installing the packages failed"
+	"$dir"/rpms/mcp-gateway-fs-server-*.rpm || die "installing the packages failed"
 check "SELinux module mcp_gateway is loaded" bash -c 'semodule -l | grep -qx mcp_gateway'
 # Labels as the packages leave them (no restorecon): a wrong label here is
 # a packaging bug.
-for f in /usr/bin/mcp-gateway:mcpgw_exec_t /usr/libexec/mcp-servers/mcp-fs-demo:mcpsrv_fs_exec_t \
+for f in /usr/bin/mcp-gateway:mcpgw_exec_t /usr/libexec/mcp-servers/mcp-server-fs:mcpsrv_fs_exec_t \
 	/etc/mcp-gateway/credentials:mcpgw_cred_t /usr/etc/mcp-gateway/gateway.yaml:mcpgw_etc_t; do
 	echo "  $(file_label "${f%%:*}") ${f%%:*}"
 	check "${f%%:*} is labeled ${f##*:}" file_has_type "${f%%:*}" "${f##*:}"
@@ -296,10 +296,20 @@ check "alice cannot read bob's file" failed_without "bob secret"
 tool alice delete_file '{"path":"/home/alice/secret.txt"}'
 check "delete is denied by policy" tool_error_with "denied by policy"
 check "the file was not deleted" test -f /home/alice/secret.txt
-# The demo server logs a line to stderr at start: it belongs in the
+# The file server logs a line to stderr at start: it belongs in the
 # instance's journal, not on the MCP connection.
 check "a server's stderr goes to the journal" \
-	bash -c "journalctl -u 'mcp-fs-*' -o cat | grep -q 'mcp-fs-demo: serving'"
+	bash -c "journalctl -u 'mcp-fs-*' -o cat | grep -q 'mcp-server-fs: serving'"
+# The file server under SELinux and the sandbox: the last lines of a file,
+# and a symbolic link out of the home directory refused by the server
+# (the policy sees only the path).
+printf 'one\ntwo\nthree\n' >/home/alice/lines.txt && chown alice: /home/alice/lines.txt && restorecon /home/alice/lines.txt
+tool alice read_text_file '{"path":"/home/alice/lines.txt","tail":1}'
+check "read_text_file with tail" succeeded_with '"text":"three\n"'
+ln -sfn /etc /home/alice/etclink && restorecon /home/alice/etclink
+tool alice read_text_file '{"path":"/home/alice/etclink/os-release"}'
+check "a symbolic link out of the home directory is refused" tool_error_with "outside the allowed directories"
+rm -f /home/alice/etclink /home/alice/lines.txt
 check "no server output reached the gateway as invalid messages" \
 	bash -c "! journalctl -u mcp-gateway.service -o cat | grep -q 'invalid message from backend'"
 
@@ -705,12 +715,12 @@ check "doctor: every server's SELinux type is in the policy" doctor_says '^ok +S
 check "doctor: the servers' programs are labeled as the policy says" doctor_says '^ok +program labels: '
 # A program that lost its label (installed before its module): the doctor
 # names it and the fix.
-chcon -t bin_t /usr/libexec/mcp-servers/mcp-fs-demo
+chcon -t bin_t /usr/libexec/mcp-servers/mcp-server-fs
 mcp-gateway doctor --server fs --no-start >/root/doctor-label.txt 2>&1
 grep -A1 '^fail *program' /root/doctor-label.txt | sed 's/^/  /'
 check "doctor: names a program labeled bin_t, and restorecon" \
-	bash -c 'grep -qE "^fail +program fs: .* is labeled bin_t" /root/doctor-label.txt && grep -q "restorecon -v /usr/libexec/mcp-servers/mcp-fs-demo" /root/doctor-label.txt'
-restorecon /usr/libexec/mcp-servers/mcp-fs-demo
+	bash -c 'grep -qE "^fail +program fs: .* is labeled bin_t" /root/doctor-label.txt && grep -q "restorecon -v /usr/libexec/mcp-servers/mcp-server-fs" /root/doctor-label.txt'
+restorecon /usr/libexec/mcp-servers/mcp-server-fs
 no_type_warning() { ! journalctl -u mcp-gateway.service -o cat | grep -q 'not in the loaded SELinux policy'; }
 check "the gateway found every server's SELinux type" no_type_warning
 # A definition whose selinux_type has no module (as when a server

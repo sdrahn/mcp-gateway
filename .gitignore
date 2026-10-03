@@ -1,6 +1,6 @@
 /bin/
-# go build ./examples/mcp-fs-demo in the top directory writes it here.
-/mcp-fs-demo
+# go build ./cmd/mcp-server-fs in the top directory writes it here.
+/mcp-server-fs
 /selinux/tmp/
 /selinux/*.pp
 *.test

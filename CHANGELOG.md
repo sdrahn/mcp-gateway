@@ -28,6 +28,35 @@ minor release (with a warning) and removed in the next.
   rename yours to the package's file name (a file there replaces a
   package's only under the same file name) or remove it.
 
+### Changed
+
+- The demo server is now a full file server: `mcp-server-fs`, package
+  `mcp-gateway-fs-server`, which replaces `mcp-gateway-demo-server` on
+  update. It is still the server `fs` on the user's home directory, in
+  the domain `mcpsrv_fs_t`, defined in
+  `/usr/share/mcp-gateway/servers.d/fs-demo.yaml` (the same file name, so
+  that copies in `/etc/mcp-gateway/servers.d` still replace it); the
+  program `mcp-fs-demo` stays as a link to it until 0.6. It has the tools
+  of the reference filesystem server (`read_text_file`, `read_media_file`,
+  `read_multiple_files`, `list_directory`, `list_directory_with_sizes`,
+  `directory_tree`, `search_files`, `get_file_info`,
+  `list_allowed_directories`, `write_file`, `edit_file`,
+  `create_directory`, `move_file`) and `delete_file`, `read_file` and
+  `list_dir` as before; several `--root` directories, `--read-only`, and
+  limits on what one call reads, writes and lists. Files are replaced
+  atomically, long searches end when the client cancels them, and every
+  operation stays inside the directories also through symbolic links.
+- The shipped role data's `developer` role allows `search_files`,
+  `directory_tree` and `get_file_info`, and asks for approval for
+  `edit_file`, `create_directory` and `move_file` within the home, as for
+  `write_file`. Role data in `/etc` is not replaced on update: to give
+  existing roles these tools, add
+  `{"server": "fs", "tool": "search_files"}` and the like (chapter 4).
+  Roles allowing `read_*` and `list_*` now also allow
+  `read_text_file`, `read_media_file`, `read_multiple_files`,
+  `list_directory`, `list_directory_with_sizes` and
+  `list_allowed_directories`.
+
 ## v0.4.3 — 2026-10-02
 
 A setup for mcp-server-snapper, and an SELinux fix for definitions

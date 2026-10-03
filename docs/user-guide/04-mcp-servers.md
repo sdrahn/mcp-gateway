@@ -206,7 +206,7 @@ the same file name**; an empty file, or a symlink to `/dev/null`,
 disables it:
 
 ```bash
-# change the demo server
+# change the file server
 cp /usr/share/mcp-gateway/servers.d/fs-demo.yaml /etc/mcp-gateway/servers.d/
 $EDITOR /etc/mcp-gateway/servers.d/fs-demo.yaml
 
@@ -442,16 +442,58 @@ of the domain, see [SELinux domains](#selinux-domains-for-servers)).
 
 ### A file server on the user's home
 
+The package `mcp-gateway-fs-server` installs `mcp-server-fs` and
+registers it as the server `fs` on the connecting user's home directory
+(`/usr/share/mcp-gateway/servers.d/fs-demo.yaml`; the file keeps the name
+of the demo server's definition, so that a copy of it in
+`/etc/mcp-gateway/servers.d` still replaces it):
+
 ```yaml
 name: fs
-command: ["/usr/libexec/mcp-servers/mcp-fs", "--root", "${HOME}"]
+command: ["/usr/libexec/mcp-servers/mcp-server-fs", "--root", "${HOME}"]
 selinux_type: mcpsrv_fs_t          # may read and write user home content
 sandbox:
   protect_home: read-write
 ```
 
+Its tools have the names and arguments of the MCP project's reference
+filesystem server, which agents know:
+
+| Tool | Does |
+|---|---|
+| `read_text_file` | a text file, whole or its first (`head`) or last (`tail`) lines |
+| `read_media_file` | an image, audio or other binary file, base64 with its MIME type |
+| `read_multiple_files` | several text files; one that fails does not fail the others |
+| `list_directory`, `list_directory_with_sizes` | a directory's entries (`[DIR]`, `[FILE]`, `[LINK]`), with sizes |
+| `directory_tree` | the tree below a directory as JSON, without following links |
+| `search_files` | paths matching a glob: `*.go` at any depth, `src/**/*.go` relative to the start; `excludePatterns` |
+| `get_file_info` | type, size, permissions, times, MIME type |
+| `list_allowed_directories` | the directories the server works in |
+| `write_file` | creates or replaces a file, at once (temporary file renamed over it) |
+| `edit_file` | replaces text that occurs exactly once (`oldText` → `newText`); returns a diff, `dryRun` only shows it |
+| `create_directory` | a directory and its parents |
+| `move_file` | moves or renames within one directory tree; never replaces |
+| `delete_file` | a file or an empty directory |
+| `read_file`, `list_dir` | older names, kept for roles that name them |
+
+The last five change files; all tools carry MCP annotations (read-only,
+destructive), which `mcp-gateway inspect` uses for its draft roles.
+Options, for a copy of the definition in `/etc/mcp-gateway/servers.d`:
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--root DIR` | current directory | a directory the tools work in; repeatable; relative paths are relative to the first |
+| `--read-only` | off | offer only the reading tools |
+| `--max-read BYTES` | 10 MiB | what one call reads (summed over `read_multiple_files`); larger files are read with `head`/`tail` |
+| `--max-write BYTES` | 10 MiB | what one call writes |
+| `--max-entries N` | 10000 | entries a listing, tree or search returns |
+
 Policy decides what the principal may do within the home (for example:
-read freely, write only with approval, never delete; chapter 6).
+read freely, write only with approval, never delete; chapter 6). The
+shipped `developer` role allows the reading tools and asks for approval
+for `write_file`, `edit_file`, `create_directory` and `move_file` within
+the home; `delete_*` is denied. `move_file` names two paths, so its
+permission constrains both (`"args": {"source": …, "destination": …}`).
 
 Policy checks paths as strings and does not follow symbolic links
 (chapter 9). If you write or choose a file server, make sure it opens
@@ -460,7 +502,7 @@ lead to files policy did not allow: in Go with `os.OpenRoot` and the
 methods of `os.Root`, in C with `openat2(2)` and `RESOLVE_BENEATH`,
 in Python by opening relative to a directory descriptor and refusing
 links (`O_NOFOLLOW`) or by checking `os.path.realpath` of the opened
-file. `mcp-fs-demo` shows the Go way.
+file. `mcp-server-fs` shows the Go way.
 
 ### A server with network access and an API token
 
@@ -576,5 +618,5 @@ Notes:
 An MCP server package makes itself available by installing its definition
 to `/usr/share/mcp-gateway/servers.d/<name>.yaml` and, for a dedicated
 domain, a policy module. See `packaging/suse/README.md`, section
-"Packaging an MCP server for the gateway", and `packaging/demo/` for the
-demo server's package.
+"Packaging an MCP server for the gateway", and `packaging/fs-server/` for
+the file server's package.

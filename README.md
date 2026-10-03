@@ -31,14 +31,15 @@ see [docs/architecture.md](docs/architecture.md) for the design and
 | `cmd/mcp-gateway-notify` | desktop notifications for approvals (per-user agent) |
 | `internal/` | `transport` (unix socket, peer credentials, hello; Streamable HTTP), `authn` (peer credentials; OAuth/JWT), `router` (MCP proxy core), `pep` (OPA client, fail-closed evaluation), `broker` (approvals via form/URL/out-of-band, grants), `control` (approvals, grants, servers and policy status API on a unix socket), `supervisor` (systemd / exec launchers, MCS allocation), `notify` (approval mail), `notifyagent` (desktop notifications), `jsonrpc`, `audit`, `config`, `principal` |
 | `cockpit/` | Cockpit page (approvals and grants, servers and instances, role bindings, audit records) and its smoke test |
-| `examples/` | `mcp-fs-demo` (demo MCP server) and the PoC walkthrough |
-| `e2e/` | end-to-end tests: OPA + gateway + mcp-connect or an HTTPS client with a test IdP + demo servers |
+| `cmd/mcp-server-fs/` | the file server (package `mcp-gateway-fs-server`) |
+| `examples/` | the PoC walkthrough |
+| `e2e/` | end-to-end tests: OPA + gateway + mcp-connect or an HTTPS client with a test IdP + the file server |
 | `policy/` | default OPA policy bundle (`data.mcp.authz.decision`, `data.mcp.filter.visible`), RBAC data and tests |
 | `selinux/` | `mcp_gateway` SELinux policy module (domains, types, isolation invariants, PoC launch path) |
 | `systemd/` | `mcp-gateway.service`, `mcp-opa.service` |
 | `tools/` | `mcp-policy-bundle`: builds and signs a policy bundle |
 | `config/` | example `gateway.yaml` and backend definitions (`servers.d/`) |
-| `packaging/` | OBS package for openSUSE/SLES (`suse/`), `mcp-opa.service` drop-ins for signed bundles (`opa/`), sysusers.d, polkit rule, demo server definition |
+| `packaging/` | OBS package for openSUSE/SLES (`suse/`), `mcp-opa.service` drop-ins for signed bundles (`opa/`), sysusers.d, polkit rule, file server definition |
 | `docs/` | [user guide](docs/user-guide/README.md), [architecture](docs/architecture.md) |
 
 ## Development
@@ -49,7 +50,7 @@ files (`selinux-policy-devel` on openSUSE/SLES and Fedora,
 `selinux-policy-dev` on Debian/Ubuntu) plus `checkpolicy`.
 
 ```bash
-make build      # bin/mcp-gateway, bin/mcp-connect, bin/mcp-fs-demo
+make build      # bin/mcp-gateway, bin/mcp-connect, bin/mcp-gateway-notify, bin/mcp-server-fs
 make check      # gofmt/opa fmt, go vet, go test (incl. e2e if opa is found), opa check, opa test
 make lint       # golangci-lint
 make selinux    # selinux/mcp_gateway.pp

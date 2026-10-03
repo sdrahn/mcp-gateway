@@ -31,7 +31,7 @@ their own domains:
 | `mcpgw_t` | the gateway | read its configuration, write its state, serve its sockets, bind `mcp_port_t` and `mcp_metrics_port_t`, ask systemd over D-Bus to start `mcp-*` units, talk to OPA; mail with `mcpgw_can_send_mail` |
 | `mcpopa_t` | OPA | read the policy, serve its socket; network only with `mcpopa_can_network` |
 | `mcpsrv_generic_t` | MCP servers without `selinux_type` | stdio, libraries, `/etc`, syslog |
-| `mcpsrv_fs_t` | the demo file server | additionally user home content (read/write) |
+| `mcpsrv_fs_t` | the file server (`mcp-server-fs`) | additionally user home content (read/write) |
 | `mcpsrv_<name>_t` | your servers (chapter 4) | what the module grants |
 
 Isolation rules for every server domain: no access to the gateway's and
@@ -145,7 +145,7 @@ may change between the decision and the call). Confinement does the
 rest: SELinux and the sandbox limit what the server can reach at all,
 and a server that serves a directory should open paths beneath it so
 that links cannot lead out (Go's `os.Root`, Linux's `openat2` with
-`RESOLVE_BENEATH`; chapter 4). The demo server `mcp-fs-demo` does so.
+`RESOLVE_BENEATH`; chapter 4). The file server `mcp-server-fs` does so.
 Decision D13 in the architecture document has the reasoning.
 
 ## Revoked access and running calls
