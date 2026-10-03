@@ -207,6 +207,14 @@ func (u *upstream) detach(s *Session) {
 	}
 }
 
+// leave stops routing u's notifications to s, which moved to another
+// instance; progress of s's calls still running on u keeps reaching it.
+func (u *upstream) leave(s *Session) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	delete(u.sessions, s)
+}
+
 func (u *upstream) notify(method string, params any) error {
 	m := &jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: method}
 	if params != nil {

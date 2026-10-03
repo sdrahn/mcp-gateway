@@ -158,3 +158,37 @@ func TestGatewayStatus(t *testing.T) {
 		t.Errorf("%+v", r)
 	}
 }
+
+// A definition that does not load fails the configuration check, and the
+// other checks still run: the running gateway keeps its definitions.
+func TestDoctorBrokenDefinition(t *testing.T) {
+	dir := t.TempDir()
+	servers := filepath.Join(dir, "servers.d")
+	if err := os.MkdirAll(servers, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(servers, "web.yaml"), []byte("name: web\ncommand: [/opt/web]\nnetwrok: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "gateway.yaml")
+	if err := os.WriteFile(cfg, []byte("servers_dir: "+servers+"\nvendor_servers_dir: "+filepath.Join(dir, "none")+
+		"\napprovals:\n  control_socket: "+filepath.Join(dir, "control.sock")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	runDoctor([]string{"-config", cfg, "-policy-data", "", "-shipped-policy", "", "-no-start", "-json"}, &out, &errb)
+	var rs []doctor.Result
+	if err := json.Unmarshal(out.Bytes(), &rs); err != nil {
+		t.Fatalf("%v: %s", err, out.String())
+	}
+	got := map[string]doctor.Result{}
+	for _, r := range rs {
+		got[r.Check] = r
+	}
+	if r := got["configuration"]; r.Status != doctor.Fail || !strings.Contains(r.Summary, "netwrok") {
+		t.Errorf("configuration: %+v", r)
+	}
+	if _, ok := got["gateway status"]; !ok {
+		t.Errorf("the checks stopped after the configuration: %+v", rs)
+	}
+}

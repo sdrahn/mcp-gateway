@@ -776,7 +776,7 @@ rl_call() {
 rl_works() { rl_call && grep -qF "alice secret" <<<"$out"; }
 rl_journal_has() { journalctl -u mcp-gateway.service -o cat --since "@$rl_since" | grep -qF -- "$1"; }
 check "a new definition is picked up without a restart" eventually 40 rl_works
-check "the reload is audited" rl_journal_has '"op":"mcp-config-reload"'
+check "the reload is audited" rl_journal_has '"event":"mcp-config-reload"'
 
 printf 'netwrok: true\n' >>/etc/mcp-gateway/servers.d/fsreload.yaml
 check "a broken definition is reported" eventually 40 rl_journal_has 'server definitions not reloaded'
@@ -795,8 +795,21 @@ check "systemctl reload succeeds once it is fixed" systemctl reload mcp-gateway.
 check "the failed reload is no longer reported" \
 	eventually 10 sh -c "! curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/status | grep -q servers_error"
 
+# A changed definition: the next call runs on an instance of the new one.
+# (Each mcpcall is a session of its own, so no session holds the old
+# instance, which therefore stops at once.)
+rl_units() { systemctl list-units --type=service --state=running --plain --no-legend 'mcp-fsreload-*' | awk '{print $1}'; }
+rl_works
+rl_old=$(rl_units)
+printf 'env:\n  MCPGW_VMTEST: "2"\n' >>/etc/mcp-gateway/servers.d/fsreload.yaml
+check "systemctl reload applies a changed definition" systemctl reload mcp-gateway.service
+check "a call after the change works" eventually 20 rl_works
+rl_new=$(rl_units)
+echo "  instances before: ${rl_old:-none}; after: ${rl_new:-none}"
+check "the call after the change runs on a new instance" bash -c '[ -n "$1" ] && [ -n "$2" ] && [ "$1" != "$2" ]' _ "$rl_old" "$rl_new"
+
 rm -f /etc/mcp-gateway/servers.d/fsreload.yaml
-rl_gone() { ! rl_call && ! grep -qF "alice secret" <<<"$out"; } # refused as an unknown server
+rl_gone() { rl_call; [ "$rc" != 0 ] && ! grep -qF "alice secret" <<<"$out"; } # refused as an unknown server
 check "a removed definition is dropped" eventually 40 rl_gone
 rl_no_instance() { [ -z "$(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-fsreload-*')" ]; }
 check "the removed server's instances are stopped" eventually 10 rl_no_instance

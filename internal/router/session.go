@@ -70,8 +70,8 @@ type Session struct {
 	principal   principal.Principal
 	clientCaps  map[string]json.RawMessage
 	upstreams   map[string]*upstream
-	releases    []func()
-	logLevel    json.RawMessage // params of the client's last logging/setLevel
+	releases    map[string]func() // by server, for upstreams
+	logLevel    json.RawMessage   // params of the client's last logging/setLevel
 	outbound    map[string]chan *jsonrpc.Message
 	inflight    map[string]context.CancelFunc
 	annotations map[string]map[string]any // by exposed tool name
@@ -89,6 +89,7 @@ func newSession(r *Router, ep endpoint, client jsonrpc.MessageConn, p principal.
 		log:         r.Log.With("session", p.SessionID, "sub", p.Sub),
 		principal:   p,
 		upstreams:   map[string]*upstream{},
+		releases:    map[string]func(){},
 		outbound:    map[string]chan *jsonrpc.Message{},
 		inflight:    map[string]context.CancelFunc{},
 		annotations: map[string]map[string]any{},
@@ -112,7 +113,7 @@ func (s *Session) Run(ctx context.Context, first *jsonrpc.Message) error {
 		_ = s.client.Close()
 		s.mu.Lock()
 		ups, releases := s.upstreams, s.releases
-		s.upstreams, s.releases = map[string]*upstream{}, nil
+		s.upstreams, s.releases = map[string]*upstream{}, map[string]func(){}
 		s.mu.Unlock()
 		for _, u := range ups {
 			u.detach(s)
@@ -264,15 +265,29 @@ func (s *Session) clientRequest(m *jsonrpc.Message) {
 func rpcError(code int, msg string) *jsonrpc.Error { return &jsonrpc.Error{Code: code, Message: msg} }
 
 // upstream returns the session's instance of backend name, acquiring it
-// from the pool on first use.
+// from the pool on first use, and anew when the server's definition
+// changed (Router.SetBackends) since the session got it.
 func (s *Session) upstream(ctx context.Context, name string) (*upstream, error) {
+	for {
+		u, err := s.upstreamOnce(ctx, name)
+		if !errors.Is(err, errDefinitionChanged) {
+			return u, err
+		}
+	}
+}
+
+func (s *Session) upstreamOnce(ctx context.Context, name string) (*upstream, error) {
+	b := s.endpoint().backends[name]
 	s.mu.Lock()
 	u := s.upstreams[name]
 	s.mu.Unlock()
+	if u != nil && u.backend != b {
+		s.leave(name, u)
+		u = nil
+	}
 	if u != nil && !u.isClosed() {
 		return u, nil
 	}
-	b := s.endpoint().backends[name]
 	if b == nil {
 		return nil, fmt.Errorf("unknown server %q", name)
 	}
@@ -287,13 +302,19 @@ func (s *Session) upstream(ctx context.Context, name string) (*upstream, error) 
 		return nil, err
 	}
 	s.mu.Lock()
-	if cur := s.upstreams[name]; cur != nil && !cur.isClosed() {
+	if cur := s.upstreams[name]; cur != nil && !cur.isClosed() && cur.backend == b {
 		s.mu.Unlock()
 		release()
 		return cur, nil
 	}
+	if old := s.releases[name]; old != nil {
+		defer old() // a closed instance, or one of an older definition
+	}
+	if cur := s.upstreams[name]; cur != nil {
+		defer cur.leave(s)
+	}
 	s.upstreams[name] = u
-	s.releases = append(s.releases, release)
+	s.releases[name] = release
 	level := s.logLevel
 	s.mu.Unlock()
 	u.attach(s)
@@ -301,6 +322,26 @@ func (s *Session) upstream(ctx context.Context, name string) (*upstream, error) 
 		_, _ = u.request(ctx, s, "logging/setLevel", level)
 	}
 	return u, nil
+}
+
+// leave lets go of the session's instance u of backend name, whose
+// definition changed: the pool stops it when no session uses it and no
+// call is in flight on it. Calls of this session still running on it
+// are answered as usual.
+func (s *Session) leave(name string, u *upstream) {
+	s.mu.Lock()
+	if s.upstreams[name] != u {
+		s.mu.Unlock()
+		return
+	}
+	delete(s.upstreams, name)
+	release := s.releases[name]
+	delete(s.releases, name)
+	s.mu.Unlock()
+	u.leave(s)
+	if release != nil {
+		release()
+	}
 }
 
 // --- initialize ---------------------------------------------------------

@@ -30,12 +30,12 @@ mcp-gateway.service`; sessions stay open:
 
 - a new server appears in the sessions' lists (clients are sent
   `notifications/tools/list_changed`);
-- a changed server's running instances are stopped, so that the next
-  call starts one from the new definition (a definition may take a
-  permission away); a call to a privileged server that is running is
-  waited for;
-- a removed server's instances are stopped, and calls to it fail as for
-  an unknown server.
+- a changed server: each session's next call to it starts an instance
+  from the new definition. The old instance keeps running until no
+  session uses it any more and no call on it is running, so calls in
+  progress finish and sessions move over one by one;
+- a removed server's instances stop once their running calls are
+  answered, and calls to it fail as for an unknown server.
 
 A reload loads and validates all definitions before it changes anything.
 If a file does not parse or validate, two files name the same server, or

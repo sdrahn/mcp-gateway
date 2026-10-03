@@ -174,7 +174,11 @@ func (d *doctorRun) configuration(path string) doctor.Result {
 	}
 	backends, err := config.LoadBackends(gw.VendorServersDir, gw.ServersDir)
 	if err != nil {
+		// The running gateway keeps the definitions it had (it reports
+		// that as its status); the other checks go on without servers.
+		d.gw, d.backends = gw, map[string]*config.Backend{}
 		r.Status, r.Summary = doctor.Fail, "server definitions: "+err.Error()
+		r.Details = []string{"a running gateway keeps serving the definitions it loaded before; fix the file, and it reloads by itself"}
 		return r
 	}
 	d.gw, d.backends = gw, backends

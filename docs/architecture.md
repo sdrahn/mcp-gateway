@@ -1662,10 +1662,11 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       `policy.watch_interval`) and on `systemctl reload` (SIGHUP), so
       that a setup package installed or updated with the gateway
       running takes effect without a restart: new and changed servers
-      start their next instances from the new definition (running
-      instances of changed and removed servers are stopped, since a
-      definition may take a permission away; a running privileged call
-      is waited for), and clients get `notifications/tools/list_changed`.
+      start their next instances from the new definition (a session's
+      next call moves it to an instance of the new definition; the old
+      instance runs until no session uses it and no call on it is
+      running; instances of removed servers stop once their calls are
+      answered), and clients get `notifications/tools/list_changed`.
       A reload never stops or crashes the gateway: the new definitions
       are loaded and validated completely before they replace the old
       ones, and anything that goes wrong (a file that does not parse or

@@ -155,6 +155,7 @@ func (r *Router) init() {
 		}
 		r.pool.maxTotal = r.MaxInstances
 		r.pool.onListChanged = r.listChanged
+		r.pool.current = func(server string) *config.Backend { return (*r.registry.Load())[server] }
 		r.limiter = pep.NewLimiter()
 	})
 }

@@ -46,9 +46,7 @@ func TestSetBackends(t *testing.T) {
 	}
 
 	// The removed server's instance stops now.
-	select {
-	case <-tmpInst.closed:
-	case <-time.After(5 * time.Second):
+	if !isClosed(tmpInst.closed, 5*time.Second) {
 		t.Fatal("instance of the removed server still runs")
 	}
 	if m := tmp.roundTrip(3, "tools/call", map[string]any{"name": "read_file"}); m.Error == nil {
@@ -61,27 +59,31 @@ func TestSetBackends(t *testing.T) {
 		t.Fatalf("tools = %v", got)
 	}
 
-	// The unchanged server keeps its instance; the changed one gets a new
-	// instance from its new definition.
+	// The unchanged server keeps its instance.
 	agg.roundTrip(4, "tools/call", map[string]any{"name": "fs__read_file"})
 	if n := len(l.started("fs")); n != 1 {
 		t.Fatalf("fs started %d times", n)
 	}
-	select {
-	case <-fs.closed:
+	if isClosed(fs.closed, 50*time.Millisecond) {
 		t.Fatal("instance of an unchanged server stopped")
-	default:
 	}
-	select {
-	case <-git.closed:
-	case <-time.After(5 * time.Second):
-		t.Fatal("instance of the changed server still runs")
+	// The changed server's instance runs until the session's next call,
+	// which starts an instance from the new definition.
+	if isClosed(git.closed, 50*time.Millisecond) {
+		t.Fatal("instance of the changed server stopped before the session's next call")
 	}
 	if text, _ := toolText(t, single.roundTrip(4, "tools/call", map[string]any{"name": "read_file"})); text != "git did read_file" {
 		t.Fatalf("got %q", text)
 	}
 	if n := len(l.started("git")); n != 2 {
 		t.Fatalf("git started %d times", n)
+	}
+	if !isClosed(git.closed, 5*time.Second) {
+		t.Fatal("old instance of the changed server still runs after the session moved")
+	}
+	if text, _ := toolText(t, single.roundTrip(5, "tools/call", map[string]any{"name": "read_file"})); text != "git did read_file" ||
+		len(l.started("git")) != 2 {
+		t.Fatalf("got %q, %d starts", text, len(l.started("git")))
 	}
 
 	// New sessions see the new set.

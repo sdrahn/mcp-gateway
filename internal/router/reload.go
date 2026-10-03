@@ -32,11 +32,12 @@ func (c BackendChanges) Empty() bool {
 
 // SetBackends puts new server definitions in force, validated by the
 // caller (config.LoadBackends). Sessions see the new set at once: servers
-// added appear, removed ones disappear. Instances of removed and changed
-// servers stop (a definition may take a permission away), so that the
-// next call starts one from the new definition, and their cached
-// discovery lists are fetched anew. Every session is told that its lists
-// changed.
+// added appear, removed ones disappear. A session's next call to a
+// changed server starts an instance from the new definition; the old
+// instance runs until no session uses it and no call is in flight on
+// it. Instances of removed servers stop once their calls in flight are
+// answered. Cached discovery lists of both are fetched anew. Every
+// session is told that its lists changed.
 func (r *Router) SetBackends(next map[string]*config.Backend) BackendChanges {
 	r.init()
 	r.reloadMu.Lock()
@@ -85,8 +86,12 @@ func (r *Router) SetBackends(next map[string]*config.Backend) BackendChanges {
 		}
 		s.ep.Store(&nep)
 	}
-	for _, name := range slices.Concat(ch.Removed, ch.Changed) {
-		r.pool.retire(name)
+	for _, name := range ch.Removed {
+		r.pool.retire(name, true)
+		r.forgetDiscovery(name)
+	}
+	for _, name := range ch.Changed {
+		r.pool.retire(name, false)
 		r.forgetDiscovery(name)
 	}
 	r.Log.Info("server definitions changed; notifying sessions", "added", ch.Added, "changed", ch.Changed,

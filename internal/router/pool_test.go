@@ -319,27 +319,56 @@ func TestCloseAllDrainTimeout(t *testing.T) {
 func TestRetire(t *testing.T) {
 	p, l, _ := testPool(t, time.Hour)
 	fs := &config.Backend{Name: "fs", Isolation: config.IsolationPrincipal}
+	git := &config.Backend{Name: "git", Isolation: config.IsolationPrincipal}
 	zypp := &config.Backend{Name: "zypp", Isolation: config.IsolationPrincipal, Privileged: true}
-	if _, _, err := p.acquire(context.Background(), fs, alice()); err != nil { // held by a session
-		t.Fatal(err)
-	}
-	u, _, err := p.acquire(context.Background(), zypp, alice())
+
+	// A changed server: the instance a session holds keeps running until
+	// the session lets go of it and its calls are answered; new acquires
+	// get a new instance.
+	u, release, err := p.acquire(context.Background(), fs, alice())
 	if err != nil {
 		t.Fatal(err)
 	}
-	startCommit(t, u)
-
-	if n := p.retire("fs"); n != 1 {
+	if n := p.retire("fs", false); n != 1 {
 		t.Fatalf("retired %d", n)
 	}
-	if !isClosed(l.started("fs")[0].closed, time.Second) {
-		t.Fatal("instance in use not stopped")
+	old := l.started("fs")[0]
+	if isClosed(old.closed, 50*time.Millisecond) {
+		t.Fatal("instance in use stopped")
 	}
 	if _, _, err := p.acquire(context.Background(), fs, alice()); err != nil || len(l.started("fs")) != 2 {
 		t.Fatalf("no new instance: %v", err)
 	}
+	startCommit(t, u)
+	release()
+	if isClosed(old.closed, 50*time.Millisecond) {
+		t.Fatal("instance stopped while a call runs")
+	}
+	close(old.commit)
+	if !isClosed(old.closed, time.Second) {
+		t.Fatal("instance not stopped after its last session and call")
+	}
+	if isClosed(l.started("fs")[1].closed, 50*time.Millisecond) {
+		t.Fatal("the new instance stopped")
+	}
 
-	if n := p.retire("zypp"); n != 1 {
+	// A removed server: its instances stop although sessions hold them,
+	// once their calls are answered.
+	if _, _, err := p.acquire(context.Background(), git, alice()); err != nil {
+		t.Fatal(err)
+	}
+	if n := p.retire("git", true); n != 1 {
+		t.Fatalf("retired %d", n)
+	}
+	if !isClosed(l.started("git")[0].closed, time.Second) {
+		t.Fatal("instance of a removed server not stopped")
+	}
+	z, _, err := p.acquire(context.Background(), zypp, alice())
+	if err != nil {
+		t.Fatal(err)
+	}
+	startCommit(t, z)
+	if n := p.retire("zypp", true); n != 1 {
 		t.Fatalf("retired %d", n)
 	}
 	fi := l.started("zypp")[0]
@@ -349,5 +378,74 @@ func TestRetire(t *testing.T) {
 	close(fi.commit)
 	if !isClosed(fi.closed, time.Second) {
 		t.Fatal("privileged instance not stopped after the call ended")
+	}
+}
+
+// An acquire with a definition SetBackends replaced fails, so the caller
+// tries again with the current one; an entry started from an older
+// definition is retired instead of joined.
+func TestAcquireStaleDefinition(t *testing.T) {
+	p, l, _ := testPool(t, time.Hour)
+	old := &config.Backend{Name: "fs", Isolation: config.IsolationPrincipal}
+	cur := &config.Backend{Name: "fs", Isolation: config.IsolationPrincipal, Network: true}
+	current := old
+	p.current = func(string) *config.Backend { return current }
+	if _, release, err := p.acquire(context.Background(), old, alice()); err != nil {
+		t.Fatal(err)
+	} else {
+		release()
+	}
+	current = cur
+	if _, _, err := p.acquire(context.Background(), old, alice()); !errors.Is(err, errDefinitionChanged) {
+		t.Fatalf("stale definition: %v", err)
+	}
+	u, _, err := p.acquire(context.Background(), cur, alice())
+	if err != nil || u.backend != cur || len(l.started("fs")) != 2 {
+		t.Fatalf("%v, %d starts", err, len(l.started("fs")))
+	}
+	if !isClosed(l.started("fs")[0].closed, time.Second) {
+		t.Fatal("instance of the older definition not stopped")
+	}
+}
+
+// Retired instances that still run are listed, can be stopped, count
+// against the limits and are stopped with the others.
+func TestRetiredInstancesTracked(t *testing.T) {
+	p, l, _ := testPool(t, time.Hour)
+	p.maxPerPrincipal = 2
+	fs := &config.Backend{Name: "fs", Isolation: config.IsolationPrincipal}
+	git := &config.Backend{Name: "git", Isolation: config.IsolationPrincipal}
+	if _, _, err := p.acquire(context.Background(), fs, alice()); err != nil {
+		t.Fatal(err)
+	}
+	p.retire("fs", false)
+	infos := p.list()
+	if len(infos) != 1 || infos[0].Server != "fs" {
+		t.Fatalf("instances %+v", infos)
+	}
+	if _, _, err := p.acquire(context.Background(), fs, alice()); err != nil {
+		t.Fatal(err)
+	}
+	var limit *LimitError
+	if _, _, err := p.acquire(context.Background(), git, alice()); !errors.As(err, &limit) {
+		t.Fatalf("the retired instance does not count: %v", err)
+	}
+	if !p.stop(infos[0].ID) || !isClosed(l.started("fs")[0].closed, time.Second) {
+		t.Fatal("retired instance not stopped on request")
+	}
+	p.mu.Lock()
+	for len(p.retired) > 0 { // until the pool noticed the exit
+		p.mu.Unlock()
+		time.Sleep(time.Millisecond)
+		p.mu.Lock()
+	}
+	p.mu.Unlock()
+	if _, _, err := p.acquire(context.Background(), git, alice()); err != nil {
+		t.Fatal(err)
+	}
+	p.retire("git", false)
+	p.closeAll()
+	if !isClosed(l.started("git")[0].closed, time.Second) {
+		t.Fatal("closeAll left a retired instance running")
 	}
 }

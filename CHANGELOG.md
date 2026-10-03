@@ -13,9 +13,10 @@ minor release (with a warning) and removed in the next.
   in `servers.d` (either one) changes, and on `systemctl reload
   mcp-gateway.service`. Setup packages installed or updated with the
   gateway running take effect without a restart, and sessions stay open.
-  Instances of changed and removed servers are stopped (a running
-  privileged call is waited for); clients are told that the lists
-  changed. A definition that does not load changes nothing: the gateway
+  A session's next call to a changed server starts an instance from the
+  new definition; the old instance runs until no session uses it and no
+  call on it is running. Instances of removed servers stop once their
+  calls are answered. Clients are told that the lists changed. A definition that does not load changes nothing: the gateway
   serves the previous definitions, logs and audits the error
   (`mcp-config-reload`), and the doctor warns until a reload succeeds
   (`servers_error` in `GET /v1/status`). `systemctl reload` checks the
