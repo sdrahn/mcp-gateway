@@ -236,9 +236,10 @@ over the system bus: `list_configs`, `get_config`, `list_snapshots`,
 
 `suseconnect-mcp` registers the system with SCC (or an RMT server) and
 shows its registration. It refuses to run without root, talks to SCC,
-counts the calls of each tool in `/var/lib/suseconnect-mcp`, and writes the system
-credentials, even for the status, because SCC may hand out a new system
-token with any request:
+counts the calls of each tool in `/var/lib/suseconnect-mcp`, caches the
+ids of the system profiles it uploads in `/run/suseconnect`, and writes
+the system credentials, even for the status, because SCC may hand out a
+new system token with any request:
 
 ```yaml
 # /etc/mcp-gateway/servers.d/suseconnect.yaml
