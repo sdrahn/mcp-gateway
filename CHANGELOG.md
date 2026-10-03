@@ -29,6 +29,14 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
+- `mcp-gateway-admin doctor` names the server's version and account
+  when roles name tools a server does not offer, and the usual causes: a
+  server not running as root hides the tools only root can use (zypp's
+  `confirm_install` and `confirm_remove`, for the role `zypp-installer`),
+  and another server version names its tools differently. The zypp setup
+  recommends `mcp-server-zypp` 0.1.1 or later: its roles name the tools
+  of those versions, and 0.1.0 had `install_package` and `remove_package`
+  instead of `plan_*` and `confirm_*`.
 - The metric `mcp_gateway_limit_refusals_total` (0.4) was counted but
   never served on `/v1/metrics` or `metrics.listen`.
 - The user guide (chapter 11) named `mcp-gateway-admin inspect` where it
