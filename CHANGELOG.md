@@ -11,6 +11,15 @@ A metrics fix. Upgrading from 0.7.0 needs no changes; restart the
 gateway after the update (`systemctl restart mcp-gateway.service`) to
 serve the metric.
 
+### Changed
+
+- `mcp-gateway-admin doctor` (and the `gateway-admin` tools `doctor` and
+  `selinux_denials`) count SELinux denials only since the current boot,
+  within `--since`. Denials from before a reboot came from the policy and
+  labels of then; on transactional systems, where a module installed
+  with its packages takes effect at the next boot, they reported problems
+  already gone. `--previous-boots` counts them too.
+
 ### Fixed
 
 - The SELinux module of the suseconnect setup (`mcp_suseconnect`) let

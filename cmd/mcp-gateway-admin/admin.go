@@ -148,7 +148,7 @@ var adminTools = []map[string]any{
 			"Servers are not started and OPA is not asked (run mcp-gateway-admin doctor as root for those).",
 		map[string]any{
 			"server": map[string]any{"type": "string", "description": "check only this server"},
-			"since":  map[string]any{"type": "string", "description": "how far back to look for SELinux denials, e.g. 24h (default) or 30m"},
+			"since":  map[string]any{"type": "string", "description": "how far back to look for SELinux denials within the current boot, e.g. 24h (default) or 30m"},
 		}),
 	adminTool("check_config", "Check the configuration",
 		"Whether gateway.yaml, the server definitions and the role data are valid, with deprecation warnings.", nil),
@@ -177,7 +177,7 @@ var adminTools = []map[string]any{
 		}),
 	adminTool("selinux_denials", "SELinux denials",
 		"SELinux denials for the gateway, OPA and the servers (from the audit log), with what usually fixes them.",
-		map[string]any{"since": map[string]any{"type": "string", "description": "how far back, e.g. 24h (default)"}}),
+		map[string]any{"since": map[string]any{"type": "string", "description": "how far back within the current boot, e.g. 24h (default)"}}),
 }
 
 // toolError is a tool result reporting a failure to the model.

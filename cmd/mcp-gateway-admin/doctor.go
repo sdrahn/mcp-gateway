@@ -59,7 +59,8 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	shipped := fs.String("shipped-policy", policydata.DefaultShippedDir, "shipped policy with the roles of the server setups")
 	only := fs.String("server", "", "check only this server (start, roles)")
 	noStart := fs.Bool("no-start", false, "do not start the servers")
-	since := fs.Duration("since", 24*time.Hour, "how far back to look for SELinux denials")
+	since := fs.Duration("since", 24*time.Hour, "how far back to look for SELinux denials (within the current boot)")
+	previousBoots := fs.Bool("previous-boots", false, "with -since, also count SELinux denials from before the current boot")
 	timeout := fs.Duration("timeout", 30*time.Second, "how long to wait for each server")
 	asJSON := fs.Bool("json", false, "print the results as JSON")
 	if err := fs.Parse(args); err != nil {
@@ -79,6 +80,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 		only:       *only,
 		noStart:    *noStart,
 		since:      *since,
+		allBoots:   *previousBoots,
 		timeout:    *timeout,
 		log:        slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelError})),
 	}
@@ -106,7 +108,9 @@ type doctorRun struct {
 	only                string
 	noStart             bool
 	since, timeout      time.Duration
-	log                 *slog.Logger
+	// allBoots counts denials from before the current boot too.
+	allBoots bool
+	log      *slog.Logger
 
 	gw       *config.Gateway
 	backends map[string]*config.Backend
@@ -434,9 +438,39 @@ func (d *doctorRun) selinux() []doctor.Result {
 	if err != nil {
 		return []doctor.Result{{Check: "SELinux", Status: doctor.Skip, Summary: "reading the audit log: " + err.Error()}}
 	}
-	from := time.Now().Add(-d.since)
+	from, label := denialWindow(time.Now(), d.since, bootTime(), d.allBoots)
 	denials, errs := profile.Parse(raw, from)
-	return doctor.Denials(denials, errs, from.Format(time.DateTime))
+	return doctor.Denials(denials, errs, label)
+}
+
+// denialWindow returns since when denials count, and how to name that:
+// since ago, but not before the current boot (unless allBoots). Denials
+// from before a reboot were made by the policy and labels of then; on
+// transactional systems, a module installed with the packages takes
+// effect at the next boot, so those denials are expected and gone.
+func denialWindow(now time.Time, since time.Duration, boot time.Time, allBoots bool) (time.Time, string) {
+	from := now.Add(-since)
+	if !allBoots && boot.After(from) {
+		return boot, boot.Format(time.DateTime) + " (the current boot; -previous-boots for earlier ones)"
+	}
+	return from, from.Format(time.DateTime)
+}
+
+// bootTime is when the system booted (btime in /proc/stat), or the zero
+// time if unknown.
+func bootTime() time.Time {
+	data, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return time.Time{}
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if v, ok := strings.CutPrefix(line, "btime "); ok {
+			if s, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil {
+				return time.Unix(s, 0)
+			}
+		}
+	}
+	return time.Time{}
 }
 
 // principals finds members of the socket group without a role.
