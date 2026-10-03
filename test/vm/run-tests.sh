@@ -312,10 +312,18 @@ check "a symbolic link out of the home directory is refused" tool_error_with "ou
 rm -f /home/alice/etclink /home/alice/lines.txt
 # A read-only file system (as / and /usr on a transactional system), here
 # a read-only bind mount in the home directory: the server says why the
-# write fails and that transactional-update changes such a system.
+# write fails and that transactional-update changes such a system. The
+# running instance has its own mount namespace, into which the bind mount
+# propagates but not its remount read-only: a new instance sees it.
 mkdir -p /home/alice/rodir && chown alice: /home/alice/rodir && restorecon /home/alice/rodir &&
 	mount --bind /home/alice/rodir /home/alice/rodir && mount -o remount,bind,ro /home/alice/rodir
-tool alice write_file '{"path":"/home/alice/rodir/x","content":"x"}'
+ro_pid=$(instance_pid alice)
+[ -n "$ro_pid" ] && systemctl stop "$(ps -o unit= -p "$ro_pid" | tr -d ' ')"
+for _ in $(seq 15); do
+	tool alice write_file '{"path":"/home/alice/rodir/x","content":"x"}'
+	[ "$rc" = 0 ] || tool_error_with "read-only" && break
+	sleep 2
+done
 check "a write on a read-only file system says so" tool_error_with "read-only file system (on a transactional system"
 umount /home/alice/rodir; rmdir /home/alice/rodir
 check "no server output reached the gateway as invalid messages" \
