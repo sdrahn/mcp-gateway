@@ -20,6 +20,7 @@ var commands = []command{
 	{"profile", "run a registered server in a permissive SELinux domain and draft its policy module", runProfile},
 	{"review", "scan an MCP server's source for what it does to the system", runReview},
 	{"doctor", "check the installation: services, policy, servers, SELinux, polkit, principals", runDoctor},
+	{"admin-server", "the MCP server gateway-admin: the doctor, configuration and decisions for agents", runAdminServer},
 }
 
 func findCommand(name string) *command {
@@ -41,7 +42,7 @@ func usage(w io.Writer, fs *flag.FlagSet) {
 Commands:
 `)
 	for _, c := range commands {
-		_, _ = fmt.Fprintf(w, "  %-9s %s\n", c.name, c.summary)
+		_, _ = fmt.Fprintf(w, "  %-13s %s\n", c.name, c.summary)
 	}
 	_, _ = fmt.Fprint(w, `
 "mcp-gateway COMMAND -h" shows a command's options. Related programs:

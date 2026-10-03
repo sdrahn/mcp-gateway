@@ -249,8 +249,38 @@ It runs as a throwaway user in the domain `mcpsrv_docs_t`, which reads
 `/etc/mcp-gateway/servers.d/gateway-docs.yaml` disables it.
 
 The documentation tells an agent how things should be, not how they are
-on this machine; give it the output of `mcp-gateway doctor` and the
-journal lines to go with it.
+on this machine. For that there is the server `gateway-admin`, which the
+main package installs: the gateway's diagnostics as tools.
+
+| Tool | What it returns | With the role `gateway-admin` |
+|---|---|---|
+| `doctor` | the checks of `mcp-gateway doctor` (above), without starting servers and without asking OPA | allowed |
+| `check_config` | whether `gateway.yaml`, the server definitions and the role data are valid | allowed |
+| `explain_decision` | what the policy decides when a user calls a tool, with the user's roles and the permissions that match | approval |
+| `show_config` | the configuration files, values of keys that look like secrets (`token`, `secret`, `password`, `private`, `api_key`) masked | approval |
+| `recent_audit` | the gateway's audit records from its journal, filtered by user, server and effect | approval |
+| `selinux_denials` | SELinux denials for the gateway and its servers | approval |
+
+The shipped role `gateway-admin` grants these; the `admin` role, which
+allows everything, includes them without approval. Bind it to the
+administrators who debug the gateway with an agent:
+
+```json
+"bindings": {"users": {"alice": ["gateway-admin", "gateway-docs-reader"]}}
+```
+
+Nothing in it changes the system; the agent suggests the changes, you
+make them. It runs as root, which the audit log and some of the doctor's
+checks need, but in the sandbox without capabilities and in the domain
+`mcpsrv_admin_t`, which only reads: the configuration, the state
+directory, the journal, the audit log, file labels. Like every server it
+cannot reach the gateway's sockets or OPA, so the `doctor` tool skips
+what needs them (run `mcp-gateway doctor` as root for those), and
+`explain_decision` evaluates the policy files with `opa eval` as
+`mcp-opa.service` loads them: with signed policy bundles, the active
+policy is the bundle's. It does not see approvals already given.
+
+An empty `/etc/mcp-gateway/servers.d/gateway-admin.yaml` disables it.
 
 ### The agent cannot connect
 

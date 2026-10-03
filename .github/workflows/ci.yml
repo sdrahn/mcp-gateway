@@ -186,7 +186,8 @@ jobs:
           mcp-gateway --version
           mcp-gateway --check 2>&1 | tee /tmp/check.log
           grep -q 'config=/usr/etc/mcp-gateway/gateway.yaml' /tmp/check.log
-          grep -q 'backends=2' /tmp/check.log
+          grep -q 'backends=3' /tmp/check.log
+          test -f /usr/share/mcp-gateway/policy/mcp/profiles/gateway-admin/data.json
           test -f /usr/share/mcp-gateway/docs/user-guide/10-operations.md
           test -f /usr/share/mcp-gateway/policy/mcp/approvals.rego
           test -f /usr/share/mcp-gateway/policy/mcp/log.rego
@@ -204,7 +205,7 @@ jobs:
           getent passwd mcp-snapper
           id -nG mcp-sysmgmt | grep -qw systemd-journal
           mcp-gateway --check 2>&1 | tee /tmp/check.log
-          grep -q 'backends=7' /tmp/check.log
+          grep -q 'backends=8' /tmp/check.log
           test -f /usr/share/polkit-1/rules.d/60-mcp-gateway-systemd.rules
           test -f /usr/share/mcp-gateway/profiles/zypp-privileged.yaml
           test -f /usr/share/mcp-gateway/profiles/snapper-privileged.yaml

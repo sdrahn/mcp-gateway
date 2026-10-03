@@ -20,6 +20,8 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sdrahn/mcp-gateway/internal/mcpserver"
 )
 
 // fileServer holds the allowed directories and limits.
@@ -213,7 +215,7 @@ func (s *fileServer) toolList() []map[string]any {
 func (s *fileServer) call(ctx context.Context, name string, args json.RawMessage) (any, error) {
 	t, ok := s.find(name)
 	if !ok {
-		return nil, &rpcError{codeInvalidParams, "unknown tool " + strconv.Quote(name)}
+		return nil, &mcpserver.Error{Code: mcpserver.CodeInvalidParams, Message: "unknown tool " + strconv.Quote(name)}
 	}
 	if len(args) == 0 || string(args) == "null" {
 		args = json.RawMessage("{}")
@@ -1001,7 +1003,7 @@ func (s *fileServer) resourceList(cursor string) (any, error) {
 	if cursor != "" {
 		n, err := strconv.Atoi(cursor)
 		if err != nil || n < 0 {
-			return nil, &rpcError{codeInvalidParams, "invalid cursor"}
+			return nil, &mcpserver.Error{Code: mcpserver.CodeInvalidParams, Message: "invalid cursor"}
 		}
 		start = n
 	}
@@ -1055,15 +1057,15 @@ func (s *fileServer) resourceTemplates() []map[string]any {
 
 func (s *fileServer) readResource(uri string) (any, error) {
 	if !strings.HasPrefix(uri, "file://") {
-		return nil, &rpcError{codeNoResource, "resource not found"}
+		return nil, &mcpserver.Error{Code: mcpserver.CodeNoResource, Message: "resource not found"}
 	}
 	t, err := s.resolve(strings.TrimPrefix(uri, "file://"))
 	if err != nil {
-		return nil, &rpcError{codeNoResource, "resource not found"}
+		return nil, &mcpserver.Error{Code: mcpserver.CodeNoResource, Message: "resource not found"}
 	}
 	b, err := s.readBytes(t)
 	if err != nil {
-		return nil, &rpcError{codeNoResource, "resource not found: " + err.Error()}
+		return nil, &mcpserver.Error{Code: mcpserver.CodeNoResource, Message: "resource not found: " + err.Error()}
 	}
 	mt := mimeType(t.rel, b)
 	c := map[string]any{"uri": uri, "mimeType": mt}

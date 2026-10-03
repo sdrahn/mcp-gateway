@@ -284,6 +284,8 @@ fi
 %{_datadir}/mcp-gateway/mcs
 %{_datadir}/mcp-gateway/schema
 %{_datadir}/mcp-gateway/docs
+%{_datadir}/mcp-gateway/servers.d/gateway-admin.yaml
+%{_datadir}/mcp-gateway/policy/mcp/profiles/gateway-admin
 %{_unitdir}/mcp-gateway.service
 %{_unitdir}/mcp-opa.service
 %{_sysusersdir}/%{name}.conf
