@@ -31,14 +31,14 @@ SELINUXDIR  ?= $(DATADIR)/selinux/packages/$(SELINUXTYPE)
 SELINUXINCDIR ?= $(DATADIR)/selinux/devel/include/services
 DESTDIR     ?=
 
-BINARIES := bin/mcp-gateway bin/mcp-connect bin/mcp-gateway-notify bin/mcp-server-fs
+BINARIES := bin/mcp-gateway bin/mcp-connect bin/mcp-gateway-notify bin/mcp-server-fs bin/mcp-server-exec
 
 # Server setups (profiles/<name>, SELinux module selinux/mcp_<name>.te),
 # packaged as mcp-gateway-profile-<name>.
 PROFILES := systemd firewalld zypp suseconnect snapper
 
 .PHONY: all build test vet lint fmt-check policy-check policy-test selinux check \
-	install install-gateway install-selinux install-cockpit install-desktop install-fs-server install-demo \
+	install install-gateway install-selinux install-cockpit install-desktop install-fs-server install-demo install-exec-server \
 	install-profiles clean
 
 all: build
@@ -169,6 +169,20 @@ install-fs-server:
 		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/gateway-docs/data.json
 
 install-demo: install-fs-server
+
+# The command server, as the server "exec": no commands until the
+# administrator puts them into /etc/mcp-gateway/exec.d (examples in
+# $(DATADIR)/mcp-gateway/exec).
+install-exec-server:
+	install -Dm0755 bin/mcp-server-exec $(DESTDIR)$(LIBEXECDIR)/mcp-servers/mcp-server-exec
+	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d
+	sed -e 's|@LIBEXECDIR@|$(LIBEXECDIR)|g' -e 's|@DATADIR@|$(DATADIR)|g' packaging/exec-server/exec.yaml.in \
+		>$(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/exec.yaml
+	chmod 0644 $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/exec.yaml
+	install -Dm0644 packaging/exec-server/examples.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/exec/examples.yaml
+	install -d $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/exec.d
+	install -Dm0644 packaging/exec-server/exec-roles.json \
+		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/exec/data.json
 
 clean:
 	rm -rf bin selinux/tmp selinux/*.pp $(PROFILES:%=selinux/mcp_%.if)

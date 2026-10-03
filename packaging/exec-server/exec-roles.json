@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "roles": {
+    "exec-operator": {
+      "description": "exec: run the commands the administrator allows, each with approval",
+      "permissions": [
+        {"server": "exec", "tool": "*", "require_approval": true, "approval_channel": "oob", "approval_scopes": ["once", "session", "1h"]}
+      ]
+    }
+  }
+}

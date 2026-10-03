@@ -5,6 +5,22 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Added
+
+- `mcp-gateway-exec-server`: the server `exec` runs commands an
+  administrator allows in `/etc/mcp-gateway/exec.d`, each one a tool. A
+  command is a fixed program and argument vector; the caller's arguments
+  fill placeholders after matching their patterns (and may not start
+  with `-` unless allowed). Commands run without a shell, with a timeout
+  that kills what they started and an output limit, as the calling user
+  without network in the domain `mcpsrv_exec_t`. The shipped role
+  `exec-operator` runs them with approval; examples are in
+  `/usr/share/mcp-gateway/exec/examples.yaml`; `mcp-server-exec --check`
+  checks the files (user guide, chapter 4, "Commands an administrator
+  allows").
+
 ## v0.5.0 — 2026-10-03
 
 Agents can now help with the gateway itself. The gateway's documentation

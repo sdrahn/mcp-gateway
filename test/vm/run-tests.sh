@@ -224,11 +224,12 @@ install -m 0755 "$dir/mcpcall" /usr/local/bin/mcpcall
 install -D -m 0755 "$dir/privsrv" /usr/libexec/mcpgw-privtest
 since=$(date +%s)
 rpm -Uvh --nodeps "$dir"/rpms/mcp-gateway-[0-9]*.rpm "$dir"/rpms/mcp-gateway-selinux-*.rpm \
-	"$dir"/rpms/mcp-gateway-fs-server-*.rpm || die "installing the packages failed"
+	"$dir"/rpms/mcp-gateway-fs-server-*.rpm "$dir"/rpms/mcp-gateway-exec-server-*.rpm || die "installing the packages failed"
 check "SELinux module mcp_gateway is loaded" bash -c 'semodule -l | grep -qx mcp_gateway'
 # Labels as the packages leave them (no restorecon): a wrong label here is
 # a packaging bug.
 for f in /usr/bin/mcp-gateway:mcpgw_exec_t /usr/libexec/mcp-servers/mcp-server-fs:mcpsrv_fs_exec_t \
+	/usr/libexec/mcp-servers/mcp-server-exec:mcpsrv_exec_exec_t \
 	/etc/mcp-gateway/credentials:mcpgw_cred_t /usr/etc/mcp-gateway/gateway.yaml:mcpgw_etc_t; do
 	echo "  $(file_label "${f%%:*}") ${f%%:*}"
 	check "${f%%:*} is labeled ${f##*:}" file_has_type "${f%%:*}" "${f##*:}"
@@ -247,11 +248,24 @@ cat >/etc/mcp-gateway/policy/rbac/data.json <<'EOF'
     {"server": "fs", "tool": "list_*"},
     {"server": "fs", "tool": "write_file", "args": {"path": "^${home}/"}},
     {"server": "fs", "tool": "delete_*", "effect": "deny"}
-  ]}},
-  "bindings": {"users": {"alice": ["tester", "gateway-docs-reader", "gateway-admin"], "bob": ["tester"]}, "groups": {}},
+  ]},
+  "commands": {"permissions": [{"server": "exec", "tool": "*"}]}},
+  "bindings": {"users": {"alice": ["tester", "gateway-docs-reader", "gateway-admin", "commands"], "bob": ["tester"]}, "groups": {}},
   "approvers": {"default": ["self"]}
 }
 EOF
+
+# The command server: the shipped examples and commands for the test.
+install -m 0644 /usr/share/mcp-gateway/exec/examples.yaml /etc/mcp-gateway/exec.d/examples.yaml
+cat >/etc/mcp-gateway/exec.d/vmtest.yaml <<'CMDS'
+version: 1
+commands:
+  echo_word: {argv: [/usr/bin/echo, "{word}"], args: {word: {pattern: "[a-z]+"}}, read_only: true}
+  user_name: {argv: [/usr/bin/id, -un], read_only: true}
+  slow: {argv: [/usr/bin/sleep, "30"], timeout: 1s}
+CMDS
+restorecon -R /etc/mcp-gateway/exec.d
+check "mcp-server-exec --check accepts the commands" /usr/libexec/mcp-servers/mcp-server-exec --check
 
 section "Start"
 systemctl enable --now mcp-gateway.service
@@ -367,6 +381,37 @@ if [ -n "$adm_pid" ]; then
 fi
 stool bob gateway-admin doctor '{}'
 check "gateway-admin: not for bob, who holds no role for it" failed_without "configuration: "
+# Allowed commands: the shipped examples under SELinux, as the calling
+# user, no shell, patterns, the timeout; not for bob.
+stool alice exec system_info '{}'
+check "exec: system_info" succeeded_with "Linux"
+stool alice exec os_release '{}'
+check "exec: os_release" succeeded_with "openSUSE"
+stool alice exec uptime '{}'
+check "exec: uptime" succeeded_with "load average"
+stool alice exec memory '{}'
+check "exec: memory" succeeded_with "Mem:"
+stool alice exec disk_usage '{}'
+check "exec: disk_usage" succeeded_with "Filesystem"
+stool alice exec package_version '{"package":"mcp-gateway"}'
+check "exec: package_version" succeeded_with "mcp-gateway-0"
+stool alice exec user_name '{}'
+check "exec: commands run as the calling user" succeeded_with "alice"
+stool alice exec echo_word '{"word":"a; id"}'
+check "exec: a value outside its pattern is refused" tool_error_with "does not match"
+stool alice exec echo_word '{"word":"-n"}'
+check "exec: a value starting with - is refused" tool_error_with "must not start"
+stool alice exec slow '{}'
+check "exec: a command is ended after its timeout" tool_error_with "ended after the timeout"
+exec_pid=""
+for unit in $(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-exec-*' | awk '{print $1}'); do
+	pid=$(systemctl show -p MainPID --value "$unit")
+	[ "$(proc_user "$pid")" = alice ] && exec_pid=$pid
+done
+check "exec: alice's instance runs as alice" test -n "$exec_pid"
+[ -n "$exec_pid" ] && check "exec: in mcpsrv_exec_t" has_type "$(label "$exec_pid")" mcpsrv_exec_t
+stool bob exec system_info '{}'
+check "exec: not for bob, who holds no role for it" failed_without "Linux"
 check "no server output reached the gateway as invalid messages" \
 	bash -c "! journalctl -u mcp-gateway.service -o cat | grep -q 'invalid message from backend'"
 

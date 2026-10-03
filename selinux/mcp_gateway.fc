@@ -6,6 +6,8 @@
 /usr/libexec/mcp-gateway/opa				--	gen_context(system_u:object_r:mcpopa_exec_t,s0)
 /usr/lib/mcp-servers/mcp-(fs(-demo)?|server-fs)		--	gen_context(system_u:object_r:mcpsrv_fs_exec_t,s0)
 /usr/libexec/mcp-servers/mcp-(fs(-demo)?|server-fs)	--	gen_context(system_u:object_r:mcpsrv_fs_exec_t,s0)
+/usr/lib/mcp-servers/mcp-server-exec			--	gen_context(system_u:object_r:mcpsrv_exec_exec_t,s0)
+/usr/libexec/mcp-servers/mcp-server-exec		--	gen_context(system_u:object_r:mcpsrv_exec_exec_t,s0)
 
 /etc/mcp-gateway(/.*)?						gen_context(system_u:object_r:mcpgw_etc_t,s0)
 /etc/mcp-gateway/credentials(/.*)?				gen_context(system_u:object_r:mcpgw_cred_t,s0)

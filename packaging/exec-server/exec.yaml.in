@@ -1,0 +1,14 @@
+# Commands an administrator allows, as an MCP server (package
+# mcp-gateway-exec-server): each command in /etc/mcp-gateway/exec.d/*.yaml
+# is one tool, run without a shell, as the calling user, without network,
+# in the mcpsrv_exec_t domain. None are configured at first; examples are
+# in @DATADIR@/mcp-gateway/exec/examples.yaml. Users need a role for the
+# server: the shipped exec-operator runs every command with approval.
+# To change this definition, copy it to
+# /etc/mcp-gateway/servers.d/exec.yaml; an empty file of that name
+# disables it.
+version: 1
+name: exec
+command: ["@LIBEXECDIR@/mcp-servers/mcp-server-exec", "--commands", "/etc/mcp-gateway/exec.d"]
+selinux_type: mcpsrv_exec_t
+network: false

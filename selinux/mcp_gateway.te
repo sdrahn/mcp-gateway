@@ -108,6 +108,58 @@ domain_entry_file(mcpsrv_docs_t, mcpsrv_fs_exec_t)
 files_read_usr_files(mcpsrv_docs_t)
 fs_getattr_xattr_fs(mcpsrv_docs_t)
 
+# Commands an administrator allows (the server exec, cmd/mcp-server-exec,
+# package mcp-gateway-exec-server): it reads its command files below
+# /etc/mcp-gateway and runs the programs they name, which stay in this
+# domain. The rules cover the shipped examples (system state, mounts,
+# the rpm database); commands that need more get them from a local
+# module (mcp-gateway profile drafts it).
+mcp_gateway_backend_template(exec)
+# Each command runs in a process group of its own, killed as a whole
+# after its timeout.
+allow mcpsrv_exec_t self:process { setpgid sigkill signal };
+read_files_pattern(mcpsrv_exec_t, mcpgw_etc_t, mcpgw_etc_t)
+list_dirs_pattern(mcpsrv_exec_t, mcpgw_etc_t, mcpgw_etc_t)
+corecmd_exec_bin(mcpsrv_exec_t)
+corecmd_exec_shell(mcpsrv_exec_t)
+files_read_usr_files(mcpsrv_exec_t)
+auth_use_nsswitch(mcpsrv_exec_t)
+kernel_read_kernel_sysctls(mcpsrv_exec_t)
+dev_read_sysfs(mcpsrv_exec_t)
+fs_getattr_all_fs(mcpsrv_exec_t)
+files_getattr_all_mountpoints(mcpsrv_exec_t)
+ifdef(`init_read_utmp',`
+	init_read_utmp(mcpsrv_exec_t)
+')
+ifdef(`rpm_read_db',`
+	rpm_read_db(mcpsrv_exec_t)
+')
+# rpm runs in this domain (rpm -q), not in its own.
+ifdef(`rpm_exec',`
+	rpm_exec(mcpsrv_exec_t)
+')
+# uptime counts the logged-in users from logind and the terminals in
+# /dev/pts (names and attributes; no terminal is opened).
+term_list_ptys(mcpsrv_exec_t)
+allow mcpsrv_exec_t devpts_t:chr_file getattr;
+ifdef(`term_getattr_all_ptys',`
+	term_getattr_all_ptys(mcpsrv_exec_t)
+')
+ifdef(`systemd_read_logind_sessions_files',`
+	systemd_read_logind_sessions_files(mcpsrv_exec_t)
+')
+optional_policy(`
+	gen_require(`type systemd_logind_sessions_t;')
+	list_dirs_pattern(mcpsrv_exec_t, systemd_logind_sessions_t, systemd_logind_sessions_t)
+	read_files_pattern(mcpsrv_exec_t, systemd_logind_sessions_t, systemd_logind_sessions_t)
+')
+# df looks at every mount, also the files the sandbox masks /proc/kmsg
+# and the like with; it does without them.
+optional_policy(`
+	gen_require(`type init_var_run_t;')
+	dontaudit mcpsrv_exec_t init_var_run_t:file getattr;
+')
+
 # The gateway diagnostics (the server gateway-admin, mcp-gateway
 # admin-server): root without capabilities, reading only. It reads the
 # configuration, the state directory, the journal and the audit log, file

@@ -1,0 +1,46 @@
+# Example commands for mcp-server-exec, the server "exec". Nothing here
+# is active: copy this file, or the commands you want, to
+# /etc/mcp-gateway/exec.d/, then check them with
+#
+#   mcp-server-exec --check
+#
+# and restart the instances (Cockpit, Servers tab), or wait until they
+# end when idle. Each command is one tool. argv is run as it is, without
+# a shell; {name} is replaced by the caller's argument "name", which must
+# match its pattern as a whole (and may not start with "-" unless
+# allow_dash is true). Commands run as the calling user, in the domain
+# mcpsrv_exec_t, without network; what they may read beyond /etc, /usr
+# and system state needs SELinux rules (mcp-gateway profile drafts them).
+# Avoid names starting with list_, read_ or get_: roles for every server
+# (the shipped viewer) allow those.
+version: 1
+commands:
+  system_info:
+    description: Kernel, host name and machine (uname -a)
+    argv: [/usr/bin/uname, -a]
+    read_only: true
+  os_release:
+    description: The operating system and its version (/etc/os-release)
+    argv: [/usr/bin/cat, /etc/os-release]
+    read_only: true
+  uptime:
+    description: How long the system has been up, and its load
+    argv: [/usr/bin/uptime]
+    read_only: true
+  memory:
+    description: Memory and swap in use (free -h)
+    argv: [/usr/bin/free, -h]
+    read_only: true
+  disk_usage:
+    description: Space on the mounted file systems (df -h)
+    argv: [/usr/bin/df, -h]
+    read_only: true
+    timeout: 15s
+  package_version:
+    description: The installed version of a package (rpm -q)
+    argv: [/usr/bin/rpm, -q, "{package}"]
+    args:
+      package:
+        description: the package name, e.g. mcp-gateway
+        pattern: "[A-Za-z0-9][A-Za-z0-9._+-]{0,127}"
+    read_only: true
