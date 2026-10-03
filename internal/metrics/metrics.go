@@ -44,6 +44,8 @@ var (
 	LimitRefusals = NewCounter("mcp_gateway_limit_refusals_total",
 		"Sessions and backend instances refused because a limit was reached, by limit (sessions, instances_per_principal, instances).",
 		"limit")
+	TokenExpiries = NewCounter("mcp_gateway_token_expiries_total",
+		"HTTP streams ended because the token of the request that opened them expired.")
 )
 
 // Default holds the gateway's metrics.
@@ -51,7 +53,7 @@ var Default = &Registry{}
 
 func init() {
 	Default.Register(Decisions, PolicyFailures, OPADuration, OPAErrors, InstanceStarts, InstanceFailures, ApprovalsDecided,
-		LimitRefusals)
+		LimitRefusals, TokenExpiries)
 }
 
 // Metric is one metric family.

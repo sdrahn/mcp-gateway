@@ -109,6 +109,11 @@ func (o *OAuth) Authenticate(ctx context.Context, token string, cert *x509.Certi
 		Groups:    claimStrings(claims, o.cfg.GroupsClaim),
 		Transport: principal.TransportHTTP,
 	}
+	// Required and valid (checked above): streams the request opens end
+	// when the token is no longer accepted.
+	if exp, err := claims.GetExpirationTime(); err == nil && exp != nil {
+		p.Expires = exp.Add(leeway)
+	}
 	if o.cfg.LocalUserClaim != "" {
 		if name, _ := claims[o.cfg.LocalUserClaim].(string); name != "" {
 			mapLocalUser(&p, name)

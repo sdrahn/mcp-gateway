@@ -56,7 +56,10 @@ type HTTPConfig struct {
 	// KnownServer reports whether a per-server endpoint exists.
 	KnownServer func(name string) bool
 	SessionIdle time.Duration
-	Log         *slog.Logger
+	// TokenExpired, if set, is called when a stream ends because the
+	// token of the request that opened it is no longer accepted.
+	TokenExpired func(p principal.Principal)
+	Log          *slog.Logger
 }
 
 const (
@@ -315,7 +318,7 @@ func (h *HTTPHandler) post(w http.ResponseWriter, r *http.Request, p principal.P
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	s.handleRequest(w, r, m, strings.Contains(r.Header.Get("Accept"), "text/event-stream"))
+	s.handleRequest(w, r, p, m, strings.Contains(r.Header.Get("Accept"), "text/event-stream"))
 }
 
 func (h *HTTPHandler) get(w http.ResponseWriter, r *http.Request, p principal.Principal) {
@@ -328,7 +331,7 @@ func (h *HTTPHandler) get(w http.ResponseWriter, r *http.Request, p principal.Pr
 		http.Error(w, "unknown session", http.StatusNotFound)
 		return
 	}
-	s.serveStream(w, r)
+	s.serveStream(w, r, p)
 }
 
 func (h *HTTPHandler) newSession(p principal.Principal, server string) (*httpSession, error) {
@@ -672,7 +675,7 @@ func (s *httpSession) detach(st *stream, conn int) {
 	s.lastActive = time.Now()
 }
 
-func (s *httpSession) handleRequest(w http.ResponseWriter, r *http.Request, m *jsonrpc.Message, sse bool) {
+func (s *httpSession) handleRequest(w http.ResponseWriter, r *http.Request, p principal.Principal, m *jsonrpc.Message, sse bool) {
 	key := m.Key()
 	s.mu.Lock()
 	if _, dup := s.pending[key]; dup {
@@ -704,7 +707,7 @@ func (s *httpSession) handleRequest(w http.ResponseWriter, r *http.Request, m *j
 	if sse {
 		// The stream outlives this connection: the client may resume it.
 		defer s.detach(st, conn)
-		s.pipe(w, r, st, 0, conn, wake)
+		s.pipe(w, r, p, st, 0, conn, wake)
 		return
 	}
 	defer func() {
@@ -738,7 +741,7 @@ func (s *httpSession) handleRequest(w http.ResponseWriter, r *http.Request, m *j
 // serveStream serves a GET: the session's stream for messages not tied to
 // a request, or, with Last-Event-ID, the resumption of the stream that
 // event belongs to.
-func (s *httpSession) serveStream(w http.ResponseWriter, r *http.Request) {
+func (s *httpSession) serveStream(w http.ResponseWriter, r *http.Request, p principal.Principal) {
 	cursor := -1 // plain GET: new events only
 	num := 0
 	if last := r.Header.Get("Last-Event-ID"); last != "" {
@@ -771,13 +774,16 @@ func (s *httpSession) serveStream(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	defer s.detach(st, conn)
 	w.Header().Set(sessionHeader, s.id)
-	s.pipe(w, r, st, cursor, conn, wake)
+	s.pipe(w, r, p, st, cursor, conn, wake)
 }
 
 // pipe writes st's events after cursor as server-sent events until the
-// response of a request stream was written, the client disconnects or
-// the session ends.
-func (s *httpSession) pipe(w http.ResponseWriter, r *http.Request, st *stream, cursor, conn int, wake chan struct{}) {
+// response of a request stream was written, the client disconnects, the
+// session ends, or the token of the request (p, from the request that
+// opened this connection) is no longer accepted. A stream ended at the
+// token's expiry stays resumable: the client resumes it with a fresh
+// token and Last-Event-ID, and gets what it missed.
+func (s *httpSession) pipe(w http.ResponseWriter, r *http.Request, p principal.Principal, st *stream, cursor, conn int, wake chan struct{}) {
 	flusher, _ := w.(http.Flusher)
 	flush := func() {
 		if flusher != nil {
@@ -795,6 +801,12 @@ func (s *httpSession) pipe(w http.ResponseWriter, r *http.Request, st *stream, c
 	flush()
 	ping := time.NewTicker(keepAlive)
 	defer ping.Stop()
+	var expired <-chan time.Time
+	if !p.Expires.IsZero() {
+		t := time.NewTimer(time.Until(p.Expires))
+		defer t.Stop()
+		expired = t.C
+	}
 	for {
 		s.mu.Lock()
 		if st.conn != conn {
@@ -827,6 +839,15 @@ func (s *httpSession) pipe(w http.ResponseWriter, r *http.Request, st *stream, c
 				return
 			}
 			flush()
+		case <-expired:
+			_, _ = io.WriteString(w, ": token expired\n\n")
+			flush()
+			s.h.log.Info("stream ended: token expired", "sub", p.Sub, "session", s.id, "stream", st.num)
+			if s.h.cfg.TokenExpired != nil {
+				p.SessionID = s.id
+				s.h.cfg.TokenExpired(p)
+			}
+			return
 		case <-r.Context().Done():
 			return
 		case <-s.closed:

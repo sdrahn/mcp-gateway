@@ -211,6 +211,12 @@ token subject) and groups by name.
   what it missed (the last 256 events per stream, kept for 5 minutes),
   including approval requests that were pending. A resumption takes over
   from a connection that is still considered open.
+- A stream ends when the token of the request that opened it expires
+  (one minute of leeway after its `exp`), a comment `: token expired`
+  being the last thing on it. Nothing is lost: the client resumes with a
+  fresh token and `Last-Event-ID`, as after a dropped connection. A
+  plain JSON response (no `text/event-stream`) is still delivered after
+  the expiry: it answers a request that was valid when made.
 - `DELETE` with the session id ends a session.
 
 ### Browser clients

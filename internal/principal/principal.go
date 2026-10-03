@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"time"
 )
 
 // Transport identifies how a client reached the gateway.
@@ -62,6 +63,10 @@ type Principal struct {
 	// Cert is the verified TLS client certificate of a remote client that
 	// presented one (mTLS).
 	Cert *Cert `json:"cert,omitempty"`
+	// Expires is when the credential that authenticated the request stops
+	// being accepted (a remote principal's token: exp plus the leeway);
+	// zero for local principals. Not part of the policy input.
+	Expires time.Time `json:"-"`
 }
 
 // Cert describes a verified TLS client certificate.

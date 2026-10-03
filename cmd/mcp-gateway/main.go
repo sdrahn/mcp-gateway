@@ -41,6 +41,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/notify"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/policydata"
+	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/router"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
@@ -350,7 +351,13 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, r *router.Router, errc chan<- 
 		CertificateBoundTokens: cfg.ClientAuth != "none",
 		KnownServer:            func(name string) bool { return r.Backends[name] != nil },
 		SessionIdle:            cfg.SessionIdleTimeout,
-		Log:                    log,
+		TokenExpired: func(p principal.Principal) {
+			metrics.TokenExpiries.Inc()
+			r.Audit.Event("mcp-token-expired", true, map[string]string{
+				"principal": p.Sub, "transport": string(p.Transport), "session": p.SessionID,
+			})
+		},
+		Log: log,
 	}, authn.NewOAuth(cfg, nil), r.ServeClient)
 	if err != nil {
 		return nil, err

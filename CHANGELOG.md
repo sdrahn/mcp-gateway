@@ -7,6 +7,16 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Changed
+
+- An HTTP stream (the session's `GET` stream, or a request's
+  `text/event-stream` response) ends when the token of the request that
+  opened it is no longer accepted, as requests with it are refused; until
+  now it went on. The stream stays resumable: the client reconnects with
+  a fresh token and `Last-Event-ID` and gets what it missed. Expiries are
+  audited (`mcp-token-expired`) and counted
+  (`mcp_gateway_token_expiries_total`).
+
 ### Removed
 
 - What 0.7 deprecated (D10): `mcp-gateway inspect`, `profile`,

@@ -120,6 +120,16 @@ func TestOAuthValid(t *testing.T) {
 	if p.Sub != "u-123" || p.Issuer != idp.srv.URL || p.Transport != "http" || p.UID != nil || len(p.Groups) != 1 || p.Groups[0] != "dev" {
 		t.Fatalf("principal %+v", p)
 	}
+
+	// The principal carries when the token stops being accepted.
+	exp := time.Now().Add(10 * time.Minute).Truncate(time.Second)
+	p, err = idp.oauth(nil).Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"exp": exp.Unix()}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.Expires.Equal(exp.Add(leeway)) {
+		t.Errorf("Expires %v, want %v", p.Expires, exp.Add(leeway))
+	}
 }
 
 func TestOAuthEC(t *testing.T) {
