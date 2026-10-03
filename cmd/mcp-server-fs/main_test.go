@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -582,5 +583,76 @@ func TestProtocol(t *testing.T) {
 	_ = inW.Close()
 	if err := <-done; err != nil {
 		t.Errorf("serve: %v", err)
+	}
+}
+
+// On a transactional system the root file system is read-only: a
+// directory there can be read, nothing in it changed, and the server says
+// why.
+func TestReadOnlyFileSystem(t *testing.T) {
+	s, rw := newTestServer(t, 2)
+	ro := s.dirs[1].path
+	write(t, filepath.Join(ro, "f"), "content")
+	saved := onReadOnlyFS
+	onReadOnlyFS = func(p string) bool { return p == ro }
+	defer func() { onReadOnlyFS = saved }()
+
+	if got := mustOK(t, call(t, s, "read_text_file", map[string]any{"path": filepath.Join(ro, "f")})); got != "content" {
+		t.Errorf("read: %q", got)
+	}
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"write_file", map[string]any{"path": filepath.Join(ro, "f"), "content": "x"}},
+		{"edit_file", map[string]any{"path": filepath.Join(ro, "f"), "edits": []map[string]string{{"oldText": "content", "newText": "x"}}}},
+		{"create_directory", map[string]any{"path": filepath.Join(ro, "d")}},
+		{"move_file", map[string]any{"source": filepath.Join(ro, "f"), "destination": filepath.Join(ro, "g")}},
+		{"delete_file", map[string]any{"path": filepath.Join(ro, "f")}},
+	} {
+		mustFail(t, call(t, s, tc.tool, tc.args), "read-only file system (on a transactional system")
+	}
+	if b, _ := os.ReadFile(filepath.Join(ro, "f")); string(b) != "content" {
+		t.Errorf("changed: %q", b)
+	}
+	// A dry run only reads.
+	mustOK(t, call(t, s, "edit_file", map[string]any{"path": filepath.Join(ro, "f"), "dryRun": true,
+		"edits": []map[string]string{{"oldText": "content", "newText": "x"}}}))
+	// The other directory is writable.
+	mustOK(t, call(t, s, "write_file", map[string]any{"path": filepath.Join(rw, "f"), "content": "x"}))
+
+	r := call(t, s, "list_allowed_directories", map[string]any{})
+	if got := r.Structured["readOnly"].([]any); len(got) != 1 || got[0] != ro {
+		t.Errorf("readOnly: %v", got)
+	}
+	if !strings.Contains(r.text(), ro+" (read-only file system)") {
+		t.Errorf("text: %q", r.text())
+	}
+	if !strings.Contains(s.instructions(), "read-only file system") {
+		t.Errorf("instructions: %q", s.instructions())
+	}
+	// EROFS from deeper down (another mount) reads the same.
+	tg, _ := s.resolve(filepath.Join(rw, "f"))
+	if err := explain(tg, &os.PathError{Op: "open", Path: "f", Err: syscall.EROFS}); !strings.Contains(err.Error(), "transactional-update") {
+		t.Errorf("EROFS: %v", err)
+	}
+}
+
+// btrfs snapshot directories are left out of searches and trees, unless
+// the walk starts in one.
+func TestSnapshotsSkipped(t *testing.T) {
+	s, root := newTestServer(t, 1)
+	write(t, filepath.Join(root, "a.go"), "")
+	write(t, filepath.Join(root, ".snapshots", "1", "snapshot", "a.go"), "")
+	r := call(t, s, "search_files", map[string]any{"path": ".", "pattern": "*.go"})
+	if got := r.Structured["matches"].([]any); len(got) != 1 {
+		t.Errorf("search entered .snapshots: %v", got)
+	}
+	if tree := mustOK(t, call(t, s, "directory_tree", map[string]any{"path": "."})); strings.Contains(tree, "snapshot\"") {
+		t.Errorf("tree entered .snapshots: %s", tree)
+	}
+	r = call(t, s, "search_files", map[string]any{"path": ".snapshots/1", "pattern": "*.go"})
+	if got := r.Structured["matches"].([]any); len(got) != 1 {
+		t.Errorf("search inside .snapshots: %v", got)
 	}
 }

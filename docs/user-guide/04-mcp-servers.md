@@ -488,6 +488,16 @@ Options, for a copy of the definition in `/etc/mcp-gateway/servers.d`:
 | `--max-write BYTES` | 10 MiB | what one call writes |
 | `--max-entries N` | 10000 | entries a listing, tree or search returns |
 
+On a transactional system (chapter 2), home directories are writable as
+anywhere else. A `--root` on the read-only root file system (`/usr`,
+`/`) is shown as read-only by `list_allowed_directories` and in the
+server's instructions; changes there are refused with "read-only file
+system (on a transactional system, … change only through
+transactional-update …)", also where a path below a writable root reaches
+a read-only mount. `search_files` and `directory_tree` do not enter
+btrfs `.snapshots` directories (a copy of the tree per snapper snapshot)
+unless the path given is inside one.
+
 Policy decides what the principal may do within the home (for example:
 read freely, write only with approval, never delete; chapter 6). The
 shipped `developer` role allows the reading tools and asks for approval

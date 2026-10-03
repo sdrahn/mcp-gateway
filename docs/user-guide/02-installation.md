@@ -60,6 +60,9 @@ reboot
   cannot install or remove packages (zypper refuses on a read-only
   root); install with `transactional-update` instead. Searching and
   planning work. `mcp-gateway doctor` warns ("read-only /usr").
+- The file server (`mcp-gateway-fs-server`) works on home directories as
+  on other systems; directories on the read-only root file system it
+  shows as read-only and refuses to change, saying why (chapter 4).
 - Snapshots and the default subvolume belong to transactional-update
   (`transactional-update rollback`); do not use the snapper server's
   `rollback` there.

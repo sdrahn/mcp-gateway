@@ -37,9 +37,22 @@ func (s *fileServer) instructions() string {
 	mode := ""
 	if s.readOnly {
 		mode = " Read-only: no tool changes files."
+	} else if ro := s.readOnlyDirs(); len(ro) > 0 {
+		mode = " On a read-only file system, so nothing there can be changed: " + strings.Join(ro, ", ") + "."
 	}
 	return "Files below " + strings.Join(s.dirPaths(), ", ") + ". Paths are absolute, or relative to " +
 		s.dirs[0].path + "." + mode
+}
+
+// readOnlyDirs lists the allowed directories on read-only file systems.
+func (s *fileServer) readOnlyDirs() []string {
+	var out []string
+	for _, a := range s.dirs {
+		if a.readOnly() {
+			out = append(out, a.path)
+		}
+	}
+	return out
 }
 
 // tool is one tool's definition and handler. Handlers return the result
@@ -107,12 +120,14 @@ func (s *fileServer) tools() []tool {
 				"enum": []string{"name", "size"}, "description": "order: name (default) or size, largest first"}}, "path"),
 			readOnly: true, idempotent: true, run: listDirectoryWithSizes},
 		{name: "directory_tree", title: "Directory tree",
-			description: "The directory tree below a path as JSON: [{name, type, children}]; symbolic links are not followed.",
-			input:       obj(map[string]any{"path": pathArg, "excludePatterns": excludes}, "path"),
-			readOnly:    true, idempotent: true, run: directoryTree},
+			description: "The directory tree below a path as JSON: [{name, type, children}]; symbolic links are not " +
+				"followed, btrfs .snapshots directories not entered (give a path inside one to look there).",
+			input:    obj(map[string]any{"path": pathArg, "excludePatterns": excludes}, "path"),
+			readOnly: true, idempotent: true, run: directoryTree},
 		{name: "search_files", title: "Find files",
 			description: "Find files and directories below a path whose path matches a glob pattern: \"*.go\" " +
-				"matches names at any depth, \"src/**/*.go\" paths relative to the start.",
+				"matches names at any depth, \"src/**/*.go\" paths relative to the start. btrfs .snapshots " +
+				"directories are not searched unless the path is inside one.",
 			input: obj(map[string]any{"path": pathArg, "pattern": str("glob pattern"), "excludePatterns": excludes},
 				"path", "pattern"),
 			output: obj(map[string]any{"matches": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
@@ -131,7 +146,9 @@ func (s *fileServer) tools() []tool {
 			description: "The directories this server works in.",
 			input:       obj(map[string]any{}),
 			output: obj(map[string]any{"directories": map[string]any{"type": "array",
-				"items": map[string]any{"type": "string"}}}, "directories"),
+				"items": map[string]any{"type": "string"}}, "readOnly": map[string]any{"type": "array",
+				"items": map[string]any{"type": "string"}, "description": "those on a read-only file system"}},
+				"directories", "readOnly"),
 			readOnly: true, idempotent: true, run: listAllowed},
 		{name: "write_file", title: "Write a file",
 			description: "Create a file, or replace its contents. The file is replaced at once (a temporary file renamed " +
@@ -616,6 +633,11 @@ func (s *fileServer) walk(ctx context.Context, t target, excludes []string, visi
 		if t.rel == "." {
 			rel = p
 		}
+		// btrfs snapshots (snapper): a copy of the tree per snapshot. Not
+		// entered unless the walk starts in one.
+		if e.IsDir() && e.Name() == ".snapshots" && !strings.Contains(t.full+"/", "/.snapshots/") {
+			return fs.SkipDir
+		}
 		for _, x := range excludes {
 			if globMatch(x, rel) {
 				if e.IsDir() {
@@ -791,8 +813,20 @@ func listAllowed(s *fileServer, _ context.Context, args json.RawMessage) (*resul
 	if err := decode(args, &a); err != nil {
 		return nil, err
 	}
-	res := text("Allowed directories:\n" + strings.Join(s.dirPaths(), "\n"))
-	res.structured = map[string]any{"directories": s.dirPaths()}
+	ro := s.readOnlyDirs()
+	lines := []string{"Allowed directories:"}
+	for _, a := range s.dirs {
+		line := a.path
+		if a.readOnly() {
+			line += " (read-only file system)"
+		}
+		lines = append(lines, line)
+	}
+	res := text(strings.Join(lines, "\n"))
+	if ro == nil {
+		ro = []string{}
+	}
+	res.structured = map[string]any{"directories": s.dirPaths(), "readOnly": ro}
 	return res, nil
 }
 
@@ -809,6 +843,9 @@ func writeFile(s *fileServer, _ context.Context, args json.RawMessage) (*result,
 	}
 	if a.Content == nil {
 		return nil, errors.New("content is required")
+	}
+	if err := writable(t); err != nil {
+		return nil, err
 	}
 	if int64(len(*a.Content)) > s.maxWrite {
 		return nil, fmt.Errorf("%s: %s, more than the %s one call may write", t.full, size(int64(len(*a.Content))), size(s.maxWrite))
@@ -837,6 +874,11 @@ func editFile(s *fileServer, _ context.Context, args json.RawMessage) (*result, 
 	}
 	if len(a.Edits) == 0 {
 		return nil, errors.New("edits: give at least one")
+	}
+	if !a.DryRun {
+		if err := writable(t); err != nil {
+			return nil, err
+		}
 	}
 	old, err := s.readText(t, 0, 0, s.maxWrite)
 	if err != nil {
@@ -883,6 +925,9 @@ func createDirectory(s *fileServer, _ context.Context, args json.RawMessage) (*r
 	if err != nil {
 		return nil, err
 	}
+	if err := writable(t); err != nil {
+		return nil, err
+	}
 	if err := mkdirAll(t); err != nil {
 		return nil, explain(t, err)
 	}
@@ -905,6 +950,9 @@ func moveFile(s *fileServer, _ context.Context, args json.RawMessage) (*result, 
 	if err != nil {
 		return nil, err
 	}
+	if err := writable(src); err != nil {
+		return nil, err
+	}
 	if err := move(src, dst); err != nil {
 		return nil, err
 	}
@@ -919,6 +967,9 @@ func deleteFile(s *fileServer, _ context.Context, args json.RawMessage) (*result
 	}
 	if t.isRoot() {
 		return nil, fmt.Errorf("%s: an allowed directory itself is not deleted", t.full)
+	}
+	if err := writable(t); err != nil {
+		return nil, err
 	}
 	root, err := t.dir.open()
 	if err != nil {

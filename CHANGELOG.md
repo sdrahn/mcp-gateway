@@ -46,6 +46,9 @@ minor release (with a warning) and removed in the next.
   limits on what one call reads, writes and lists. Files are replaced
   atomically, long searches end when the client cancels them, and every
   operation stays inside the directories also through symbolic links.
+  On transactional systems, directories on the read-only root file
+  system are shown as read-only and changes there are refused with the
+  reason, and searches and trees do not enter btrfs `.snapshots`.
 - The shipped role data's `developer` role allows `search_files`,
   `directory_tree` and `get_file_info`, and asks for approval for
   `edit_file`, `create_directory` and `move_file` within the home, as for

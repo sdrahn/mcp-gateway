@@ -35,6 +35,32 @@ func (a *allowed) open() (*os.Root, error) {
 	return a.root, a.err
 }
 
+// onReadOnlyFS reports whether path is on a read-only file system: on a
+// transactional system (MicroOS, SLE Micro, Leap Micro) the root file
+// system with /usr, or a read-only bind mount of the sandbox. A variable
+// for tests.
+var onReadOnlyFS = func(path string) bool {
+	var st unix.Statfs_t
+	return unix.Statfs(path, &st) == nil && st.Flags&unix.ST_RDONLY != 0
+}
+
+// readOnly reports whether the directory is on a read-only file system
+// now (asked each time: a file system may be remounted).
+func (a *allowed) readOnly() bool { return onReadOnlyFS(a.path) }
+
+// writable refuses changes in an allowed directory on a read-only file
+// system before trying (a write deeper down, onto another mount, fails
+// with EROFS and explain says the same).
+func writable(t target) error {
+	if t.dir.readOnly() {
+		return fmt.Errorf("%s: %s", t.full, readOnlyFS)
+	}
+	return nil
+}
+
+const readOnlyFS = "read-only file system (on a transactional system, the root file system and /usr " +
+	"change only through transactional-update; /etc, /var and /home stay writable)"
+
 // target is a path argument resolved to an allowed directory and a name
 // relative to it ("." for the directory itself).
 type target struct {
@@ -112,7 +138,7 @@ func explain(t target, err error) error {
 	case errors.Is(err, syscall.EISDIR):
 		return fmt.Errorf("%s: is a directory", t.full)
 	case errors.Is(err, syscall.EROFS):
-		return fmt.Errorf("%s: read-only file system", t.full)
+		return fmt.Errorf("%s: %s", t.full, readOnlyFS)
 	case errors.Is(err, syscall.ENOSPC):
 		return fmt.Errorf("%s: no space left on device", t.full)
 	}

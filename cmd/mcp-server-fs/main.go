@@ -84,6 +84,9 @@ func main() {
 	if s.readOnly {
 		mode = " (read-only)"
 	}
+	if ro := s.readOnlyDirs(); len(ro) > 0 && !s.readOnly {
+		mode += " (on a read-only file system: " + strings.Join(ro, ", ") + ")"
+	}
 	fmt.Fprintf(os.Stderr, "%s: serving %s%s\n", serverName, strings.Join(s.dirPaths(), ", "), mode)
 
 	// A message carries at most a write's content, JSON-escaped (up to
