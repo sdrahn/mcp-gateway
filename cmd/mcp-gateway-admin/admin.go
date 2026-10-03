@@ -96,6 +96,8 @@ const adminInstructions = `Diagnostics of the MCP gateway on this machine, for f
 - recent_audit: the gateway's recent decisions and events.
 - selinux_denials: SELinux denials for the gateway and its servers.
 
+Read the gateway's configuration with show_config, not through other servers: their file tools do not reach it (the file server is confined to the user's home, the systemd server's roles allow reading systemd's files only), and show_config shows the files in force, after an approval, (/etc/mcp-gateway overrides the defaults in /usr/etc/mcp-gateway and /usr/share/mcp-gateway) with secrets masked.
+
 How things should be configured is in the gateway's documentation (the server gateway-docs, if installed). Changes are the administrator's: suggest them, with the file and the command to apply them.`
 
 func (a *adminServer) handle(ctx context.Context, method string, params json.RawMessage) (any, error) {
