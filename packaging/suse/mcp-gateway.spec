@@ -176,7 +176,8 @@ Summary:        mcp-server-zypp behind mcp-gateway
 Group:          System/Management
 BuildArch:      noarch
 Requires:       %{name} = %{version}
-Recommends:     mcp-server-zypp
+# The roles name the tools of 0.1.1 and later (0.1.0 had others).
+Recommends:     mcp-server-zypp >= 0.1.1
 %sysusers_requires
 
 %description profile-zypp

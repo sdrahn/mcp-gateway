@@ -279,7 +279,8 @@ sandbox:
 ### mcp-server-zypp
 
 [mcp-server-zypp](https://github.com/openSUSE/mcp-server-zypp) (notes
-for version 0.1.2) searches packages, resolves dependencies and plans
+for version 0.1.2; the shipped roles need 0.1.1 or later, as 0.1.0
+named its tools `install_package` and `remove_package`) searches packages, resolves dependencies and plans
 installations with libzypp. `/usr/bin/mcp-server-zypp` speaks MCP and
 starts a new worker, `/usr/libexec/mcp-server-zypp/zypp-mcp-tool`, for
 every call. Six tools only read and plan (`search_packages`,
@@ -300,7 +301,10 @@ selinux_type: mcpsrv_zypp_t
   allows: for them, run the server as a **privileged server** (chapter
   4, with its SELinux module) instead of the definition above. Calls to
   it then need an approval unless a permission names the tool exactly,
-  and the gateway does not stop it while a transaction runs.
+  and the gateway does not stop it while a transaction runs. As any
+  other account, the server does not offer the two tools at all, so
+  `mcp-gateway-admin doctor` reports the role `zypp-installer` as naming
+  tools the unprivileged server lacks; that is expected.
 - The worker asks the user, by elicitation, whether to trust a new GPG
   key of a repository. The gateway passes such a request to the agent's
   client only with a `client` permission for `elicitation.create`

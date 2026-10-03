@@ -370,14 +370,41 @@ func (d *doctorRun) servers() []doctor.Result {
 					msgs = append(msgs, f.Message)
 				}
 			}
-			if len(msgs) > 0 {
-				rs = append(rs, doctor.Result{Check: "roles " + name, Status: doctor.Warn,
-					Summary: fmt.Sprintf("%d permissions name what %s does not offer (to the account it runs as)", len(msgs), name),
-					Details: msgs})
+			if r := rolesResult(name, res.Server.Version, b.RunAs, msgs); r != nil {
+				rs = append(rs, *r)
 			}
 		}
 	}
 	return rs
+}
+
+// rolesResult reports role permissions naming tools that server name (at
+// version, running as runAs) did not offer, or nil if there are none. The
+// two usual causes go into the details: a server that is not root may
+// hide the tools only root can use, and another version of the server may
+// name its tools differently than the roles expect.
+func rolesResult(name, version, runAs string, msgs []string) *doctor.Result {
+	if len(msgs) == 0 {
+		return nil
+	}
+	server := name
+	if version != "" {
+		server += " " + version
+	}
+	account := runAs
+	if account == config.DefaultRunAs {
+		account = "the discovery account"
+	}
+	details := slices.Clone(msgs)
+	if runAs != "root" {
+		details = append(details, "a server not running as root may offer some tools only to root: roles for them need a "+
+			"privileged definition of the server (chapter 4), and are reported here otherwise")
+	}
+	details = append(details, fmt.Sprintf("tools missing for any account usually mean another version of the server "+
+		"than the roles were written for: compare with mcp-gateway-admin inspect -server %s", name))
+	return &doctor.Result{Check: "roles " + name, Status: doctor.Warn,
+		Summary: fmt.Sprintf("%d permissions name what %s does not offer to %s", len(msgs), server, account),
+		Details: details}
 }
 
 // roleFiles are the role data and the shipped setups' roles.

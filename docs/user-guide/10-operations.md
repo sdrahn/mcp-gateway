@@ -203,7 +203,7 @@ warn  principals: 1 of 4 members of mcp-users hold no role: they may connect but
 | services, gateway status | `mcp-gateway.service` and `mcp-opa.service` active; the running version, and whether an update waits for a restart |
 | state files | that `mcp-gateway` owns every file in `/var/lib/mcp-gateway`; a file root owns (the gateway was run as root) keeps the service from starting |
 | policy | that OPA answers a decision (every request is denied otherwise) |
-| server *name* | that each server starts, as for shared discovery, and answers MCP; then whether roles name tools it does not offer (`roles` *name*; as the account it runs as, a server may hide tools) |
+| server *name* | that each server starts, as for shared discovery, and answers MCP; then whether roles name tools it does not offer (`roles` *name*, with the server's version and account: a server not running as root may hide the tools only root can use, and another version may name its tools differently) |
 | SELinux *type* | denials in the last day involving the gateway's, OPA's and the servers' types; denials in permissive mode (a profiling run) only warn |
 | SELinux types | that the loaded policy knows each server's `selinux_type`; a server whose module is missing cannot start, also in permissive mode |
 | program *name* | that a server's program carries the label the policy gives its path (`matchpathcon`, else `restorecon -n`); a program installed before its module (e.g. still `bin_t`) cannot start in its domain, and its tools are missing. The fix it names is `restorecon`, on a transactional system `transactional-update run restorecon` and a reboot |

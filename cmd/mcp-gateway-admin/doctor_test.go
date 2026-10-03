@@ -79,3 +79,30 @@ func TestDoctorOffline(t *testing.T) {
 		t.Errorf("-server nope: rc %d, %s", rc, out.String())
 	}
 }
+
+// Roles naming missing tools are reported with the server's version and
+// account, and the usual causes.
+func TestRolesResult(t *testing.T) {
+	if r := rolesResult("zypp", "0.1.0", "mcp-sysmgmt", nil); r != nil {
+		t.Fatalf("no findings: %+v", r)
+	}
+	msgs := []string{`role zypp-reader, permission 4: zypp has no tool "plan_install"`}
+	r := rolesResult("zypp", "0.1.0", "mcp-sysmgmt", msgs)
+	if r == nil || r.Status != doctor.Warn || r.Summary != "1 permissions name what zypp 0.1.0 does not offer to mcp-sysmgmt" {
+		t.Fatalf("result %+v", r)
+	}
+	all := strings.Join(r.Details, "\n")
+	for _, want := range []string{msgs[0], "only to root", "another version", "mcp-gateway-admin inspect -server zypp"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("details lack %q:\n%s", want, all)
+		}
+	}
+	// A root server hides nothing from itself; no version, principal.
+	r = rolesResult("fs", "", "root", msgs)
+	if strings.Contains(strings.Join(r.Details, "\n"), "only to root") || r.Summary != "1 permissions name what fs does not offer to root" {
+		t.Errorf("root: %+v", r)
+	}
+	if r = rolesResult("fs", "", "principal", msgs); !strings.HasSuffix(r.Summary, "to the discovery account") {
+		t.Errorf("principal: %q", r.Summary)
+	}
+}
