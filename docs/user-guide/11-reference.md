@@ -261,6 +261,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcp-policy-change` | OPA loaded a different policy | `revision` |
 | `mcp-mcs-collision` | an instance's MCS pair was taken by another workload | `instance`, `pair`, `foreign_pid`, `foreign_context` |
 | `mcp-limit` | a session or instance was refused at a limit (`res=failed`) | `principal`, `transport`, `session`, `limit`, `max` |
+| `mcp-token-expired` | an HTTP stream ended because the token that opened it expired | `principal`, `transport`, `session` |
 
 ## Files and directories
 

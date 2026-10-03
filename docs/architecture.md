@@ -200,7 +200,10 @@ own backends.
   replayed, then the stream goes on (a request stream ends with its
   response); events of other streams are never replayed. A resumption
   replaces a connection the server still considers attached. Unknown or
-  expired ids get `400`. `initialize` creates the
+  expired ids get `400`. A connection ends when the token of the request
+  that opened it is no longer accepted (its `exp`, plus the leeway), as
+  new requests with it are refused; the stream stays resumable with a
+  fresh token (audited as `mcp-token-expired`). `initialize` creates the
   session and returns `Mcp-Session-Id`; a session is bound to its
   principal (issuer + subject, and client certificate if any), and
   requests from anyone else get `404`.
@@ -1652,7 +1655,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       at the token's `exp`, as it refuses new requests then; a client
       resumes with a fresh token (`Last-Event-ID`), and a pending call's
       answer is replayed to it. The expiry is audited
-      (`mcp-token-expired`) and counted.
+      (`mcp-token-expired`) and counted (done).
 
 ## 12. Open items
 
@@ -1665,8 +1668,6 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
 - Approval mail expands groups through NSS, which does not list users
   whose primary group it is; name such approvers as `user:` or bind them
   by user.
-- A token that expires during a long SSE stream keeps that stream alive;
-  every new request needs a valid token.
 - Exact JSON-RPC error codes for policy denials (align with any future
   MCP-spec guidance).
 - Policy changes are noticed by polling (up to `policy.watch_interval`

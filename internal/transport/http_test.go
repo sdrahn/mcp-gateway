@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,13 +21,19 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 )
 
-// fakeAuth accepts "alice", "bob" and "noscope" as tokens.
+// briefToken is how long the token "alice-brief" is accepted.
+const briefToken = 300 * time.Millisecond
+
+// fakeAuth accepts "alice", "alice-brief", "bob" and "noscope" as tokens.
 type fakeAuth struct{}
 
 func (fakeAuth) Authenticate(_ context.Context, token string, _ *x509.Certificate) (principal.Principal, error) {
 	switch token {
 	case "alice", "bob":
 		return principal.Principal{Sub: token, Issuer: "https://idp", Transport: principal.TransportHTTP}, nil
+	case "alice-brief": // alice, with a token about to expire
+		return principal.Principal{Sub: "alice", Issuer: "https://idp", Transport: principal.TransportHTTP,
+			Expires: time.Now().Add(briefToken)}, nil
 	case "noscope":
 		return principal.Principal{}, ErrInsufficientScope
 	}
@@ -691,5 +699,112 @@ func TestResumeReplacesStaleConnection(t *testing.T) {
 	_ = readBody(t, r)
 	if ev := nextEv(t, events); ev.msg == nil || ev.msg.Method != "notifications/tools/list_changed" {
 		t.Fatalf("event %+v", ev)
+	}
+}
+
+// expiries records the principals TokenExpired was called with.
+type expiries struct {
+	mu sync.Mutex
+	ps []principal.Principal
+}
+
+func (e *expiries) add(p principal.Principal) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.ps = append(e.ps, p)
+}
+
+func (e *expiries) get() []principal.Principal {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return slices.Clone(e.ps)
+}
+
+// streamEnds waits for an SSE body to end, failing after timeout.
+func streamEnds(t *testing.T, ch <-chan sseEvent2, timeout time.Duration) {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+			if ev.msg != nil {
+				t.Fatalf("unexpected event before the end: %+v", ev)
+			}
+		case <-deadline:
+			t.Fatal("stream did not end")
+		}
+	}
+}
+
+// A GET stream ends when the token that opened it expires, and the
+// expiry is reported; a stream opened with a token without expiry stays.
+func TestGETStreamEndsAtTokenExpiry(t *testing.T) {
+	var exp expiries
+	srv, _ := newTestServer(t, func(c *HTTPConfig) { c.TokenExpired = exp.add })
+	sid := initialize(t, srv, "/mcp", "alice")
+
+	get := do(t, srv, req{method: http.MethodGet, token: "alice-brief", session: sid, accept: "text/event-stream"})
+	events := make(chan sseEvent2, 8)
+	go sseWithIDs(get, events)
+	nextEv(t, events) // priming
+	start := time.Now()
+	streamEnds(t, events, 3*time.Second)
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("stream ended %v after priming, want about %v", d, briefToken)
+	}
+	ps := exp.get()
+	if len(ps) != 1 || ps[0].Sub != "alice" || ps[0].SessionID != sid {
+		t.Fatalf("TokenExpired: %+v", ps)
+	}
+
+	// With a fresh token the client opens the GET stream again.
+	waitDetached(t, srv, sid)
+	again := do(t, srv, req{method: http.MethodGet, token: "alice", session: sid, accept: "text/event-stream"})
+	ev2 := make(chan sseEvent2, 8)
+	go sseWithIDs(again, ev2)
+	nextEv(t, ev2) // priming
+	r := do(t, srv, req{token: "alice", session: sid, body: `{"jsonrpc":"2.0","id":2,"method":"later"}`})
+	_ = readBody(t, r)
+	if ev := nextEv(t, ev2); ev.msg == nil || ev.msg.Method != "notifications/tools/list_changed" {
+		t.Fatalf("after reopening: %+v", ev)
+	}
+	if n := len(exp.get()); n != 1 {
+		t.Errorf("%d expiries, want 1", n)
+	}
+}
+
+// A request stream ends at the token's expiry while its call waits; the
+// client resumes it with a fresh token and gets the response.
+func TestRequestStreamEndsAtTokenExpiry(t *testing.T) {
+	var exp expiries
+	srv, _ := newTestServer(t, func(c *HTTPConfig) { c.TokenExpired = exp.add })
+	sid := initialize(t, srv, "/mcp", "alice")
+
+	resp := do(t, srv, req{token: "alice-brief", session: sid, accept: "text/event-stream",
+		body: `{"jsonrpc":"2.0","id":2,"method":"ask"}`})
+	events := make(chan sseEvent2, 8)
+	go sseWithIDs(resp, events)
+	nextEv(t, events) // priming
+	el := nextEv(t, events)
+	if el.msg == nil || el.msg.Method != "elicitation/create" {
+		t.Fatalf("want elicitation, got %+v", el)
+	}
+	streamEnds(t, events, 3*time.Second)
+	if ps := exp.get(); len(ps) != 1 || ps[0].SessionID != sid {
+		t.Fatalf("TokenExpired: %+v", ps)
+	}
+
+	// The token "alice-brief" would now be refused; the client goes on
+	// with a fresh one.
+	answer(t, srv, sid)
+	again := resume(t, srv, sid, el.id)
+	ev2 := make(chan sseEvent2, 8)
+	go sseWithIDs(again, ev2)
+	nextEv(t, ev2) // priming
+	if final := nextEv(t, ev2); final.msg == nil || final.msg.Key() != "2" || !strings.Contains(string(final.msg.Result), "accept") {
+		t.Fatalf("resumed: %+v", final)
 	}
 }
