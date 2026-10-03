@@ -29,6 +29,12 @@ type compatClient struct {
 // compatClients returns the client programs named in $MCPGW_CLIENTS
 // (comma-separated: ts, py, go), set up as test/clients/README.md
 // describes; the test fails if one cannot run.
+
+// fsTools are the file server's tools the developer role offers
+// (read_*, list_*, write_file), sorted as the clients print them.
+const fsTools = "list_allowed_directories,list_dir,list_directory,list_directory_with_sizes," +
+	"read_file,read_media_file,read_multiple_files,read_text_file,write_file"
+
 func compatClients(t *testing.T, bin string) []compatClient {
 	t.Helper()
 	required := map[string]bool{}
@@ -248,7 +254,7 @@ func TestClients(t *testing.T) {
 			t.Run(transport+"/"+c.name, func(t *testing.T) {
 				t.Run("basic", func(t *testing.T) {
 					r := runClient(t, c, "basic", envFor("fs"), nil)
-					if r["server"] != "mcp-fs-demo" || strs(r["tools"]) != "list_dir,read_file,write_file" || r["read"] != "hello clients" {
+					if r["server"] != "mcp-server-fs" || strs(r["tools"]) != fsTools || r["read"] != "hello clients" {
 						t.Fatalf("discovery or call: %v", r)
 					}
 					// Clients that try a newer protocol first (the Python SDK
@@ -305,7 +311,7 @@ func TestClients(t *testing.T) {
 	    {"server": "fs", "tool": "delete_file"}`))
 					})
 					opaPut(t, opaSock, "mcp/rbac", rbac(""))
-					if r["notified"] != true || strs(r["after"]) != "delete_file,list_dir,read_file,write_file" {
+					if r["notified"] != true || strs(r["after"]) != "delete_file,"+fsTools {
 						t.Fatalf("list_changed: %v", r)
 					}
 					// Let the gateway notice the change back before the next

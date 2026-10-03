@@ -94,15 +94,21 @@ approval the logged-in user may decide on, with an action opening the
 approval page. Started with the session (XDG autostart); does nothing for
 users without access to the gateway.
 
-%package demo-server
-Summary:        Demo filesystem MCP server for mcp-gateway
-Group:          Development/Tools/Other
+%package fs-server
+Summary:        File MCP server for mcp-gateway
+Group:          System/Management
 Requires:       %{name} = %{version}
+# The demo server it replaces (0.5).
+Provides:       %{name}-demo-server = %{version}-%{release}
+Obsoletes:      %{name}-demo-server < %{version}-%{release}
 
-%description demo-server
-A minimal stdio MCP server offering file tools, resources and a prompt
-on the connecting user's home directory, registered with mcp-gateway as
-server "fs". For trying out and testing the gateway.
+%description fs-server
+mcp-server-fs, an MCP server for files, registered with mcp-gateway as
+server "fs" on the connecting user's home directory: reading, listing,
+searching, writing and editing files, with the tool names of the
+reference filesystem server. It stays inside its directories also
+through symbolic links, replaces files atomically and bounds what one
+call reads and writes.
 
 %package profile-systemd
 Summary:        systemd-mcp behind mcp-gateway
@@ -196,7 +202,7 @@ make selinux
 %sysusers_generate_pre profiles/snapper/sysusers.conf %{name}-profile-snapper %{name}-profile-snapper.conf
 
 %install
-%make_install install install-selinux install-cockpit install-desktop install-demo install-profiles \
+%make_install install install-selinux install-cockpit install-desktop install-fs-server install-profiles \
     PREFIX=%{_prefix} BINDIR=%{_bindir} SBINDIR=%{_sbindir} LIBEXECDIR=%{_libexecdir} \
     DATADIR=%{_datadir} SYSCONFDIR=%{_sysconfdir} DISTCONFDIR=%{_distconfdir} \
     UNITDIR=%{_unitdir} SYSUSERSDIR=%{_sysusersdir} TMPFILESDIR=%{_tmpfilesdir} \
@@ -299,8 +305,9 @@ fi
 %{_bindir}/mcp-gateway-notify
 %config %{_sysconfdir}/xdg/autostart/mcp-gateway-notify.desktop
 
-%files demo-server
+%files fs-server
 %dir %{_libexecdir}/mcp-servers
+%{_libexecdir}/mcp-servers/mcp-server-fs
 %{_libexecdir}/mcp-servers/mcp-fs-demo
 %{_datadir}/mcp-gateway/servers.d/fs-demo.yaml
 

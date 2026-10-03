@@ -67,7 +67,7 @@ mcp-gateway sits between agents and MCP servers:
 | SELinux module `mcp_gateway` | `mcp-gateway-selinux` | Domains for the gateway, OPA and MCP servers; isolation rules. |
 | Cockpit page | `mcp-gateway-cockpit` | Approvals, grants, servers and instances, role bindings, audit records. |
 | `mcp-gateway-notify` | `mcp-gateway-desktop` | Desktop notifications for approvals. |
-| `mcp-fs-demo` | `mcp-gateway-demo-server` | A small filesystem MCP server for trying things out (server `fs`). |
+| `mcp-server-fs` | `mcp-gateway-fs-server` | An MCP server for files on the user's home directory (server `fs`): read, list, search, write, edit (chapter 4). |
 
 ## How a request flows
 

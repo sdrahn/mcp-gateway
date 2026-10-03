@@ -96,8 +96,8 @@ mcp_gateway_runtime_file(mcpopa_sock_t)
 mcp_gateway_backend_template(generic)
 corecmd_bin_entry_type(mcpsrv_generic_t)
 
-# Example dedicated backend domain, see config/servers.d/fs.yaml and
-# examples/mcp-fs-demo.
+# The file server's domain (cmd/mcp-server-fs, package
+# mcp-gateway-fs-server; config/servers.d/fs.yaml).
 mcp_gateway_backend_template(fs)
 mcp_gateway_backend_home_rw(mcpsrv_fs_t)
 

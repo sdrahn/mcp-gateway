@@ -292,7 +292,7 @@ func TestRemoteHTTP(t *testing.T) {
 	c.token = provider.token(t, "u-remote", audience)
 	t.Run("initialize", func(t *testing.T) {
 		m := c.call(1, "initialize", init["params"])
-		if !strings.Contains(string(m.Result), "mcp-fs-demo") || c.session == "" {
+		if !strings.Contains(string(m.Result), "mcp-server-fs") || c.session == "" {
 			t.Fatalf("initialize: %s (session %q)", m.Result, c.session)
 		}
 		resp := c.post(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"}, false)
@@ -303,7 +303,7 @@ func TestRemoteHTTP(t *testing.T) {
 	})
 
 	t.Run("tools/list filtered", func(t *testing.T) {
-		if got := listNames(t, c.call(2, "tools/list", map[string]any{}), "tools", "name"); got != "read_file,write_file" {
+		if got := listNames(t, c.call(2, "tools/list", map[string]any{}), "tools", "name"); got != "read_text_file,read_file,read_media_file,read_multiple_files,write_file" {
 			t.Fatalf("tools = %s", got)
 		}
 	})

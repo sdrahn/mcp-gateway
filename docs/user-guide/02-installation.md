@@ -23,7 +23,7 @@ zypper refresh
 zypper install mcp-gateway            # daemon, mcp-connect, policy, units
 zypper install mcp-gateway-cockpit    # optional: web console page
 zypper install mcp-gateway-desktop    # optional: desktop notifications
-zypper install mcp-gateway-demo-server  # optional: demo server "fs"
+zypper install mcp-gateway-fs-server  # optional: file server "fs"
 ```
 
 `mcp-gateway-selinux` is pulled in automatically where the targeted
@@ -60,6 +60,9 @@ reboot
   cannot install or remove packages (zypper refuses on a read-only
   root); install with `transactional-update` instead. Searching and
   planning work. `mcp-gateway doctor` warns ("read-only /usr").
+- The file server (`mcp-gateway-fs-server`) works on home directories as
+  on other systems; directories on the read-only root file system it
+  shows as read-only and refuses to change, saying why (chapter 4).
 - Snapshots and the default subvolume belong to transactional-update
   (`transactional-update rollback`); do not use the snapper server's
   `rollback` there.
@@ -98,10 +101,10 @@ Out of the box the gateway:
 
 Users must log in again after being added to `mcp-users`.
 
-### Try it with the demo server
+### Try it with the file server
 
 ```bash
-zypper install mcp-gateway-demo-server
+zypper install mcp-gateway-fs-server
 systemctl restart mcp-gateway.service
 usermod -aG dev alice           # "developer" role in the shipped role data
 ```
@@ -117,8 +120,9 @@ printf '%s\n' \
  | mcp-connect --server fs
 ```
 
-The developer role may read and list files in the home directory, must get
-approval to write (on the approval page), and may not delete.
+The developer role may read, list and search files in the home directory,
+must get approval to write, edit, create directories and move (on the
+approval page), and may not delete.
 
 ## SELinux
 
@@ -159,7 +163,7 @@ semanage port -a -t mcp_port_t -p tcp 8443
 
 ```bash
 git clone https://github.com/sdrahn/mcp-gateway.git && cd mcp-gateway
-make build                       # bin/mcp-gateway, mcp-connect, mcp-gateway-notify, mcp-fs-demo
+make build                       # bin/mcp-gateway, mcp-connect, mcp-gateway-notify, mcp-server-fs
 sudo make install install-selinux install-cockpit install-desktop install-demo \
      PREFIX=/usr SYSCONFDIR=/etc DISTCONFDIR=/usr/etc
 sudo systemd-sysusers /usr/lib/sysusers.d/mcp-gateway.conf
@@ -190,7 +194,7 @@ nothing else.
 For trying the gateway without root, systemd units or SELinux:
 
 ```bash
-examples/poc/run-dev.sh            # OPA + gateway in exec mode, demo server on $HOME
+examples/poc/run-dev.sh            # OPA + gateway in exec mode, file server on $HOME
 ```
 
 `supervisor.mode: exec` starts MCP servers as plain child processes of the
@@ -200,7 +204,7 @@ gateway, **without any confinement**. Use it for development only.
 
 ```bash
 systemctl disable --now mcp-gateway.service mcp-opa.service
-zypper remove mcp-gateway mcp-gateway-selinux mcp-gateway-cockpit mcp-gateway-desktop mcp-gateway-demo-server
+zypper remove mcp-gateway mcp-gateway-selinux mcp-gateway-cockpit mcp-gateway-desktop mcp-gateway-fs-server
 ```
 
 `/etc/mcp-gateway` (your configuration) and `/var/lib/mcp-gateway`

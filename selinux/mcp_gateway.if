@@ -162,6 +162,12 @@ interface(`mcp_gateway_backend_home_rw',`
 	')
 	userdom_manage_user_home_content_files($1)
 	userdom_manage_user_home_content_dirs($1)
+	# Symbolic links below home: resolved (inside the root of the server)
+	# and listed, not created. (No apostrophes in this file: m4 ends the
+	# quoted interface body at one.)
+	read_lnk_files_pattern($1, user_home_t, user_home_t)
+	# statfs: whether a directory is on a read-only file system.
+	fs_getattr_xattr_fs($1)
 	# New files and directories directly in the home directory are home
 	# content, as for programs the user runs.
 	allow $1 user_home_dir_t:dir rw_dir_perms;

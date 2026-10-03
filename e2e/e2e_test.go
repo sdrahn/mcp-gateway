@@ -1,6 +1,6 @@
 // Package e2e runs the gateway end to end: a real OPA server with the
 // shipped policy, the gateway (exec supervisor), mcp-connect as the client
-// transport, and the mcp-fs-demo backend. It is skipped when opa is not
+// transport, and the mcp-server-fs backend. It is skipped when opa is not
 // on PATH (or $OPA).
 package e2e
 
@@ -229,7 +229,7 @@ func (e *env) restartGateway(t *testing.T) {
 }
 
 // setup starts OPA with the shipped policy and rbac as role data, and the
-// gateway with one mcp-fs-demo backend per entry of roots (name → root).
+// gateway with one mcp-server-fs backend per entry of roots (name → root).
 // extra is appended to the gateway configuration.
 func setup(t *testing.T, rbac string, roots map[string]string, extra string) *env {
 	t.Helper()
@@ -251,7 +251,7 @@ func setupWith(t *testing.T, rbac string, roots map[string]string, extra string,
 	bin := filepath.Join(tmp, "bin")
 	gateway := build(t, bin, "./cmd/mcp-gateway")
 	connect := build(t, bin, "./cmd/mcp-connect")
-	demo := build(t, bin, "./examples/mcp-fs-demo")
+	demo := build(t, bin, "./cmd/mcp-server-fs")
 
 	writeFile(t, filepath.Join(tmp, "data", "rbac", "data.json"), rbac)
 	opaSock := filepath.Join(tmp, "opa.sock")
@@ -360,7 +360,7 @@ func TestEndToEnd(t *testing.T) {
 		"capabilities":    map[string]any{"elicitation": map[string]any{}},
 		"clientInfo":      map[string]any{"name": "e2e", "version": "1"},
 	})
-	if m := c.read(); m.Error != nil || !strings.Contains(string(m.Result), "mcp-fs-demo") {
+	if m := c.read(); m.Error != nil || !strings.Contains(string(m.Result), "mcp-server-fs") {
 		t.Fatalf("initialize: %+v", m)
 	}
 	c.send(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"})
@@ -376,7 +376,9 @@ func TestEndToEnd(t *testing.T) {
 		for _, tool := range r.Tools {
 			names = append(names, tool.Name)
 		}
-		if strings.Join(names, ",") != "list_dir,read_file,write_file" {
+		// The tester role: read_*, list_*, write_file; delete_* denied.
+		if strings.Join(names, ",") != "read_text_file,read_file,read_media_file,read_multiple_files,"+
+			"list_directory,list_dir,list_directory_with_sizes,list_allowed_directories,write_file" {
 			t.Fatalf("tools = %v", names)
 		}
 	})
@@ -505,7 +507,9 @@ func TestAggregatedEndpoint(t *testing.T) {
 
 	t.Run("tools are namespaced and filtered", func(t *testing.T) {
 		c.request(2, "tools/list", map[string]any{})
-		if got := listNames(t, c.read(), "tools", "name"); got != "fs__list_dir,fs__read_file,notes__read_file" {
+		if got := listNames(t, c.read(), "tools", "name"); got != "fs__read_text_file,fs__read_file,fs__read_media_file,fs__read_multiple_files,"+
+			"fs__list_directory,fs__list_dir,fs__list_directory_with_sizes,fs__list_allowed_directories,"+
+			"notes__read_text_file,notes__read_file,notes__read_media_file,notes__read_multiple_files" {
 			t.Fatalf("tools = %s", got)
 		}
 	})

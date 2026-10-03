@@ -31,22 +31,19 @@ SELINUXDIR  ?= $(DATADIR)/selinux/packages/$(SELINUXTYPE)
 SELINUXINCDIR ?= $(DATADIR)/selinux/devel/include/services
 DESTDIR     ?=
 
-BINARIES := bin/mcp-gateway bin/mcp-connect bin/mcp-gateway-notify bin/mcp-fs-demo
+BINARIES := bin/mcp-gateway bin/mcp-connect bin/mcp-gateway-notify bin/mcp-server-fs
 
 # Server setups (profiles/<name>, SELinux module selinux/mcp_<name>.te),
 # packaged as mcp-gateway-profile-<name>.
 PROFILES := systemd firewalld zypp suseconnect snapper
 
 .PHONY: all build test vet lint fmt-check policy-check policy-test selinux check \
-	install install-gateway install-selinux install-cockpit install-desktop install-demo \
+	install install-gateway install-selinux install-cockpit install-desktop install-fs-server install-demo \
 	install-profiles clean
 
 all: build
 
 build: $(BINARIES)
-
-bin/mcp-fs-demo: FORCE
-	$(GOBUILD) -o $@ ./examples/mcp-fs-demo
 
 bin/%: FORCE
 	$(GOBUILD) -ldflags '$(LDFLAGS)' -o $@ ./cmd/$*
@@ -144,12 +141,17 @@ install-desktop:
 	install -Dm0755 bin/mcp-gateway-notify $(DESTDIR)$(BINDIR)/mcp-gateway-notify
 	install -Dm0644 packaging/desktop/mcp-gateway-notify.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/mcp-gateway-notify.desktop
 
-install-demo:
-	install -Dm0755 bin/mcp-fs-demo $(DESTDIR)$(LIBEXECDIR)/mcp-servers/mcp-fs-demo
+# The file server, as the server "fs". mcp-fs-demo, the demo server's
+# name, stays a link to it until 0.6 for definitions that name it.
+install-fs-server:
+	install -Dm0755 bin/mcp-server-fs $(DESTDIR)$(LIBEXECDIR)/mcp-servers/mcp-server-fs
+	ln -sf mcp-server-fs $(DESTDIR)$(LIBEXECDIR)/mcp-servers/mcp-fs-demo
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d
-	sed 's|@LIBEXECDIR@|$(LIBEXECDIR)|g' packaging/demo/fs-demo.yaml.in \
+	sed 's|@LIBEXECDIR@|$(LIBEXECDIR)|g' packaging/fs-server/fs.yaml.in \
 		>$(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/fs-demo.yaml
 	chmod 0644 $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/fs-demo.yaml
+
+install-demo: install-fs-server
 
 clean:
 	rm -rf bin selinux/tmp selinux/*.pp $(PROFILES:%=selinux/mcp_%.if)

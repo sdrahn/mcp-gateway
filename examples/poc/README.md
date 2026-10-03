@@ -111,7 +111,7 @@ packages built from `packaging/suse` (see `packaging/suse/README.md`), as
 root:
 
 ```bash
-zypper in mcp-gateway mcp-gateway-selinux mcp-gateway-demo-server mcp-gateway-cockpit
+zypper in mcp-gateway mcp-gateway-selinux mcp-gateway-fs-server mcp-gateway-cockpit
 # Bind users or groups to roles in /etc/mcp-gateway/policy/rbac/data.json,
 # e.g. "bindings": {"users": {"alice": ["developer"]}, ...}
 # (examples/poc/rbac/data.json shows a form-approval variant).

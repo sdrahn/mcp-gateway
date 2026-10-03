@@ -1170,7 +1170,7 @@ either says about itself (client info, tool annotations).
 | Agent auto-approves its own elicitation | URL / OOB approvals authenticated outside the agent; `form` only for low-risk | `form` approvals are answered by the agent's client |
 | Prompt-injected agent exfiltrates via allowed tool | argument constraints, rate limits, output limits, approvals on destructive/egress tools, pseudonymization, audit | what an allowed tool returns reaches the model |
 | Parser differential: policy decides on parameters the server reads differently | requests whose objects repeat a key or have keys differing only in case, and keys differing only in case from one the gateway reads or from an argument the tool or prompt declares, are refused (`invalid params`); found and checked by fuzzing (step 14) | a server with its own notion of argument names (e.g. aliases) |
-| Path arguments leaving an allowed tree through symbolic links | path constraints are on the string (D13); servers confine their own file access (`os.Root`, `openat2` `RESOLVE_BENEATH`; the demo server does), and account, sandbox and SELinux domain bound what any path reaches | servers that follow links without confining themselves, within what their account and domain may access |
+| Path arguments leaving an allowed tree through symbolic links | path constraints are on the string (D13); servers confine their own file access (`os.Root`, `openat2` `RESOLVE_BENEATH`; the file server does), and account, sandbox and SELinux domain bound what any path reaches | servers that follow links without confining themselves, within what their account and domain may access |
 | Access revoked while activity goes on | grants and decisions apply when a call starts (D12); updates of subscribed resources are decided again; instances can be stopped (Cockpit, control API) | a call in progress runs to its end; a privileged call is not stopped halfway |
 | Malicious/compromised backend | per-backend SELinux domain, no access to gateway/OPA sockets, systemd sandboxing (memory and task limits), no network by default, per-session MCS | what its own domain allows (a profile drafted too wide) |
 | Compromised privileged backend (D9) | admin-only definitions, `run_as: root` explicitly, approval for every call not explicitly allowed, kernel audit, the MCP-facing part confined | root while it runs |
@@ -1385,7 +1385,7 @@ share the server's mount namespace, account or sandbox, and a path
 resolved by the gateway could change before the server opens it.
 Servers that take paths confine their own file access to their tree,
 through symbolic links too (Go `os.Root`, Linux `openat2` with
-`RESOLVE_BENEATH`); the demo server does. Account, sandbox and SELinux
+`RESOLVE_BENEATH`); the file server does. Account, sandbox and SELinux
 domain bound what any path can reach.
 *Rationale:* only the server can resolve a path in its own view and
 without a race; the gateway's string check plus the server's own
@@ -1440,7 +1440,7 @@ internal/
 policy/                   # default Rego bundle + tests
 selinux/                  # mcp_gateway.te / .fc / .if
 systemd/                  # mcp-gateway.service, mcp-gateway.socket, mcp-opa.service
-packaging/                # OBS/RPM (suse/), sysusers, polkit, demo server definition
+packaging/                # OBS/RPM (suse/), sysusers, polkit, file server definition
 profiles/                 # server setups (mcp-gateway-profile-*)
 test/compat/              # previous minor release's configuration (D10)
 docs/
@@ -1504,7 +1504,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       checks, unused options, fixed state paths) goes to its upstream
       as an issue or patch rather than into a workaround here;
     - the VM test (SELinux enforcing, no denials) runs these servers, not
-      only the demo server, and reads and changes something through each,
+      only the file server, and reads and changes something through each,
       with an approval;
     - CI builds the servers from their upstream sources at pinned
       versions and VM-tests on Leap 16 and Tumbleweed (SLES 16 through
@@ -1588,7 +1588,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       counters stay in memory (D11), decisions and grants apply when a
       call starts while updates of subscribed resources are decided
       anew (D12), path arguments are constrained as strings and servers
-      confine their own file access (D13, the demo server with
+      confine their own file access (D13, the file server with
       `os.Root`) (done).
 15. **Client compatibility:** tested and documented behaviour with Kit,
     Claude Code and other MCP clients (sessions, elicitation, approval

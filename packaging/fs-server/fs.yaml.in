@@ -1,0 +1,16 @@
+# The file server (package mcp-gateway-fs-server): the connecting user's
+# home directory, in the mcpsrv_fs_t SELinux domain. Installed as
+# servers.d/fs-demo.yaml, the name the demo server's definition had, so
+# that copies of it in /etc/mcp-gateway/servers.d keep replacing it. To
+# change it, copy this file to /etc/mcp-gateway/servers.d/fs-demo.yaml;
+# an empty file of that name disables it. Options of the server:
+# mcp-server-fs -h (more --root directories, --read-only, limits).
+version: 1
+name: fs
+command: ["@LIBEXECDIR@/mcp-servers/mcp-server-fs", "--root", "${HOME}"]
+selinux_type: mcpsrv_fs_t
+isolation: principal
+network: false
+run_as: principal
+sandbox:
+  protect_home: read-write
