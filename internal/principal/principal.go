@@ -22,7 +22,7 @@ const (
 )
 
 // Discovery is the identity of the gateway's shared discovery instances
-// (and of servers started by mcp-gateway inspect): no user, home "/".
+// (and of servers started by mcp-gateway-admin inspect): no user, home "/".
 var Discovery = Principal{
 	Sub:       "mcp-discovery",
 	Home:      "/",

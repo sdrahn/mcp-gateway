@@ -58,16 +58,16 @@ fetch aschnell/mcp-server-snapper mcp-server-snapper "$MCP_SERVER_SNAPPER"
 (cd "$src/mcp-server-snapper" && CGO_ENABLED=0 go build -mod=vendor -trimpath \
 	-ldflags "-X main.Version=$(cat VERSION)" -o "$out/usr/bin/mcp-server-snapper" ./src)
 
-# mcp-gateway review on the real sources (roadmap step 11, stage 3): the
-# reports go to the job log; the helpers systemd-mcp is known to run must
-# be found.
+# mcp-gateway-admin review (mcp-gateway-tools, which it runs) on the real
+# sources (roadmap step 11, stage 3): the reports go to the job log; the
+# helpers systemd-mcp is known to run must be found.
 repo=$(cd "$(dirname "$0")/../.." && pwd)
-(cd "$repo" && go build -buildvcs=false -o "$src/mcp-gateway" ./cmd/mcp-gateway)
+(cd "$repo" && go build -buildvcs=false -o "$src/mcp-gateway-tools" ./cmd/mcp-gateway-tools)
 review() { # review <name> <dir> [--main PKG]
 	local name=$1 dir=$2
 	shift 2
 	echo "== review $name"
-	"$src/mcp-gateway" review --source "$dir" "$@" | tee "$src/review-$name.txt"
+	"$src/mcp-gateway-tools" review --source "$dir" "$@" | tee "$src/review-$name.txt"
 }
 review systemd-mcp "$src/systemd-mcp" --main .
 review firewalld-mcp "$src/firewalld-mcp" --main ./cmd/firewalld-mcp

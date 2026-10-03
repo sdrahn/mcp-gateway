@@ -85,7 +85,7 @@ a server or a tool does not show up.
 - mcp-server-snapper talks to snapperd, which answers an account only for
   the configs whose `ALLOW_USERS` name it ("snapper: the snapper
   configuration" below). Until you add `mcp-snapper` there, the server
-  can list the configs and nothing else; `mcp-gateway doctor` says so.
+  can list the configs and nothing else; `mcp-gateway-admin doctor` says so.
   Changing configs and rolling back need root: link
   `/usr/share/mcp-gateway/profiles/snapper-privileged.yaml` as
   `/etc/mcp-gateway/servers.d/snapper.yaml`, as for zypp.
@@ -319,7 +319,7 @@ gateway's `selinux/` directory); for those servers you need no module of
 your own, and a module of yours with one of these names would be
 replaced. What follows
 shows how they are built, for other servers.
-`mcp-gateway profile` drafts such a module from a run of the server
+`mcp-gateway-admin profile` drafts such a module from a run of the server
 (chapter 4, "Profiling a server").
 
 The default domain for servers, `mcpsrv_generic_t`, may not use the
@@ -440,7 +440,7 @@ users already there:
 ```bash
 snapper -c root get-config | grep ALLOW_          # who is allowed now
 snapper -c root set-config "ALLOW_USERS=mcp-snapper"   # plus those, space-separated
-mcp-gateway doctor --server snapper --no-start    # "snapperd allows mcp-snapper the configs root"
+mcp-gateway-admin doctor --server snapper --no-start    # "snapperd allows mcp-snapper the configs root"
 ```
 
 Allowed callers can list, create and delete snapshots of that
@@ -507,7 +507,7 @@ the shipped `admin`, which allows everything, never asks):
 
 ## Checking and troubleshooting
 
-`mcp-gateway inspect --server systemd --roles
+`mcp-gateway-admin inspect --server systemd --roles
 /usr/share/mcp-gateway/policy/mcp/profiles/systemd/data.json` (as root)
 starts the server as the gateway does and reports roles that name tools
 it does not have, for example after a server update (chapter 4,
@@ -532,5 +532,5 @@ journalctl -u 'mcp-systemd-*' -u 'mcp-firewalld-*' -u 'mcp-snapper-*' -b
 | audit: `ask`, but nothing appears in Cockpit | the approval could not be delivered | `journalctl -u mcp-gateway.service \| grep -iE 'approval\|elicit'`; the control socket must be enabled |
 | "calling method was canceled by user" | `systemd-mcp`'s own authorization | `--allow-read` / `--allow-write`, or `--noauth ThisIsInsecure` behind the gateway |
 | "Interactive authentication required", `NOT_AUTHORIZED` after approval | the service's polkit check for the instance's account | the polkit rule above, for the account in `run_as` |
-| snapper calls fail with "D-Bus call failed: org.freedesktop.DBus.Error.Failed" | the account is not in the snapper configuration's `ALLOW_USERS`/`ALLOW_GROUPS` (`mcp-gateway doctor` names it), or the tool needs root (`set_config`, `rollback`) | `snapper -c <config> set-config ALLOW_USERS=…`; for root, the privileged definition |
+| snapper calls fail with "D-Bus call failed: org.freedesktop.DBus.Error.Failed" | the account is not in the snapper configuration's `ALLOW_USERS`/`ALLOW_GROUPS` (`mcp-gateway-admin doctor` names it), or the tool needs root (`set_config`, `rollback`) | `snapper -c <config> set-config ALLOW_USERS=…`; for root, the privileged definition |
 | role data edits do not take effect | OPA did not notice the change (some editors replace the file) | `systemctl restart mcp-opa.service`; compare `curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/bindings` with the file |

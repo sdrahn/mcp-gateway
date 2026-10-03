@@ -167,13 +167,13 @@ func Roles(server string, verdicts []Verdict) map[string]any {
 		}
 	}
 	roles := map[string]any{}
-	opDesc := fmt.Sprintf("%s, with approval: every tool (draft by mcp-gateway inspect)", server)
+	opDesc := fmt.Sprintf("%s, with approval: every tool (draft by mcp-gateway-admin inspect)", server)
 	if len(reads) > 0 {
 		roles[server+"-reader"] = map[string]any{
-			"description": fmt.Sprintf("%s: the tools it marks read-only (draft by mcp-gateway inspect)", server),
+			"description": fmt.Sprintf("%s: the tools it marks read-only (draft by mcp-gateway-admin inspect)", server),
 			"permissions": reads,
 		}
-		opDesc = fmt.Sprintf("%s-reader, and with approval: every other tool (draft by mcp-gateway inspect)", server)
+		opDesc = fmt.Sprintf("%s-reader, and with approval: every other tool (draft by mcp-gateway-admin inspect)", server)
 	}
 	op := append([]map[string]any{}, reads...)
 	op = append(op, map[string]any{
@@ -198,7 +198,7 @@ var globMeta = regexp.MustCompile(`[*?\[\]{}\\]`)
 func Definition(server string, command []string, res *Result) string {
 	cmd, _ := json.Marshal(command)
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Draft by mcp-gateway inspect from %s", res.Server.Name)
+	fmt.Fprintf(&b, "# Draft by mcp-gateway-admin inspect from %s", res.Server.Name)
 	if res.Server.Version != "" {
 		fmt.Fprintf(&b, " %s", res.Server.Version)
 	}

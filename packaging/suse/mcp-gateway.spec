@@ -125,6 +125,21 @@ patterns and passed without a shell, with a timeout and an output
 limit, run as the calling user in its own SELinux domain. The shipped
 role exec-operator runs the commands with approval.
 
+%package tools
+Summary:        Commands to onboard MCP servers for mcp-gateway
+Group:          System/Management
+Requires:       %{name} = %{version}
+# profile builds the policy module it drafts and reads the audit log.
+Requires:       selinux-policy-devel
+Recommends:     audit
+
+%description tools
+The commands mcp-gateway-admin inspect, profile and review, which help
+to add an MCP server to mcp-gateway: inspect starts a server, lists its
+tools and drafts a definition and roles; profile runs a registered
+server in a permissive SELinux domain and drafts its policy module;
+review scans a server's source for what it does to the system.
+
 %package profile-systemd
 Summary:        systemd-mcp behind mcp-gateway
 Group:          System/Management
@@ -208,7 +223,7 @@ need an approval.
 
 %build
 export GOFLAGS="-mod=vendor"
-%make_build build VERSION=%{version}
+%make_build build VERSION=%{version} LIBEXECDIR=%{_libexecdir}
 make selinux
 %sysusers_generate_pre packaging/sysusers.d/mcp-gateway.conf %{name} %{name}.conf
 %sysusers_generate_pre profiles/systemd/sysusers.conf %{name}-profile-systemd %{name}-profile-systemd.conf
@@ -217,7 +232,7 @@ make selinux
 %sysusers_generate_pre profiles/snapper/sysusers.conf %{name}-profile-snapper %{name}-profile-snapper.conf
 
 %install
-%make_install install install-selinux install-cockpit install-desktop install-fs-server install-exec-server install-profiles \
+%make_install install install-tools install-selinux install-cockpit install-desktop install-fs-server install-exec-server install-profiles \
     PREFIX=%{_prefix} BINDIR=%{_bindir} SBINDIR=%{_sbindir} LIBEXECDIR=%{_libexecdir} \
     DATADIR=%{_datadir} SYSCONFDIR=%{_sysconfdir} DISTCONFDIR=%{_distconfdir} \
     UNITDIR=%{_unitdir} SYSUSERSDIR=%{_sysusersdir} TMPFILESDIR=%{_tmpfilesdir} \
@@ -272,6 +287,7 @@ fi
 %license LICENSE
 %doc README.md docs/architecture.md
 %{_bindir}/mcp-gateway
+%{_bindir}/mcp-gateway-admin
 %{_bindir}/mcp-connect
 %{_sbindir}/mcp-policy-bundle
 %dir %{_sysconfdir}/mcp-gateway
@@ -338,6 +354,10 @@ fi
 %{_datadir}/mcp-gateway/exec
 %{_datadir}/mcp-gateway/policy/mcp/profiles/exec
 %dir %{_sysconfdir}/mcp-gateway/exec.d
+
+%files tools
+%dir %{_libexecdir}/mcp-gateway
+%{_libexecdir}/mcp-gateway/mcp-gateway-tools
 
 %files profile-systemd
 %{_datadir}/mcp-gateway/servers.d/systemd.yaml

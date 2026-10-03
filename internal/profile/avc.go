@@ -28,7 +28,7 @@ type Denial struct {
 }
 
 // DenialsFile is denials.json of a profiling run: the domain and the
-// denials involving it (read by mcp-gateway review).
+// denials involving it (read by mcp-gateway-admin review).
 type DenialsFile struct {
 	Domain  string   `json:"domain"`
 	Denials []Denial `json:"denials"`

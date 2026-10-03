@@ -185,6 +185,15 @@ jobs:
           getent passwd mcp-gateway mcp-opa
           getent group mcp-users
           mcp-gateway --version
+          mcp-gateway-admin --version
+          # The onboarding commands are in mcp-gateway-tools; the old
+          # subcommands of mcp-gateway forward with a warning (until 0.8).
+          mcp-gateway-admin inspect -h 2>&1 | grep -q 'package mcp-gateway-tools, which is not installed'
+          rpm -ivh --nodeps ~/rpmbuild/RPMS/x86_64/mcp-gateway-tools-*.rpm
+          mcp-gateway-admin inspect -h 2>&1 | grep -q 'usage: mcp-gateway-admin inspect'
+          mcp-gateway review -h 2>&1 | tee /tmp/moved.log
+          grep -q 'deprecated and goes away in 0.8' /tmp/moved.log
+          grep -q 'usage: mcp-gateway-admin review' /tmp/moved.log
           mcp-gateway --check 2>&1 | tee /tmp/check.log
           grep -q 'config=/usr/etc/mcp-gateway/gateway.yaml' /tmp/check.log
           grep -q 'backends=4' /tmp/check.log

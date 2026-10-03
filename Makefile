@@ -4,7 +4,6 @@ OPA     ?= opa
 # Distribution builds: PIE, reproducible paths. GOFLAGS (e.g. -mod=vendor)
 # is passed through from the environment.
 BUILDMODE ?= pie
-LDFLAGS   := -X github.com/sdrahn/mcp-gateway/internal/version.Version=$(VERSION)
 GOBUILD    = $(GO) build -trimpath -buildmode=$(BUILDMODE)
 
 SELINUX_DEVEL ?= /usr/share/selinux/devel/Makefile
@@ -31,14 +30,18 @@ SELINUXDIR  ?= $(DATADIR)/selinux/packages/$(SELINUXTYPE)
 SELINUXINCDIR ?= $(DATADIR)/selinux/devel/include/services
 DESTDIR     ?=
 
-BINARIES := bin/mcp-gateway bin/mcp-connect bin/mcp-gateway-notify bin/mcp-server-fs bin/mcp-server-exec
+# mcp-gateway-admin finds mcp-gateway-tools in $(LIBEXECDIR)/mcp-gateway.
+LDFLAGS := -X github.com/sdrahn/mcp-gateway/internal/version.Version=$(VERSION) \
+	-X github.com/sdrahn/mcp-gateway/internal/version.LibexecDir=$(LIBEXECDIR)
+
+BINARIES := bin/mcp-gateway bin/mcp-gateway-admin bin/mcp-gateway-tools bin/mcp-connect bin/mcp-gateway-notify bin/mcp-server-fs bin/mcp-server-exec
 
 # Server setups (profiles/<name>, SELinux module selinux/mcp_<name>.te),
 # packaged as mcp-gateway-profile-<name>.
 PROFILES := systemd firewalld zypp suseconnect snapper
 
 .PHONY: all build test vet lint fmt-check policy-check policy-test selinux check \
-	install install-gateway install-selinux install-cockpit install-desktop install-fs-server install-demo install-exec-server \
+	install install-gateway install-tools install-selinux install-cockpit install-desktop install-fs-server install-demo install-exec-server \
 	install-profiles clean
 
 all: build
@@ -88,6 +91,7 @@ install: install-gateway
 
 install-gateway:
 	install -Dm0755 bin/mcp-gateway $(DESTDIR)$(BINDIR)/mcp-gateway
+	install -Dm0755 bin/mcp-gateway-admin $(DESTDIR)$(BINDIR)/mcp-gateway-admin
 	install -Dm0755 bin/mcp-connect $(DESTDIR)$(BINDIR)/mcp-connect
 	install -Dm0755 tools/mcp-policy-bundle $(DESTDIR)$(SBINDIR)/mcp-policy-bundle
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/opa
@@ -119,6 +123,10 @@ install-gateway:
 	chmod 0644 $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/gateway-admin.yaml
 	install -Dm0644 packaging/admin/gateway-admin-roles.json \
 		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/gateway-admin/data.json
+
+# The onboarding commands (mcp-gateway-admin inspect, profile, review).
+install-tools:
+	install -Dm0755 bin/mcp-gateway-tools $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/mcp-gateway-tools
 
 install-selinux: selinux
 	install -d $(DESTDIR)$(SELINUXDIR)

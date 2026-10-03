@@ -45,7 +45,7 @@ func TestProfileDefinition(t *testing.T) {
 	if b.SELinuxType != "mcpsrv_fwprof_t" || !b.Network || b.RunAs != "mcp-sysmgmt" || b.Env["A"] != "b" || len(b.Command) != 2 {
 		t.Errorf("definition %+v\n%s", b, out)
 	}
-	if !strings.HasPrefix(string(out), "# Draft by mcp-gateway profile") {
+	if !strings.HasPrefix(string(out), "# Draft by mcp-gateway-admin profile") {
 		t.Errorf("no header:\n%s", out)
 	}
 }

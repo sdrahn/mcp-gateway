@@ -25,29 +25,30 @@ systemctl restart mcp-gateway.service
 A server is only usable by principals whose roles have permissions for it
 (chapter 6). A server nobody has permissions for is invisible.
 
-`mcp-gateway doctor --server git` (as root) then checks that the server
-starts, that roles do not name tools it lacks, and whether SELinux
+`mcp-gateway-admin doctor --server git` (as root) then checks that the
+server starts, that roles do not name tools it lacks, and whether SELinux
 denied it something (chapter 10, "Self-check").
 
 ### Inspecting a server
 
-`mcp-gateway inspect` starts a server, lists its tools, prompts and
+`mcp-gateway-admin inspect` starts a server, lists its tools, prompts and
 resource templates, classifies each tool as reading or changing, and
 drafts roles for it. Use it before writing roles, and to check roles
-after a server update:
+after a server update. It comes, with `profile` and `review` below, in
+the package `mcp-gateway-tools` (`zypper install mcp-gateway-tools`):
 
 ```bash
 # A registered server, started as the gateway starts it for discovery
 # (through systemd, in its sandbox and SELinux domain; as root):
-mcp-gateway inspect --server git
+mcp-gateway-admin inspect --server git
 
 # Check role data against the tools the server really has:
-mcp-gateway inspect --server git --roles /etc/mcp-gateway/policy/rbac/data.json
+mcp-gateway-admin inspect --server git --roles /etc/mcp-gateway/policy/rbac/data.json
 
 # A server not registered yet, as a plain child process of yours (no
 # sandbox: only for servers you trust; refused as root). Writes the
 # drafts git.yaml and roles.json to ./git-drafts:
-mcp-gateway inspect --name git --out ./git-drafts -- /usr/libexec/mcp-servers/mcp-git
+mcp-gateway-admin inspect --name git --out ./git-drafts -- /usr/libexec/mcp-servers/mcp-git
 ```
 
 The report shows for each tool its class and why: the MCP annotations
@@ -80,11 +81,11 @@ holds it).
 
 What `inspect` does not find out is what the server needs from the
 system: SELinux rules, polkit actions, an account, the network. That is
-what `mcp-gateway profile` is for.
+what `mcp-gateway-admin profile` is for.
 
 ### Profiling a server
 
-`mcp-gateway profile` runs a registered server with its SELinux domain
+`mcp-gateway-admin profile` runs a registered server with its SELinux domain
 permissive (only that domain), calls its tools and drafts a policy
 module from the denials of the run:
 
@@ -96,7 +97,7 @@ command: ["/usr/libexec/mcp-servers/mcp-git"]
 END
 
 # As root, with selinux-policy-devel installed:
-mcp-gateway profile --server git --out ./git-profile
+mcp-gateway-admin profile --server git --out ./git-profile
 ```
 
 A server that still runs in the default domain `mcpsrv_generic_t` gets a
@@ -124,7 +125,7 @@ come from a file:
 ```
 
 ```bash
-mcp-gateway profile --server git --out ./git-profile --calls calls.json
+mcp-gateway-admin profile --server git --out ./git-profile --calls calls.json
 ```
 
 `--call-all` calls every tool with made-up arguments: only on a system
@@ -158,12 +159,12 @@ cp git.yaml /etc/mcp-gateway/servers.d/    # after comparing it with yours
 mcp-gateway --check && systemctl restart mcp-gateway.service
 
 # The same calls, enforcing; fails if there is a denial:
-mcp-gateway profile --server git --verify
+mcp-gateway-admin profile --server git --verify
 ```
 
 ### Reviewing a server's source
 
-A profiling run sees only the code its calls reach. `mcp-gateway review`
+A profiling run sees only the code its calls reach. `mcp-gateway-admin review`
 reads the server's source for what it does to the system, to find the
 rest:
 
@@ -171,7 +172,7 @@ rest:
 # The source of the server (for Go: --main, the server's main package,
 # so that other programs and tools in the repository are left out).
 # --profile: the drafts directory of a profiling run, for its denials.
-mcp-gateway review --source ./mcp-git --main ./cmd/mcp-git --profile ./git-profile
+mcp-gateway-admin review --source ./mcp-git --main ./cmd/mcp-git --profile ./git-profile
 ```
 
 It lists, each with file and line:
@@ -477,7 +478,7 @@ filesystem server, which agents know:
 | `read_file`, `list_dir` | older names, kept for roles that name them |
 
 The last five change files; all tools carry MCP annotations (read-only,
-destructive), which `mcp-gateway inspect` uses for its draft roles.
+destructive), which `mcp-gateway-admin inspect` uses for its draft roles.
 Options, for a copy of the definition in `/etc/mcp-gateway/servers.d`:
 
 | Option | Default | Meaning |
@@ -567,7 +568,7 @@ characters. Patterns are what keep values in bounds; make them as narrow
 as the command needs, and let no value name a file the command should
 not read. stdin is empty. A file that does not validate keeps the server
 from starting (its error is in the journal, `journalctl -u 'mcp-exec-*'`,
-and `mcp-gateway doctor` reports the server), so that no command goes
+and `mcp-gateway-admin doctor` reports the server), so that no command goes
 missing unnoticed. The server reads the files when an instance starts:
 after a change, stop the running instances (Cockpit, Servers tab) or
 wait until they end when idle.
@@ -592,10 +593,11 @@ arguments in the audit log instead of their digest (chapter 6).
 Commands run with the calling user's rights and the domain's: they read
 `/etc`, `/usr`, system state, mounts and the rpm database, and change
 nothing beyond what the user may. For a command that needs more (another
-user's journal, files in homes), run it in a test with `mcp-gateway
-profile --server exec` and load the module it drafts, or define a second
-command server with a domain of its own (copy `exec.yaml` under another
-name, with its own `selinux_type` and `--commands` directory). Do not
+user's journal, files in homes), run it in a test with
+`mcp-gateway-admin profile --server exec` and load the module it
+drafts, or define a second command server with a domain of its own
+(copy `exec.yaml` under another name, with its own `selinux_type` and
+`--commands` directory). Do not
 allow a shell or an interpreter with arguments from the caller
 (`/bin/sh -c "{cmd}"`): that is a shell again, only without the
 confinement this is for.
@@ -685,7 +687,7 @@ Notes:
   mode too ("Failed to change SELinux context to
   system_u:system_r:mcpsrv_git_t:s0"). The gateway warns at start of
   every `selinux_type` the policy does not know ("selinux_type is not in
-  the loaded SELinux policy"), and `mcp-gateway doctor` fails the check
+  the loaded SELinux policy"), and `mcp-gateway-admin doctor` fails the check
   `SELinux type`; `semodule -l` lists the loaded modules.
 
 - `mcp-gateway-selinux` installs the template's interface file

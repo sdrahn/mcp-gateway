@@ -7,27 +7,16 @@ import (
 	"testing"
 )
 
-// The top-level help names every command, and each command answers -h
-// with its own usage.
-func TestUsageListsCommands(t *testing.T) {
+// The help names the gateway's options and mcp-gateway-admin; unknown
+// commands are refused.
+func TestUsage(t *testing.T) {
 	fs := flag.NewFlagSet("mcp-gateway", flag.ContinueOnError)
 	fs.Bool("check", false, "validate the configuration")
 	var out bytes.Buffer
 	usage(&out, fs)
-	for _, c := range commands {
-		if !strings.Contains(out.String(), "\n  "+c.name+" ") {
-			t.Errorf("usage does not list %s:\n%s", c.name, out.String())
-		}
-	}
-	if !strings.Contains(out.String(), "-check") {
-		t.Errorf("usage lacks the gateway's options:\n%s", out.String())
-	}
-
-	for _, c := range commands {
-		var stdout, stderr bytes.Buffer
-		runHelp([]string{c.name}, &stdout, &stderr, fs)
-		if got := stdout.String() + stderr.String(); !strings.Contains(got, "usage: mcp-gateway "+c.name) {
-			t.Errorf("help %s: %s", c.name, got)
+	for _, want := range []string{"-check", "mcp-gateway-admin (doctor, inspect"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("usage lacks %q:\n%s", want, out.String())
 		}
 	}
 

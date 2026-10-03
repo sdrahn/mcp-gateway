@@ -22,8 +22,8 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 )
 
-const inspectUsage = `usage: mcp-gateway inspect [options] -server NAME
-       mcp-gateway inspect [options] -name NAME -- COMMAND [ARG...]
+const inspectUsage = `usage: mcp-gateway-admin inspect [options] -server NAME
+       mcp-gateway-admin inspect [options] -name NAME -- COMMAND [ARG...]
 
 Starts an MCP server, lists its tools, prompts and resource templates,
 classifies the tools (read or change, from the server's annotations and
@@ -45,9 +45,9 @@ type stringList []string
 func (l *stringList) String() string     { return fmt.Sprint(*l) }
 func (l *stringList) Set(s string) error { *l = append(*l, s); return nil }
 
-// runInspect implements "mcp-gateway inspect"; it returns the exit code.
+// runInspect implements "mcp-gateway-admin inspect"; it returns the exit code.
 func runInspect(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("mcp-gateway inspect", flag.ContinueOnError)
+	fs := flag.NewFlagSet("mcp-gateway-admin inspect", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
 		_, _ = fmt.Fprint(stderr, inspectUsage)
@@ -107,7 +107,7 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 			say(stderr, "starting a server through systemd needs root (or -exec, without sandbox)")
 			return 1
 		}
-		if launcher, err = newLauncher(log, mode); err != nil {
+		if launcher, err = supervisor.NewLauncher(log, mode); err != nil {
 			say(stderr, err)
 			return 1
 		}
@@ -138,7 +138,7 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	res, err := probe(ctx, launcher, b, p)
+	res, err := inspect.Start(ctx, launcher, b, p)
 	if err != nil {
 		sayf(stderr, "%s: %v", b.Name, err)
 		return 1
@@ -198,16 +198,6 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
-}
-
-// probe starts one instance of b for p and inspects it.
-func probe(ctx context.Context, l supervisor.Launcher, b *config.Backend, p principal.Principal) (*inspect.Result, error) {
-	inst, err := l.Start(ctx, b, p, randomID())
-	if err != nil {
-		return nil, fmt.Errorf("starting: %w", err)
-	}
-	defer func() { _ = inst.Close() }()
-	return inspect.Probe(ctx, inst)
 }
 
 // writeDrafts writes roles.json and, for a server started by command, a

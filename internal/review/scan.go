@@ -1,7 +1,7 @@
 // Package review scans an MCP server's source for what it does to the
 // system: programs it runs, D-Bus services and polkit actions it names,
 // paths, network access, root checks and environment variables. It backs
-// "mcp-gateway review", which helps a reviewer find what a profiling run
+// "mcp-gateway-admin review", which helps a reviewer find what a profiling run
 // (internal/profile) did not reach. The scan is textual: it finds the
 // usual ways of doing these things in Go, Python, JavaScript/TypeScript,
 // C/C++ and Rust, not every way.

@@ -49,7 +49,7 @@ func (d Domain) ModuleName() string {
 func (d Domain) ProfilingModule() (name, te, fc string) {
 	name = "mcpprof_" + Ident(d.Server)
 	var b strings.Builder
-	fmt.Fprintf(&b, "policy_module(%s, 1.0)\n\n# Temporary, while mcp-gateway profile runs: %s is permissive.\n", name, d.Type)
+	fmt.Fprintf(&b, "policy_module(%s, 1.0)\n\n# Temporary, while mcp-gateway-admin profile runs: %s is permissive.\n", name, d.Type)
 	if d.New {
 		fmt.Fprintf(&b, "mcp_gateway_backend_template(%s)\n", Ident(d.Server))
 	} else {
@@ -146,7 +146,7 @@ func DraftModule(d Domain, denials []Denial, errs []Record) Draft {
 	var b strings.Builder
 	mod := d.ModuleName()
 	fmt.Fprintf(&b, "policy_module(%s, 1.0.0)\n\n", mod)
-	fmt.Fprintf(&b, "# Draft by mcp-gateway profile for the MCP server %s. Review every\n", d.Server)
+	fmt.Fprintf(&b, "# Draft by mcp-gateway-admin profile for the MCP server %s. Review every\n", d.Server)
 	b.WriteString("# rule: it allows what one run did, which may be more than the server\n")
 	b.WriteString("# needs, and misses what the run did not reach. Prefer interfaces of the\n")
 	b.WriteString("# reference policy where one says the same (sesearch, audit2allow -R).\n\n")

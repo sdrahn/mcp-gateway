@@ -13,7 +13,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/review"
 )
 
-const reviewUsage = `usage: mcp-gateway review [options] --source DIR
+const reviewUsage = `usage: mcp-gateway-admin review [options] --source DIR
 
 Scans an MCP server's source for what it does to the system: programs it
 runs, D-Bus services and polkit actions it names, paths, network access,
@@ -29,9 +29,9 @@ vendored code are left out.
 Options:
 `
 
-// runReview implements "mcp-gateway review"; it returns the exit code.
+// runReview implements "mcp-gateway-admin review"; it returns the exit code.
 func runReview(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("mcp-gateway review", flag.ContinueOnError)
+	fs := flag.NewFlagSet("mcp-gateway-admin review", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
 		_, _ = fmt.Fprint(stderr, reviewUsage)
@@ -39,7 +39,7 @@ func runReview(args []string, stdout, stderr io.Writer) int {
 	}
 	source := fs.String("source", "", "the server's source tree")
 	mainPkg := fs.String("main", "", "Go: the server's main package, relative to the module root (--source); only the packages it imports are scanned")
-	profDir := fs.String("profile", "", "drafts directory of a profiling run (mcp-gateway profile --out), for its denials.json")
+	profDir := fs.String("profile", "", "drafts directory of a profiling run (mcp-gateway-admin profile --out), for its denials.json")
 	asJSON := fs.Bool("json", false, "print the review as JSON")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {

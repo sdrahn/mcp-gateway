@@ -670,7 +670,7 @@ Types:
 | `mcpsrv_<name>_t` / `mcpsrv_<name>_exec_t` | per-backend domain / binary |
 | `mcpsrv_generic_t` | fallback for backends without a dedicated type |
 | `mcpsrv_exec_t` | `exec` (`mcp-server-exec`): commands an administrator allows, run as the calling user without network; reads system state, mounts and the rpm database |
-| `mcpsrv_admin_t` | `gateway-admin` (`mcp-gateway admin-server`, entered on `mcpgw_exec_t`): root without capabilities, reads configuration, state, journal, audit log and labels; under the same `neverallow`s as every backend |
+| `mcpsrv_admin_t` | `gateway-admin` (`mcp-gateway-admin serve`, entered on `mcpsrv_admin_exec_t`): root without capabilities, reads configuration, state, journal, audit log and labels; under the same `neverallow`s as every backend |
 | `mcp_port_t` | gateway HTTPS port |
 | `mcp_metrics_port_t` | gateway metrics port (`metrics.listen`) |
 
@@ -1181,7 +1181,7 @@ either says about itself (client info, tool annotations).
 | Token theft / confused deputy | audience-bound tokens, optional certificate binding (mTLS), no token passthrough, backend creds via systemd credentials | a stolen token until it expires; an open SSE stream outlives its token (§12) |
 | Approval spoofing | approval ids from 128 random bits; decisions only over the control socket with kernel-identified approvers and approver rules, or the Cockpit page (Cockpit login) | an approver tricked into approving |
 | Policy tampering | signed bundles verified by OPA (file or bundle server; never with `--watch`), OPA in own domain, config/bundle dirs writable only by admin | root |
-| OPA outage | fail closed; `mcp-gateway doctor` and metrics show it | no service while it lasts |
+| OPA outage | fail closed; `mcp-gateway-admin doctor` and metrics show it | no service while it lasts |
 | Gateway hang | watchdog (`WatchdogSec=60s`) on the locks of sessions, instances and approvals; goroutine dump on SIGABRT | sessions end with the restart |
 | Resource exhaustion by a client | message size limits (32 MiB), instance memory and task limits, idle stop, restart backoff, rate-limit obligations, limits on sessions and instances per principal (D14) | many principals together, unless `limits.instances` is set; memory per session (replay buffers) within the session limit |
 | Rate limits reset by a restart | counters in memory (D11); a restart needs root or a crash, both audited | an agent that can crash the gateway; no such crash is known |
@@ -1421,6 +1421,8 @@ Refusing beats queueing: the agent sees a clear error at once.
 ```
 cmd/
   mcp-gateway/            # daemon
+  mcp-gateway-admin/      # doctor, the server gateway-admin; runs mcp-gateway-tools
+  mcp-gateway-tools/      # inspect, profile, review (package mcp-gateway-tools)
   mcp-connect/            # stdio ↔ unix-socket shim
 internal/
   transport/              # unix, http (streamable), shim protocol
@@ -1432,10 +1434,10 @@ internal/
   broker/                 # approvals, grants store, elicitation
   contract/               # JSON field lists of the stable interfaces (D10)
   metrics/                # counters and histograms, Prometheus text format
-  doctor/                 # mcp-gateway doctor: checks of an installation
-  inspect/                # mcp-gateway inspect: server inventory, draft roles, role check
-  profile/                # mcp-gateway profile: permissive run, denials, drafted module
-  review/                 # mcp-gateway review: source scan for what a server does to the system
+  doctor/                 # mcp-gateway-admin doctor: checks of an installation
+  inspect/                # mcp-gateway-admin inspect: server inventory, draft roles, role check
+  profile/                # mcp-gateway-admin profile: permissive run, denials, drafted module
+  review/                 # mcp-gateway-admin review: source scan for what a server does to the system
   supervisor/             # systemd transient units, instance pool, MCS allocator
   audit/
   config/
@@ -1516,7 +1518,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     hand for each server. They propose and an administrator decides:
     who may call what is a policy decision, and what a server says about
     its tools (MCP tool annotations) is not to be trusted.
-    - `mcp-gateway inspect` starts a server (through its definition and
+    - `mcp-gateway-admin inspect` starts a server (through its definition and
       the supervisor, or a bare command) and asks it for its tools,
       prompts and resource templates. It reports names, argument
       schemas, annotations and a read/change classification, drafts a
@@ -1526,7 +1528,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       data against the tools the server really has: a permission that
       names a missing tool is an error (a shipped systemd role named
       `list_units`, which systemd-mcp does not have) (done);
-    - `mcp-gateway profile` runs a server in its own domain, permissive
+    - `mcp-gateway-admin profile` runs a server in its own domain, permissive
       for that domain only (a new domain from the template for a server
       without one), calls its reading tools with arguments from their
       schemas (others only from a calls file or on request, on a
@@ -1538,7 +1540,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       authorizations (polkit), SELINUX_ERR records. `--verify` repeats
       the calls enforcing and fails on a denial; the VM test profiles
       firewalld-mcp as an unknown server and verifies the draft (done);
-    - `mcp-gateway review` scans the server's source (Go, Python,
+    - `mcp-gateway-admin review` scans the server's source (Go, Python,
       JavaScript/TypeScript, C/C++, Rust; for Go only the packages its
       main package imports) for programs it runs, D-Bus names and polkit
       actions, paths, network access, root checks and environment
@@ -1572,7 +1574,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     - a self-check command that finds what had to be debugged by hand:
       servers that do not start, SELinux denials for a backend, missing
       polkit rules, role data that does not validate, principals without
-      roles: `mcp-gateway doctor` also checks the services, that OPA
+      roles: `mcp-gateway-admin doctor` also checks the services, that OPA
       decides, and roles naming tools a server does not offer (done).
 14. **Security assurance:**
     - fuzzing of the JSON-RPC parser, the HTTP transport and the policy
@@ -1619,17 +1621,20 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       `profile`, `review` and `serve` (the MCP server `gateway-admin`,
       until now `mcp-gateway admin-server`); `mcp-gateway` keeps running
       the gateway, `--check`, `--check-policy-data`, `--version` and
-      `help`;
+      `help` (done);
     - its own program type (`mcpsrv_admin_exec_t`, as other servers
       have): `mcpsrv_admin_t` is entered on it instead of on the
-      gateway's `mcpgw_exec_t`, so that no backend domain has an entry
-      point on the gateway binary;
+      gateway's `mcpgw_exec_t`, so that, from 0.8 on, no backend domain
+      has an entry point on the gateway binary (done);
     - packages: `doctor` and `serve` in `mcp-gateway`, which needs them
       to check itself and to offer `gateway-admin`; `inspect`, `profile`
-      and `review`, which onboard servers, in `mcp-gateway-tools`;
+      and `review`, which onboard servers, in `mcp-gateway-tools` (done);
     - `mcp-gateway inspect` and the others keep working in 0.7: they run
       `mcp-gateway-admin` with a deprecation warning, as D10 has keys go
-      (changelog "Deprecated"), and go away in 0.8;
+      (changelog "Deprecated"), and go away in 0.8; so does a
+      definition starting `mcp-gateway admin-server`, which gets a
+      warning, and the entry of `mcpsrv_admin_t` on `mcpgw_exec_t` it
+      needs (done);
     - the program name `mcp-fs-demo`, deprecated in 0.6, goes away: the
       link, its file context and the warning for definitions naming it.
 

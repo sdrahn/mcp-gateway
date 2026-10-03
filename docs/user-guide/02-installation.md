@@ -59,7 +59,7 @@ reboot
   in between. This includes updates: after updating to a release with a
   new server domain (0.6: `mcpsrv_exec_t`), reboot before installing the
   new server's package.
-- After a reboot into a new snapshot, run `mcp-gateway doctor`. It
+- After a reboot into a new snapshot, run `mcp-gateway-admin doctor`. It
   reports a server whose SELinux type is not in the running policy
   ("*type* is not in the loaded policy: servers … cannot start") and a
   program with the wrong label ("program *name*: … is labeled bin_t, the
@@ -71,7 +71,7 @@ reboot
 - A privileged server cannot change `/usr`: the privileged zypp server
   cannot install or remove packages (zypper refuses on a read-only
   root); install with `transactional-update` instead. Searching and
-  planning work. `mcp-gateway doctor` warns ("read-only /usr").
+  planning work. `mcp-gateway-admin doctor` warns ("read-only /usr").
 - The file server (`mcp-gateway-fs-server`) works on home directories as
   on other systems; directories on the read-only root file system it
   shows as read-only and refuses to change, saying why (chapter 4).
