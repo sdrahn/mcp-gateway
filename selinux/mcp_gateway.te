@@ -142,6 +142,8 @@ optional_policy(`
 	list_dirs_pattern(mcpsrv_admin_t, syslogd_var_run_t, syslogd_var_run_t)
 	read_files_pattern(mcpsrv_admin_t, syslogd_var_run_t, syslogd_var_run_t)
 ')
+# journalctl looks at the file system of the runtime journal (statfs).
+fs_getattr_tmpfs(mcpsrv_admin_t)
 # journalctl in its own program type (openSUSE), where it has one.
 optional_policy(`
 	gen_require(`type journalctl_exec_t;')
