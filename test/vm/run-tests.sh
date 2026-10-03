@@ -342,14 +342,14 @@ check "gateway-docs: not for bob, who holds no role for it" failed_without "# 10
 stool alice gateway-admin doctor '{}'
 check "gateway-admin: doctor" succeeded_with "configuration: "
 check "gateway-admin: doctor does not ask OPA" succeeded_with "servers cannot reach OPA"
-check "gateway-admin: doctor reads the state directory" succeeded_with "owned by mcp-gateway"
+check "gateway-admin: doctor asks systemd" succeeded_with "mcp-gateway.service: active"
 check "gateway-admin: doctor reads the audit log" bash -c '! grep -q "reading the audit log" <<<"$1"' _ "$out"
 stool alice gateway-admin check_config '{}'
 check "gateway-admin: check_config" succeeded_with "role data: /etc/mcp-gateway/policy/rbac/data.json valid"
 stool_approved alice gateway-admin explain_decision '{"user":"bob","server":"fs","name":"delete_file"}'
 check "gateway-admin: explain_decision" succeeded_with "bob tools.call fs/delete_file: deny"
 stool_approved alice gateway-admin show_config '{"file":"/etc/mcp-gateway/policy/rbac/data.json"}'
-check "gateway-admin: show_config" succeeded_with "gateway-docs-reader"
+check "gateway-admin: show_config" succeeded_with "tester"
 stool_approved alice gateway-admin recent_audit '{"user":"alice","server":"gateway-docs"}'
 check "gateway-admin: recent_audit" succeeded_with "name=search_files"
 stool_approved alice gateway-admin selinux_denials '{"since":"1h"}'

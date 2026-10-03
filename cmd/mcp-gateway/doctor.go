@@ -273,6 +273,10 @@ func (d *doctorRun) stateFiles() doctor.Result {
 	uid, _ := strconv.ParseUint(u.Uid, 10, 32)
 	dir := d.gw.StateDir
 	foreign, err := foreignFiles(dir, uint32(uid))
+	if err != nil && d.isolated && errors.Is(err, fs.ErrPermission) {
+		r.Status, r.Summary = doctor.Skip, dir+" is the gateway's alone (0700), and this server has no capabilities: mcp-gateway doctor as root checks it"
+		return r
+	}
 	if err != nil {
 		return skipOrFail(r, err)
 	}
