@@ -342,7 +342,6 @@ fi
 %files fs-server
 %dir %{_libexecdir}/mcp-servers
 %{_libexecdir}/mcp-servers/mcp-server-fs
-%{_libexecdir}/mcp-servers/mcp-fs-demo
 %{_datadir}/mcp-gateway/servers.d/fs-demo.yaml
 %{_datadir}/mcp-gateway/servers.d/gateway-docs.yaml
 %{_datadir}/mcp-gateway/policy/mcp/profiles/gateway-docs

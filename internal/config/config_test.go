@@ -128,23 +128,6 @@ func TestLoadBackendsDefaults(t *testing.T) {
 	}
 }
 
-// A definition naming a program kept only as a link gets a warning.
-func TestLoadBackendsDeprecatedProgram(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "old.yaml", "name: old\ncommand: [/usr/libexec/mcp-servers/mcp-fs-demo, --root, /]\n")
-	writeFile(t, dir, "new.yaml", "name: new\ncommand: [/usr/libexec/mcp-servers/mcp-server-fs]\n")
-	bs, err := LoadBackends(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if w := bs["old"].Warnings; len(w) != 1 || !strings.Contains(w[0], "mcp-fs-demo is deprecated since 0.5") || !strings.Contains(w[0], "mcp-server-fs") {
-		t.Errorf("old: %q", w)
-	}
-	if w := bs["new"].Warnings; len(w) != 0 {
-		t.Errorf("new: %q", w)
-	}
-}
-
 // A definition starting a command mcp-gateway gave up gets a warning.
 func TestLoadBackendsDeprecatedCommand(t *testing.T) {
 	dir := t.TempDir()

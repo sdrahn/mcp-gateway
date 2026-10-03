@@ -21,6 +21,13 @@ minor release (with a warning) and removed in the next.
   its own program type (`mcpsrv_admin_exec_t`); update
   `mcp-gateway-selinux` together with the gateway.
 
+### Removed
+
+- The program name `mcp-fs-demo`, a link to `mcp-server-fs` since 0.5
+  and deprecated in 0.6. A definition still naming it no longer starts:
+  name `mcp-server-fs` instead. The definition the package installs
+  (`servers.d/fs-demo.yaml`, which keeps its name) already does.
+
 ### Deprecated
 
 - `mcp-gateway inspect`, `profile`, `review`, `doctor` and
