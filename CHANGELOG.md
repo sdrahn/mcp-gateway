@@ -5,7 +5,40 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.5.0 — 2026-10-03
+
+Agents can now help with the gateway itself. The gateway's documentation
+is an MCP server (`gateway-docs`), readable without the network, and its
+diagnostics are another (`gateway-admin`): the doctor's checks, the
+configuration with secrets masked, what the policy decides for a user
+and why, audit records and SELinux denials, all read-only. The demo
+server has become a full file server, `mcp-server-fs`, which also knows
+transactional systems. `mcp-gateway doctor` finds server programs with
+the wrong SELinux label and privileged servers on a read-only `/usr`.
+
+Upgrading from 0.4.x needs no configuration changes. After the update,
+restart the gateway (`systemctl restart mcp-gateway.service`); the
+package does not. Things to know:
+
+- Update `mcp-gateway-selinux` together with the gateway: it has the new
+  domains `mcpsrv_docs_t` and `mcpsrv_admin_t`.
+- `mcp-gateway-fs-server` replaces `mcp-gateway-demo-server`; zypper
+  does this on update. The server is still `fs`, defined in the same
+  file; definitions naming the program `mcp-fs-demo` keep working until
+  0.6.
+- Two servers are new: `gateway-admin` (main package) and `gateway-docs`
+  (`mcp-gateway-fs-server`). Roles that name every server reach them like
+  any other: the shipped `admin` all of `gateway-admin`, `viewer` the
+  reading tools of `gateway-docs` (none of `gateway-admin`'s tool names
+  match its patterns). Role data in `/etc` is not replaced on update, so
+  for everyone else bind the shipped roles `gateway-admin` and
+  `gateway-docs-reader` (user guide, chapter 10, "Asking an agent"). An
+  empty file of the same name in `/etc/mcp-gateway/servers.d` disables
+  either.
+- Roles that allow `read_*` and `list_*` on `fs` now also allow the file
+  server's new reading tools (`read_text_file`, `list_directory`, ...).
+- `examples/poc` is now `examples/dev`, the setup for running the gateway
+  from a checkout.
 
 ### Added
 
@@ -26,18 +59,6 @@ minor release (with a warning) and removed in the next.
 - On a transactional system (read-only `/usr`), `mcp-gateway doctor`
   warns about privileged servers, which cannot change `/usr`. The user
   guide has a section on such systems (chapter 2).
-
-### Fixed
-
-- Two files defining the same server, typically a hand-made definition
-  in `/etc/mcp-gateway/servers.d` next to the one a setup package
-  installs under another file name, failed with "duplicate backend name"
-  and one file name. The message now names both files and says to
-  rename yours to the package's file name (a file there replaces a
-  package's only under the same file name) or remove it.
-
-### Added
-
 - The gateway's documentation as an MCP server, `gateway-docs` (package
   `mcp-gateway-fs-server`): the user guide, the architecture and the
   changelog of the installed version, installed to
@@ -81,6 +102,15 @@ minor release (with a warning) and removed in the next.
   `read_text_file`, `read_media_file`, `read_multiple_files`,
   `list_directory`, `list_directory_with_sizes` and
   `list_allowed_directories`.
+
+### Fixed
+
+- Two files defining the same server, typically a hand-made definition
+  in `/etc/mcp-gateway/servers.d` next to the one a setup package
+  installs under another file name, failed with "duplicate backend name"
+  and one file name. The message now names both files and says to
+  rename yours to the package's file name (a file there replaces a
+  package's only under the same file name) or remove it.
 
 ## v0.4.3 — 2026-10-02
 
