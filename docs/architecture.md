@@ -1678,7 +1678,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     - the doctor checks the labels of every program the gateway's and the
       setups' SELinux modules give a type to, not only the servers'
       commands: a helper the server starts (zypp's `zypp-mcp-tool`,
-      `rpm_exec_t`) labeled `bin_t` runs in the wrong domain too;
+      `rpm_exec_t`) labeled `bin_t` runs in the wrong domain too (done);
     - approval mail reaches the users whose primary group an approver
       group is, which NSS does not list as members (done).
 

@@ -222,8 +222,9 @@ func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
 	return out
 }
 
-// ProgramLabels checks that each server's program carries the SELinux
-// type the loaded policy gives its path (current: the file's type,
+// ProgramLabels checks that each server's program, and the other
+// TypedPrograms that are installed, carry the SELinux type the loaded
+// policy gives their path (current: the file's type,
 // expected: the policy's, as matchpathcon tells; readOnly: whether the
 // path is on a read-only file system). A program installed or copied
 // before the module that labels it keeps, e.g., bin_t; systemd then
@@ -268,11 +269,63 @@ func ProgramLabels(backends map[string]*config.Backend, current, expected func(p
 		r.Details = []string{"relabel it: " + fix}
 		out = append(out, r)
 	}
-	if len(out) == 0 && checked > 0 {
+	// The other programs the modules give a type (the gateway's own, and
+	// helpers a server starts, like zypp's worker), where installed.
+	seen := map[string]bool{}
+	for _, b := range backends {
+		if len(b.Command) > 0 {
+			seen[b.Command[0]] = true
+		}
+	}
+	helpers := 0
+	for _, path := range TypedPrograms {
+		if seen[path] {
+			continue
+		}
+		cur, err := current(path)
+		if err != nil {
+			continue // not installed
+		}
+		exp, err := expected(path)
+		if err != nil || exp == "" || strings.HasPrefix(exp, "<<") || cur == exp {
+			if err == nil && cur == exp {
+				helpers++
+			}
+			continue
+		}
+		fix := "restorecon -v " + path
+		if readOnly(path) {
+			fix = "transactional-update run restorecon -v " + path + ", then reboot (read-only file system)"
+		}
+		out = append(out, Result{Check: "program " + path, Status: Fail,
+			Summary: fmt.Sprintf("%s is labeled %s, the policy says %s: it does not run in its domain", path, cur, exp),
+			Details: []string{"relabel it: " + fix}})
+	}
+	if len(out) == 0 && checked+helpers > 0 {
 		out = append(out, Result{Check: "program labels", Status: OK,
-			Summary: fmt.Sprintf("the %d servers' programs are labeled as the policy says", checked)})
+			Summary: fmt.Sprintf("the %d servers' programs and %d other programs are labeled as the policy says", checked, helpers)})
 	}
 	return out
+}
+
+// TypedPrograms are the programs the SELinux modules of the gateway and
+// the setups (selinux/*.fc) give a type of their own; a test keeps the
+// list in step with the file contexts.
+var TypedPrograms = []string{
+	"/usr/bin/mcp-gateway",
+	"/usr/bin/mcp-gateway-admin",
+	"/usr/bin/firewalld-mcp",
+	"/usr/bin/mcp-server-snapper",
+	"/usr/bin/mcp-server-zypp",
+	"/usr/bin/suseconnect-mcp",
+	"/usr/bin/systemd-mcp",
+	"/usr/lib/mcp-gateway/opa",
+	"/usr/libexec/mcp-gateway/opa",
+	"/usr/lib/mcp-servers/mcp-server-exec",
+	"/usr/libexec/mcp-servers/mcp-server-exec",
+	"/usr/lib/mcp-servers/mcp-server-fs",
+	"/usr/libexec/mcp-servers/mcp-server-fs",
+	"/usr/libexec/mcp-server-zypp/zypp-mcp-tool",
 }
 
 // ReadOnlyRoot reports privileged servers on a system whose /usr is

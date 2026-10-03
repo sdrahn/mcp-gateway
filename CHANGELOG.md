@@ -7,6 +7,14 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Changed
+
+- `mcp-gateway-admin doctor` checks the labels of every program the
+  gateway's and the setups' SELinux modules give a type, where installed,
+  not only the servers' commands: a helper a server starts, such as
+  zypp's `zypp-mcp-tool` (`rpm_exec_t`), labeled `bin_t` runs in the
+  wrong domain too.
+
 ### Fixed
 
 - Approval mail reaches the users whose primary group an approver group
