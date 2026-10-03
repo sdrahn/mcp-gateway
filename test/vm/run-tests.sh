@@ -702,6 +702,15 @@ if [ -d "$dir/servers" ]; then
 	check "doctor: a polkit rule names mcp-sysmgmt" doctor_says '^ok +polkit mcp-sysmgmt: '
 fi
 check "doctor: every server's SELinux type is in the policy" doctor_says '^ok +SELinux types: '
+check "doctor: the servers' programs are labeled as the policy says" doctor_says '^ok +program labels: '
+# A program that lost its label (installed before its module): the doctor
+# names it and the fix.
+chcon -t bin_t /usr/libexec/mcp-servers/mcp-fs-demo
+mcp-gateway doctor --server fs --no-start >/root/doctor-label.txt 2>&1
+grep -A1 '^fail *program' /root/doctor-label.txt | sed 's/^/  /'
+check "doctor: names a program labeled bin_t, and restorecon" \
+	bash -c 'grep -qE "^fail +program fs: .* is labeled bin_t" /root/doctor-label.txt && grep -q "restorecon -v /usr/libexec/mcp-servers/mcp-fs-demo" /root/doctor-label.txt'
+restorecon /usr/libexec/mcp-servers/mcp-fs-demo
 no_type_warning() { ! journalctl -u mcp-gateway.service -o cat | grep -q 'not in the loaded SELinux policy'; }
 check "the gateway found every server's SELinux type" no_type_warning
 # A definition whose selinux_type has no module (as when a server

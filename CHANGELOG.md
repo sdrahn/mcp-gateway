@@ -5,6 +5,29 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Added
+
+- `mcp-gateway doctor` checks that each server's program carries the
+  SELinux label the policy gives its path ("program *name*"). A program
+  installed before its module keeps, e.g., `bin_t`, and cannot start in
+  its domain, so its tools are missing; the check names the fix
+  (`restorecon`, on a transactional system `transactional-update run
+  restorecon` and a reboot).
+- On a transactional system (read-only `/usr`), `mcp-gateway doctor`
+  warns about privileged servers, which cannot change `/usr`. The user
+  guide has a section on such systems (chapter 2).
+
+### Fixed
+
+- Two files defining the same server, typically a hand-made definition
+  in `/etc/mcp-gateway/servers.d` next to the one a setup package
+  installs under another file name, failed with "duplicate backend name"
+  and one file name. The message now names both files and says to
+  rename yours to the package's file name (a file there replaces a
+  package's only under the same file name) or remove it.
+
 ## v0.4.3 — 2026-10-02
 
 A setup for mcp-server-snapper, and an SELinux fix for definitions

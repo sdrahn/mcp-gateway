@@ -129,7 +129,9 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 	add(d.selinux()...)
 	if supervisor.SELinuxEnabled() {
 		add(doctor.SELinuxTypes(d.selected(), supervisor.ContextValid)...)
+		add(doctor.ProgramLabels(d.selected(), fileType, policyType, readOnly)...)
 	}
+	add(doctor.ReadOnlyRoot(d.selected(), readOnly("/usr"))...)
 	add(doctor.Polkit(d.selected(), nil)...)
 	add(doctor.Snapper(d.selected(), doctor.SnapperConfigsDir, userGroups)...)
 	add(d.principals())

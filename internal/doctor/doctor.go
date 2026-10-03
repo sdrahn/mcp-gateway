@@ -207,6 +207,84 @@ func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
 	return out
 }
 
+// ProgramLabels checks that each server's program carries the SELinux
+// type the loaded policy gives its path (current: the file's type,
+// expected: the policy's, as matchpathcon tells; readOnly: whether the
+// path is on a read-only file system). A program installed or copied
+// before the module that labels it keeps, e.g., bin_t; systemd then
+// cannot start it in the server's domain (entrypoint denied), and the
+// server shows no tools. On a transactional system /usr is read-only and
+// the fix needs a new snapshot.
+func ProgramLabels(backends map[string]*config.Backend, current, expected func(path string) (string, error), readOnly func(path string) bool) []Result {
+	var out []Result
+	checked := 0
+	for _, name := range sortedKeys(backends) {
+		b := backends[name]
+		if len(b.Command) == 0 || !filepath.IsAbs(b.Command[0]) {
+			continue
+		}
+		path := b.Command[0]
+		r := Result{Check: "program " + name}
+		cur, err := current(path)
+		if err != nil {
+			r.Status, r.Summary = Fail, err.Error()
+			out = append(out, r)
+			continue
+		}
+		exp, err := expected(path)
+		if err != nil {
+			r.Status, r.Summary = Skip, "the policy's label for "+path+": "+err.Error()
+			out = append(out, r)
+			continue
+		}
+		if exp == "" || strings.HasPrefix(exp, "<<") { // matchpathcon: <<none>>
+			continue
+		}
+		checked++
+		if cur == exp {
+			continue
+		}
+		fix := "restorecon -v " + path
+		if readOnly(path) {
+			fix = "transactional-update run restorecon -v " + path + ", then reboot (read-only file system)"
+		}
+		r.Status = Fail
+		r.Summary = fmt.Sprintf("%s is labeled %s, the policy says %s: systemd cannot start it in %s", path, cur, exp, b.SELinuxType)
+		r.Details = []string{"relabel it: " + fix}
+		out = append(out, r)
+	}
+	if len(out) == 0 && checked > 0 {
+		out = append(out, Result{Check: "program labels", Status: OK,
+			Summary: fmt.Sprintf("the %d servers' programs are labeled as the policy says", checked)})
+	}
+	return out
+}
+
+// ReadOnlyRoot reports privileged servers on a system whose /usr is
+// read-only (readOnly: a transactional system such as MicroOS or SLE
+// Micro): they run without the sandbox to change the system, but cannot
+// change /usr; packages are installed with transactional-update into a
+// new snapshot instead.
+func ReadOnlyRoot(backends map[string]*config.Backend, readOnly bool) []Result {
+	if !readOnly {
+		return nil
+	}
+	var priv []string
+	for _, name := range sortedKeys(backends) {
+		if backends[name].Privileged {
+			priv = append(priv, name)
+		}
+	}
+	r := Result{Check: "read-only /usr", Status: OK,
+		Summary: "a transactional system: programs and their labels change only in a new snapshot (transactional-update)"}
+	if len(priv) > 0 {
+		r.Status = Warn
+		r.Summary = fmt.Sprintf("a transactional system: privileged servers %s cannot change /usr (e.g. install packages)", strings.Join(priv, ", "))
+		r.Details = []string{"install with transactional-update pkg install and reboot; see the user guide, chapter 13"}
+	}
+	return []Result{r}
+}
+
 // SnapperConfigsDir holds snapper's configs (KEY="value" lines).
 const SnapperConfigsDir = "/etc/snapper/configs"
 

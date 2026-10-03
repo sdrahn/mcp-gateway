@@ -320,3 +320,39 @@ func TestMetricsListen(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadBackendsDuplicateName(t *testing.T) {
+	vendor, admin := t.TempDir(), t.TempDir()
+	write := func(dir, file string) {
+		def := "name: snapper\ncommand: [\"/usr/bin/mcp-server-snapper\"]\n"
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(def), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(vendor, "snapper.yaml")
+	write(admin, "snapper-mcp.yaml")
+	_, err := LoadBackends(vendor, admin)
+	if err == nil {
+		t.Fatal("duplicate server name accepted")
+	}
+	for _, want := range []string{
+		filepath.Join(admin, "snapper-mcp.yaml"), filepath.Join(vendor, "snapper.yaml"),
+		"rename yours to " + filepath.Join(admin, "snapper.yaml"),
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q lacks %q", err, want)
+		}
+	}
+	// Under the package's file name, it replaces it.
+	if err := os.Rename(filepath.Join(admin, "snapper-mcp.yaml"), filepath.Join(admin, "snapper.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if bs, err := LoadBackends(vendor, admin); err != nil || len(bs) != 1 {
+		t.Errorf("renamed: %v %v", bs, err)
+	}
+	// Both in one directory.
+	write(vendor, "other.yaml")
+	if _, err := LoadBackends(vendor); err == nil || !strings.Contains(err.Error(), "remove or rename one") {
+		t.Errorf("same directory: %v", err)
+	}
+}

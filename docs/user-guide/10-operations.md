@@ -206,6 +206,8 @@ warn  principals: 1 of 4 members of mcp-users hold no role: they may connect but
 | server *name* | that each server starts, as for shared discovery, and answers MCP; then whether roles name tools it does not offer (`roles` *name*; as the account it runs as, a server may hide tools) |
 | SELinux *type* | denials in the last day involving the gateway's, OPA's and the servers' types; denials in permissive mode (a profiling run) only warn |
 | SELinux types | that the loaded policy knows each server's `selinux_type`; a server whose module is missing cannot start, also in permissive mode |
+| program *name* | that a server's program carries the label the policy gives its path (`matchpathcon`, else `restorecon -n`); a program installed before its module (e.g. still `bin_t`) cannot start in its domain, and its tools are missing. The fix it names is `restorecon`, on a transactional system `transactional-update run restorecon` and a reboot |
+| read-only /usr | on a transactional system: warns about privileged servers, which cannot change `/usr` (chapter 2, "Transactional systems") |
 | snapper *server* | that a snapper config's `ALLOW_USERS` (or `ALLOW_GROUPS`) names the account mcp-server-snapper runs as; without, it can only list the configs |
 | polkit *account* | servers running as a system account that no polkit rule names: servers that act through polkit (systemd, firewalld) are refused without one |
 | principals | members of `socket_group` bound to no role, by name or group (users whose primary group it is, and remote principals, are not checked) |

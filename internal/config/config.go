@@ -692,6 +692,7 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 	}
 	sort.Slice(paths, func(i, j int) bool { return filepath.Base(paths[i]) < filepath.Base(paths[j]) })
 	backends := make(map[string]*Backend, len(paths))
+	from := make(map[string]string, len(paths)) // backend name to file
 	for _, p := range paths {
 		b := &Backend{}
 		warnings, err := decodeFile(p, b, backendDeprecations)
@@ -706,12 +707,34 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 		if b.Privileged && (len(dirs) == 0 || filepath.Dir(p) != filepath.Clean(dirs[len(dirs)-1])) {
 			return nil, fmt.Errorf("%s: privileged: only allowed in %s", p, dirs[len(dirs)-1])
 		}
-		if _, dup := backends[b.Name]; dup {
-			return nil, fmt.Errorf("%s: duplicate backend name %q", p, b.Name)
+		if first, dup := from[b.Name]; dup {
+			return nil, duplicateName(b.Name, first, p, dirs)
 		}
 		backends[b.Name] = b
+		from[b.Name] = p
 	}
 	return backends, nil
+}
+
+// duplicateName explains two files defining the same server. A file in
+// the administrator's directory replaces a package's file only under the
+// same file name, not the same server name: the usual cause is a
+// hand-made definition from before a setup package shipped one.
+func duplicateName(name, a, b string, dirs []string) error {
+	admin := ""
+	if len(dirs) > 1 {
+		admin = filepath.Clean(dirs[len(dirs)-1])
+	}
+	mine, theirs := a, b
+	if filepath.Dir(a) != admin {
+		mine, theirs = b, a
+	}
+	if admin == "" || filepath.Dir(mine) != admin || filepath.Dir(theirs) == admin {
+		return fmt.Errorf("server %q is defined twice, in %s and %s: remove or rename one", name, a, b)
+	}
+	return fmt.Errorf("server %q is defined twice, in %s and in %s (a package's); a file in %s replaces a package's file "+
+		"only under the same file name: rename yours to %s to replace it, or remove it",
+		name, mine, theirs, admin, filepath.Join(admin, filepath.Base(theirs)))
 }
 
 // ApplyDefaults fills in the defaults of a definition built in code (a
