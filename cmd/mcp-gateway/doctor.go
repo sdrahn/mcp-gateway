@@ -97,7 +97,10 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 }
 
 type doctorRun struct {
-	root                bool
+	root bool
+	// isolated is the doctor of the gateway-admin server, which like every
+	// server cannot reach the gateway's sockets or OPA.
+	isolated            bool
 	policyData, shipped string
 	only                string
 	noStart             bool
@@ -124,7 +127,12 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 	add(d.roleData())
 	add(d.services()...)
 	add(d.stateFiles())
-	add(d.opa())
+	if d.isolated {
+		add(doctor.Result{Check: "policy", Status: doctor.Skip,
+			Summary: "servers cannot reach OPA (mcp-gateway doctor as root asks it; explain_decision evaluates the policy files)"})
+	} else {
+		add(d.opa())
+	}
 	add(d.servers()...)
 	add(d.selinux()...)
 	if supervisor.SELinuxEnabled() {
@@ -230,7 +238,7 @@ func (d *doctorRun) services() []doctor.Result {
 			rs = append(rs, r)
 		}
 	}
-	if sock := d.gw.Approvals.ControlSocket; sock != "-" {
+	if sock := d.gw.Approvals.ControlSocket; sock != "-" && !d.isolated {
 		r := doctor.Result{Check: "gateway status"}
 		var st struct {
 			Version        string `json:"version"`
