@@ -675,7 +675,7 @@ END
 	# account through ALLOW_USERS. Changing a config is root's.
 	mcp-gateway-admin doctor --server snapper --no-start 2>&1 | grep -E '^[a-z]+ +snapper' | sed 's/^/  /'
 	check "doctor: snapperd allows mcp-snapper the vmtest config" \
-		sh -c 'mcp-gateway-admin doctor --server snapper --no-start 2>&1 | grep -qE "^ok +snapper snapper: .*vmtest"'
+		sh -c 'mcp-gateway-admin doctor --server snapper --no-start 2>&1 | grep -qE "^OK +snapper snapper: .*vmtest"'
 	stool alice snapper list_configs '{}'
 	check "snapper: list_configs" succeeded_with "vmtest"
 	# The server's input schemas require every argument.
@@ -811,25 +811,25 @@ rc=$?
 sed 's/^/  /' /root/doctor.txt | head -100
 echo "  exit status $rc (the profiling run's denials count as failures)"
 doctor_says() { grep -qE "$1" /root/doctor.txt; }
-check "doctor: the gateway and OPA are active" doctor_says '^ok +mcp-(gateway|opa)\.service: active'
-check "doctor: the role data is valid" doctor_says '^ok +role data: '
-check "doctor: OPA decides" doctor_says '^ok +policy: OPA decides'
-check "doctor: the demo server starts" doctor_says '^ok +server fs: starts: .*[1-9][0-9]* tools'
-check "doctor: names the user without a role" doctor_says '^warn +principals: .*hold no role'
+check "doctor: the gateway and OPA are active" doctor_says '^OK +mcp-(gateway|opa)\.service: active'
+check "doctor: the role data is valid" doctor_says '^OK +role data: '
+check "doctor: OPA decides" doctor_says '^OK +policy: OPA decides'
+check "doctor: the demo server starts" doctor_says '^OK +server fs: starts: .*[1-9][0-9]* tools'
+check "doctor: names the user without a role" doctor_says '^WARN +principals: .*hold no role'
 check "doctor: ... and it is carol" doctor_says '^ +carol$'
 if [ -d "$dir/servers" ]; then
-	check "doctor: systemd-mcp starts" doctor_says '^ok +server systemd: starts'
-	check "doctor: a polkit rule names mcp-sysmgmt" doctor_says '^ok +polkit mcp-sysmgmt: '
+	check "doctor: systemd-mcp starts" doctor_says '^OK +server systemd: starts'
+	check "doctor: a polkit rule names mcp-sysmgmt" doctor_says '^OK +polkit mcp-sysmgmt: '
 fi
-check "doctor: every server's SELinux type is in the policy" doctor_says '^ok +SELinux types: '
-check "doctor: the servers' programs are labeled as the policy says" doctor_says '^ok +program labels: '
+check "doctor: every server's SELinux type is in the policy" doctor_says '^OK +SELinux types: '
+check "doctor: the servers' programs are labeled as the policy says" doctor_says '^OK +program labels: '
 # A program that lost its label (installed before its module): the doctor
 # names it and the fix.
 chcon -t bin_t /usr/libexec/mcp-servers/mcp-server-fs
 mcp-gateway-admin doctor --server fs --no-start >/root/doctor-label.txt 2>&1
-grep -A1 '^fail *program' /root/doctor-label.txt | sed 's/^/  /'
+grep -A1 '^FAIL *program' /root/doctor-label.txt | sed 's/^/  /'
 check "doctor: names a program labeled bin_t, and restorecon" \
-	bash -c 'grep -qE "^fail +program fs: .* is labeled bin_t" /root/doctor-label.txt && grep -q "restorecon -v /usr/libexec/mcp-servers/mcp-server-fs" /root/doctor-label.txt'
+	bash -c 'grep -qE "^FAIL +program fs: .* is labeled bin_t" /root/doctor-label.txt && grep -q "restorecon -v /usr/libexec/mcp-servers/mcp-server-fs" /root/doctor-label.txt'
 restorecon /usr/libexec/mcp-servers/mcp-server-fs
 no_type_warning() { ! journalctl -u mcp-gateway.service -o cat | grep -q 'not in the loaded SELinux policy'; }
 check "the gateway found every server's SELinux type" no_type_warning
@@ -846,7 +846,7 @@ END
 mcp-gateway-admin doctor --server notype --no-start >/root/doctor-notype.txt 2>&1
 sed 's/^/  /' /root/doctor-notype.txt | grep -i 'selinux type'
 check "doctor: names the SELinux type that is not in the policy" \
-	grep -qE '^fail +SELinux type mcpsrv_notype_t: .*servers notype cannot start' /root/doctor-notype.txt
+	grep -qE '^FAIL +SELinux type mcpsrv_notype_t: .*servers notype cannot start' /root/doctor-notype.txt
 # Not $since: audit_since reads it (the start of the test).
 restarted=$(date +%s)
 systemctl restart mcp-gateway.service
@@ -867,7 +867,7 @@ echo '[]' >/var/lib/mcp-gateway/stray.json
 mcp-gateway-admin doctor --no-start >/root/doctor-state.txt 2>&1
 grep 'state files' /root/doctor-state.txt | sed 's/^/  /'
 check "doctor: names the state file root owns" \
-	grep -qE '^fail +state files: not owned by mcp-gateway: 1 ' /root/doctor-state.txt
+	grep -qE '^FAIL +state files: not owned by mcp-gateway: 1 ' /root/doctor-state.txt
 restarted=$(date +%s)
 systemctl restart mcp-gateway.service 2>/dev/null
 state_error() { journalctl -u mcp-gateway.service -o cat --since "@$restarted" | grep 'state files not owned by mcp-gateway' | grep -q 'stray.json'; }
@@ -876,7 +876,7 @@ rm -f /var/lib/mcp-gateway/stray.json
 systemctl reset-failed mcp-gateway.service
 systemctl restart mcp-gateway.service
 wait_socket
-check "doctor: the state files are the gateway's" sh -c 'mcp-gateway-admin doctor --no-start 2>&1 | grep -qE "^ok +state files: "'
+check "doctor: the state files are the gateway's" sh -c 'mcp-gateway-admin doctor --no-start 2>&1 | grep -qE "^OK +state files: "'
 # Since 0.8 the old command is unknown, and says where it went.
 mcp-gateway doctor --no-start >/root/doctor-moved.txt 2>&1
 check "mcp-gateway doctor: unknown, naming mcp-gateway-admin doctor" \

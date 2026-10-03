@@ -80,12 +80,22 @@ func TestUnbound(t *testing.T) {
 func TestWriteText(t *testing.T) {
 	var b strings.Builder
 	rs := []Result{{Check: "a", Status: OK, Summary: "fine"}, {Check: "b", Status: Fail, Summary: "broken", Details: []string{"why"}}}
-	if err := WriteText(&b, rs); err != nil {
+	if err := WriteText(&b, rs, false); err != nil {
 		t.Fatal(err)
 	}
-	want := "ok    a: fine\nfail  b: broken\n        why\n\n1 ok, 0 warnings, 1 failed, 0 skipped\n"
+	want := "OK    a: fine\nFAIL  b: broken\n        why\n\n1 ok, 0 warnings, 1 failed, 0 skipped\n"
 	if b.String() != want {
 		t.Errorf("got %q", b.String())
+	}
+	b.Reset()
+	rs = append(rs, Result{Check: "c", Status: Warn, Summary: "hm"}, Result{Check: "d", Status: Skip, Summary: "later"})
+	if err := WriteText(&b, rs, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"\x1b[32mOK\x1b[0m    a: fine", "\x1b[31mFAIL\x1b[0m  b: broken", "\x1b[38;5;208mWARN\x1b[0m  c: hm", "\x1b[32mSKIP\x1b[0m  d: later"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("colored output lacks %q:\n%q", want, b.String())
+		}
 	}
 	if !Failed(rs) || Failed(rs[:1]) {
 		t.Error("Failed")

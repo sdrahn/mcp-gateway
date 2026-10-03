@@ -30,6 +30,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/profile"
 	"github.com/sdrahn/mcp-gateway/internal/statedir"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
+	"golang.org/x/sys/unix"
 )
 
 const doctorUsage = `usage: mcp-gateway-admin doctor [flags]
@@ -85,11 +86,13 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 		log:        slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelError})),
 	}
 	rs := d.run(*configPath)
-	write := doctor.WriteText
+	var err error
 	if *asJSON {
-		write = doctor.WriteJSON
+		err = doctor.WriteJSON(stdout, rs)
+	} else {
+		err = doctor.WriteText(stdout, rs, colorful(stdout))
 	}
-	if err := write(stdout, rs); err != nil {
+	if err != nil {
 		say(stderr, err)
 		return 1
 	}
@@ -441,6 +444,17 @@ func (d *doctorRun) selinux() []doctor.Result {
 	from, label := denialWindow(time.Now(), d.since, bootTime(), d.allBoots)
 	denials, errs := profile.Parse(raw, from)
 	return doctor.Denials(denials, errs, label)
+}
+
+// colorful reports whether to color the output for w: a terminal, unless
+// NO_COLOR is set (https://no-color.org) or TERM is dumb.
+func colorful(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok || os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
+		return false
+	}
+	_, err := unix.IoctlGetTermios(int(f.Fd()), unix.TCGETS)
+	return err == nil
 }
 
 // denialWindow returns since when denials count, and how to name that:

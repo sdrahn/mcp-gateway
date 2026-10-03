@@ -179,23 +179,27 @@ mcp-gateway-admin doctor
 ```
 
 ```
-ok    configuration: /usr/etc/mcp-gateway/gateway.yaml, 3 servers (firewalld, fs, systemd)
-ok    role data: /etc/mcp-gateway/policy/rbac/data.json valid (7 shipped roles known)
-ok    mcp-gateway.service: active
-ok    mcp-opa.service: active
-ok    state files: /var/lib/mcp-gateway owned by mcp-gateway
-ok    gateway status: running version 0.4.0
-ok    policy: OPA decides (deny for an unknown principal)
-ok    server firewalld: starts: firewalld-mcp 0.1.0, 5 tools, 0 prompts, 0 resource templates
-fail  server fs: does not start: starting: …
+OK    configuration: /usr/etc/mcp-gateway/gateway.yaml, 3 servers (firewalld, fs, systemd)
+OK    role data: /etc/mcp-gateway/policy/rbac/data.json valid (7 shipped roles known)
+OK    mcp-gateway.service: active
+OK    mcp-opa.service: active
+OK    state files: /var/lib/mcp-gateway owned by mcp-gateway
+OK    gateway status: running version 0.4.0
+OK    policy: OPA decides (deny for an unknown principal)
+OK    server firewalld: starts: firewalld-mcp 0.1.0, 5 tools, 0 prompts, 0 resource templates
+FAIL  server fs: does not start: starting: …
         journalctl -u 'mcp-fs-*' shows its output; mcp-gateway-admin inspect -server fs for more
-ok    server systemd: starts: systemd-mcp 0.3.0, 9 tools, 0 prompts, 0 resource templates
-fail  SELinux mcpsrv_firewalld_t: 2 denials (1 distinct) since 2026-10-01 09:12:00
+OK    server systemd: starts: systemd-mcp 0.3.0, 9 tools, 0 prompts, 0 resource templates
+FAIL  SELinux mcpsrv_firewalld_t: 2 denials (1 distinct) since 2026-10-01 09:12:00
         2  mcpsrv_firewalld_t system_dbusd_var_run_t:dir { search } dbus (firewalld-mcp)
-ok    polkit mcp-sysmgmt: a polkit rule names mcp-sysmgmt (servers firewalld, systemd)
-warn  principals: 1 of 4 members of mcp-users hold no role: they may connect but see no server
+OK    polkit mcp-sysmgmt: a polkit rule names mcp-sysmgmt (servers firewalld, systemd)
+WARN  principals: 1 of 4 members of mcp-users hold no role: they may connect but see no server
         carol
 ```
+
+On a terminal the statuses are colored: `OK` and `SKIP` green, `WARN`
+orange, `FAIL` red (not with `NO_COLOR` set or `--json`, where the status is
+`ok`, `warn`, `fail` or `skip`). It exits 1 if a check failed.
 
 | Check | Looks at |
 |---|---|
