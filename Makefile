@@ -116,7 +116,7 @@ install-gateway:
 	# installations without documentation (rpm excludedocs) leave out.
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/docs/user-guide
 	install -m0644 docs/user-guide/*.md $(DESTDIR)$(DATADIR)/mcp-gateway/docs/user-guide/
-	install -m0644 docs/architecture.md CHANGELOG.md $(DESTDIR)$(DATADIR)/mcp-gateway/docs/
+	install -m0644 docs/README.md docs/architecture.md CHANGELOG.md $(DESTDIR)$(DATADIR)/mcp-gateway/docs/
 	# The gateway's diagnostics as the server gateway-admin, with its role.
 	sed 's|@BINDIR@|$(BINDIR)|g' packaging/admin/gateway-admin.yaml.in \
 		>$(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/gateway-admin.yaml

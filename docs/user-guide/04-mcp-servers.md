@@ -139,7 +139,7 @@ log has denials of other programs from that time too (the gateway's
 own scan of `/proc` for MCS categories, for one); they are not
 problems.
 
-It calls the tools that read (chapter 4, "Inspecting a server") with
+It calls the tools that read (see "Inspecting a server" above) with
 arguments made up from their schemas: enough to run the code that talks
 to the system, not to succeed. Real arguments, and calls of other tools,
 come from a file:
@@ -216,8 +216,8 @@ with a type says whether the profiling run recorded a denial for that
 type; one without ("not reached, or allowed already") is a code path to
 give a call for (`--calls`), or to look at in the code. For systemd-mcp
 the review lists `rpm`, `man` and `getfacl`, the polkit actions it
-checks itself and `/run/log/journal`, each of which step 10 had to find
-by hand.
+checks itself and `/run/log/journal`, which a profiling run reaches only
+with calls of the right tools.
 
 The scan is textual: it shows what the code mentions, not what each
 tool does, and misses what the code puts together at run time. Tests,
@@ -257,14 +257,14 @@ Server names must be unique across all files.
 | `credentials` | none | secrets handed to the server by systemd, see [Secrets](#secrets) |
 | `sandbox.protect_home` | `read-only` | access to home directories: `yes` (none), `read-only`, `read-write` |
 | `sandbox.read_write_paths` | none | existing absolute paths the instance may write despite `ProtectSystem=strict` (systemd `ReadWritePaths=`); paths of the gateway itself, and directories containing them, are refused |
-| `privileged` | `false` | run without the sandbox, with the rights of a root service, for servers that change the system as a whole (package installation); needs `run_as: root` and is accepted only in `/etc/mcp-gateway/servers.d`. See [Privileged servers](#privileged-servers). |
 | `sandbox.state_directory` | none | a directory below `/var/lib` (a relative name, e.g. `my-server`) that systemd creates for the instance, owned by its user, mode 0700, writable and kept across instances (systemd `StateDirectory=`) |
+| `privileged` | `false` | run without the sandbox, with the rights of a root service, for servers that change the system as a whole (package installation); needs `run_as: root` and is accepted only in `/etc/mcp-gateway/servers.d`. See [Privileged servers](#privileged-servers). |
 
 Example with everything:
 
 ```yaml
 name: fs
-command: ["/usr/libexec/mcp-servers/mcp-fs", "--root", "${HOME}"]
+command: ["/usr/libexec/mcp-servers/mcp-server-fs", "--root", "${HOME}"]
 env:
   LOG_LEVEL: info
 selinux_type: mcpsrv_fs_t
@@ -727,10 +727,11 @@ Notes:
   interpreter such as `/usr/bin/node`, labelled `bin_t`), also add
   `corecmd_bin_entry_type(mcpsrv_<name>_t)`, and allow reading the
   scripts (`files_read_usr_files`).
-- To find missing rules, run the domain permissive for a while
-  (`semanage permissive -a mcpsrv_git_t`), use the server, then read
-  `ausearch -m AVC -ts recent | audit2allow`. Remove the permissive
-  setting afterwards.
+- To find missing rules, profile the server (`mcp-gateway-admin
+  profile`, "Profiling a server" above), or by hand: run the domain
+  permissive for a while (`semanage permissive -a mcpsrv_git_t`), use
+  the server, then read `ausearch -m AVC -ts recent | audit2allow`.
+  Remove the permissive setting afterwards.
 - The gateway's isolation rules still apply to every server domain: no
   access to the gateway's and OPA's sockets, no writes to the gateway's
   configuration or state, no reading of the credentials directory.
@@ -739,6 +740,7 @@ Notes:
 
 An MCP server package makes itself available by installing its definition
 to `/usr/share/mcp-gateway/servers.d/<name>.yaml` and, for a dedicated
-domain, a policy module. See `packaging/suse/README.md`, section
-"Packaging an MCP server for the gateway", and `packaging/fs-server/` for
-the file server's package.
+domain, a policy module. The gateway's source repository
+(<https://github.com/sdrahn/mcp-gateway>) explains how in
+`packaging/suse/README.md`, section "Packaging an MCP server for the
+gateway"; `packaging/fs-server/` is the file server's package.

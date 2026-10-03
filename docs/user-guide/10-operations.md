@@ -1,5 +1,10 @@
 # 10. Operations
 
+Running the gateway: what to do after a change, logs, state and backup,
+upgrades, monitoring, and troubleshooting, starting with the self-check
+(`mcp-gateway-admin doctor`). [docs/README.md](../README.md) lists common
+error messages and where each is explained.
+
 ## Services
 
 | Unit | What | Notes |
@@ -185,11 +190,11 @@ OK    role data: /etc/mcp-gateway/policy/rbac/data.json valid (7 shipped roles k
 OK    mcp-gateway.service: active
 OK    mcp-opa.service: active
 OK    state files: /var/lib/mcp-gateway owned by mcp-gateway
-OK    gateway status: running version 0.4.0
+OK    gateway status: running version 0.9.0
 OK    policy: OPA decides (deny for an unknown principal)
 OK    server firewalld: starts: firewalld-mcp 0.1.0, 5 tools, 0 prompts, 0 resource templates
 FAIL  server fs: does not start: starting: …
-        journalctl -u 'mcp-fs-*' shows its output; mcp-gateway-admin inspect -server fs for more
+        journalctl -u 'mcp-fs-*' shows its output; mcp-gateway-admin inspect --server fs for more
 OK    server systemd: starts: systemd-mcp 0.3.0, 9 tools, 0 prompts, 0 resource templates
 FAIL  SELinux mcpsrv_firewalld_t: 2 denials (1 distinct) since 2026-10-01 09:12:00
         2  mcpsrv_firewalld_t system_dbusd_var_run_t:dir { search } dbus (firewalld-mcp)
@@ -329,6 +334,21 @@ for tool calls) says why; the audit record has the same reason.
 | `output withheld: result of N bytes exceeds the limit of M` | a `max_output_bytes` obligation |
 | `backend unavailable; retry in 8s` | the instance crashed or could not start and is backing off; read its journal (`journalctl -u 'mcp-<server>-*'`) |
 | `backend unavailable` | the instance died during the call |
+
+### Errors from servers
+
+An error without the `mcp-gateway:` prefix comes from the MCP server
+behind the gateway: policy allowed the call, and the server, or the
+system service it asked, refused it.
+
+| Error | Server | Meaning and fix |
+|---|---|---|
+| `…: outside the allowed directories (…)` | `fs` | the file server works only below its `--root` directories, as shipped the user's home (`list_allowed_directories` names them). Files elsewhere are not meant to be reached through it; for the gateway's configuration, use `gateway-admin` ("Asking an agent" above) |
+| `…: leads outside the allowed directories (through a symbolic link)` | `fs` | a link below the root points out of it; the server does not follow it (chapter 9, "Paths and symbolic links") |
+| `read-only file system (on a transactional system, …)` | `fs` | the path is on the read-only root file system (chapter 2, "Transactional systems") |
+| `calling method was canceled by user` | `systemd` | systemd-mcp's own authorization refused the call: its polkit check found no rule for the account it runs as (chapter 13, "Service permissions"), or it cannot read the file `get_file` names. The gateway's own files are closed to it by SELinux (chapter 9) |
+| `Interactive authentication required`, `NOT_AUTHORIZED` | `systemd`, `firewalld` | polkit refused the server's account: the setup's polkit rule is missing or names another account (chapter 13) |
+| `D-Bus call failed: org.freedesktop.DBus.Error.Failed` | `snapper` | snapperd refused the account: it is not in the config's `ALLOW_USERS`, or the tool needs root (chapter 13) |
 
 ### Instances do not start
 

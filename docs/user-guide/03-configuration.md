@@ -1,5 +1,8 @@
 # 3. Configuration
 
+Which files the gateway reads, and every key of `gateway.yaml`. MCP
+server definitions are chapter 4, the role data chapter 6.
+
 ## Files
 
 The gateway separates what packages install (below `/usr`) from what you
@@ -11,12 +14,14 @@ change (below `/etc`):
 | `/etc/mcp-gateway/gateway.yaml` | your configuration; used **instead of** the default if it exists | you |
 | `/usr/share/mcp-gateway/servers.d/*.yaml` | MCP server definitions installed by packages | packages |
 | `/etc/mcp-gateway/servers.d/*.yaml` | your MCP server definitions; a file overrides the package file of the same name, an empty file or a symlink to `/dev/null` disables it | you |
-| `/usr/share/mcp-gateway/policy/` | policy logic (Rego) | package |
+| `/usr/share/mcp-gateway/policy/` | policy logic (Rego), and the roles of setup packages (`mcp/profiles/<setup>/data.json`) | packages |
 | `/etc/mcp-gateway/policy/rbac/data.json` | roles, bindings, approver rules | you |
 | `/etc/mcp-gateway/credentials/` | secrets for MCP servers (root only) | you |
+| `/etc/mcp-gateway/exec.d/*.yaml` | the commands of the command server `exec` (chapter 4) | you |
 | `/etc/mcp-gateway/bundle/` | signed policy bundle and keys (optional) | you |
 | `/var/lib/mcp-gateway/` | grants, pending approvals, audit key | gateway |
 | `/run/mcp-gateway/` | sockets | gateway, OPA |
+| `/usr/share/mcp-gateway/docs/` | this documentation, for the server `gateway-docs` | package |
 
 On distributions without `/usr/etc`, the default configuration is
 `/etc/mcp-gateway/gateway.yaml` itself (marked as a configuration file).
@@ -255,6 +260,6 @@ mcp-gateway --check                              # /etc, else /usr/etc, else bui
 mcp-gateway --check --config /tmp/gateway.yaml   # a specific file
 ```
 
-`--check` loads the configuration and all MCP server definitions and
-reports the first problem with file and key, e.g.
+`--check` loads the configuration, all MCP server definitions and the
+role data, and reports the first problem with file and key, e.g.
 `/etc/mcp-gateway/servers.d/git.yaml: selinux_type: "git_t" must match ^mcpsrv_[a-z0-9_]+_t$`.

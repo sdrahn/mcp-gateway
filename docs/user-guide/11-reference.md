@@ -1,5 +1,9 @@
 # 11. Reference
 
+Lookup tables: the commands and their options, the control API, audit
+record fields, files and directories, SELinux types, booleans and
+interfaces, and limits and timings. The chapters before explain them.
+
 ## Commands
 
 ### mcp-gateway
@@ -269,16 +273,19 @@ Kernel audit (`TRUSTED_APP`) operations:
 
 | Path | Contents |
 |---|---|
-| `/usr/bin/mcp-gateway`, `mcp-connect`, `mcp-gateway-notify` | programs |
+| `/usr/bin/mcp-gateway`, `mcp-gateway-admin`, `mcp-connect`, `mcp-gateway-notify` | programs |
+| `/usr/libexec/mcp-gateway/mcp-gateway-tools` | `inspect`, `profile` and `review` (package `mcp-gateway-tools`) |
 | `/usr/sbin/mcp-policy-bundle` | bundle tool |
 | `/usr/etc/mcp-gateway/gateway.yaml` | default configuration |
 | `/etc/mcp-gateway/gateway.yaml` | your configuration |
 | `/usr/share/mcp-gateway/servers.d/` | package server definitions |
+| `/usr/share/mcp-gateway/profiles/` | definitions to link into `/etc/mcp-gateway/servers.d` by hand: `zypp-privileged.yaml`, `snapper-privileged.yaml` (chapter 13) |
 | `/etc/mcp-gateway/servers.d/` | your server definitions |
-| `/usr/share/mcp-gateway/policy/` | policy logic |
+| `/usr/share/mcp-gateway/policy/` | policy logic; `mcp/profiles/<setup>/data.json`: roles of setup packages |
 | `/etc/mcp-gateway/policy/rbac/data.json` | role data |
 | `/usr/share/mcp-gateway/schema/rbac.schema.json` | JSON Schema (draft-07) of the role data |
 | `/etc/mcp-gateway/credentials/` | MCP server secrets (0700, `mcpgw_cred_t`) |
+| `/etc/mcp-gateway/exec.d/` | commands of the server `exec`; examples in `/usr/share/mcp-gateway/exec/` |
 | `/etc/mcp-gateway/bundle/` | `policy.tar.gz`, `verify.pem`, `signing.pem` |
 | `/usr/share/mcp-gateway/opa/` | OPA drop-ins: `signed-bundle.conf`, `bundle-server.conf`, `decision-logs.conf`; examples `opa-config.yaml.example`, `decision-logs.yaml.example` |
 | `/usr/share/mcp-gateway/mcs/` | libvirt drop-ins: `virtqemud.conf`, `libvirtd.conf` |
@@ -291,7 +298,8 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/usr/share/polkit-1/rules.d/50-mcp-gateway.rules` | lets the gateway manage `mcp-*.service` |
 | `/usr/share/cockpit/mcp-gateway/` | Cockpit page |
 | `/etc/xdg/autostart/mcp-gateway-notify.desktop` | desktop agent autostart |
-| `/usr/libexec/mcp-servers/` | conventional place for MCP server programs |
+| `/usr/libexec/mcp-servers/` | conventional place for MCP server programs; `mcp-server-fs`, `mcp-server-exec` |
+| `/usr/share/mcp-gateway/docs/` | this documentation (server `gateway-docs`) |
 
 ## SELinux
 
@@ -299,7 +307,9 @@ Kernel audit (`TRUSTED_APP`) operations:
 |---|---|
 | `mcpgw_t`, `mcpgw_exec_t` | gateway |
 | `mcpopa_t`, `mcpopa_exec_t` | OPA |
-| `mcpsrv_generic_t`, `mcpsrv_fs_t`, `mcpsrv_<name>_t` | MCP server instances |
+| `mcpsrv_generic_t`, `mcpsrv_fs_t`, `mcpsrv_docs_t`, `mcpsrv_exec_t`, `mcpsrv_<name>_t` | MCP server instances (chapter 9, "SELinux") |
+| `mcpsrv_admin_t`, `mcpsrv_admin_exec_t` | `mcp-gateway-admin` and the server `gateway-admin` |
+| `mcpsrv_systemd_t`, `mcpsrv_firewalld_t`, `mcpsrv_zypp_t`, `mcpsrv_suseconnect_t`, `mcpsrv_snapper_t` | the system management servers (chapter 13) |
 | `mcpgw_etc_t` | `/etc/mcp-gateway`, `/usr/etc/mcp-gateway` |
 | `mcpgw_cred_t` | `/etc/mcp-gateway/credentials` |
 | `mcpgw_signing_key_t` | `/etc/mcp-gateway/bundle/signing.pem` |
@@ -317,6 +327,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 |---|---|
 | `mcp_gateway_backend_template(name)` | defines `mcpsrv_<name>_t` and `mcpsrv_<name>_exec_t` |
 | `mcp_gateway_backend_home_rw(domain)` | a server domain reading and writing user home content |
+| `mcp_gateway_backend_rpm(name)` | the server's helpers run in `rpm_t`, as with zypper (chapter 4, "Privileged servers") |
 | `mcp_gateway_client(domain)` | a user domain connecting to the MCP socket |
 | `mcp_gateway_control_client(domain)` | a user domain using the control API |
 

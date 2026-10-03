@@ -24,6 +24,14 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- The documentation starts with an index (`docs/README.md`, installed
+  for the `gateway-docs` server): which chapter answers which question,
+  and where each common error message is explained, so that agents,
+  which can search file names but not text, read the right file first.
+  Chapter 10 explains errors that come from the servers behind the
+  gateway ("outside the allowed directories", "calling method was
+  canceled by user"); the reference tables list the programs, files and
+  SELinux types of all packages, and the shipped roles are complete.
 - `mcp-gateway-admin doctor` checks the labels of every program the
   gateway's and the setups' SELinux modules give a type, where installed,
   not only the servers' commands: a helper a server starts, such as

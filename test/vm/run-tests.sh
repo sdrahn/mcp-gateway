@@ -349,6 +349,8 @@ stool alice gateway-docs search_files '{"path":"/usr/share/mcp-gateway/docs","pa
 check "gateway-docs: search_files finds the operations chapter" succeeded_with "10-operations.md"
 stool alice gateway-docs read_text_file '{"path":"user-guide/10-operations.md","head":1}'
 check "gateway-docs: read_text_file" succeeded_with "# 10. Operations"
+stool alice gateway-docs read_text_file '{"path":"README.md","head":1}'
+check "gateway-docs: the index is installed" succeeded_with "# mcp-gateway documentation"
 stool alice gateway-docs write_file '{"path":"x","content":"x"}'
 check "gateway-docs: no tool that writes" bash -c '[ "$1" = 1 ] && grep -q "unknown tool" <<<"$2"' _ "$rc" "$out"
 stool bob gateway-docs read_text_file '{"path":"user-guide/10-operations.md","head":1}'
