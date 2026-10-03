@@ -7,9 +7,14 @@ minor release (with a warning) and removed in the next.
 
 ## v0.7.1 — 2026-10-03
 
-A metrics fix. Upgrading from 0.7.0 needs no changes; restart the
-gateway after the update (`systemctl restart mcp-gateway.service`) to
-serve the metric.
+Fixes from running 0.7.0 on transactional systems: the doctor counts
+SELinux denials only since the current boot and explains roles naming
+tools a server does not offer, suseconnect-mcp may keep its cache in
+`/run`, and a metric that was never served is. Upgrading from 0.7.0
+needs no configuration changes. Update `mcp-gateway-selinux` together
+with the gateway (the suseconnect module changed), and restart the
+gateway after the update (`systemctl restart mcp-gateway.service`); on
+transactional systems, reboot first.
 
 ### Changed
 
@@ -22,11 +27,6 @@ serve the metric.
 
 ### Fixed
 
-- The SELinux module of the suseconnect setup (`mcp_suseconnect`) let
-  suseconnect-mcp not create `/run/suseconnect`, where connect-ng caches
-  the ids of the system profiles it uploads: it has a type of its own
-  now (`mcpsrv_suseconnect_runtime_t`). If SUSEConnect created the
-  directory first, `restorecon -R /run/suseconnect` relabels it.
 - `mcp-gateway-admin doctor` names the server's version and account
   when roles name tools a server does not offer, and the usual causes: a
   server not running as root hides the tools only root can use (zypp's
@@ -35,6 +35,11 @@ serve the metric.
   recommends `mcp-server-zypp` 0.1.1 or later: its roles name the tools
   of those versions, and 0.1.0 had `install_package` and `remove_package`
   instead of `plan_*` and `confirm_*`.
+- The SELinux module of the suseconnect setup (`mcp_suseconnect`) did
+  not let suseconnect-mcp create `/run/suseconnect`, where connect-ng
+  caches the ids of the system profiles it uploads: the directory has a
+  type of its own now (`mcpsrv_suseconnect_runtime_t`). If SUSEConnect
+  created it first, `restorecon -R /run/suseconnect` relabels it.
 - The metric `mcp_gateway_limit_refusals_total` (0.4) was counted but
   never served on `/v1/metrics` or `metrics.listen`.
 
