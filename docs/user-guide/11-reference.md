@@ -12,10 +12,10 @@ mcp-gateway help
 
 It runs the gateway (as `mcp-gateway.service` does); `mcp-gateway -h`
 or `help` lists the options. The commands for administrators are
-`mcp-gateway-admin`'s (below). Until 0.8, `mcp-gateway-admin inspect`,
-`profile`, `review`, `doctor` and `admin-server` still work: they run
-`mcp-gateway-admin` with the same options (`admin-server` as `serve`),
-after a warning. Any other argument is an error (status 2).
+`mcp-gateway-admin`'s (below); `mcp-gateway inspect`, `profile`,
+`review`, `doctor` and `admin-server` were removed in 0.8 and name the
+`mcp-gateway-admin` command to run instead (`admin-server` is `serve`).
+Any argument is an error (status 2).
 
 | Flag | Meaning |
 |---|---|

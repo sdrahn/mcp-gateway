@@ -4,15 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"syscall"
 )
 
 // movedCommands are the subcommands mcp-gateway had until 0.6, by the
-// mcp-gateway-admin command that replaces each. Until 0.8 they run
-// mcp-gateway-admin, with a warning (D10).
+// mcp-gateway-admin command that replaced each in 0.7. Since 0.8 they are
+// unknown commands; the error names the replacement.
 var movedCommands = map[string]string{
 	"inspect":      "inspect",
 	"profile":      "profile",
@@ -21,35 +17,15 @@ var movedCommands = map[string]string{
 	"admin-server": "serve",
 }
 
-// adminProgram is the program that has the administrators' commands.
-const adminProgram = "mcp-gateway-admin"
-
-// findAdmin returns mcp-gateway-admin: next to this program (as installed,
-// and in bin/ of a checkout), else on PATH.
-func findAdmin() (string, error) {
-	if self, err := os.Executable(); err == nil {
-		p := filepath.Join(filepath.Dir(self), adminProgram)
-		if _, err := os.Stat(p); err == nil {
-			return p, nil
-		}
+// unknownCommand reports that name is not a command (status 2).
+func unknownCommand(name string, w io.Writer, fs *flag.FlagSet) int {
+	if sub, ok := movedCommands[name]; ok {
+		_, _ = fmt.Fprintf(w, "mcp-gateway: unknown command %q: it is \"mcp-gateway-admin %s\" since 0.7\n", name, sub)
+		return 2
 	}
-	return exec.LookPath(adminProgram)
-}
-
-// runMoved runs the moved command name as "mcp-gateway-admin NEW args".
-// It returns only if that fails.
-func runMoved(name string, args []string, stderr io.Writer) int {
-	sub := movedCommands[name]
-	_, _ = fmt.Fprintf(stderr, "mcp-gateway: \"mcp-gateway %s\" is deprecated and goes away in 0.8; use \"%s %s\"\n",
-		name, adminProgram, sub)
-	admin, err := findAdmin()
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "mcp-gateway: %v\n", err)
-		return 1
-	}
-	err = syscall.Exec(admin, append([]string{admin, sub}, args...), os.Environ())
-	_, _ = fmt.Fprintf(stderr, "mcp-gateway: running %s: %v\n", admin, err)
-	return 1
+	_, _ = fmt.Fprintf(w, "mcp-gateway: unknown command %q\n\n", name)
+	usage(w, fs)
+	return 2
 }
 
 // usage prints the top-level help: how to run the gateway and its
@@ -71,17 +47,11 @@ Options of the gateway:
 	fs.SetOutput(out)
 }
 
-// runHelp is "mcp-gateway help [COMMAND]"; a moved command's help is
-// mcp-gateway-admin's.
+// runHelp is "mcp-gateway help"; any command named is unknown.
 func runHelp(args []string, stdout, stderr io.Writer, fs *flag.FlagSet) int {
 	if len(args) == 0 {
 		usage(stdout, fs)
 		return 0
 	}
-	if _, ok := movedCommands[args[0]]; ok {
-		return runMoved(args[0], []string{"-h"}, stderr)
-	}
-	_, _ = fmt.Fprintf(stderr, "mcp-gateway: unknown command %q\n\n", args[0])
-	usage(stderr, fs)
-	return 2
+	return unknownCommand(args[0], stderr, fs)
 }

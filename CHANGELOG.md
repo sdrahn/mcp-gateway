@@ -7,10 +7,22 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Removed
+
+- What 0.7 deprecated (D10): `mcp-gateway inspect`, `profile`,
+  `review`, `doctor` and `admin-server` are unknown commands (status 2)
+  that name the `mcp-gateway-admin` command to run instead. A server
+  definition starting `mcp-gateway admin-server` cannot start; the
+  gateway says so at start, `mcp-gateway --check` and the doctor warn,
+  naming `mcp-gateway-admin serve`. `mcpsrv_admin_t` is no longer
+  entered on the gateway's program: no server domain is.
+
 ### Fixed
 
 - The metric `mcp_gateway_limit_refusals_total` (0.4) was counted but
   never served on `/v1/metrics` or `metrics.listen`.
+- The user guide (chapter 11) named `mcp-gateway-admin inspect` where it
+  meant the old `mcp-gateway inspect`.
 
 ## v0.7.0 — 2026-10-03
 

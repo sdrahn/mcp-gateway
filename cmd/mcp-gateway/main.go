@@ -52,11 +52,6 @@ import (
 const mcsWatchInterval = 30 * time.Second
 
 func main() {
-	if len(os.Args) > 1 {
-		if _, ok := movedCommands[os.Args[1]]; ok {
-			os.Exit(runMoved(os.Args[1], os.Args[2:], os.Stderr))
-		}
-	}
 	configPath := flag.String("config", "", "path to the gateway configuration (default: "+
 		config.DefaultConfigPath+", else "+config.DefaultVendorConfigPath+", else built-in defaults)")
 	checkOnly := flag.Bool("check", false, "validate the configuration, the backend registry and the role data, then exit")
@@ -77,9 +72,7 @@ func main() {
 	if flag.NArg() > 0 {
 		// Not a command: without this, a mistyped one would start the
 		// gateway.
-		fmt.Fprintf(os.Stderr, "mcp-gateway: unknown command %q\n\n", flag.Arg(0))
-		flag.Usage()
-		os.Exit(2)
+		os.Exit(unknownCommand(flag.Arg(0), os.Stderr, flag.CommandLine))
 	}
 
 	if *showVersion {
