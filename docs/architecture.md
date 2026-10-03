@@ -1638,6 +1638,21 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     - the program name `mcp-fs-demo`, deprecated in 0.6, goes away: the
       link, its file context and the warning for definitions naming it
       (done).
+17. **Cleanup and stream expiry** (0.8):
+    - what 0.7 deprecated goes, as D10 has it: `mcp-gateway inspect`,
+      `profile`, `review`, `doctor` and `admin-server` are unknown
+      commands (status 2, naming `mcp-gateway-admin`), a definition
+      starting `mcp-gateway admin-server` is reported (`--check`, at
+      start, the doctor) as one that cannot start, naming
+      `mcp-gateway-admin serve`, and `mcpsrv_admin_t` loses its
+      entry on `mcpgw_exec_t`: no backend domain has an entry point on
+      the gateway binary;
+    - an HTTP stream ends when the token that opened it expires (§12):
+      the gateway closes a session's GET stream and its request streams
+      at the token's `exp`, as it refuses new requests then; a client
+      resumes with a fresh token (`Last-Event-ID`), and a pending call's
+      answer is replayed to it. The expiry is audited
+      (`mcp-token-expired`) and counted.
 
 ## 12. Open items
 
