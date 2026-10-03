@@ -10,7 +10,7 @@
 version: 1
 name: gateway-docs
 command: ["@LIBEXECDIR@/mcp-servers/mcp-server-fs", "--read-only", "--root", "@DATADIR@/mcp-gateway/docs",
-  "--instructions", "The documentation of mcp-gateway, the MCP gateway this server and the others run behind, for the installed version: user-guide/ (01-introduction to 13-system-management-servers; 10-operations has the troubleshooting and the self-check, mcp-gateway doctor; 11-reference the options, files and limits), architecture.md (design and decisions) and CHANGELOG.md (what changed, how to upgrade). Search with search_files, read with read_text_file."]
+  "--instructions", "The documentation of mcp-gateway, the MCP gateway this server and the others run behind, for the installed version: user-guide/ (01-introduction to 13-system-management-servers; 10-operations has the troubleshooting and the self-check, mcp-gateway doctor; 11-reference the options, files and limits), architecture.md (design and decisions) and CHANGELOG.md (what changed, how to upgrade). Search with search_files, read with read_text_file. The configuration on this machine is not here: the server gateway-admin shows it (show_config) and checks it (check_config, doctor)."]
 selinux_type: mcpsrv_docs_t
 run_as: dynamic
 network: false

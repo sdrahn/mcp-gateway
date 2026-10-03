@@ -235,6 +235,17 @@ gateway need for that?"). The server tells the agent where
 troubleshooting and the reference are; it has the reading tools of the
 file server (chapter 4).
 
+For the configuration in force on the machine, the agent needs the
+`gateway-admin` server (role `gateway-admin`): its `show_config` shows
+`gateway.yaml`, the server definitions and the role data with secrets
+masked (each call with an approval, out of band), `check_config` and
+`doctor` check them without one. The other servers cannot
+read these files, by design: the file server sees the user's home only,
+and the systemd roles allow reading systemd's own files only (systemd-mcp
+reports such a refusal as "calling method was canceled by user"). The
+servers' instructions, and those of the aggregated endpoint, point
+agents to `gateway-admin`.
+
 Users need a role for it: the shipped `viewer` and `developer` roles
 include it, and the shipped role `gateway-docs-reader` grants only it:
 

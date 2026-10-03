@@ -384,10 +384,28 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 			"completions": map[string]any{},
 			"logging":     map[string]any{},
 		},
-		"serverInfo": map[string]any{"name": "mcp-gateway", "version": version.Version},
-		"instructions": "This server aggregates several MCP servers. Tool and prompt names are " +
-			"prefixed with \"<server>" + nameSep + "\", resource URIs with \"" + uriPrefix + "<server>:\".",
+		"serverInfo":   map[string]any{"name": "mcp-gateway", "version": version.Version},
+		"instructions": aggregatedInstructions(s.endpoint()),
 	}, nil
+}
+
+// aggregatedInstructions tells the client how names are prefixed and,
+// when the shipped diagnostics servers are there, where the gateway's
+// own configuration and documentation are: agents asked about the
+// gateway otherwise try to read its files through other servers, which
+// may not read them.
+func aggregatedInstructions(ep endpoint) string {
+	out := "This server aggregates several MCP servers. Tool and prompt names are " +
+		"prefixed with \"<server>" + nameSep + "\", resource URIs with \"" + uriPrefix + "<server>:\"."
+	if ep.backends["gateway-admin"] != nil {
+		out += " The gateway's own configuration (gateway.yaml, server definitions, role data) is not meant to be " +
+			"read through other servers' file tools: read it with gateway-admin" + nameSep + "show_config, check it with " +
+			"gateway-admin" + nameSep + "check_config, and diagnose problems with gateway-admin" + nameSep + "doctor."
+	}
+	if ep.backends["gateway-docs"] != nil {
+		out += " The gateway's documentation, for the installed version, is on the server gateway-docs."
+	}
+	return out
 }
 
 // gatewayCapabilities are the server capabilities the gateway implements

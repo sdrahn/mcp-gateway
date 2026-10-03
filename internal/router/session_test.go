@@ -905,3 +905,18 @@ func TestResourceUpdatesFollowPolicy(t *testing.T) {
 		t.Fatalf("updates %v", updates)
 	}
 }
+
+func TestAggregatedInstructionsPointToGatewayAdmin(t *testing.T) {
+	plain := aggregatedInstructions(aggregatedEndpoint(map[string]*config.Backend{"fs": {Name: "fs"}}))
+	if strings.Contains(plain, "gateway-admin") || strings.Contains(plain, "gateway-docs") {
+		t.Errorf("names servers that are not there: %s", plain)
+	}
+	got := aggregatedInstructions(aggregatedEndpoint(map[string]*config.Backend{
+		"fs": {Name: "fs"}, "gateway-admin": {Name: "gateway-admin"}, "gateway-docs": {Name: "gateway-docs"},
+	}))
+	for _, want := range []string{"gateway-admin__show_config", "gateway-admin__check_config", "server gateway-docs"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in %s", want, got)
+		}
+	}
+}

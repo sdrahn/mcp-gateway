@@ -32,6 +32,11 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
+- Agents asked about the gateway's configuration are pointed to the
+  `gateway-admin` server (`show_config`, `check_config`, `doctor`) by
+  its instructions, those of `gateway-docs` and those of the aggregated
+  endpoint, instead of trying to read the files through the file or
+  systemd server, which cannot read them.
 - Approval mail reaches the users whose primary group an approver group
   is; NSS does not list them as members of the group. They are found by
   enumerating users (`getent passwd`), which SSSD and LDAP do only with
