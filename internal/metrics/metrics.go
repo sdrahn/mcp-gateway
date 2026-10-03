@@ -41,13 +41,17 @@ var (
 	ApprovalsDecided = NewCounter("mcp_gateway_approvals_decided_total",
 		"Approvals decided by a person, by decision (approve, deny).",
 		"decision")
+	LimitRefusals = NewCounter("mcp_gateway_limit_refusals_total",
+		"Sessions and backend instances refused because a limit was reached, by limit (sessions, instances_per_principal, instances).",
+		"limit")
 )
 
 // Default holds the gateway's metrics.
 var Default = &Registry{}
 
 func init() {
-	Default.Register(Decisions, PolicyFailures, OPADuration, OPAErrors, InstanceStarts, InstanceFailures, ApprovalsDecided)
+	Default.Register(Decisions, PolicyFailures, OPADuration, OPAErrors, InstanceStarts, InstanceFailures, ApprovalsDecided,
+		LimitRefusals)
 }
 
 // Metric is one metric family.

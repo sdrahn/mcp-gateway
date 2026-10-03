@@ -5,6 +5,13 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Fixed
+
+- The metric `mcp_gateway_limit_refusals_total` (0.4) was counted but
+  never served on `/v1/metrics` or `metrics.listen`.
+
 ## v0.7.0 — 2026-10-03
 
 A smaller gateway. The commands for administrators leave the gateway's
