@@ -16,11 +16,6 @@ const (
 	defaultInstancesPerPrincipal = 32
 )
 
-// limitRefusals counts sessions and instances refused at a limit.
-var limitRefusals = metrics.NewCounter("mcp_gateway_limit_refusals_total",
-	"Sessions and backend instances refused because a limit was reached, by limit (sessions, instances_per_principal, instances).",
-	"limit")
-
 // principalKey identifies a principal for the limits: the key shared
 // instances use.
 func principalKey(p principal.Principal) string {
@@ -100,7 +95,7 @@ func (r *Router) admit(s *Session) error {
 
 // refused audits and counts a refusal at a limit.
 func (r *Router) refused(p principal.Principal, e *LimitError) {
-	limitRefusals.Inc(e.Limit)
+	metrics.LimitRefusals.Inc(e.Limit)
 	r.Log.Warn("limit reached", "sub", p.Sub, "transport", p.Transport, "limit", e.Limit, "max", e.Max)
 	r.Audit.Event("mcp-limit", false, map[string]string{
 		"principal": p.Sub, "transport": string(p.Transport), "session": p.SessionID,

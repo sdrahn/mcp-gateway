@@ -53,7 +53,7 @@ func TestDefault(t *testing.T) {
 	}
 	for _, name := range []string{"mcp_gateway_decisions_total", "mcp_gateway_policy_failures_total",
 		"mcp_gateway_opa_query_duration_seconds", "mcp_gateway_opa_query_errors_total", "mcp_gateway_instance_starts_total",
-		"mcp_gateway_instance_failures_total", "mcp_gateway_approvals_decided_total"} {
+		"mcp_gateway_instance_failures_total", "mcp_gateway_approvals_decided_total", "mcp_gateway_limit_refusals_total"} {
 		if !strings.Contains(b.String(), "# TYPE "+name+" ") {
 			t.Errorf("%s missing", name)
 		}
