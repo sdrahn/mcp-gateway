@@ -9,6 +9,12 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- `mcp-gateway-admin doctor` (and the `gateway-admin` tools `doctor` and
+  `selinux_denials`) count SELinux denials only since the current boot,
+  within `--since`. Denials from before a reboot came from the policy and
+  labels of then; on transactional systems, where a module installed
+  with its packages takes effect at the next boot, they reported problems
+  already gone. `--previous-boots` counts them too.
 - An HTTP stream (the session's `GET` stream, or a request's
   `text/event-stream` response) ends when the token of the request that
   opened it is no longer accepted, as requests with it are refused; until

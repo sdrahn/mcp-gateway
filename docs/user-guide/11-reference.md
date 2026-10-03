@@ -127,7 +127,8 @@ check failed, 2 on usage errors.
 | `--shipped-policy DIR` | shipped policy with the roles of the server setups (default: `/usr/share/mcp-gateway/policy`; empty: none) |
 | `--server NAME` | check only this server |
 | `--no-start` | do not start the servers |
-| `--since DURATION` | how far back to look for SELinux denials (default `24h`) |
+| `--since DURATION` | how far back to look for SELinux denials (default `24h`), within the current boot |
+| `--previous-boots` | with `--since`, also count denials from before the current boot |
 | `--timeout DURATION` | how long to wait for each server (default `30s`) |
 | `--json` | print the results as JSON |
 
