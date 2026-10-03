@@ -217,6 +217,33 @@ Starting the servers runs them like the gateway would, once each; use
 profiles a server (chapter 4), dontaudit rules are off and the audit log
 has denials that do not matter otherwise; they show up here too.
 
+### Asking an agent
+
+With `mcp-gateway-fs-server` installed, the gateway's documentation is
+itself a server, `gateway-docs`: the user guide, `architecture.md` and
+`CHANGELOG.md` of the installed version, from
+`/usr/share/mcp-gateway/docs`, read-only and without the network. An
+agent connected to the gateway can look up how something is configured
+or what an error means ("the snapper tools do not show up: what does the
+gateway need for that?"). The server tells the agent where
+troubleshooting and the reference are; it has the reading tools of the
+file server (chapter 4).
+
+Users need a role for it: the shipped `viewer` and `developer` roles
+include it, and the shipped role `gateway-docs-reader` grants only it:
+
+```json
+"bindings": {"groups": {"mcp-users": ["gateway-docs-reader"]}}
+```
+
+It runs as a throwaway user in the domain `mcpsrv_docs_t`, which reads
+`/usr` and nothing of the users'. An empty
+`/etc/mcp-gateway/servers.d/gateway-docs.yaml` disables it.
+
+The documentation tells an agent how things should be, not how they are
+on this machine; give it the output of `mcp-gateway doctor` and the
+journal lines to go with it.
+
 ### The agent cannot connect
 
 | Symptom | Cause and fix |

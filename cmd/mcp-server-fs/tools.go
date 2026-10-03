@@ -26,6 +26,9 @@ import (
 type fileServer struct {
 	dirs     []*allowed
 	readOnly bool
+	// about, if set, opens the instructions: what the files are (e.g.
+	// the gateway's documentation).
+	about string
 	// maxRead bounds what one call returns (file contents, summed over
 	// read_multiple_files); maxWrite what one call writes; maxEntries the
 	// entries of a listing, tree or search.
@@ -40,8 +43,12 @@ func (s *fileServer) instructions() string {
 	} else if ro := s.readOnlyDirs(); len(ro) > 0 {
 		mode = " On a read-only file system, so nothing there can be changed: " + strings.Join(ro, ", ") + "."
 	}
-	return "Files below " + strings.Join(s.dirPaths(), ", ") + ". Paths are absolute, or relative to " +
+	out := "Files below " + strings.Join(s.dirPaths(), ", ") + ". Paths are absolute, or relative to " +
 		s.dirs[0].path + "." + mode
+	if s.about != "" {
+		out = s.about + "\n\n" + out
+	}
+	return out
 }
 
 // readOnlyDirs lists the allowed directories on read-only file systems.

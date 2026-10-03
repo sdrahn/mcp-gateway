@@ -6,6 +6,8 @@
         {"server": "*", "tool": "list_*"},
         {"server": "*", "tool": "read_*"},
         {"server": "*", "tool": "get_*"},
+        {"server": "gateway-docs", "tool": "*"},
+        {"server": "gateway-docs", "resource": "*"},
         {"server": "*", "prompt": "*"}
       ]
     },
@@ -23,6 +25,8 @@
         {"server": "fs", "tool": "create_directory", "require_approval": true, "approval_channel": "url", "args": {"path": "^${home}/"}},
         {"server": "fs", "tool": "move_file", "require_approval": true, "approval_channel": "url", "args": {"source": "^${home}/", "destination": "^${home}/"}},
         {"server": "fs", "tool": "delete_*", "effect": "deny"},
+        {"server": "gateway-docs", "tool": "*"},
+        {"server": "gateway-docs", "resource": "*"},
         {"server": "*", "prompt": "*"}
       ]
     },

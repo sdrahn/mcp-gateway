@@ -23,7 +23,7 @@ zypper refresh
 zypper install mcp-gateway            # daemon, mcp-connect, policy, units
 zypper install mcp-gateway-cockpit    # optional: web console page
 zypper install mcp-gateway-desktop    # optional: desktop notifications
-zypper install mcp-gateway-fs-server  # optional: file server "fs"
+zypper install mcp-gateway-fs-server  # optional: file server "fs", docs server "gateway-docs"
 ```
 
 `mcp-gateway-selinux` is pulled in automatically where the targeted

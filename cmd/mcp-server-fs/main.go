@@ -45,6 +45,7 @@ func main() {
 	flag.Var(&roots, "root", "a directory the tools work in (repeatable; default: the current directory); "+
 		"relative paths in calls are relative to the first")
 	readOnly := flag.Bool("read-only", false, "offer only the tools that read")
+	about := flag.String("instructions", "", "what the files are, for the client's model (opens the server's instructions)")
 	maxRead := flag.Int64("max-read", 10<<20, "bytes one call may read (summed over read_multiple_files)")
 	maxWrite := flag.Int64("max-write", 10<<20, "bytes one call may write")
 	maxEntries := flag.Int("max-entries", 10000, "entries a listing, tree or search returns at most")
@@ -69,7 +70,7 @@ func main() {
 	if len(roots) == 0 {
 		roots = rootFlags{"."}
 	}
-	s := &fileServer{readOnly: *readOnly, maxRead: *maxRead, maxWrite: *maxWrite, maxEntries: *maxEntries}
+	s := &fileServer{readOnly: *readOnly, about: *about, maxRead: *maxRead, maxWrite: *maxWrite, maxEntries: *maxEntries}
 	for _, r := range roots {
 		abs, err := filepath.Abs(r)
 		if err != nil {

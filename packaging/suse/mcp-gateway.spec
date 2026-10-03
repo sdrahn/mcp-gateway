@@ -108,7 +108,9 @@ server "fs" on the connecting user's home directory: reading, listing,
 searching, writing and editing files, with the tool names of the
 reference filesystem server. It stays inside its directories also
 through symbolic links, replaces files atomically and bounds what one
-call reads and writes.
+call reads and writes. Also registers the server "gateway-docs": the
+gateway's documentation, read-only, for agents to consult offline (role
+gateway-docs-reader).
 
 %package profile-systemd
 Summary:        systemd-mcp behind mcp-gateway
@@ -281,6 +283,7 @@ fi
 %{_datadir}/mcp-gateway/opa
 %{_datadir}/mcp-gateway/mcs
 %{_datadir}/mcp-gateway/schema
+%{_datadir}/mcp-gateway/docs
 %{_unitdir}/mcp-gateway.service
 %{_unitdir}/mcp-opa.service
 %{_sysusersdir}/%{name}.conf
@@ -310,6 +313,8 @@ fi
 %{_libexecdir}/mcp-servers/mcp-server-fs
 %{_libexecdir}/mcp-servers/mcp-fs-demo
 %{_datadir}/mcp-gateway/servers.d/fs-demo.yaml
+%{_datadir}/mcp-gateway/servers.d/gateway-docs.yaml
+%{_datadir}/mcp-gateway/policy/mcp/profiles/gateway-docs
 
 %files profile-systemd
 %{_datadir}/mcp-gateway/servers.d/systemd.yaml

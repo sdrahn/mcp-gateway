@@ -101,6 +101,12 @@ corecmd_bin_entry_type(mcpsrv_generic_t)
 mcp_gateway_backend_template(fs)
 mcp_gateway_backend_home_rw(mcpsrv_fs_t)
 
+# The gateway's documentation (the server gateway-docs): mcp-server-fs,
+# read-only, in a domain that reads /usr and nothing of the users'.
+mcp_gateway_backend_template(docs)
+domain_entry_file(mcpsrv_docs_t, mcpsrv_fs_exec_t)
+files_read_usr_files(mcpsrv_docs_t)
+
 ########################################
 #
 # Isolation invariants
