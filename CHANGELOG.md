@@ -5,7 +5,47 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.9.0 — 2026-10-03
+
+Server definitions that change while the gateway runs. The gateway
+reloads `servers.d` when a file changes and on `systemctl reload`, so
+that setup packages installed or updated with the gateway running take
+effect without a restart and without ending sessions; a definition that
+does not load never stops the gateway. The doctor checks the labels of
+every program the SELinux modules give a type, approval mail reaches the
+members of an approver group by primary group, agents asked about the
+gateway's configuration are pointed to `gateway-admin`, and the
+documentation starts with an index for people and agents.
+
+Upgrading from 0.8.x needs no changes to `gateway.yaml`, server
+definitions or role data. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. Things
+to know:
+
+- **Restart before the first `systemctl reload`.** The unit now has
+  `ExecReload`, but a gateway still running 0.8 does not handle SIGHUP:
+  `systemctl reload mcp-gateway.service` ends it, and systemd does not
+  start it again (SIGHUP counts as a clean exit). Restart it once after
+  the update; from then on, reload as often as needed.
+- Changes to `/etc/mcp-gateway/servers.d` now take effect within
+  `policy.watch_interval` (10 s) of saving the file, not at the next
+  restart. Check a definition with `mcp-gateway --check` before putting
+  it in place, or write it under another name (not ending in `.yaml`)
+  and rename it. A definition that does not load is reported (log,
+  audit record `mcp-config-reload`, `servers_error` in
+  `GET /v1/status`, the doctor) and changes nothing.
+- When a server's definition changes, each session moves to an instance
+  of the new definition at its next call; the old instance runs until
+  no session uses it and no call on it is running. Instances of a
+  removed server stop once their calls are answered.
+- `mcp-gateway-admin doctor` may report `FAIL program …` for helper
+  programs it did not check before, such as
+  `/usr/libexec/mcp-server-zypp/zypp-mcp-tool` labeled `bin_t`. The
+  line names the fix (`restorecon`, on transactional systems through
+  `transactional-update run` and a reboot).
+- Approval mail for `group:` approvers also goes to users whose primary
+  group it is. With SSSD or LDAP they are found only if the directory
+  enumerates users (`enumerate = true`); otherwise name them as `user:`.
 
 ### Added
 
@@ -16,8 +56,9 @@ minor release (with a warning) and removed in the next.
   A session's next call to a changed server starts an instance from the
   new definition; the old instance runs until no session uses it and no
   call on it is running. Instances of removed servers stop once their
-  calls are answered. Clients are told that the lists changed. A definition that does not load changes nothing: the gateway
-  serves the previous definitions, logs and audits the error
+  calls are answered. Clients are told that the lists changed. A
+  definition that does not load changes nothing: the gateway serves the
+  previous definitions, logs and audits the error
   (`mcp-config-reload`), and the doctor warns until a reload succeeds
   (`servers_error` in `GET /v1/status`). `systemctl reload` checks the
   definitions first and fails on a broken one.
