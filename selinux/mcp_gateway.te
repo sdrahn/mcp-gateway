@@ -134,6 +134,20 @@ ifdef(`init_read_utmp',`
 ifdef(`rpm_read_db',`
 	rpm_read_db(mcpsrv_exec_t)
 ')
+# rpm runs in this domain (rpm -q), not in its own.
+ifdef(`rpm_exec',`
+	rpm_exec(mcpsrv_exec_t)
+')
+# uptime counts the logged-in users from logind.
+ifdef(`systemd_read_logind_sessions_files',`
+	systemd_read_logind_sessions_files(mcpsrv_exec_t)
+')
+# df looks at every mount, also the files the sandbox masks /proc/kmsg
+# and the like with; it does without them.
+optional_policy(`
+	gen_require(`type init_var_run_t;')
+	dontaudit mcpsrv_exec_t init_var_run_t:file getattr;
+')
 
 # The gateway diagnostics (the server gateway-admin, mcp-gateway
 # admin-server): root without capabilities, reading only. It reads the
