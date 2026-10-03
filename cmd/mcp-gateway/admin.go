@@ -92,7 +92,7 @@ const adminInstructions = `Diagnostics of the MCP gateway on this machine, for f
 - doctor: the checks of "mcp-gateway doctor" (configuration, role data, services, state files, SELinux types, labels and denials, polkit, snapper, users without a role). Start here.
 - check_config: only whether the configuration and the role data are valid.
 - explain_decision: what the policy decides for a user calling a tool (or reading a resource, getting a prompt), with the roles the user holds and the permissions that match.
-- read_config: the configuration files (gateway.yaml, server definitions, role data), secrets masked.
+- show_config: the configuration files (gateway.yaml, server definitions, role data), secrets masked.
 - recent_audit: the gateway's recent decisions and events.
 - selinux_denials: SELinux denials for the gateway and its servers.
 
@@ -162,7 +162,7 @@ var adminTools = []map[string]any{
 			"kind":      map[string]any{"type": "string", "enum": []string{"tool", "resource", "prompt"}, "description": "default tool"},
 			"arguments": map[string]any{"type": "object", "description": "the call's arguments, for permissions that constrain them"},
 		}, "user", "server", "name"),
-	adminTool("read_config", "Read the configuration",
+	adminTool("show_config", "Read the configuration",
 		"Without file: the configuration files (gateway.yaml, server definitions, role data, roles of the server setups). "+
 			"With file: its content, values of keys that look like secrets masked.",
 		map[string]any{"file": map[string]any{"type": "string", "description": "a path as the list without file shows it"}}),
@@ -227,7 +227,7 @@ func (a *adminServer) call(ctx context.Context, name string, raw json.RawMessage
 			return toolError("%v", err), nil
 		}
 		return a.explain(ctx, p), nil
-	case "read_config":
+	case "show_config":
 		var p struct {
 			File string `json:"file"`
 		}
@@ -452,7 +452,7 @@ func localPrincipal(name string) (principal.Principal, error) {
 	return p, nil
 }
 
-// configFiles are the files read_config shows: the gateway's
+// configFiles are the files show_config shows: the gateway's
 // configuration, the server definitions, the role data and the setups'
 // roles.
 func (a *adminServer) configFiles() []string {
@@ -512,7 +512,7 @@ func (a *adminServer) readConfig(file string) map[string]any {
 		return textResult(b.String(), map[string]any{"files": files})
 	}
 	if !slices.Contains(files, filepath.Clean(file)) {
-		return toolError("%s is not one of the configuration files (call read_config without file for the list)", file)
+		return toolError("%s is not one of the configuration files (call show_config without file for the list)", file)
 	}
 	f, err := os.Open(file)
 	if err != nil {

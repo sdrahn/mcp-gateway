@@ -115,6 +115,23 @@ check failed, 2 on usage errors.
 | `--timeout DURATION` | how long to wait for each server (default `30s`) |
 | `--json` | print the results as JSON |
 
+### mcp-gateway admin-server
+
+```
+mcp-gateway admin-server [options]
+```
+
+The MCP server `gateway-admin` on stdin/stdout, which the gateway starts
+(chapter 10, "Asking an agent"); not for running by hand.
+
+| Flag | Meaning |
+|---|---|
+| `--config FILE` | gateway configuration (as for `mcp-gateway`) |
+| `--policy-data FILE` | role data (default: `/etc/mcp-gateway/policy/rbac/data.json`) |
+| `--shipped-policy DIR` | shipped policy (default: `/usr/share/mcp-gateway/policy`) |
+| `--etc-policy DIR` | the administrator's policy directory, loaded below `data.mcp` (default: `/etc/mcp-gateway/policy`) |
+| `--opa PATH` | the opa program for `explain_decision` (default: `/usr/bin/opa`) |
+
 ### mcp-connect
 
 ```

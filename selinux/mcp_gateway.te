@@ -108,6 +108,42 @@ domain_entry_file(mcpsrv_docs_t, mcpsrv_fs_exec_t)
 files_read_usr_files(mcpsrv_docs_t)
 fs_getattr_xattr_fs(mcpsrv_docs_t)
 
+# The gateway diagnostics (the server gateway-admin, mcp-gateway
+# admin-server): root without capabilities, reading only. It reads the
+# configuration, the state directory, the journal and the audit log, file
+# labels and SELinux state, asks systemd whether the services run, and
+# runs opa on the policy files. Like every server it cannot reach the
+# gateway sockets or OPA (the invariants below).
+mcp_gateway_backend_template(admin)
+domain_entry_file(mcpsrv_admin_t, mcpgw_exec_t)
+files_read_usr_files(mcpsrv_admin_t)
+read_files_pattern(mcpsrv_admin_t, mcpgw_etc_t, mcpgw_etc_t)
+list_dirs_pattern(mcpsrv_admin_t, mcpgw_etc_t, mcpgw_etc_t)
+read_lnk_files_pattern(mcpsrv_admin_t, mcpgw_etc_t, mcpgw_etc_t)
+files_list_var_lib(mcpsrv_admin_t)
+list_dirs_pattern(mcpsrv_admin_t, mcpgw_var_lib_t, mcpgw_var_lib_t)
+getattr_files_pattern(mcpsrv_admin_t, mcpgw_var_lib_t, mcpgw_var_lib_t)
+auth_use_nsswitch(mcpsrv_admin_t)
+corecmd_exec_bin(mcpsrv_admin_t)
+# journalctl and ausearch
+systemd_read_journal_files(mcpsrv_admin_t)
+logging_search_logs(mcpsrv_admin_t)
+logging_read_generic_logs(mcpsrv_admin_t)
+logging_read_audit_log(mcpsrv_admin_t)
+logging_read_audit_config(mcpsrv_admin_t)
+# systemctl is-active
+systemd_exec_systemctl(mcpsrv_admin_t)
+init_stream_connect(mcpsrv_admin_t)
+init_read_state(mcpsrv_admin_t)
+# Labels of the server programs, what the policy says they should be,
+# whether a type exists, whether /usr is read-only.
+files_getattr_all_files(mcpsrv_admin_t)
+selinux_get_enforce_mode(mcpsrv_admin_t)
+selinux_validate_context(mcpsrv_admin_t)
+seutil_read_config(mcpsrv_admin_t)
+seutil_read_file_contexts(mcpsrv_admin_t)
+fs_getattr_xattr_fs(mcpsrv_admin_t)
+
 ########################################
 #
 # Isolation invariants

@@ -113,6 +113,12 @@ install-gateway:
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/docs/user-guide
 	install -m0644 docs/user-guide/*.md $(DESTDIR)$(DATADIR)/mcp-gateway/docs/user-guide/
 	install -m0644 docs/architecture.md CHANGELOG.md $(DESTDIR)$(DATADIR)/mcp-gateway/docs/
+	# The gateway's diagnostics as the server gateway-admin, with its role.
+	sed 's|@BINDIR@|$(BINDIR)|g' packaging/admin/gateway-admin.yaml.in \
+		>$(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/gateway-admin.yaml
+	chmod 0644 $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/gateway-admin.yaml
+	install -Dm0644 packaging/admin/gateway-admin-roles.json \
+		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/gateway-admin/data.json
 
 install-selinux: selinux
 	install -d $(DESTDIR)$(SELINUXDIR)

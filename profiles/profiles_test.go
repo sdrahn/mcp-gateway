@@ -135,26 +135,30 @@ func TestRoles(t *testing.T) {
 
 // The role of the gateway-docs server (package mcp-gateway-fs-server) is a
 // shipped role like the setups' and installed with them.
-func TestGatewayDocsRole(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "packaging", "fs-server", "gateway-docs-roles.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if problems, err := policydata.Check(data); err != nil || len(problems) > 0 {
-		t.Fatalf("%v %q", err, problems)
-	}
-	shipped := t.TempDir()
-	for name, file := range map[string][]byte{"gateway-docs": data} {
+// The roles of the gateway's own servers validate as shipped roles.
+func TestGatewayServerRoles(t *testing.T) {
+	for name, tc := range map[string]struct{ file, role string }{
+		"gateway-docs":  {filepath.Join("fs-server", "gateway-docs-roles.json"), "gateway-docs-reader"},
+		"gateway-admin": {filepath.Join("admin", "gateway-admin-roles.json"), "gateway-admin"},
+	} {
+		data, err := os.ReadFile(filepath.Join("..", "packaging", tc.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if problems, err := policydata.Check(data); err != nil || len(problems) > 0 {
+			t.Fatalf("%s: %v %q", name, err, problems)
+		}
+		shipped := t.TempDir()
 		dir := filepath.Join(shipped, "mcp", "profiles", name)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "data.json"), file, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "data.json"), data, 0o644); err != nil {
 			t.Fatal(err)
 		}
-	}
-	roles, problems, err := policydata.ShippedRoles(shipped)
-	if err != nil || len(problems) > 0 || roles["gateway-docs-reader"] == "" {
-		t.Errorf("%v %q %v", err, problems, roles)
+		roles, problems, err := policydata.ShippedRoles(shipped)
+		if err != nil || len(problems) > 0 || roles[tc.role] == "" {
+			t.Errorf("%s: %v %q %v", name, err, problems, roles)
+		}
 	}
 }

@@ -7,9 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sdrahn/mcp-gateway/internal/config"
 )
 
 func TestAdminUsage(t *testing.T) {
@@ -83,7 +86,7 @@ func TestAdminToolList(t *testing.T) {
 			t.Errorf("%s: not read-only", tool["name"])
 		}
 	}
-	if got := strings.Join(names, " "); got != "doctor check_config explain_decision read_config recent_audit selinux_denials" {
+	if got := strings.Join(names, " "); got != "doctor check_config explain_decision show_config recent_audit selinux_denials" {
 		t.Errorf("tools: %s", got)
 	}
 	if _, err := a.call(context.Background(), "nope", nil); err == nil {
@@ -142,17 +145,17 @@ func TestMaskSecrets(t *testing.T) {
 
 func TestReadConfig(t *testing.T) {
 	a, dir := testAdmin(t)
-	text, _, sc := callTool(t, a, "read_config", map[string]any{})
+	text, _, sc := callTool(t, a, "show_config", map[string]any{})
 	files := sc["files"].([]string)
 	if len(files) != 3 || !strings.Contains(text, filepath.Join(dir, "servers.d", "sys.yaml")) {
 		t.Fatalf("files: %v", files)
 	}
-	text, isErr, _ := callTool(t, a, "read_config", map[string]any{"file": filepath.Join(dir, "servers.d", "sys.yaml")})
+	text, isErr, _ := callTool(t, a, "show_config", map[string]any{"file": filepath.Join(dir, "servers.d", "sys.yaml")})
 	if isErr || strings.Contains(text, "s3cret") || !strings.Contains(text, "API_TOKEN: <masked>") || !strings.Contains(text, "LEVEL: info") {
 		t.Errorf("sys.yaml:\n%s", text)
 	}
 	for _, other := range []string{"/etc/shadow", filepath.Join(dir, "servers.d", "..", "..", "..", "etc", "shadow")} {
-		if text, isErr, _ := callTool(t, a, "read_config", map[string]any{"file": other}); !isErr {
+		if text, isErr, _ := callTool(t, a, "show_config", map[string]any{"file": other}); !isErr {
 			t.Errorf("%s read: %s", other, text)
 		}
 	}
@@ -244,5 +247,72 @@ func TestExplainDecision(t *testing.T) {
 	}
 	if text, isErr, _ := callTool(t, a, "explain_decision", map[string]any{"user": me, "server": "sys", "name": "x", "kind": "file"}); !isErr {
 		t.Errorf("unknown kind: %s", text)
+	}
+}
+
+// The definition the package installs runs this command as root in the
+// sandbox (not privileged), in its own domain.
+func TestAdminDefinition(t *testing.T) {
+	in, err := os.ReadFile(filepath.Join("..", "..", "packaging", "admin", "gateway-admin.yaml.in"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	def := strings.ReplaceAll(string(in), "@BINDIR@", "/usr/bin")
+	if err := os.WriteFile(filepath.Join(dir, "gateway-admin.yaml"), []byte(def), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backends, err := config.LoadBackends(dir, filepath.Join(dir, "none"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := backends["gateway-admin"]
+	if b == nil || b.RunAs != "root" || b.Privileged || b.Network || b.SELinuxType != "mcpsrv_admin_t" ||
+		b.Sandbox.ProtectHome != "yes" || strings.Join(b.Command, " ") != "/usr/bin/mcp-gateway admin-server" {
+		t.Fatalf("%+v", b)
+	}
+	if findCommand(b.Command[1]) == nil {
+		t.Errorf("%s is not a command", b.Command[1])
+	}
+}
+
+// No role of the default role data but admin allows a tool of
+// gateway-admin without approval through a pattern meant for other
+// servers (viewer allows read_* on every server).
+func TestAdminToolsOutsideDefaultRoles(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "policy", "mcp", "rbac", "data.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rbac struct {
+		Roles map[string]struct {
+			Permissions []struct {
+				Server          string `json:"server"`
+				Tool            string `json:"tool"`
+				Effect          string `json:"effect"`
+				RequireApproval bool   `json:"require_approval"`
+			} `json:"permissions"`
+		} `json:"roles"`
+	}
+	if err := json.Unmarshal(data, &rbac); err != nil {
+		t.Fatal(err)
+	}
+	for name, role := range rbac.Roles {
+		if name == "admin" {
+			continue
+		}
+		for _, p := range role.Permissions {
+			if p.Tool == "" || p.Effect == "deny" || p.RequireApproval {
+				continue
+			}
+			if ok, _ := path.Match(p.Server, "gateway-admin"); !ok {
+				continue
+			}
+			for _, tool := range adminTools {
+				if ok, _ := path.Match(p.Tool, tool["name"].(string)); ok {
+					t.Errorf("role %s allows %s (server %q, tool %q)", name, tool["name"], p.Server, p.Tool)
+				}
+			}
+		}
 	}
 }

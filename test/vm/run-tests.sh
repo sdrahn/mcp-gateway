@@ -248,7 +248,7 @@ cat >/etc/mcp-gateway/policy/rbac/data.json <<'EOF'
     {"server": "fs", "tool": "write_file", "args": {"path": "^${home}/"}},
     {"server": "fs", "tool": "delete_*", "effect": "deny"}
   ]}},
-  "bindings": {"users": {"alice": ["tester", "gateway-docs-reader"], "bob": ["tester"]}, "groups": {}},
+  "bindings": {"users": {"alice": ["tester", "gateway-docs-reader", "gateway-admin"], "bob": ["tester"]}, "groups": {}},
   "approvers": {"default": ["self"]}
 }
 EOF
@@ -336,6 +336,37 @@ stool alice gateway-docs write_file '{"path":"x","content":"x"}'
 check "gateway-docs: no tool that writes" bash -c '[ "$1" = 1 ] && grep -q "unknown tool" <<<"$2"' _ "$rc" "$out"
 stool bob gateway-docs read_text_file '{"path":"user-guide/10-operations.md","head":1}'
 check "gateway-docs: not for bob, who holds no role for it" failed_without "# 10. Operations"
+# The gateway diagnostics as a server: root without capabilities in
+# mcpsrv_admin_t, for alice (role gateway-admin: doctor and check_config
+# freely, the rest with approval), not for bob.
+stool alice gateway-admin doctor '{}'
+check "gateway-admin: doctor" succeeded_with "configuration: "
+check "gateway-admin: doctor does not ask OPA" succeeded_with "servers cannot reach OPA"
+check "gateway-admin: doctor reads the state directory" succeeded_with "owned by mcp-gateway"
+check "gateway-admin: doctor reads the audit log" bash -c '! grep -q "reading the audit log" <<<"$1"' _ "$out"
+stool alice gateway-admin check_config '{}'
+check "gateway-admin: check_config" succeeded_with "role data: /etc/mcp-gateway/policy/rbac/data.json valid"
+stool_approved alice gateway-admin explain_decision '{"user":"bob","server":"fs","name":"delete_file"}'
+check "gateway-admin: explain_decision" succeeded_with "bob tools.call fs/delete_file: deny"
+stool_approved alice gateway-admin show_config '{"file":"/etc/mcp-gateway/policy/rbac/data.json"}'
+check "gateway-admin: show_config" succeeded_with "gateway-docs-reader"
+stool_approved alice gateway-admin recent_audit '{"user":"alice","server":"gateway-docs"}'
+check "gateway-admin: recent_audit" succeeded_with "name=search_files"
+stool_approved alice gateway-admin selinux_denials '{"since":"1h"}'
+check "gateway-admin: selinux_denials" test "$rc" = 0
+adm_pid=""
+for unit in $(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-gateway-admin-*' | awk '{print $1}'); do
+	pid=$(systemctl show -p MainPID --value "$unit")
+	[ "$(proc_user "$pid")" = root ] && adm_pid=$pid
+done
+check "gateway-admin: an instance runs as root" test -n "$adm_pid"
+if [ -n "$adm_pid" ]; then
+	echo "  $(label "$adm_pid")"
+	check "gateway-admin: in mcpsrv_admin_t" has_type "$(label "$adm_pid")" mcpsrv_admin_t
+	check "gateway-admin: without capabilities" grep -q '^CapEff:[[:space:]]*0000000000000000' "/proc/$adm_pid/status"
+fi
+stool bob gateway-admin doctor '{}'
+check "gateway-admin: not for bob, who holds no role for it" failed_without "configuration: "
 check "no server output reached the gateway as invalid messages" \
 	bash -c "! journalctl -u mcp-gateway.service -o cat | grep -q 'invalid message from backend'"
 

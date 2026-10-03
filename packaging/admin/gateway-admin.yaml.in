@@ -1,0 +1,20 @@
+# The gateway's own diagnostics as an MCP server (mcp-gateway
+# admin-server): the checks of mcp-gateway doctor, the configuration with
+# secrets masked, what the policy decides and why, audit records and
+# SELinux denials, for an agent helping to debug the gateway's setup. It
+# changes nothing. It runs as root, for the audit log and the doctor's
+# root checks, in the sandbox without capabilities and in the
+# mcpsrv_admin_t domain, which only reads; like every server it cannot
+# reach the gateway's sockets or OPA.
+# Users need the shipped role gateway-admin (the admin role includes it).
+# To change it, copy this file to
+# /etc/mcp-gateway/servers.d/gateway-admin.yaml; an empty file of that
+# name disables it.
+version: 1
+name: gateway-admin
+command: ["@BINDIR@/mcp-gateway", "admin-server"]
+selinux_type: mcpsrv_admin_t
+run_as: root
+network: false
+sandbox:
+  protect_home: "yes"

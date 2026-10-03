@@ -9,6 +9,14 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- The server `gateway-admin` (`mcp-gateway admin-server`, in the main
+  package): the gateway's diagnostics for an agent. `doctor` and
+  `check_config`, and with approval `explain_decision` (what the policy
+  decides for a user and why), `show_config` (secrets masked),
+  `recent_audit` and `selinux_denials`. It changes nothing; it runs as
+  root without capabilities in the domain `mcpsrv_admin_t`, and like every
+  server cannot reach the gateway's sockets or OPA. The shipped role
+  `gateway-admin` grants it (user guide, chapter 10, "Asking an agent").
 - `mcp-gateway doctor` checks that each server's program carries the
   SELinux label the policy gives its path ("program *name*"). A program
   installed before its module keeps, e.g., `bin_t`, and cannot start in

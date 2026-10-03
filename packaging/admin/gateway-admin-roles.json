@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "roles": {
+    "gateway-admin": {
+      "description": "gateway-admin: run the gateway's checks; with approval read its configuration, audit records, SELinux denials and explain decisions",
+      "permissions": [
+        {"server": "gateway-admin", "tool": "doctor"},
+        {"server": "gateway-admin", "tool": "check_config"},
+        {"server": "gateway-admin", "tool": "explain_decision", "require_approval": true, "approval_channel": "oob", "approval_scopes": ["once", "session", "1h"]},
+        {"server": "gateway-admin", "tool": "show_config", "require_approval": true, "approval_channel": "oob", "approval_scopes": ["once", "session", "1h"]},
+        {"server": "gateway-admin", "tool": "recent_audit", "require_approval": true, "approval_channel": "oob", "approval_scopes": ["once", "session", "1h"]},
+        {"server": "gateway-admin", "tool": "selinux_denials", "require_approval": true, "approval_channel": "oob", "approval_scopes": ["once", "session", "1h"]}
+      ]
+    }
+  }
+}
