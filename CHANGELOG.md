@@ -5,15 +5,31 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.6.0 — 2026-10-03
 
-### Deprecated
+Agents get a few commands instead of a shell. The new server `exec`
+(package `mcp-gateway-exec-server`) offers each command an administrator
+allows as a tool: a fixed program whose arguments are checked against
+patterns and passed without a shell, run with a timeout and an output
+limit, as the calling user without network, in its own SELinux domain,
+under the gateway's policy, approvals and audit.
 
-- The program name `mcp-fs-demo` (a link to `mcp-server-fs` since 0.5)
-  goes away in 0.7. A definition naming it gets a warning from
-  `mcp-gateway --check`, at start and from `mcp-gateway doctor`; name
-  `mcp-server-fs` instead. The definition the package installs already
-  does.
+Upgrading from 0.5.x needs no configuration changes. After the update,
+restart the gateway (`systemctl restart mcp-gateway.service`); the
+package does not. Things to know:
+
+- Update `mcp-gateway-selinux` together with the gateway: it has the new
+  domain `mcpsrv_exec_t`.
+- `mcp-gateway-exec-server` is a new package and runs nothing until you
+  put commands into `/etc/mcp-gateway/exec.d` (examples in
+  `/usr/share/mcp-gateway/exec/examples.yaml`; check them with
+  `mcp-server-exec --check`) and bind a role for the server `exec`
+  (the shipped `exec-operator` runs every command with approval). Roles
+  that name every server, like the shipped `admin`, reach it as any
+  other.
+- A definition that still names the program `mcp-fs-demo` gets a
+  deprecation warning: name `mcp-server-fs` instead, before 0.7 removes
+  the link.
 
 ### Added
 
@@ -28,6 +44,14 @@ minor release (with a warning) and removed in the next.
   `/usr/share/mcp-gateway/exec/examples.yaml`; `mcp-server-exec --check`
   checks the files (user guide, chapter 4, "Commands an administrator
   allows").
+
+### Deprecated
+
+- The program name `mcp-fs-demo` (a link to `mcp-server-fs` since 0.5)
+  goes away in 0.7. A definition naming it gets a warning from
+  `mcp-gateway --check`, at start and from `mcp-gateway doctor`; name
+  `mcp-server-fs` instead. The definition the package installs already
+  does.
 
 ## v0.5.0 — 2026-10-03
 
