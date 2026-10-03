@@ -1636,7 +1636,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       warning, and the entry of `mcpsrv_admin_t` on `mcpgw_exec_t` it
       needs (done);
     - the program name `mcp-fs-demo`, deprecated in 0.6, goes away: the
-      link, its file context and the warning for definitions naming it.
+      link, its file context and the warning for definitions naming it
+      (done).
 
 ## 12. Open items
 

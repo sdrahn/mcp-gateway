@@ -720,7 +720,6 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 // that a package keeps for a minor release for what replaces them;
 // definitions starting one get a warning.
 var deprecatedPrograms = map[string]deprecation{
-	"mcp-fs-demo":              {Key: "command: mcp-fs-demo", Since: "0.5", Use: "name mcp-server-fs, in the same directory, which it links to"},
 	"mcp-gateway admin-server": {Key: "command: mcp-gateway admin-server", Since: "0.7", Use: "run mcp-gateway-admin serve, in the same directory"},
 }
 
