@@ -51,12 +51,18 @@ func Failed(rs []Result) bool {
 	return false
 }
 
-// WriteText writes the results, one line each, with their details
-// indented below.
-func WriteText(w io.Writer, rs []Result) error {
+// WriteText writes the results, one line each with the status in capitals,
+// and their details indented below; with color, the statuses are colored
+// for a terminal.
+func WriteText(w io.Writer, rs []Result, color bool) error {
 	var b strings.Builder
 	for _, r := range rs {
-		fmt.Fprintf(&b, "%-4s  %s: %s\n", r.Status, r.Check, r.Summary)
+		word := strings.ToUpper(string(r.Status))
+		pad := strings.Repeat(" ", max(0, 4-len(word)))
+		if c := statusColors[r.Status]; color && c != "" {
+			word = c + word + "\x1b[0m"
+		}
+		fmt.Fprintf(&b, "%s%s  %s: %s\n", word, pad, r.Check, r.Summary)
 		for _, d := range r.Details {
 			fmt.Fprintf(&b, "        %s\n", d)
 		}
@@ -68,6 +74,15 @@ func WriteText(w io.Writer, rs []Result) error {
 	fmt.Fprintf(&b, "\n%d ok, %d warnings, %d failed, %d skipped\n", n[OK], n[Warn], n[Fail], n[Skip])
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// statusColors are the terminal colors of the statuses in WriteText:
+// green (OK, SKIP), orange (WARN, 256-color 208) and red (FAIL).
+var statusColors = map[Status]string{
+	OK:   "\x1b[32m",
+	Skip: "\x1b[32m",
+	Warn: "\x1b[38;5;208m",
+	Fail: "\x1b[31m",
 }
 
 // WriteJSON writes the results as a JSON list.

@@ -9,6 +9,9 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- `mcp-gateway-admin doctor` prints the statuses in capitals, colored on
+  a terminal: `OK` and `SKIP` green, `WARN` orange, `FAIL` red
+  (`NO_COLOR` turns the colors off). `--json` is unchanged.
 - `mcp-gateway-admin doctor` (and the `gateway-admin` tools `doctor` and
   `selinux_denials`) count SELinux denials only since the current boot,
   within `--since`. Denials from before a reboot came from the policy and
