@@ -1,45 +1,16 @@
-# Proof of concept
+# Development setup
 
-What works (docs/architecture.md, section 11, steps 3 to 7):
-
-- local clients on the gateway's unix socket, identified by kernel peer
-  credentials (`SO_PEERCRED`, `SO_PEERSEC`);
-- remote clients over MCP Streamable HTTP (TLS) with OAuth bearer tokens
-  from your IdP, optionally mapped to local accounts;
-- `mcp-connect` as the stdio shim, selecting a backend with a
-  `mcp-gateway/hello` notification;
-- a per-server endpoint (`--server fs`) and the aggregated endpoint
-  (default), where tools and prompts appear as `<server>__<name>` and
-  resource URIs as `mcp+<server>:<uri>`;
-- the protocol-aware router:
-  - `tools/call`, `prompts/get`, `resources/read|subscribe|unsubscribe`
-    and `completion/complete` decided by OPA (`allow` / `deny` / `ask`),
-  - all `*/list` results filtered by OPA, unknown methods denied,
-  - backend requests to the client (`sampling`, `elicitation`, `roots`)
-    decided by OPA, backend elicitations labelled with the backend name,
-  - cancellation and progress notifications mapped;
-- one backend instance per principal, shared by their sessions and
-  stopped after an idle timeout (`isolation: session` for one per
-  session);
-- `ask` answered through the channel policy picks: form-mode elicitation
-  to the client, a URL-mode elicitation pointing at the Cockpit approvals
-  page, or out-of-band in that page's inbox; `once` / `session` /
-  duration grants, the latter persisted across restarts;
-- fail closed when OPA is slow, unreachable or returns garbage;
-- audit records (JSON, argument digests) on stderr;
-- backend instances as systemd transient units in their own SELinux
-  domain with a per-instance MCS pair, or as plain child processes in
-  development mode.
-
-Not yet: obligations, list_changed on policy changes, push notifications
-for out-of-band approvals.
+Running mcp-gateway from a source checkout, without installing packages:
+for development, and to try the gateway with an MCP client before
+installing it. For installations, see the
+[user guide](../../docs/user-guide/README.md).
 
 ## Development mode
 
 Runs as your user, without systemd or SELinux. Needs Go and `opa`.
 
 ```bash
-examples/poc/run-dev.sh
+examples/dev/run-dev.sh
 ```
 
 It prints an MCP client configuration for the `fs` endpoint (drop
@@ -55,12 +26,12 @@ Claude Code, an IDE, the MCP Inspector) at it, or talk to it by hand:
 } | bin/mcp-connect --socket /tmp/mcpgw.XXXXXX/mcp.sock --server fs
 ```
 
-`tools/list` shows `list_dir`, `read_file` and `write_file` (not
-`delete_file`); `resources/list` shows the files in `$HOME`; the
+`tools/list` shows the file server's tools without `delete_file`, which
+the example role denies; `resources/list` shows the files in `$HOME`; the
 `delete_file` call comes back as a tool error
 "mcp-gateway: denied by policy". A `write_file` below `$HOME` triggers an
 `elicitation/create` request; the example role data uses the `form`
-channel so the PoC can demonstrate it (the shipped default policy asks for
+channel to show it (the shipped default policy asks for
 `url`, per decision D3).
 
 ## Approvals page
@@ -114,7 +85,7 @@ root:
 zypper in mcp-gateway mcp-gateway-selinux mcp-gateway-fs-server mcp-gateway-cockpit
 # Bind users or groups to roles in /etc/mcp-gateway/policy/rbac/data.json,
 # e.g. "bindings": {"users": {"alice": ["developer"]}, ...}
-# (examples/poc/rbac/data.json shows a form-approval variant).
+# (examples/dev/rbac/data.json shows a form-approval variant).
 usermod -aG mcp-users alice
 systemctl enable --now mcp-gateway.service
 ```

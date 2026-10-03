@@ -10,7 +10,7 @@ import (
 func TestShippedData(t *testing.T) {
 	for _, file := range []string{
 		filepath.Join("..", "..", "policy", "mcp", "rbac", "data.json"),
-		filepath.Join("..", "..", "examples", "poc", "rbac", "data.json"),
+		filepath.Join("..", "..", "examples", "dev", "rbac", "data.json"),
 	} {
 		data, err := os.ReadFile(file)
 		if err != nil {

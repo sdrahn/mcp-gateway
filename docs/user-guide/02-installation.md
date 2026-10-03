@@ -194,7 +194,7 @@ nothing else.
 For trying the gateway without root, systemd units or SELinux:
 
 ```bash
-examples/poc/run-dev.sh            # OPA + gateway in exec mode, file server on $HOME
+examples/dev/run-dev.sh            # OPA + gateway in exec mode, file server on $HOME
 ```
 
 `supervisor.mode: exec` starts MCP servers as plain child processes of the
