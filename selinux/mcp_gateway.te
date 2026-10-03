@@ -115,6 +115,9 @@ fs_getattr_xattr_fs(mcpsrv_docs_t)
 # the rpm database); commands that need more get them from a local
 # module (mcp-gateway profile drafts it).
 mcp_gateway_backend_template(exec)
+# Each command runs in a process group of its own, killed as a whole
+# after its timeout.
+allow mcpsrv_exec_t self:process { setpgid sigkill signal };
 read_files_pattern(mcpsrv_exec_t, mcpgw_etc_t, mcpgw_etc_t)
 list_dirs_pattern(mcpsrv_exec_t, mcpgw_etc_t, mcpgw_etc_t)
 corecmd_exec_bin(mcpsrv_exec_t)
