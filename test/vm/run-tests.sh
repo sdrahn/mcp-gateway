@@ -248,7 +248,7 @@ cat >/etc/mcp-gateway/policy/rbac/data.json <<'EOF'
     {"server": "fs", "tool": "write_file", "args": {"path": "^${home}/"}},
     {"server": "fs", "tool": "delete_*", "effect": "deny"}
   ]}},
-  "bindings": {"users": {"alice": ["tester"], "bob": ["tester"]}, "groups": {}},
+  "bindings": {"users": {"alice": ["tester", "gateway-docs-reader"], "bob": ["tester"]}, "groups": {}},
   "approvers": {"default": ["self"]}
 }
 EOF
@@ -326,6 +326,16 @@ for _ in $(seq 15); do
 done
 check "a write on a read-only file system says so" tool_error_with "read-only file system (on a transactional system"
 umount /home/alice/rodir; rmdir /home/alice/rodir
+# The gateway's documentation as a server: read-only, for alice (role
+# gateway-docs-reader), not for bob.
+stool alice gateway-docs search_files '{"path":"/usr/share/mcp-gateway/docs","pattern":"*operations*"}'
+check "gateway-docs: search_files finds the operations chapter" succeeded_with "10-operations.md"
+stool alice gateway-docs read_text_file '{"path":"user-guide/10-operations.md","head":1}'
+check "gateway-docs: read_text_file" succeeded_with "# 10. Operations"
+stool alice gateway-docs write_file '{"path":"x","content":"x"}'
+check "gateway-docs: no tool that writes" bash -c '[ "$1" = 1 ] && grep -q "unknown tool" <<<"$2"' _ "$rc" "$out"
+stool bob gateway-docs read_text_file '{"path":"user-guide/10-operations.md","head":1}'
+check "gateway-docs: not for bob, who holds no role for it" failed_without "# 10. Operations"
 check "no server output reached the gateway as invalid messages" \
 	bash -c "! journalctl -u mcp-gateway.service -o cat | grep -q 'invalid message from backend'"
 

@@ -484,6 +484,7 @@ Options, for a copy of the definition in `/etc/mcp-gateway/servers.d`:
 |---|---|---|
 | `--root DIR` | current directory | a directory the tools work in; repeatable; relative paths are relative to the first |
 | `--read-only` | off | offer only the reading tools |
+| `--instructions TEXT` | | what the files are, for the client's model (the `gateway-docs` server uses it; chapter 10, "Asking an agent") |
 | `--max-read BYTES` | 10 MiB | what one call reads (summed over `read_multiple_files`); larger files are read with `head`/`tail` |
 | `--max-write BYTES` | 10 MiB | what one call writes |
 | `--max-entries N` | 10000 | entries a listing, tree or search returns |

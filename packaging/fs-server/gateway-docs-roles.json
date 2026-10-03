@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "roles": {
+    "gateway-docs-reader": {
+      "description": "gateway-docs: read the gateway's documentation",
+      "permissions": [
+        {"server": "gateway-docs", "tool": "*"},
+        {"server": "gateway-docs", "resource": "*"},
+        {"server": "gateway-docs", "prompt": "*"}
+      ]
+    }
+  }
+}

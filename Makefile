@@ -108,6 +108,11 @@ install-gateway:
 	install -Dm0644 packaging/sysusers.d/mcp-gateway.conf $(DESTDIR)$(SYSUSERSDIR)/mcp-gateway.conf
 	install -Dm0644 packaging/tmpfiles.d/mcp-gateway.conf $(DESTDIR)$(TMPFILESDIR)/mcp-gateway.conf
 	install -Dm0644 packaging/polkit/50-mcp-gateway.rules $(DESTDIR)$(POLKITDIR)/50-mcp-gateway.rules
+	# The documentation, for the gateway-docs server: not as %doc, which
+	# installations without documentation (rpm excludedocs) leave out.
+	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/docs/user-guide
+	install -m0644 docs/user-guide/*.md $(DESTDIR)$(DATADIR)/mcp-gateway/docs/user-guide/
+	install -m0644 docs/architecture.md CHANGELOG.md $(DESTDIR)$(DATADIR)/mcp-gateway/docs/
 
 install-selinux: selinux
 	install -d $(DESTDIR)$(SELINUXDIR)
@@ -150,6 +155,12 @@ install-fs-server:
 	sed 's|@LIBEXECDIR@|$(LIBEXECDIR)|g' packaging/fs-server/fs.yaml.in \
 		>$(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/fs-demo.yaml
 	chmod 0644 $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/fs-demo.yaml
+	# The gateway's documentation as the server gateway-docs, with its role.
+	sed -e 's|@LIBEXECDIR@|$(LIBEXECDIR)|g' -e 's|@DATADIR@|$(DATADIR)|g' packaging/fs-server/gateway-docs.yaml.in \
+		>$(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/gateway-docs.yaml
+	chmod 0644 $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/gateway-docs.yaml
+	install -Dm0644 packaging/fs-server/gateway-docs-roles.json \
+		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/gateway-docs/data.json
 
 install-demo: install-fs-server
 

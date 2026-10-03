@@ -28,6 +28,20 @@ minor release (with a warning) and removed in the next.
   rename yours to the package's file name (a file there replaces a
   package's only under the same file name) or remove it.
 
+### Added
+
+- The gateway's documentation as an MCP server, `gateway-docs` (package
+  `mcp-gateway-fs-server`): the user guide, the architecture and the
+  changelog of the installed version, installed to
+  `/usr/share/mcp-gateway/docs` (also where documentation is excluded),
+  served read-only by `mcp-server-fs` as a throwaway user in the new
+  domain `mcpsrv_docs_t`, so that agents can help with the gateway's
+  configuration without the network. The shipped role
+  `gateway-docs-reader` grants it; the shipped `viewer` and `developer`
+  roles include it (role data in `/etc` is not replaced on update:
+  bind `gateway-docs-reader`, chapter 10). `mcp-server-fs` has
+  `--instructions` to say what its files are.
+
 ### Changed
 
 - The demo server is now a full file server: `mcp-server-fs`, package

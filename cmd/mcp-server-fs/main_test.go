@@ -656,3 +656,12 @@ func TestSnapshotsSkipped(t *testing.T) {
 		t.Errorf("search inside .snapshots: %v", got)
 	}
 }
+
+func TestInstructions(t *testing.T) {
+	s, root := newTestServer(t, 1)
+	s.about = "The documentation of mcp-gateway."
+	got := s.instructions()
+	if !strings.HasPrefix(got, "The documentation of mcp-gateway.\n\nFiles below "+root) {
+		t.Errorf("instructions: %q", got)
+	}
+}
