@@ -42,7 +42,7 @@ cat >/etc/mcp-gateway/servers.d/git.yaml <<'EOF'
 name: git
 command: ["/usr/libexec/mcp-servers/mcp-git"]
 EOF
-systemctl restart mcp-gateway.service   # definitions are read at start
+systemctl reload mcp-gateway.service    # or wait 10 s: definitions are reloaded
 
 # 4. Give the user a role (developers may use git; see chapter 6)
 #    in /etc/mcp-gateway/policy/rbac/data.json:

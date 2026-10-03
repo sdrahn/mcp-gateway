@@ -82,9 +82,11 @@ func FuzzCallTarget(f *testing.F) {
 		}
 		s := &Session{annotations: map[string]map[string]any{}}
 		if aggregated {
-			s.ep = aggregatedEndpoint(backends)
+			ep := aggregatedEndpoint(backends)
+			s.ep.Store(&ep)
 		} else {
-			s.ep = singleEndpoint(backends["fs"])
+			ep := singleEndpoint(backends["fs"])
+			s.ep.Store(&ep)
 		}
 		if checkParamKeys(params) != nil {
 			return // Session.call refuses these
@@ -98,7 +100,7 @@ func FuzzCallTarget(f *testing.F) {
 		if caseVariant(tg.args, declared, "arguments") != nil {
 			return // Session.call refuses these
 		}
-		if s.ep.backends[tg.server] == nil {
+		if s.endpoint().backends[tg.server] == nil {
 			t.Fatalf("target server %q is not an endpoint backend", tg.server)
 		}
 		tg.rewrite(params)

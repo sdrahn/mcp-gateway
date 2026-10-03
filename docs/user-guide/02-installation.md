@@ -117,7 +117,7 @@ Users must log in again after being added to `mcp-users`.
 
 ```bash
 zypper install mcp-gateway-fs-server
-systemctl restart mcp-gateway.service
+systemctl reload mcp-gateway.service    # or wait 10 s
 usermod -aG dev alice           # "developer" role in the shipped role data
 ```
 

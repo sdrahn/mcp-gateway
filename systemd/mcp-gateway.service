@@ -28,6 +28,11 @@ SupplementaryGroups=mcp-users
 # requests but must not keep the gateway from starting.
 ExecStartPre=/usr/bin/mcp-gateway --check --policy-data=
 ExecStart=/usr/bin/mcp-gateway
+# systemctl reload: the server definitions (servers.d) only, which the
+# gateway also reloads when the files change. A definition that does not
+# load fails the reload; the gateway keeps serving the previous ones.
+ExecReload=/usr/bin/mcp-gateway --check --policy-data=
+ExecReload=kill -HUP $MAINPID
 Restart=on-failure
 # On stop the gateway waits for calls to privileged servers (package
 # installations) to finish, for up to 28 minutes.

@@ -164,6 +164,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if used == "" {
 		used = "built-in defaults"
 	}
+	serversFP := serversFingerprint([]string{gw.VendorServersDir, gw.ServersDir})
 	backends, err := config.LoadBackends(gw.VendorServersDir, gw.ServersDir)
 	if err != nil {
 		return fmt.Errorf("loading backend registry: %w", err)
@@ -209,6 +210,8 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	hup, stopHUP := notifyHUP() // systemctl reload: server definitions
+	defer stopHUP()
 
 	if err := os.MkdirAll(gw.StateDir, 0o700); err != nil {
 		return fmt.Errorf("state directory: %w", err)
@@ -264,6 +267,21 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		MaxInstances:             gw.Limits.Instances,
 	}
 
+	reloader := &serverReloader{
+		log: log, audit: auditLog, dirs: []string{gw.VendorServersDir, gw.ServersDir},
+		load: config.LoadBackends, set: r.SetBackends,
+		loaded: func(next map[string]*config.Backend) {
+			for _, name := range slices.Sorted(maps.Keys(next)) {
+				if next[name].Privileged {
+					log.Warn("privileged server: runs as root without sandbox; every call is decided by policy and approval", "server", name)
+				}
+			}
+			if sd != nil && sd.SELinux {
+				warnMissingSELinuxTypes(log, next, supervisor.ContextValid)
+			}
+		},
+	}
+
 	registerGauges(r, b)
 	if gw.Metrics.Listen != "" {
 		stopMetrics, err := serveMetrics(log, gw.Metrics.Listen)
@@ -279,7 +297,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 			return fmt.Errorf("listening on %s: %w", gw.Approvals.ControlSocket, err)
 		}
 		log.Info("listening", "control", gw.Approvals.ControlSocket)
-		cs := &controlapi.Server{Broker: b, Backends: backends, Instances: r, Policy: opa,
+		cs := &controlapi.Server{Broker: b, Backends: r.CurrentBackends, ServersError: reloader.Err, Instances: r, Policy: opa,
 			Review: opa, Catalog: r, Log: log, RestartPending: restartPending, Metrics: metrics.Default}
 		go func() {
 			if err := cs.Serve(ctx, cl); err != nil {
@@ -292,6 +310,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		go watchMCS(ctx, log, auditLog, sd, gw.Supervisor)
 	}
 	go watchUpdate(ctx, log)
+	go reloader.watch(ctx, gw.Policy.WatchInterval, serversFP, hup)
 
 	// Clients learn about policy changes through list_changed.
 	go r.WatchPolicy(ctx, gw.Policy.WatchInterval, opa.Fingerprint, func() {
@@ -349,7 +368,7 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, r *router.Router, errc chan<- 
 		AllowedOrigins:       cfg.AllowedOrigins,
 		// Clients with a certificate can present certificate-bound tokens.
 		CertificateBoundTokens: cfg.ClientAuth != "none",
-		KnownServer:            func(name string) bool { return r.Backends[name] != nil },
+		KnownServer:            func(name string) bool { return r.CurrentBackends()[name] != nil },
 		SessionIdle:            cfg.SessionIdleTimeout,
 		TokenExpired: func(p principal.Principal) {
 			metrics.TokenExpiries.Inc()

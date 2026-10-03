@@ -28,13 +28,14 @@ type Catalog struct {
 func (r *Router) Catalog(ctx context.Context) Catalog {
 	r.init()
 	c := Catalog{Unchecked: map[string]string{}}
-	names := make([]string, 0, len(r.Backends))
-	for name := range r.Backends {
+	backends := r.backends()
+	names := make([]string, 0, len(backends))
+	for name := range backends {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		b := r.Backends[name]
+		b := backends[name]
 		for _, m := range clientMethods {
 			c.Resources = append(c.Resources, pep.Resource{Server: name, Kind: "client", Name: m, Privileged: b.Privileged})
 		}

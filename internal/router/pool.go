@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -44,6 +45,9 @@ type pool struct {
 	now      func() time.Time
 	// onListChanged is handed to every upstream (see upstreamHooks).
 	onListChanged func(*upstream, *jsonrpc.Message)
+	// current, if set, returns the definition of a server in force: an
+	// acquire with another one fails with errDefinitionChanged.
+	current func(server string) *config.Backend
 
 	backoffBase, backoffMax, stableAfter time.Duration
 	// drainTimeout bounds how long closeAll waits for privileged calls.
@@ -55,11 +59,27 @@ type pool struct {
 
 	mu      sync.Mutex
 	entries map[string]*poolEntry
+	// retired holds the entries taken out of entries by retire whose
+	// instances still run: listed, stoppable, counted against the
+	// limits and stopped by closeAll like the others.
+	retired map[*poolEntry]struct{}
 	failing map[string]*failures
+}
+
+// each calls f for every entry, retired ones included; p.mu must be held.
+func (p *pool) each(f func(*poolEntry)) {
+	for _, e := range p.entries {
+		f(e)
+	}
+	for e := range p.retired {
+		f(e)
+	}
 }
 
 type poolEntry struct {
 	key       string
+	server    string
+	backend   *config.Backend // the definition it was started from
 	principal principal.Principal
 	isolation config.Isolation
 	ready     chan struct{}
@@ -76,8 +96,15 @@ type poolEntry struct {
 	stopping bool
 	// ended is set once the end of the instance has been accounted for.
 	ended bool
-	// idleWait is set when a privileged instance was due to stop but a
-	// request was still in flight; it stops once that is answered.
+	// retired is set when the server's definition changed or went away
+	// (Router.SetBackends): the entry is out of the pool, and its
+	// instance stops when no session uses it any more and no request is
+	// in flight, or with drain (the server went away) as soon as no
+	// request is in flight.
+	retired, drain bool
+	// idleWait is set when a privileged or retired instance was due to
+	// stop but a request was still in flight; it stops once that is
+	// answered.
 	idleWait bool
 }
 
@@ -98,10 +125,14 @@ func (e *BackoffError) Error() string {
 	return fmt.Sprintf("%s failed recently; next start in %s", e.Server, e.RetryIn.Round(time.Second))
 }
 
+// errDefinitionChanged is returned by acquire for a definition that
+// SetBackends replaced; the caller gets the current one and tries again.
+var errDefinitionChanged = errors.New("server definition changed; try again")
+
 func newPool(l supervisor.Launcher, idle time.Duration, log *slog.Logger) *pool {
 	return &pool{launcher: l, idle: idle, log: log, now: time.Now,
 		backoffBase: backoffBase, backoffMax: backoffMax, stableAfter: stableAfter, drainTimeout: drainTimeout,
-		entries: map[string]*poolEntry{}, failing: map[string]*failures{}}
+		entries: map[string]*poolEntry{}, retired: map[*poolEntry]struct{}{}, failing: map[string]*failures{}}
 }
 
 // makeRoom checks the instance limits for a new instance of pr. At a
@@ -120,15 +151,15 @@ func (p *pool) makeRoom(pr principal.Principal) ([]*poolEntry, error) {
 		}
 		n := 0
 		var victim *poolEntry
-		for _, e := range p.entries {
+		p.each(func(e *poolEntry) {
 			if !counts(e) {
-				continue
+				return
 			}
 			n++
-			if p.idleEntry(e) && (victim == nil || e.released.Before(victim.released)) {
+			if !e.retired && p.idleEntry(e) && (victim == nil || e.released.Before(victim.released)) {
 				victim = e
 			}
-		}
+		})
 		if n < max {
 			return nil
 		}
@@ -182,6 +213,9 @@ func instanceKey(b *config.Backend, p principal.Principal) string {
 func (p *pool) acquire(ctx context.Context, b *config.Backend, pr principal.Principal) (*upstream, func(), error) {
 	key := instanceKey(b, pr)
 	for {
+		if p.current != nil && p.current(b.Name) != b {
+			return nil, nil, errDefinitionChanged
+		}
 		p.mu.Lock()
 		e := p.entries[key]
 		if e == nil {
@@ -193,7 +227,7 @@ func (p *pool) acquire(ctx context.Context, b *config.Backend, pr principal.Prin
 			}
 			victims, err := p.makeRoom(pr)
 			if err == nil {
-				e = &poolEntry{key: key, principal: pr, isolation: b.Isolation, ready: make(chan struct{}), refs: 1}
+				e = &poolEntry{key: key, server: b.Name, backend: b, principal: pr, isolation: b.Isolation, ready: make(chan struct{}), refs: 1}
 				p.entries[key] = e
 			}
 			p.mu.Unlock()
@@ -220,11 +254,33 @@ func (p *pool) acquire(ctx context.Context, b *config.Backend, pr principal.Prin
 				return nil, nil, e.err
 			}
 			e.up.setOnIdle(func() { p.idled(e) })
+			p.mu.Lock()
+			p.retiredDone(e) // its server went away while it started
+			p.mu.Unlock()
 			go func() {
 				<-e.up.closed
 				p.exited(e)
 			}()
 			return e.up, p.releaser(e), nil
+		}
+		// Existing entry of an older definition (started by a caller
+		// that got it just before SetBackends replaced it): retire it
+		// like the others.
+		if e.backend != b {
+			delete(p.entries, key)
+			p.retired[e] = struct{}{}
+			e.retired = true
+			if e.timer != nil {
+				e.timer.Stop()
+				e.timer = nil
+			}
+			select {
+			case <-e.ready:
+				p.retiredDone(e)
+			default:
+			}
+			p.mu.Unlock()
+			continue
 		}
 		// Existing entry: drop it if its instance is gone, else join it.
 		select {
@@ -288,6 +344,7 @@ func (p *pool) exited(e *poolEntry) {
 	if p.entries[e.key] == e {
 		delete(p.entries, e.key)
 	}
+	delete(p.retired, e)
 	p.ended(e)
 }
 
@@ -297,6 +354,13 @@ func (p *pool) ended(e *poolEntry) {
 		return
 	}
 	e.ended = true
+	if e.retired {
+		// Its key belongs to its successor now, failures included.
+		if !e.stopping {
+			p.log.Warn("instance exited unexpectedly", "server", e.up.backend.Name, "instance", e.up.id)
+		}
+		return
+	}
 	if e.stopping {
 		delete(p.failing, e.key)
 		return
@@ -338,7 +402,14 @@ func (p *pool) release(e *poolEntry) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	e.refs--
-	if e.refs > 0 || p.entries[e.key] != e {
+	if e.refs > 0 {
+		return
+	}
+	if e.retired {
+		p.retiredDone(e)
+		return
+	}
+	if p.entries[e.key] != e {
 		return
 	}
 	e.released = p.now()
@@ -347,15 +418,73 @@ func (p *pool) release(e *poolEntry) {
 
 // idled is called when e's last request in flight was answered: a
 // privileged instance that was due to stop meanwhile stops now (after
-// the idle timeout).
+// the idle timeout), a retired one if it is done.
 func (p *pool) idled(e *poolEntry) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if !e.idleWait || e.refs > 0 || p.entries[e.key] != e {
+	if !e.idleWait {
+		return
+	}
+	if e.retired {
+		p.retiredDone(e)
+		return
+	}
+	if e.refs > 0 {
+		return
+	}
+	if p.entries[e.key] != e {
 		return
 	}
 	e.idleWait = false
 	p.scheduleStop(e)
+}
+
+// retire takes the instances of server out of the pool, so that the
+// sessions' next calls start instances from the server's current
+// definition. An instance keeps running while a session still uses it
+// or a request is in flight on it; with drain (the server went away,
+// and no session will use it again) only while a request is in flight.
+// It returns the number of instances retired.
+func (p *pool) retire(server string, drain bool) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
+	for key, e := range p.entries {
+		if e.server != server {
+			continue
+		}
+		delete(p.entries, key)
+		p.retired[e] = struct{}{}
+		e.retired, e.drain = true, drain
+		if e.timer != nil {
+			e.timer.Stop()
+			e.timer = nil
+		}
+		n++
+		select {
+		case <-e.ready:
+			p.retiredDone(e)
+		default: // starting: decided when its starter has it
+		}
+	}
+	return n
+}
+
+// retiredDone stops a retired entry's instance if nothing needs it any
+// more: no session (unless drained) and no request in flight; with a
+// request in flight it stops once that is answered. p.mu must be held.
+func (p *pool) retiredDone(e *poolEntry) {
+	if !e.retired || e.up == nil || e.stopping || (e.refs > 0 && !e.drain) {
+		return
+	}
+	if e.up.busy() {
+		e.idleWait = true
+		return
+	}
+	e.idleWait = false
+	e.stopping = true
+	p.log.Info("instance stopped: server definition changed or removed", "server", e.server, "instance", e.up.id)
+	go e.up.close()
 }
 
 // mustKeep reports whether e is a privileged instance with a request in
@@ -419,14 +548,14 @@ func (p *pool) list() []InstanceInfo {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	var out []InstanceInfo
-	for _, e := range p.entries {
+	p.each(func(e *poolEntry) {
 		select {
 		case <-e.ready:
 		default:
-			continue // starting
+			return // starting
 		}
 		if e.err != nil || e.up.isClosed() {
-			continue
+			return
 		}
 		info := InstanceInfo{ID: e.up.id, Server: e.up.backend.Name, Unit: e.up.unit,
 			Sub: e.principal.Sub, Issuer: e.principal.Issuer, UID: e.principal.UID,
@@ -436,7 +565,7 @@ func (p *pool) list() []InstanceInfo {
 			info.SessionID = e.principal.SessionID
 		}
 		out = append(out, info)
-	}
+	})
 	sort.Slice(out, func(i, j int) bool { return out[i].Started.Before(out[j].Started) })
 	return out
 }
@@ -447,7 +576,7 @@ func (p *pool) list() []InstanceInfo {
 func (p *pool) stop(id string) bool {
 	p.mu.Lock()
 	var found *poolEntry
-	for _, e := range p.entries {
+	p.each(func(e *poolEntry) {
 		select {
 		case <-e.ready:
 			if e.err == nil && e.up.id == id {
@@ -455,12 +584,14 @@ func (p *pool) stop(id string) bool {
 			}
 		default:
 		}
-	}
+	})
 	if found == nil || mustKeep(found) {
 		p.mu.Unlock()
 		return false
 	}
-	delete(p.entries, found.key)
+	if p.entries[found.key] == found {
+		delete(p.entries, found.key)
+	}
 	found.stopping = true
 	if found.timer != nil {
 		found.timer.Stop()
@@ -475,12 +606,13 @@ func (p *pool) stop(id string) bool {
 // requests and get until drainTimeout to answer those in flight.
 func (p *pool) closeAll() {
 	p.mu.Lock()
-	entries := make([]*poolEntry, 0, len(p.entries))
-	for _, e := range p.entries {
+	entries := make([]*poolEntry, 0, len(p.entries)+len(p.retired))
+	p.each(func(e *poolEntry) {
 		e.stopping = true
 		entries = append(entries, e)
-	}
+	})
 	p.entries = map[string]*poolEntry{}
+	p.retired = map[*poolEntry]struct{}{}
 	p.mu.Unlock()
 	var privileged []*poolEntry
 	for _, e := range entries {

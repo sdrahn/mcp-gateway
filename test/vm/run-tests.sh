@@ -758,6 +758,63 @@ else
 	echo "  no servers given (test/vm/run-vm.sh <...> <servers dir>); skipped"
 fi
 
+section "Live reload of server definitions"
+# A server added, broken, fixed and removed while the gateway runs: it
+# keeps running (same PID), and a broken definition changes nothing.
+rl_since=$(date +%s)
+gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
+jq '.roles.tester.permissions += [{"server": "fsreload", "tool": "read_*"}]' \
+	/etc/mcp-gateway/policy/rbac/data.json >/root/rl-data.json &&
+	cat /root/rl-data.json >/etc/mcp-gateway/policy/rbac/data.json
+sed 's/^name: fs$/name: fsreload/' /usr/share/mcp-gateway/servers.d/fs-demo.yaml >/etc/mcp-gateway/servers.d/fsreload.yaml
+restorecon /etc/mcp-gateway/servers.d/fsreload.yaml
+rl_call() {
+	out=$(runuser -u alice -- /usr/local/bin/mcpcall --server fsreload --method tools/call \
+		--params '{"name":"read_file","arguments":{"path":"/home/alice/secret.txt"}}' 2>&1)
+	rc=$?
+}
+rl_works() { rl_call && grep -qF "alice secret" <<<"$out"; }
+rl_journal_has() { journalctl -u mcp-gateway.service -o cat --since "@$rl_since" | grep -qF -- "$1"; }
+check "a new definition is picked up without a restart" eventually 40 rl_works
+check "the reload is audited" rl_journal_has '"event":"mcp-config-reload"'
+
+printf 'netwrok: true\n' >>/etc/mcp-gateway/servers.d/fsreload.yaml
+check "a broken definition is reported" eventually 40 rl_journal_has 'server definitions not reloaded'
+check "with a broken definition the previous ones stay in force" rl_works
+status=$(control alice GET /v1/status)
+echo "  $status"
+check "the control API reports the failed reload" grep -qF '"servers_error":' <<<"$status"
+mcp-gateway-admin doctor --no-start 2>&1 | grep -E '^WARN +gateway status' | sed 's/^/  /'
+check "the doctor warns about the failed reload" \
+	sh -c 'mcp-gateway-admin doctor --no-start 2>&1 | grep -qE "^WARN +gateway status: .*server definitions not reloaded"'
+reload_fails() { ! systemctl reload mcp-gateway.service; }
+check "systemctl reload fails on a broken definition" reload_fails
+
+sed -i '/^netwrok:/d' /etc/mcp-gateway/servers.d/fsreload.yaml
+check "systemctl reload succeeds once it is fixed" systemctl reload mcp-gateway.service
+check "the failed reload is no longer reported" \
+	eventually 10 sh -c "! curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/status | grep -q servers_error"
+
+# A changed definition: the next call runs on an instance of the new one.
+# (Each mcpcall is a session of its own, so no session holds the old
+# instance, which therefore stops at once.)
+rl_units() { systemctl list-units --type=service --state=running --plain --no-legend 'mcp-fsreload-*' | awk '{print $1}'; }
+rl_works
+rl_old=$(rl_units)
+printf 'env:\n  MCPGW_VMTEST: "2"\n' >>/etc/mcp-gateway/servers.d/fsreload.yaml
+check "systemctl reload applies a changed definition" systemctl reload mcp-gateway.service
+check "a call after the change works" eventually 20 rl_works
+rl_new=$(rl_units)
+echo "  instances before: ${rl_old:-none}; after: ${rl_new:-none}"
+check "the call after the change runs on a new instance" bash -c '[ -n "$1" ] && [ -n "$2" ] && [ "$1" != "$2" ]' _ "$rl_old" "$rl_new"
+
+rm -f /etc/mcp-gateway/servers.d/fsreload.yaml
+rl_gone() { rl_call; [ "$rc" != 0 ] && ! grep -qF "alice secret" <<<"$out"; } # refused as an unknown server
+check "a removed definition is dropped" eventually 40 rl_gone
+rl_no_instance() { [ -z "$(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-fsreload-*')" ]; }
+check "the removed server's instances are stopped" eventually 10 rl_no_instance
+check "the gateway was not restarted" test "$(systemctl show -p MainPID --value mcp-gateway.service)" = "$gw_pid"
+
 section "Update without restart"
 gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
 ls -li /usr/bin/mcp-gateway | sed 's/^/  before: /'

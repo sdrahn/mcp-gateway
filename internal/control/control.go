@@ -10,7 +10,8 @@
 // API (JSON):
 //
 //	GET    /v1/whoami
-//	GET    /v1/status           {"version": "0.4.0", "restart_pending": true} after an update
+//	GET    /v1/status           {"version": "0.4.0", "restart_pending": true} after an update,
+//	                            "servers_error" when servers.d could not be reloaded
 //	GET    /v1/approvals
 //	GET    /v1/approvals/{id}
 //	POST   /v1/approvals/{id}   {"decision": "approve"|"deny", "scope": "session"}
@@ -92,8 +93,9 @@ type peerKey struct{}
 // Server is the control API.
 type Server struct {
 	Broker *broker.Broker
-	// Backends is the server registry; Instances and Policy are optional.
-	Backends  map[string]*config.Backend
+	// Backends returns the server registry, which changes when servers.d
+	// is reloaded; Instances and Policy are optional.
+	Backends  func() map[string]*config.Backend
 	Instances Instances
 	Policy    PolicyStatus
 	// Review and Catalog serve POST /v1/policy/whatif; both optional.
@@ -105,6 +107,10 @@ type Server struct {
 	// RestartPending, if set, tells whether the gateway's program was
 	// replaced (the package does not restart it on update).
 	RestartPending func() bool
+	// ServersError, if set, returns why the last reload of the server
+	// definitions failed ("" when it did not): the gateway then serves
+	// the definitions it had.
+	ServersError func() string
 	// Metrics serves GET /v1/metrics; optional.
 	Metrics *metrics.Registry
 
@@ -152,7 +158,11 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, a)
 	}))
 	mux.HandleFunc("GET /v1/status", s.with(func(w http.ResponseWriter, _ *http.Request, _ broker.Approver) {
-		writeJSON(w, http.StatusOK, statusResponse{Version: version.Version, RestartPending: s.RestartPending != nil && s.RestartPending()})
+		st := statusResponse{Version: version.Version, RestartPending: s.RestartPending != nil && s.RestartPending()}
+		if s.ServersError != nil {
+			st.ServersError = s.ServersError()
+		}
+		writeJSON(w, http.StatusOK, st)
 	}))
 	mux.HandleFunc("GET /v1/approvals", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
 		writeJSON(w, http.StatusOK, s.Broker.ListPending(r.Context(), a))
@@ -192,6 +202,9 @@ type statusResponse struct {
 	// RestartPending tells that the program was updated and the gateway
 	// not yet restarted.
 	RestartPending bool `json:"restart_pending"`
+	// ServersError tells why the last reload of the server definitions
+	// failed; the gateway serves the definitions it had.
+	ServersError string `json:"servers_error,omitempty"`
 }
 
 // policyResponse is the body of GET /v1/policy.
@@ -258,7 +271,11 @@ func (s *Server) servers(w http.ResponseWriter, r *http.Request, a broker.Approv
 		}
 	}
 	out := []serverInfo{}
-	for name, b := range s.Backends {
+	var backends map[string]*config.Backend
+	if s.Backends != nil {
+		backends = s.Backends()
+	}
+	for name, b := range backends {
 		insts := byServer[name]
 		if insts == nil {
 			insts = []router.InstanceInfo{}

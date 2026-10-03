@@ -31,8 +31,10 @@ mcp-gateway --check && systemctl restart mcp-gateway.service
 
 The copy replaces the default as a whole; settings you leave out take
 their built-in defaults (listed below), not the values of the default
-file. The gateway reads its configuration and the MCP server definitions
-at start; a restart ends open sessions (agents reconnect).
+file. The gateway reads its configuration at start; a restart ends open
+sessions (agents reconnect). The MCP server definitions are reloaded
+while it runs (chapter 4, "Changing definitions while the gateway
+runs").
 
 ## Reference
 
