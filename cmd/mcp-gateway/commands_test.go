@@ -25,3 +25,16 @@ func TestUsage(t *testing.T) {
 		t.Errorf("help nope: %d %s", rc, stderr.String())
 	}
 }
+
+// The commands that moved to mcp-gateway-admin in 0.7 are unknown, and
+// the error names their replacement.
+func TestMovedCommands(t *testing.T) {
+	fs := flag.NewFlagSet("mcp-gateway", flag.ContinueOnError)
+	for old, sub := range movedCommands {
+		var stderr bytes.Buffer
+		if rc := runHelp([]string{old}, &stderr, &stderr, fs); rc != 2 ||
+			!strings.Contains(stderr.String(), `"mcp-gateway-admin `+sub+`" since 0.7`) {
+			t.Errorf("%s: %d %s", old, rc, stderr.String())
+		}
+	}
+}

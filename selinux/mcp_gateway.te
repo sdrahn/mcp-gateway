@@ -167,10 +167,6 @@ optional_policy(`
 # runs opa on the policy files. Like every server it cannot reach the
 # gateway sockets or OPA (the invariants below).
 mcp_gateway_backend_template(admin)
-# Until 0.8, definitions may still start it as "mcp-gateway admin-server",
-# which runs mcp-gateway-admin (deprecated in 0.7).
-domain_entry_file(mcpsrv_admin_t, mcpgw_exec_t)
-can_exec(mcpsrv_admin_t, mcpsrv_admin_exec_t)
 files_read_usr_files(mcpsrv_admin_t)
 read_files_pattern(mcpsrv_admin_t, mcpgw_etc_t, mcpgw_etc_t)
 list_dirs_pattern(mcpsrv_admin_t, mcpgw_etc_t, mcpgw_etc_t)
@@ -239,6 +235,9 @@ neverallow mcpsrv_domain { mcpgw_sock_t mcpgw_ctl_sock_t mcpopa_sock_t }:sock_fi
 
 # Backends must never modify policy, configuration or gateway state.
 neverallow mcpsrv_domain { mcpgw_etc_t mcpgw_var_lib_t }:file { write append create unlink setattr };
+# No server domain is entered on the gateway's program (since 0.8): a
+# server runs a program of its own type.
+neverallow mcpsrv_domain mcpgw_exec_t:file entrypoint;
 
 # Backend secrets reach backends only through systemd's credentials
 # directory; neither the gateway nor the backends read the source files.

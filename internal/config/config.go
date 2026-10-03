@@ -699,7 +699,7 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 		if err != nil {
 			return nil, err
 		}
-		b.Warnings = append(warnings, b.deprecatedProgram()...)
+		b.Warnings = append(warnings, b.removedProgram()...)
 		b.setDefaults()
 		if err := b.Validate(); err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
@@ -716,27 +716,28 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 	return backends, nil
 }
 
-// deprecatedPrograms are programs, or a program with its first argument,
-// that a package keeps for a minor release for what replaces them;
-// definitions starting one get a warning.
-var deprecatedPrograms = map[string]deprecation{
-	"mcp-gateway admin-server": {Key: "command: mcp-gateway admin-server", Since: "0.7", Use: "run mcp-gateway-admin serve, in the same directory"},
+// removedPrograms are programs, or a program with its first argument,
+// that a release removed after a minor release of deprecation (D10), with
+// what to start instead. Definitions starting one cannot start; they get
+// a warning saying so (at start, with --check and from the doctor).
+var removedPrograms = map[string]struct{ Since, Use string }{
+	"mcp-gateway admin-server": {Since: "0.8", Use: "start mcp-gateway-admin serve, in the same directory"},
 }
 
-func (b *Backend) deprecatedProgram() []string {
+func (b *Backend) removedProgram() []string {
 	if len(b.Command) == 0 {
 		return nil
 	}
 	prog := filepath.Base(b.Command[0])
-	if d, ok := deprecatedPrograms[prog]; ok {
-		return []string{d.warning()}
+	key := prog
+	if _, ok := removedPrograms[key]; !ok && len(b.Command) > 1 {
+		key = prog + " " + b.Command[1]
 	}
-	if len(b.Command) > 1 {
-		if d, ok := deprecatedPrograms[prog+" "+b.Command[1]]; ok {
-			return []string{d.warning()}
-		}
+	r, ok := removedPrograms[key]
+	if !ok {
+		return nil
 	}
-	return nil
+	return []string{fmt.Sprintf("command: %s was removed in %s, so this server cannot start: %s", key, r.Since, r.Use)}
 }
 
 // duplicateName explains two files defining the same server. A file in

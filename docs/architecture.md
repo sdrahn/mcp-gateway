@@ -1646,7 +1646,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       start, the doctor) as one that cannot start, naming
       `mcp-gateway-admin serve`, and `mcpsrv_admin_t` loses its
       entry on `mcpgw_exec_t`: no backend domain has an entry point on
-      the gateway binary;
+      the gateway binary (done);
     - an HTTP stream ends when the token that opened it expires (§12):
       the gateway closes a session's GET stream and its request streams
       at the token's `exp`, as it refuses new requests then; a client

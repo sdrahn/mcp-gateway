@@ -128,8 +128,9 @@ func TestLoadBackendsDefaults(t *testing.T) {
 	}
 }
 
-// A definition starting a command mcp-gateway gave up gets a warning.
-func TestLoadBackendsDeprecatedCommand(t *testing.T) {
+// A definition starting a command a release removed is reported as one
+// that cannot start.
+func TestLoadBackendsRemovedCommand(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "old.yaml", "name: old\ncommand: [/usr/bin/mcp-gateway, admin-server]\n")
 	writeFile(t, dir, "new.yaml", "name: new\ncommand: [/usr/bin/mcp-gateway-admin, serve]\n")
@@ -138,7 +139,7 @@ func TestLoadBackendsDeprecatedCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w := bs["old"].Warnings; len(w) != 1 || !strings.Contains(w[0], "mcp-gateway admin-server is deprecated since 0.7") ||
+	if w := bs["old"].Warnings; len(w) != 1 || !strings.Contains(w[0], "mcp-gateway admin-server was removed in 0.8, so this server cannot start") ||
 		!strings.Contains(w[0], "mcp-gateway-admin serve") {
 		t.Errorf("old: %q", w)
 	}

@@ -872,10 +872,10 @@ systemctl reset-failed mcp-gateway.service
 systemctl restart mcp-gateway.service
 wait_socket
 check "doctor: the state files are the gateway's" sh -c 'mcp-gateway-admin doctor --no-start 2>&1 | grep -qE "^ok +state files: "'
-# Until 0.8 the old command runs mcp-gateway-admin, with a warning.
+# Since 0.8 the old command is unknown, and says where it went.
 mcp-gateway doctor --no-start >/root/doctor-moved.txt 2>&1
-check "mcp-gateway doctor: deprecated, and still runs the doctor" \
-	sh -c 'grep -q "deprecated and goes away in 0.8" /root/doctor-moved.txt && grep -qE "^ok +state files: " /root/doctor-moved.txt'
+check "mcp-gateway doctor: unknown, naming mcp-gateway-admin doctor" \
+	grep -q '"mcp-gateway-admin doctor" since 0.7' /root/doctor-moved.txt
 userdel -r carol 2>/dev/null
 
 section "Kernel audit"
