@@ -5,7 +5,11 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.7.1 — 2026-10-03
+
+A metrics fix. Upgrading from 0.7.0 needs no changes; restart the
+gateway after the update (`systemctl restart mcp-gateway.service`) to
+serve the metric.
 
 ### Fixed
 
