@@ -4,7 +4,8 @@ policy_module(mcp_suseconnect, 1.0.0)
 # mcp-gateway: package mcp-gateway-profile-suseconnect. It runs as root
 # (in the sandbox), talks to SCC or an RMT server over HTTPS, keeps a call
 # count in /var/lib/suseconnect-mcp and reads and writes the system
-# credentials in /etc/zypp/credentials.d. It runs zypper (products,
+# credentials in /etc/zypp/credentials.d, and caches the ids of the
+# system profiles it uploads in /run/suseconnect. It runs zypper (products,
 # services), which like the zypp worker runs in rpm_t; the instance has
 # no_new_privs (the sandbox), hence nnp_transition.
 
@@ -38,3 +39,20 @@ optional_policy(`
 	allow mcpsrv_suseconnect_t system_conf_t:dir rw_dir_perms;
 ')
 files_read_etc_files(mcpsrv_suseconnect_t)
+
+# /run/suseconnect: the cache of uploaded system profile ids (connect-ng,
+# pkg/profiles). Policies name the interfaces for /run "runtime" or, older
+# ones, "pid".
+type mcpsrv_suseconnect_runtime_t;
+ifdef(`files_runtime_file',`
+	files_runtime_file(mcpsrv_suseconnect_runtime_t)
+',`
+	files_pid_file(mcpsrv_suseconnect_runtime_t)
+')
+ifdef(`files_runtime_filetrans',`
+	files_runtime_filetrans(mcpsrv_suseconnect_t, mcpsrv_suseconnect_runtime_t, dir, "suseconnect")
+',`
+	files_pid_filetrans(mcpsrv_suseconnect_t, mcpsrv_suseconnect_runtime_t, dir, "suseconnect")
+')
+manage_dirs_pattern(mcpsrv_suseconnect_t, mcpsrv_suseconnect_runtime_t, mcpsrv_suseconnect_runtime_t)
+manage_files_pattern(mcpsrv_suseconnect_t, mcpsrv_suseconnect_runtime_t, mcpsrv_suseconnect_runtime_t)

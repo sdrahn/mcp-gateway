@@ -29,6 +29,11 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
+- The SELinux module of the suseconnect setup (`mcp_suseconnect`) let
+  suseconnect-mcp not create `/run/suseconnect`, where connect-ng caches
+  the ids of the system profiles it uploads: it has a type of its own
+  now (`mcpsrv_suseconnect_runtime_t`). If SUSEConnect created the
+  directory first, `restorecon -R /run/suseconnect` relabels it.
 - `mcp-gateway-admin doctor` names the server's version and account
   when roles name tools a server does not offer, and the usual causes: a
   server not running as root hides the tools only root can use (zypp's
