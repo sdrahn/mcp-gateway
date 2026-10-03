@@ -232,11 +232,12 @@ func TestServersAndInstances(t *testing.T) {
 		{ID: "i-bob", Server: "fs", Unit: "mcp-fs-2.service", Sub: "bob", UID: &bob},
 		{ID: "i-zypp", Server: "zypp", Unit: "mcp-zypp-3.service", Sub: "alice", UID: &alice, Privileged: true, Busy: true},
 	}}
-	s.Backends = map[string]*config.Backend{
+	backends := map[string]*config.Backend{
 		"fs":   {Name: "fs", SELinuxType: "mcpsrv_fs_t", Isolation: config.IsolationPrincipal, RunAs: "principal", Command: []string{"/secret", "--token=x"}},
 		"git":  {Name: "git", SELinuxType: "mcpsrv_git_t", Network: true},
 		"zypp": {Name: "zypp", SELinuxType: "mcpsrv_zypp_t", RunAs: "root", Privileged: true},
 	}
+	s.Backends = func() map[string]*config.Backend { return backends }
 	s.Instances = insts
 
 	rec := call(t, s, 1001, "GET", "/v1/servers", "")
@@ -275,11 +276,14 @@ func TestServersAndInstances(t *testing.T) {
 
 func TestStatus(t *testing.T) {
 	s, _, _ := setup(t)
-	if rec := call(t, s, 1001, "GET", "/v1/status", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"restart_pending":false`) {
+	if rec := call(t, s, 1001, "GET", "/v1/status", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"restart_pending":false`) ||
+		strings.Contains(rec.Body.String(), "servers_error") {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 	s.RestartPending = func() bool { return true }
-	if rec := call(t, s, 1001, "GET", "/v1/status", ""); !strings.Contains(rec.Body.String(), `"restart_pending":true`) {
+	s.ServersError = func() string { return "web.yaml: unknown key" }
+	if rec := call(t, s, 1001, "GET", "/v1/status", ""); !strings.Contains(rec.Body.String(), `"restart_pending":true`) ||
+		!strings.Contains(rec.Body.String(), `"servers_error":"web.yaml: unknown key"`) {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 }

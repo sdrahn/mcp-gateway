@@ -3,9 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -128,5 +132,29 @@ func TestDenialWindow(t *testing.T) {
 	}
 	if b := bootTime(); b.IsZero() || b.After(time.Now()) {
 		t.Errorf("bootTime: %v", b)
+	}
+}
+
+func TestGatewayStatus(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "control.sock")
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body atomic.Value
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, body.Load().(string))
+	})}
+	go func() { _ = srv.Serve(l) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	body.Store(`{"version": "0.9.0", "restart_pending": false}`)
+	if r := gatewayStatus(sock); r.Status != doctor.OK || r.Summary != "running version 0.9.0" {
+		t.Errorf("%+v", r)
+	}
+	body.Store(`{"version": "0.9.0", "restart_pending": false, "servers_error": "/etc/mcp-gateway/servers.d/web.yaml: unknown key netwrok"}`)
+	if r := gatewayStatus(sock); r.Status != doctor.Warn || !strings.Contains(r.Summary, "serves the previous ones") ||
+		r.Details[0] != "/etc/mcp-gateway/servers.d/web.yaml: unknown key netwrok" {
+		t.Errorf("%+v", r)
 	}
 }

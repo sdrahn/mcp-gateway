@@ -212,7 +212,7 @@ type=TRUSTED_APP … msg='op=mcp-decision session=4f1c… principal=alice action
 ```
 
 Operations: `mcp-gateway-start`, `mcp-decision` (denials),
-`mcp-approval`, `mcp-grant-revoke`, `mcp-policy-change`,
+`mcp-approval`, `mcp-grant-revoke`, `mcp-policy-change`, `mcp-config-reload`,
 `mcp-mcs-collision`, `mcp-limit`, `mcp-token-expired`. `audit.kernel: auto` uses the kernel audit log when
 it is available; `on` makes it mandatory.
 

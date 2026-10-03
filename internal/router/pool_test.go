@@ -315,3 +315,39 @@ func TestCloseAllDrainTimeout(t *testing.T) {
 		t.Fatal("closeAll did not stop the instance after the drain timeout")
 	}
 }
+
+func TestRetire(t *testing.T) {
+	p, l, _ := testPool(t, time.Hour)
+	fs := &config.Backend{Name: "fs", Isolation: config.IsolationPrincipal}
+	zypp := &config.Backend{Name: "zypp", Isolation: config.IsolationPrincipal, Privileged: true}
+	if _, _, err := p.acquire(context.Background(), fs, alice()); err != nil { // held by a session
+		t.Fatal(err)
+	}
+	u, _, err := p.acquire(context.Background(), zypp, alice())
+	if err != nil {
+		t.Fatal(err)
+	}
+	startCommit(t, u)
+
+	if n := p.retire("fs"); n != 1 {
+		t.Fatalf("retired %d", n)
+	}
+	if !isClosed(l.started("fs")[0].closed, time.Second) {
+		t.Fatal("instance in use not stopped")
+	}
+	if _, _, err := p.acquire(context.Background(), fs, alice()); err != nil || len(l.started("fs")) != 2 {
+		t.Fatalf("no new instance: %v", err)
+	}
+
+	if n := p.retire("zypp"); n != 1 {
+		t.Fatalf("retired %d", n)
+	}
+	fi := l.started("zypp")[0]
+	if isClosed(fi.closed, 50*time.Millisecond) {
+		t.Fatal("privileged instance stopped while a call runs")
+	}
+	close(fi.commit)
+	if !isClosed(fi.closed, time.Second) {
+		t.Fatal("privileged instance not stopped after the call ended")
+	}
+}

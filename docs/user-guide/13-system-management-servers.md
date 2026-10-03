@@ -45,7 +45,7 @@ itself is only recommended, since it may come from elsewhere.
 
 ```bash
 zypper install mcp-gateway-profile-systemd systemd-mcp
-systemctl restart mcp-gateway.service        # reads the new definition
+systemctl reload mcp-gateway.service         # or wait 10 s: reads the new definition
 ```
 
 Then bind users or groups to the roles, in Cockpit or in the role data:
@@ -76,7 +76,7 @@ a server or a tool does not show up.
 
   ```bash
   ln -s /usr/share/mcp-gateway/profiles/zypp-privileged.yaml /etc/mcp-gateway/servers.d/zypp.yaml
-  systemctl restart mcp-gateway.service
+  systemctl reload mcp-gateway.service
   ```
 
   Users then need `zypp-installer`; every installation and removal waits
@@ -194,8 +194,9 @@ Notes:
   lines to stdout breaks the protocol (the gateway logs "invalid message
   from backend … parse error" with the start of the line); use its
   option to log to stderr or a file.
-- The definitions are read at start: `mcp-gateway --check && systemctl
-  restart mcp-gateway.service`.
+- The gateway picks up new and changed definitions by itself;
+  `mcp-gateway --check && systemctl reload mcp-gateway.service` checks
+  them and applies them at once (chapter 4).
 
 ### mcp-server-snapper
 

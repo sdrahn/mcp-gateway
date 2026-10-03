@@ -1,4 +1,5 @@
 # GET /v1/status
 # Fields may be added, never renamed or removed (docs/architecture.md, D10).
 restart_pending
+servers_error
 version

@@ -247,23 +247,34 @@ func (d *doctorRun) services() []doctor.Result {
 		}
 	}
 	if sock := d.gw.Approvals.ControlSocket; sock != "-" && !d.isolated {
-		r := doctor.Result{Check: "gateway status"}
-		var st struct {
-			Version        string `json:"version"`
-			RestartPending bool   `json:"restart_pending"`
-		}
-		if err := controlGet(sock, "/v1/status", &st); err != nil {
-			rs = append(rs, skipOrFail(r, err))
-		} else {
-			r.Status, r.Summary = doctor.OK, "running version "+orDash(st.Version)
-			if st.RestartPending {
-				r.Status = doctor.Warn
-				r.Summary += "; updated since its start: systemctl restart mcp-gateway.service"
-			}
-			rs = append(rs, r)
-		}
+		rs = append(rs, gatewayStatus(sock))
 	}
 	return rs
+}
+
+// gatewayStatus asks the running gateway for its version, whether it was
+// updated since its start and whether its server definitions reloaded.
+func gatewayStatus(sock string) doctor.Result {
+	r := doctor.Result{Check: "gateway status"}
+	var st struct {
+		Version        string `json:"version"`
+		RestartPending bool   `json:"restart_pending"`
+		ServersError   string `json:"servers_error"`
+	}
+	if err := controlGet(sock, "/v1/status", &st); err != nil {
+		return skipOrFail(r, err)
+	}
+	r.Status, r.Summary = doctor.OK, "running version "+orDash(st.Version)
+	if st.RestartPending {
+		r.Status = doctor.Warn
+		r.Summary += "; updated since its start: systemctl restart mcp-gateway.service"
+	}
+	if st.ServersError != "" {
+		r.Status = doctor.Warn
+		r.Summary += "; server definitions not reloaded, it serves the previous ones"
+		r.Details = append(r.Details, st.ServersError, "fix the file (mcp-gateway --check shows the problem); the gateway reloads by itself")
+	}
+	return r
 }
 
 // stateFiles finds files in the gateway's state directory that its

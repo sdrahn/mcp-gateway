@@ -8,8 +8,8 @@ SELinux, and stops them when idle.
 ## Registering a server
 
 Create one file per server in `/etc/mcp-gateway/servers.d/` (packages
-install theirs to `/usr/share/mcp-gateway/servers.d/`), then check and
-restart:
+install theirs to `/usr/share/mcp-gateway/servers.d/`), and check it.
+The running gateway picks it up within `policy.watch_interval` (10 s):
 
 ```yaml
 # /etc/mcp-gateway/servers.d/git.yaml
@@ -19,8 +19,32 @@ command: ["/usr/libexec/mcp-servers/mcp-git"]
 
 ```bash
 mcp-gateway --check
-systemctl restart mcp-gateway.service
+systemctl reload mcp-gateway.service    # optional: at once, and fails on a broken definition
 ```
+
+### Changing definitions while the gateway runs
+
+The gateway reloads the server definitions when a file in either
+`servers.d` is added, changed or removed, and on `systemctl reload
+mcp-gateway.service`; sessions stay open:
+
+- a new server appears in the sessions' lists (clients are sent
+  `notifications/tools/list_changed`);
+- a changed server's running instances are stopped, so that the next
+  call starts one from the new definition (a definition may take a
+  permission away); a call to a privileged server that is running is
+  waited for;
+- a removed server's instances are stopped, and calls to it fail as for
+  an unknown server.
+
+A reload loads and validates all definitions before it changes anything.
+If a file does not parse or validate, two files name the same server, or
+no definitions are left, nothing changes: the gateway serves the
+definitions it had, logs the error, audits it (`mcp-config-reload`,
+chapter 9), and `mcp-gateway-admin doctor` warns about it until a reload
+succeeds. `systemctl reload` runs `mcp-gateway --check` first and fails
+then, so you see the problem at once. The gateway's own configuration
+(`gateway.yaml`) is read at start only.
 
 A server is only usable by principals whose roles have permissions for it
 (chapter 6). A server nobody has permissions for is invisible.
@@ -156,7 +180,7 @@ cd git-profile
 make -f /usr/share/selinux/devel/Makefile mcp_git.pp && semodule -i mcp_git.pp
 restorecon -F /usr/libexec/mcp-servers/mcp-git
 cp git.yaml /etc/mcp-gateway/servers.d/    # after comparing it with yours
-mcp-gateway --check && systemctl restart mcp-gateway.service
+mcp-gateway --check && systemctl reload mcp-gateway.service
 
 # The same calls, enforcing; fails if there is a denial:
 mcp-gateway-admin profile --server git --verify

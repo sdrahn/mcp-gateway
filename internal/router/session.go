@@ -59,7 +59,7 @@ var listSpecs = map[string]listSpec{
 // endpoint).
 type Session struct {
 	r      *Router
-	ep     endpoint
+	ep     atomic.Pointer[endpoint] // replaced when the server definitions are reloaded
 	client jsonrpc.MessageConn
 	log    *slog.Logger
 	ctx    context.Context
@@ -83,9 +83,8 @@ type Session struct {
 }
 
 func newSession(r *Router, ep endpoint, client jsonrpc.MessageConn, p principal.Principal) *Session {
-	return &Session{
+	s := &Session{
 		r:           r,
-		ep:          ep,
 		client:      client,
 		log:         r.Log.With("session", p.SessionID, "sub", p.Sub),
 		principal:   p,
@@ -95,7 +94,12 @@ func newSession(r *Router, ep endpoint, client jsonrpc.MessageConn, p principal.
 		annotations: map[string]map[string]any{},
 		vault:       pseudo.NewVault(0),
 	}
+	s.ep.Store(&ep)
+	return s
 }
+
+// endpoint is the session's current view of the servers.
+func (s *Session) endpoint() endpoint { return *s.ep.Load() }
 
 // Run serves the client until it disconnects or ctx ends. first, if not
 // nil, is a message already read from the client.
@@ -268,7 +272,7 @@ func (s *Session) upstream(ctx context.Context, name string) (*upstream, error) 
 	if u != nil && !u.isClosed() {
 		return u, nil
 	}
-	b := s.ep.backends[name]
+	b := s.endpoint().backends[name]
 	if b == nil {
 		return nil, fmt.Errorf("unknown server %q", name)
 	}
@@ -319,8 +323,8 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 	if supportedVersions[p.ProtocolVersion] {
 		v = p.ProtocolVersion
 	}
-	if !s.ep.aggregated {
-		init, err := s.backendInit(ctx, s.ep.order[0])
+	if !s.endpoint().aggregated {
+		init, err := s.backendInit(ctx, s.endpoint().order[0])
 		if err != nil {
 			return nil, unavailable(err)
 		}
@@ -395,10 +399,10 @@ type listItem struct {
 func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error) {
 	spec := listSpecs[m.Method]
 	var items []listItem
-	for _, server := range s.ep.order {
+	for _, server := range s.endpoint().order {
 		got, err := s.fetchList(ctx, server, m.Method, spec)
 		if err != nil {
-			if !s.ep.aggregated {
+			if !s.endpoint().aggregated {
 				return nil, rpcError(jsonrpc.CodeInternalError, "backend unavailable")
 			}
 			s.log.Warn("listing failed; skipping server", "server", server, "method", m.Method, "err", err)
@@ -430,9 +434,9 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		if !visible[key{it.server, spec.kind, it.name}] {
 			continue
 		}
-		exposed := s.ep.exposeName(it.server, it.name)
+		exposed := s.endpoint().exposeName(it.server, it.name)
 		if spec.uri {
-			exposed = s.ep.exposeURI(it.server, it.name)
+			exposed = s.endpoint().exposeURI(it.server, it.name)
 		}
 		b, _ := json.Marshal(exposed)
 		it.raw[spec.key] = b
@@ -453,7 +457,7 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 
 // fetchList returns all items of one backend's list, following cursors.
 func (s *Session) fetchList(ctx context.Context, server, method string, spec listSpec) ([]listItem, error) {
-	if b := s.ep.backends[server]; b != nil && b.Discovery == config.DiscoveryShared && sharedMethods[method] {
+	if b := s.endpoint().backends[server]; b != nil && b.Discovery == config.DiscoveryShared && sharedMethods[method] {
 		items, err := s.r.sharedList(ctx, b, method, spec)
 		if err == nil {
 			return items, nil
@@ -542,7 +546,7 @@ func (s *Session) target(method string, params map[string]json.RawMessage) (*cal
 
 	switch method {
 	case "tools/call", "prompts/get":
-		server, name, ok := s.ep.resolveName(str(params["name"]))
+		server, name, ok := s.endpoint().resolveName(str(params["name"]))
 		if !ok {
 			return nil, notFound("tool or prompt")
 		}
@@ -564,7 +568,7 @@ func (s *Session) target(method string, params map[string]json.RawMessage) (*cal
 		return t, nil
 
 	case "resources/read", "resources/subscribe", "resources/unsubscribe":
-		server, uri, ok := s.ep.resolveURI(str(params["uri"]))
+		server, uri, ok := s.endpoint().resolveURI(str(params["uri"]))
 		if !ok {
 			return nil, notFound("resource")
 		}
@@ -581,7 +585,7 @@ func (s *Session) target(method string, params map[string]json.RawMessage) (*cal
 		t := &callTarget{action: "completion.complete"}
 		switch str(ref["type"]) {
 		case "ref/prompt":
-			server, name, ok := s.ep.resolveName(str(ref["name"]))
+			server, name, ok := s.endpoint().resolveName(str(ref["name"]))
 			if !ok {
 				return nil, notFound("prompt")
 			}
@@ -591,7 +595,7 @@ func (s *Session) target(method string, params map[string]json.RawMessage) (*cal
 				p["ref"], _ = json.Marshal(ref)
 			}
 		case "ref/resource":
-			server, uri, ok := s.ep.resolveURI(str(ref["uri"]))
+			server, uri, ok := s.endpoint().resolveURI(str(ref["uri"]))
 			if !ok {
 				return nil, notFound("resource template")
 			}
@@ -697,7 +701,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 			DecisionID: decisionID})
 		return s.denial(m.Method, "output withheld: "+err.Error())
 	}
-	if m.Method == "resources/read" && s.ep.aggregated {
+	if m.Method == "resources/read" && s.endpoint().aggregated {
 		return s.exposeContents(t.server, result), nil
 	}
 	return result, nil
@@ -885,7 +889,7 @@ func (s *Session) exposeContents(server string, result json.RawMessage) json.Raw
 	for _, c := range contents {
 		var uri string
 		if json.Unmarshal(c["uri"], &uri) == nil && uri != "" {
-			c["uri"], _ = json.Marshal(s.ep.exposeURI(server, uri))
+			c["uri"], _ = json.Marshal(s.endpoint().exposeURI(server, uri))
 		}
 	}
 	res["contents"], _ = json.Marshal(contents)
@@ -900,7 +904,7 @@ func (s *Session) exposeContents(server string, result json.RawMessage) json.Raw
 // instance's, so that initializing does not start the principal's
 // instance, else the principal's instance's.
 func (s *Session) backendInit(ctx context.Context, server string) (initResult, error) {
-	if b := s.ep.backends[server]; b != nil && b.Discovery == config.DiscoveryShared {
+	if b := s.endpoint().backends[server]; b != nil && b.Discovery == config.DiscoveryShared {
 		init, err := s.r.sharedInit(ctx, b)
 		if err == nil {
 			return init, nil
@@ -975,11 +979,11 @@ func (s *Session) upstreamNotification(u *upstream, m *jsonrpc.Message) {
 		if !s.stillAllowed(u.backend.Name, "resources.subscribe", pep.Resource{Server: u.backend.Name, Kind: "resource", Name: uri}) {
 			return
 		}
-		p["uri"], _ = json.Marshal(s.ep.exposeURI(u.backend.Name, uri))
+		p["uri"], _ = json.Marshal(s.endpoint().exposeURI(u.backend.Name, uri))
 		params, _ := json.Marshal(p)
 		_ = s.client.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: m.Method, Params: params})
 	case "notifications/message":
-		if !s.ep.aggregated {
+		if !s.endpoint().aggregated {
 			_ = s.client.Write(m)
 			return
 		}

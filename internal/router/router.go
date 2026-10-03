@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/audit"
@@ -25,6 +26,8 @@ const helloTimeout = 10 * time.Second
 
 // Router accepts client connections and runs a Session per connection.
 type Router struct {
+	// Backends are the server definitions at start; SetBackends replaces
+	// them (CurrentBackends returns those in force).
 	Backends map[string]*config.Backend
 	Launcher supervisor.Launcher
 	PDP      pep.PDP
@@ -42,6 +45,8 @@ type Router struct {
 	ProgressInterval time.Duration
 
 	once      sync.Once
+	registry  atomic.Pointer[map[string]*config.Backend] // the definitions in force (SetBackends)
+	reloadMu  sync.Mutex
 	pool      *pool
 	limiter   *pep.Limiter
 	discovery discoveryCache
@@ -105,7 +110,7 @@ func (r *Router) WatchPolicy(ctx context.Context, interval time.Duration, finger
 
 // privileged reports whether server is a privileged backend.
 func (r *Router) privileged(server string) bool {
-	b := r.Backends[server]
+	b := r.backends()[server]
 	return b != nil && b.Privileged
 }
 
@@ -138,6 +143,11 @@ func (r *Router) init() {
 		if r.Log == nil {
 			r.Log = slog.New(slog.DiscardHandler)
 		}
+		initial := r.Backends
+		if initial == nil {
+			initial = map[string]*config.Backend{}
+		}
+		r.registry.Store(&initial)
 		r.pool = newPool(r.Launcher, r.IdleTimeout, r.Log)
 		r.pool.maxPerPrincipal = r.MaxInstancesPerPrincipal
 		if r.pool.maxPerPrincipal <= 0 {
@@ -198,28 +208,35 @@ func (r *Router) ServeClient(ctx context.Context, client jsonrpc.MessageConn, p 
 	r.init()
 	log := r.Log.With("session", p.SessionID, "sub", p.Sub)
 
+	// Under reloadMu, so that SetBackends either sees the session
+	// registered or ran before its endpoint was taken.
+	r.reloadMu.Lock()
 	var ep endpoint
 	hello, err := transport.ParseHello(first)
 	switch {
 	case err == nil:
 		if hello.Server == "all" {
-			ep = aggregatedEndpoint(r.Backends)
-		} else if b, ok := r.Backends[hello.Server]; ok {
+			ep = aggregatedEndpoint(r.backends())
+		} else if b, ok := r.backends()[hello.Server]; ok {
 			ep = singleEndpoint(b)
 		} else {
+			r.reloadMu.Unlock()
 			reject(client, first, fmt.Sprintf("unknown server %q", hello.Server))
 			return
 		}
 		first = nil // consumed
 	case errors.Is(err, transport.ErrNoHello):
-		ep = aggregatedEndpoint(r.Backends)
+		ep = aggregatedEndpoint(r.backends())
 	default:
+		r.reloadMu.Unlock()
 		reject(client, first, err.Error())
 		return
 	}
 
 	s := newSession(r, ep, client, p)
-	if err := r.admit(s); err != nil {
+	err = r.admit(s)
+	r.reloadMu.Unlock()
+	if err != nil {
 		refuse(client, first, err.Error())
 		return
 	}

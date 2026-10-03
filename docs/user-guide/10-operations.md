@@ -22,7 +22,8 @@ What needs what after a change:
 
 | Change | Action |
 |---|---|
-| `gateway.yaml`, server definitions, TLS certificate, SMTP password | `mcp-gateway --check && systemctl restart mcp-gateway.service` |
+| `gateway.yaml`, TLS certificate, SMTP password | `mcp-gateway --check && systemctl restart mcp-gateway.service` |
+| server definitions (`servers.d`), setup packages | nothing; picked up within seconds (`systemctl reload mcp-gateway.service` at once) |
 | role data (directory mode) | nothing; picked up within seconds |
 | role data (signed bundle) | `mcp-policy-bundle` (or "Sign and apply" in Cockpit) |
 | OPA drop-in | `systemctl daemon-reload && systemctl restart mcp-opa.service` |

@@ -154,7 +154,7 @@ func (r *Router) listChanged(u *upstream, m *jsonrpc.Message) {
 	r.mu.Lock()
 	var tell []*Session
 	for s := range r.sessions {
-		if b := s.ep.backends[u.backend.Name]; b != nil && b.Discovery == config.DiscoveryShared && !u.isAttached(s) {
+		if b := s.endpoint().backends[u.backend.Name]; b != nil && b.Discovery == config.DiscoveryShared && !u.isAttached(s) {
 			tell = append(tell, s)
 		}
 	}

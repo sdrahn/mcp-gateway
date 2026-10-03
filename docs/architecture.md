@@ -1662,9 +1662,10 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       `policy.watch_interval`) and on `systemctl reload` (SIGHUP), so
       that a setup package installed or updated with the gateway
       running takes effect without a restart: new and changed servers
-      start their next instances from the new definition, running
-      instances keep theirs until they end, instances of removed
-      servers are stopped, and clients get `notifications/tools/list_changed`.
+      start their next instances from the new definition (running
+      instances of changed and removed servers are stopped, since a
+      definition may take a permission away; a running privileged call
+      is waited for), and clients get `notifications/tools/list_changed`.
       A reload never stops or crashes the gateway: the new definitions
       are loaded and validated completely before they replace the old
       ones, and anything that goes wrong (a file that does not parse or
@@ -1672,9 +1673,10 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       panic in the loader) keeps the previous definitions in force,
       logged at error and reported by the doctor, and the gateway goes on
       serving; tests feed it such files while sessions run. The change
-      is audited (`mcp-config-reload`). A gateway still runs from definitions
+      is audited (`mcp-config-reload`); `GET /v1/status` reports a failed
+      reload (`servers_error`). A gateway still ran from definitions
       it loaded before an update otherwise, as seen on a 0.7.0 system
-      whose setup servers then started in `mcpsrv_generic_t`;
+      whose setup servers then started in `mcpsrv_generic_t` (done);
     - the doctor checks the labels of every program the gateway's and the
       setups' SELinux modules give a type to, not only the servers'
       commands: a helper the server starts (zypp's `zypp-mcp-tool`,
