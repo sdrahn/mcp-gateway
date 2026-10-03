@@ -138,7 +138,9 @@ ifdef(`rpm_read_db',`
 ifdef(`rpm_exec',`
 	rpm_exec(mcpsrv_exec_t)
 ')
-# uptime counts the logged-in users from logind.
+# uptime counts the logged-in users from logind and the terminals in
+# /dev/pts (names only; no terminal is opened).
+term_list_ptys(mcpsrv_exec_t)
 ifdef(`systemd_read_logind_sessions_files',`
 	systemd_read_logind_sessions_files(mcpsrv_exec_t)
 ')
