@@ -510,8 +510,8 @@ Approvers learn about pending approvals without watching the inbox:
   asks `data.mcp.approvals.notify` whom to tell: the approvers the
   server's rules name, as local users and groups (`self` is the
   principal's account, `role:<r>` the users and groups bound to it).
-  Groups are expanded through NSS (`getent group`; members by primary
-  group are not listed), users become addresses by the `to` template
+  Groups are expanded through NSS (`getent group`, and `getent passwd`
+  for the users whose primary group it is), users become addresses by the `to` template
   (`{user}` for local delivery, `{user}@example.com` otherwise), and one
   mail goes to all of them (`To: undisclosed-recipients:;`). The mail
   names the call and links the approval page; arguments are left out
@@ -1680,7 +1680,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       commands: a helper the server starts (zypp's `zypp-mcp-tool`,
       `rpm_exec_t`) labeled `bin_t` runs in the wrong domain too;
     - approval mail reaches the users whose primary group an approver
-      group is (§12), which NSS does not list as members.
+      group is, which NSS does not list as members (done).
 
 ## 12. Open items
 
@@ -1690,9 +1690,9 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
   streams as one session, so this is harmless, but not precise. Replay is
   bounded (256 events per stream) and lives in memory: a gateway restart
   ends all HTTP sessions anyway.
-- Approval mail expands groups through NSS, which does not list users
-  whose primary group it is; name such approvers as `user:` or bind them
-  by user.
+- Approval mail finds the users whose primary group an approver group is
+  by enumerating users (`getent passwd`); SSSD and LDAP often do not
+  enumerate, so name such approvers as `user:` there.
 - Exact JSON-RPC error codes for policy denials (align with any future
   MCP-spec guidance).
 - Policy changes are noticed by polling (up to `policy.watch_interval`

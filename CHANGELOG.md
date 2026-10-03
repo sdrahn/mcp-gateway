@@ -5,6 +5,15 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Fixed
+
+- Approval mail reaches the users whose primary group an approver group
+  is; NSS does not list them as members of the group. They are found by
+  enumerating users (`getent passwd`), which SSSD and LDAP do only with
+  `enumerate = true`.
+
 ## v0.8.0 — 2026-10-03
 
 The cleanup 0.7 announced, and HTTP streams that end with their token.

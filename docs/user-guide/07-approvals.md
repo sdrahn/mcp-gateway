@@ -176,8 +176,9 @@ systemctl restart mcp-gateway.service
   (policy rule `data.mcp.approvals.notify`): `self` (if the principal
   has a local account), `user:` rules, members of `group:` rules, and
   users and group members bound to `role:` rules. Groups are expanded
-  with `getent group` (members listed in the group entry; users having
-  the group only as their primary group are not included). Each name
+  through NSS: the members listed in the group entry (`getent group`),
+  and the users whose primary group it is (`getent passwd`; with SSSD or
+  LDAP only if they enumerate users, `enumerate = true`). Each name
   becomes an address through `to`. All recipients get one mail (as
   undisclosed recipients).
 - A mail goes out once per new pending approval (not for retries taking

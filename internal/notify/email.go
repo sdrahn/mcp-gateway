@@ -276,8 +276,10 @@ func (e *Email) smtpSend(ctx context.Context, to []string, msg []byte) error {
 	return c.Quit()
 }
 
-// getentMembers lists a group's members through NSS (also SSSD, LDAP).
-// Users whose primary group it is are not listed by NSS and not included.
+// getentMembers lists a group's members through NSS (also SSSD, LDAP):
+// those its entry lists, and the users whose primary group it is, as far
+// as NSS enumerates users (SSSD and LDAP often do not, without
+// enumerate = true).
 func getentMembers(ctx context.Context, group string) ([]string, error) {
 	if !validName(group) {
 		return nil, fmt.Errorf("invalid group name %q", group)
@@ -288,9 +290,49 @@ func getentMembers(ctx context.Context, group string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	fields := strings.Split(strings.TrimSpace(string(out)), ":")
-	if len(fields) < 4 || fields[3] == "" {
-		return nil, nil
+	gid, members := parseGroup(string(out))
+	if gid == "" {
+		return members, nil
 	}
-	return strings.Split(fields[3], ","), nil
+	// An enumeration that fails leaves the listed members.
+	if passwd, err := exec.CommandContext(ctx, "getent", "passwd").Output(); err == nil {
+		members = appendNew(members, primaryMembers(string(passwd), gid)...)
+	}
+	return members, nil
+}
+
+// parseGroup returns the gid and the listed members of a group entry
+// (name:password:gid:members).
+func parseGroup(entry string) (gid string, members []string) {
+	fields := strings.Split(strings.TrimSpace(entry), ":")
+	if len(fields) < 4 {
+		return "", nil
+	}
+	if fields[3] != "" {
+		members = strings.Split(fields[3], ",")
+	}
+	return fields[2], members
+}
+
+// primaryMembers returns the users of passwd entries (name:password:uid:
+// gid:...) whose primary group is gid.
+func primaryMembers(passwd, gid string) []string {
+	var users []string
+	for _, line := range strings.Split(passwd, "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) >= 4 && fields[3] == gid && fields[0] != "" {
+			users = append(users, fields[0])
+		}
+	}
+	return users
+}
+
+// appendNew appends the names not in list yet.
+func appendNew(list []string, names ...string) []string {
+	for _, n := range names {
+		if !slices.Contains(list, n) {
+			list = append(list, n)
+		}
+	}
+	return list
 }
