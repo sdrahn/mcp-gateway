@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/doctor"
 )
@@ -104,5 +105,28 @@ func TestRolesResult(t *testing.T) {
 	}
 	if r = rolesResult("fs", "", "principal", msgs); !strings.HasSuffix(r.Summary, "to the discovery account") {
 		t.Errorf("principal: %q", r.Summary)
+	}
+}
+
+// Denials count from -since ago, but not from before the current boot
+// unless asked.
+func TestDenialWindow(t *testing.T) {
+	now := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+	boot := now.Add(-2 * time.Hour)
+	from, label := denialWindow(now, 24*time.Hour, boot, false)
+	if !from.Equal(boot) || !strings.Contains(label, "the current boot") {
+		t.Errorf("after a reboot: %v %q", from, label)
+	}
+	if from, label = denialWindow(now, 24*time.Hour, boot, true); !from.Equal(now.Add(-24*time.Hour)) || strings.Contains(label, "boot") {
+		t.Errorf("previous boots: %v %q", from, label)
+	}
+	if from, _ = denialWindow(now, time.Hour, boot, false); !from.Equal(now.Add(-time.Hour)) {
+		t.Errorf("window within the boot: %v", from)
+	}
+	if from, _ = denialWindow(now, time.Hour, time.Time{}, false); !from.Equal(now.Add(-time.Hour)) {
+		t.Errorf("boot unknown: %v", from)
+	}
+	if b := bootTime(); b.IsZero() || b.After(time.Now()) {
+		t.Errorf("bootTime: %v", b)
 	}
 }
