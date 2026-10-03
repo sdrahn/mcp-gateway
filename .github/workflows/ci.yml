@@ -240,11 +240,19 @@ jobs:
       # The distribution's Go; it fetches the toolchain a server's go.mod
       # asks for (GOTOOLCHAIN=auto). setup-go would leave the container's
       # PATH without /usr/bin.
+      # Between Tumbleweed snapshots the image can carry newer systemd
+      # libraries than the repository's systemd-devel requires: then take
+      # them back to the repository's version and install again.
       - name: Install build tools
-        run: >
-          zypper -n --gpg-auto-import-keys in --no-recommends
-          git tar gzip findutils make go gcc gcc-c++ cmake systemd-devel
-          libzypp-devel yaml-cpp-devel libboost_test-devel
+        run: |
+          pkgs="git tar gzip findutils make go gcc gcc-c++ cmake systemd-devel
+            libzypp-devel yaml-cpp-devel libboost_test-devel"
+          zypper -n --gpg-auto-import-keys in --no-recommends $pkgs || {
+            v=$(zypper -n info systemd-devel | sed -n 's/^Version *: *//p' | head -n 1)
+            echo "aligning libsystemd0 and libudev1 with systemd-devel $v"
+            zypper -n in --no-recommends --oldpackage "libsystemd0=$v" "libudev1=$v"
+            zypper -n in --no-recommends $pkgs
+          }
       - uses: actions/checkout@v4
       - name: Build the servers
         run: test/vm/build-servers.sh servers
