@@ -47,13 +47,25 @@ transactional-update pkg install mcp-gateway mcp-gateway-profile-systemd systemd
 reboot
 ```
 
-- Install a server program and the package with its SELinux module in
-  the same transaction, or relabel the program in a later one: a program
-  that keeps the label it had before its module was there (for example
-  `bin_t`) cannot start in its domain. `mcp-gateway doctor` names such a
-  program ("program *name*: … is labeled bin_t, the policy says …") with
-  the fix, `transactional-update run restorecon -v <program>` and a
-  reboot. `restorecon` alone reports "Read only filesystem".
+- An SELinux module installed or updated in a transaction (with
+  `mcp-gateway-selinux` or a setup package) takes effect at the next
+  boot; until then the running system has the previous policy, and
+  `seinfo -t <type>` reports a new type as missing. A program installed
+  in that time keeps the label it would have without its module (for
+  example `bin_t`): its file is labeled as it is written, and the running
+  kernel refuses a type it does not know yet. Such a program cannot
+  start in its domain, also after the reboot. So install a server
+  program in the same transaction as the update of its module, or reboot
+  in between. This includes updates: after updating to a release with a
+  new server domain (0.6: `mcpsrv_exec_t`), reboot before installing the
+  new server's package.
+- After a reboot into a new snapshot, run `mcp-gateway doctor`. It
+  reports a server whose SELinux type is not in the running policy
+  ("*type* is not in the loaded policy: servers … cannot start") and a
+  program with the wrong label ("program *name*: … is labeled bin_t, the
+  policy says …"), with the fix: `transactional-update run restorecon -v
+  <program>` and a reboot (`restorecon` alone reports "Read only
+  filesystem").
 - `/etc` and `/var` stay writable: definitions, role data and the
   gateway's state are changed as on other systems.
 - A privileged server cannot change `/usr`: the privileged zypp server
