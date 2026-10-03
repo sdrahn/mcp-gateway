@@ -1611,6 +1611,27 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       guide (chapter 5) (done);
     - a limit on sessions and instances per principal, decided with what
       the clients showed (D14) (done).
+16. **A smaller gateway** (0.7): the daemon keeps only what runs the
+    gateway; the tools for administrators move to a program of their
+    own, so that the gateway's entry point, package and SELinux domain
+    carry nothing but the gateway:
+    - `mcp-gateway-admin` with the commands `doctor`, `inspect`,
+      `profile`, `review` and `serve` (the MCP server `gateway-admin`,
+      until now `mcp-gateway admin-server`); `mcp-gateway` keeps running
+      the gateway, `--check`, `--check-policy-data`, `--version` and
+      `help`;
+    - its own program type (`mcpsrv_admin_exec_t`, as other servers
+      have): `mcpsrv_admin_t` is entered on it instead of on the
+      gateway's `mcpgw_exec_t`, so that no backend domain has an entry
+      point on the gateway binary;
+    - packages: `doctor` and `serve` in `mcp-gateway`, which needs them
+      to check itself and to offer `gateway-admin`; `inspect`, `profile`
+      and `review`, which onboard servers, in `mcp-gateway-tools`;
+    - `mcp-gateway inspect` and the others keep working in 0.7: they run
+      `mcp-gateway-admin` with a deprecation warning, as D10 has keys go
+      (changelog "Deprecated"), and go away in 0.8;
+    - the program name `mcp-fs-demo`, deprecated in 0.6, goes away: the
+      link, its file context and the warning for definitions naming it.
 
 ## 12. Open items
 
