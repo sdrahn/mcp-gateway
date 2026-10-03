@@ -52,11 +52,22 @@ For most installations, editing the data is all that is needed.
 
 ### The shipped roles
 
+In the role data (`/etc/mcp-gateway/policy/rbac/data.json`):
+
 | Role | Permissions |
 |---|---|
-| `viewer` | tools named `list_*`, `read_*`, `get_*` on every server; all prompts |
-| `developer` | everything on `git`; on `fs`: read and list, resources below the home directory, `write_file` below the home directory with approval (approval page), never `delete_*`; all prompts |
-| `admin` | everything, including requests servers send to the client (sampling, elicitation, roots) |
+| `viewer` | tools named `list_*`, `read_*`, `get_*` on every server; the documentation (`gateway-docs`); all prompts |
+| `developer` | everything on `git`; on `fs`: reading, listing and searching, resources below the home directory, `write_file`, `edit_file`, `create_directory` and `move_file` below the home directory with approval (approval page), never `delete_*`; the documentation; all prompts |
+| `admin` | everything, including requests servers send to the client (sampling, elicitation, roots); on privileged servers it asks (see "Obligations" below) |
+
+With the packages of their servers ("Roles of server setups" below):
+
+| Role | Package | Permissions |
+|---|---|---|
+| `gateway-docs-reader` | `mcp-gateway-fs-server` | the documentation server `gateway-docs` only (chapter 10, "Asking an agent") |
+| `gateway-admin` | `mcp-gateway` | the diagnostics server `gateway-admin`: `doctor` and `check_config`; with approval `show_config`, `explain_decision`, `recent_audit`, `selinux_denials` |
+| `exec-operator` | `mcp-gateway-exec-server` | every command of the server `exec`, with approval |
+| `systemd-reader`, `zypp-installer`, … | `mcp-gateway-profile-*` | the system management servers (chapter 13, "Setup packages") |
 
 Bindings as shipped: group `dev` → `developer`, group `wheel` → `admin`.
 Adjust both to your organisation; they are examples, not a

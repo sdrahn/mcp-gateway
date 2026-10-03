@@ -1,8 +1,25 @@
 # mcp-gateway — Architecture
 
-Status: **Draft** — decisions D1–D7 accepted (2026-09-27)
+Status: maintained with the code; decisions D1–D14 accepted (section 9).
 Scope: design of a policy-enforcing proxy that exposes local stdio-only MCP
 servers on a Linux host to local and remote MCP clients.
+
+This document explains why the gateway is built the way it is. How to
+install, configure and run it is the [user guide](user-guide/README.md);
+[README.md](README.md) maps questions and error messages to its chapters.
+
+| Section | Contents |
+|---|---|
+| 1–3 | problem statement, goals and non-goals, terminology |
+| 4 | architecture overview: the parts and how a request flows through them |
+| 5 | components: transports, identity, router, enforcement, OPA, approval broker, instance supervisor, SELinux module, audit, Cockpit |
+| 6 | policy model: packages, input and decision documents, role data, policy lifecycle |
+| 7 | key flows: a call needing approval, remote session setup, discovery |
+| 8 | threat model (summary) |
+| 9 | decisions D1–D14, each with its rationale |
+| 10 | repository layout |
+| 11 | roadmap: the steps by release, with what each delivered |
+| 12 | open items |
 
 ---
 

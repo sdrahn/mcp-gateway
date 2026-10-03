@@ -9,7 +9,9 @@ systemd and SELinux, and everything is audited.
 This guide is for administrators who deploy and run the gateway, for
 people who write policy and add MCP servers, and for users who connect
 their agents to it. The design rationale lives in
-[docs/architecture.md](../architecture.md).
+[docs/architecture.md](../architecture.md). [docs/README.md](../README.md)
+says which chapter answers which question and where each common error
+message is explained.
 
 | Chapter | Contents |
 |---|---|

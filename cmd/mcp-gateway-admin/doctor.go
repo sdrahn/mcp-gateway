@@ -368,7 +368,7 @@ func (d *doctorRun) servers() []doctor.Result {
 		cancel()
 		if err != nil {
 			r.Status, r.Summary = doctor.Fail, "does not start: "+err.Error()
-			r.Details = []string{fmt.Sprintf("journalctl -u 'mcp-%s-*' shows its output; mcp-gateway-admin inspect -server %s for more", name, name)}
+			r.Details = []string{fmt.Sprintf("journalctl -u 'mcp-%s-*' shows its output; mcp-gateway-admin inspect --server %s for more", name, name)}
 			rs = append(rs, r)
 			continue
 		}
@@ -423,7 +423,7 @@ func rolesResult(name, version, runAs string, msgs []string) *doctor.Result {
 			"privileged definition of the server (chapter 4), and are reported here otherwise")
 	}
 	details = append(details, fmt.Sprintf("tools missing for any account usually mean another version of the server "+
-		"than the roles were written for: compare with mcp-gateway-admin inspect -server %s", name))
+		"than the roles were written for: compare with mcp-gateway-admin inspect --server %s", name))
 	return &doctor.Result{Check: "roles " + name, Status: doctor.Warn,
 		Summary: fmt.Sprintf("%d permissions name what %s does not offer to %s", len(msgs), server, account),
 		Details: details}

@@ -97,7 +97,7 @@ func TestRolesResult(t *testing.T) {
 		t.Fatalf("result %+v", r)
 	}
 	all := strings.Join(r.Details, "\n")
-	for _, want := range []string{msgs[0], "only to root", "another version", "mcp-gateway-admin inspect -server zypp"} {
+	for _, want := range []string{msgs[0], "only to root", "another version", "mcp-gateway-admin inspect --server zypp"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("details lack %q:\n%s", want, all)
 		}

@@ -1,5 +1,8 @@
 # 2. Installation
 
+The packages, the first start, SELinux, and installing from source. The
+configuration itself is chapter 3.
+
 ## Requirements
 
 - **SLES 16 or openSUSE Leap 16**; openSUSE Tumbleweed is built too, as
@@ -24,6 +27,9 @@ zypper install mcp-gateway            # daemon, mcp-connect, policy, units
 zypper install mcp-gateway-cockpit    # optional: web console page
 zypper install mcp-gateway-desktop    # optional: desktop notifications
 zypper install mcp-gateway-fs-server  # optional: file server "fs", docs server "gateway-docs"
+zypper install mcp-gateway-exec-server  # optional: command server "exec" (chapter 4)
+zypper install mcp-gateway-tools      # optional: inspect, profile, review for adding servers (chapter 4)
+zypper install mcp-gateway-profile-systemd  # optional: setup of a system management server (chapter 13)
 ```
 
 `mcp-gateway-selinux` is pulled in automatically where the targeted
@@ -91,7 +97,8 @@ systemctl enable --now mcp-gateway.service
 # Check.
 systemctl status mcp-gateway.service mcp-opa.service
 journalctl -u mcp-gateway.service -b
-mcp-gateway --check          # validates the configuration and the MCP server definitions
+mcp-gateway --check          # validates the configuration, the MCP server definitions and the role data
+mcp-gateway-admin doctor     # the self-check (chapter 10)
 ```
 
 `mcp-gateway --check` prints the configuration file in use and the
@@ -175,7 +182,8 @@ semanage port -a -t mcp_port_t -p tcp 8443
 
 ```bash
 git clone https://github.com/sdrahn/mcp-gateway.git && cd mcp-gateway
-make build                       # bin/mcp-gateway, mcp-connect, mcp-gateway-notify, mcp-server-fs
+make build                       # bin/: mcp-gateway, mcp-gateway-admin, mcp-gateway-tools, mcp-connect,
+                                 #       mcp-gateway-notify, mcp-server-fs, mcp-server-exec
 sudo make install install-selinux install-cockpit install-desktop install-demo \
      PREFIX=/usr SYSCONFDIR=/etc DISTCONFDIR=/usr/etc
 sudo systemd-sysusers /usr/lib/sysusers.d/mcp-gateway.conf

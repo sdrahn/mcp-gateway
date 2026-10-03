@@ -79,7 +79,7 @@ any differs, the page lists them ("alice, fs, tool write_file: denied →
 needs approval") and saves only after **Save**. Decisions are made
 without arguments, as for tool lists: a permission limited to certain
 arguments counts as allowing the tool. Servers with `discovery:
-per-user` are listed as not checked. The comparison is available to
+instance` are listed as not checked. The comparison is available to
 those the default approver rules name besides `self` (with the shipped
 data: the `admin` role) and to root; for others the page saves without
 it.

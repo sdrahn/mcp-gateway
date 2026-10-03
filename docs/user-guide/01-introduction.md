@@ -63,11 +63,14 @@ mcp-gateway sits between agents and MCP servers:
 | `mcp-gateway` | `mcp-gateway` | The daemon (`mcp-gateway.service`): transports, authentication, routing, policy enforcement, approvals, instance supervision, audit, control API. |
 | `mcp-opa.service` | `mcp-gateway` (requires `opa`) | The policy engine: the distribution's OPA, in its own SELinux domain, on a unix socket. |
 | `mcp-connect` | `mcp-gateway` | stdio ↔ socket shim for local agents that can only spawn a command. |
+| `mcp-gateway-admin` | `mcp-gateway`; `inspect`, `profile`, `review` in `mcp-gateway-tools` | Commands for administrators: the self-check (`doctor`), the diagnostics server `gateway-admin` (`serve`), and tools for adding MCP servers (chapter 4). |
 | `mcp-policy-bundle` | `mcp-gateway` | Builds and signs policy bundles. |
 | SELinux module `mcp_gateway` | `mcp-gateway-selinux` | Domains for the gateway, OPA and MCP servers; isolation rules. |
 | Cockpit page | `mcp-gateway-cockpit` | Approvals, grants, servers and instances, role bindings, audit records. |
 | `mcp-gateway-notify` | `mcp-gateway-desktop` | Desktop notifications for approvals. |
-| `mcp-server-fs` | `mcp-gateway-fs-server` | An MCP server for files on the user's home directory (server `fs`): read, list, search, write, edit (chapter 4). |
+| `mcp-server-fs` | `mcp-gateway-fs-server` | An MCP server for files on the user's home directory (server `fs`): read, list, search, write, edit (chapter 4); also serves this documentation to agents (server `gateway-docs`, chapter 10). |
+| `mcp-server-exec` | `mcp-gateway-exec-server` | An MCP server offering commands the administrator allows as tools (server `exec`, chapter 4). |
+| setup packages | `mcp-gateway-profile-*` | Definitions, roles, accounts and polkit rules for the systemd, firewalld, zypp, suseconnect and snapper MCP servers (chapter 13). |
 
 ## How a request flows
 

@@ -1,5 +1,9 @@
 # 9. Security
 
+What the gateway protects against and how: trust, SELinux and MCS,
+the sandbox, secrets, fail-closed behaviour and the audit trail, with a
+hardening checklist at the end.
+
 ## Threat model
 
 | Party | Trusted? | Consequence |
@@ -32,10 +36,16 @@ their own domains:
 | `mcpopa_t` | OPA | read the policy, serve its socket; network only with `mcpopa_can_network` |
 | `mcpsrv_generic_t` | MCP servers without `selinux_type` | stdio, libraries, `/etc`, syslog |
 | `mcpsrv_fs_t` | the file server (`mcp-server-fs`) | additionally user home content (read/write) |
+| `mcpsrv_docs_t` | the documentation server `gateway-docs` | read `/usr`, nothing of the users' |
+| `mcpsrv_exec_t` | the command server `exec` | run the allowed commands; read system state |
+| `mcpsrv_admin_t` | the diagnostics server `gateway-admin` | read the configuration, state, journal, audit log and file labels; change nothing |
+| `mcpsrv_systemd_t`, `mcpsrv_firewalld_t`, `mcpsrv_zypp_t`, `mcpsrv_suseconnect_t`, `mcpsrv_snapper_t` | the system management servers (chapter 13) | talk to their system service over D-Bus |
 | `mcpsrv_<name>_t` | your servers (chapter 4) | what the module grants |
 
 Isolation rules for every server domain: no access to the gateway's and
-OPA's sockets, configuration, state or keys; no reading of
+OPA's sockets, configuration, state or keys (of the servers, only
+`gateway-admin` and, for its `exec.d`, the command server `exec` read
+`/etc/mcp-gateway`; none may write it); no reading of
 `/etc/mcp-gateway/credentials` (`mcpgw_cred_t`, systemd reads it for
 them). Neither the gateway nor OPA may read the bundle signing key
 (`mcpgw_signing_key_t`).
@@ -153,7 +163,7 @@ Decision D13 in the architecture document has the reasoning.
 Policy and grants are checked when a call starts. A change to the role
 data, a revoked grant or an expiring one applies to the next call, not
 to one already forwarded to the server (decision D12); to stop a
-running call, cancel it or stop the instance (Cockpit, Instances tab).
+running call, cancel it or stop the instance (Cockpit, Servers tab).
 Notifications that hand out data later are decided again as they
 arrive: an update to a subscribed resource reaches the agent only if
 the agent may still subscribe to that resource.
