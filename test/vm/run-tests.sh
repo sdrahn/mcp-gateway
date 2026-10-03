@@ -605,6 +605,11 @@ if [ -d "$dir/servers" ]; then
 		echo "  $(file_label "${f%%:*}") ${f%%:*}"
 		check "${f%%:*} is labeled ${f##*:}" file_has_type "${f%%:*}" "${f##*:}"
 	done
+	# suseconnect-mcp caches profile ids in /run/suseconnect (created by
+	# the server where the policy transitions it; relabeled otherwise).
+	mkdir -p /run/suseconnect && restorecon -F /run/suseconnect
+	check "/run/suseconnect is labeled mcpsrv_suseconnect_runtime_t" file_has_type /run/suseconnect mcpsrv_suseconnect_runtime_t
+	rmdir /run/suseconnect 2>/dev/null
 	check "the setups created mcp-sysmgmt in systemd-journal" bash -c 'id -nG mcp-sysmgmt | grep -qw systemd-journal'
 	check "the snapper setup created mcp-snapper" id mcp-snapper
 	cat >/etc/systemd/system/mcpgw-vmtest.service <<'END'
