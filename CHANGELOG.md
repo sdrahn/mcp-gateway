@@ -5,7 +5,34 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.7.0 — 2026-10-03
+
+A smaller gateway. The commands for administrators leave the gateway's
+binary: `mcp-gateway-admin` has `doctor` and the server `gateway-admin`
+(`serve`), and runs `inspect`, `profile` and `review` from the new
+package `mcp-gateway-tools`, which brings what they need. The gateway
+keeps running the gateway and its checks, and no server domain needs an
+entry point on its binary any longer (from 0.8 on, when the old commands
+go).
+
+Upgrading from 0.6.x needs no configuration changes unless a definition
+still names `mcp-fs-demo`. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. Things
+to know:
+
+- Update `mcp-gateway-selinux` in the same transaction as the gateway:
+  `mcp-gateway-admin` has the new program type `mcpsrv_admin_exec_t`.
+  On transactional systems, reboot before using it; then
+  `mcp-gateway-admin doctor` checks the labels (user guide, chapter 2,
+  "Transactional systems").
+- `inspect`, `profile` and `review` need `zypper install
+  mcp-gateway-tools`; without it, they say so.
+- `mcp-gateway inspect`, `profile`, `review`, `doctor` and
+  `admin-server` still work, after a warning, until 0.8: change scripts
+  to `mcp-gateway-admin COMMAND` (`admin-server` is `serve`).
+- The program name `mcp-fs-demo` is gone: a definition naming it no
+  longer starts. `mcp-gateway --check` warned about such definitions in
+  0.6; name `mcp-server-fs` instead.
 
 ### Added
 
@@ -21,13 +48,6 @@ minor release (with a warning) and removed in the next.
   its own program type (`mcpsrv_admin_exec_t`); update
   `mcp-gateway-selinux` together with the gateway.
 
-### Removed
-
-- The program name `mcp-fs-demo`, a link to `mcp-server-fs` since 0.5
-  and deprecated in 0.6. A definition still naming it no longer starts:
-  name `mcp-server-fs` instead. The definition the package installs
-  (`servers.d/fs-demo.yaml`, which keeps its name) already does.
-
 ### Deprecated
 
 - `mcp-gateway inspect`, `profile`, `review`, `doctor` and
@@ -36,6 +56,13 @@ minor release (with a warning) and removed in the next.
   `mcp-gateway admin-server` (a copy of `gateway-admin.yaml` in
   `/etc/mcp-gateway/servers.d`) gets a warning from `mcp-gateway --check`,
   at start and from the doctor; start `mcp-gateway-admin serve` instead.
+
+### Removed
+
+- The program name `mcp-fs-demo`, a link to `mcp-server-fs` since 0.5
+  and deprecated in 0.6. A definition still naming it no longer starts:
+  name `mcp-server-fs` instead. The definition the package installs
+  (`servers.d/fs-demo.yaml`, which keeps its name) already does.
 
 ## v0.6.1 — 2026-10-03
 
