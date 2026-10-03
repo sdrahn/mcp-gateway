@@ -1656,6 +1656,31 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       resumes with a fresh token (`Last-Event-ID`), and a pending call's
       answer is replayed to it. The expiry is audited
       (`mcp-token-expired`) and counted (done).
+18. **Live server definitions and what 0.7 showed** (0.9):
+    - the gateway reloads the server definitions when a file in
+      `servers.d` changes (noticed like policy changes, every
+      `policy.watch_interval`) and on `systemctl reload` (SIGHUP), so
+      that a setup package installed or updated with the gateway
+      running takes effect without a restart: new and changed servers
+      start their next instances from the new definition, running
+      instances keep theirs until they end, instances of removed
+      servers are stopped, and clients get `notifications/tools/list_changed`.
+      A reload never stops or crashes the gateway: the new definitions
+      are loaded and validated completely before they replace the old
+      ones, and anything that goes wrong (a file that does not parse or
+      validate, a duplicate name, a file removed while it is read, even a
+      panic in the loader) keeps the previous definitions in force,
+      logged at error and reported by the doctor, and the gateway goes on
+      serving; tests feed it such files while sessions run. The change
+      is audited (`mcp-config-reload`). A gateway still runs from definitions
+      it loaded before an update otherwise, as seen on a 0.7.0 system
+      whose setup servers then started in `mcpsrv_generic_t`;
+    - the doctor checks the labels of every program the gateway's and the
+      setups' SELinux modules give a type to, not only the servers'
+      commands: a helper the server starts (zypp's `zypp-mcp-tool`,
+      `rpm_exec_t`) labeled `bin_t` runs in the wrong domain too;
+    - approval mail reaches the users whose primary group an approver
+      group is (§12), which NSS does not list as members.
 
 ## 12. Open items
 
