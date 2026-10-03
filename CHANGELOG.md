@@ -5,7 +5,37 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.8.0 — 2026-10-03
+
+The cleanup 0.7 announced, and HTTP streams that end with their token.
+What 0.7 deprecated is gone: the old administrator commands of
+`mcp-gateway`, and the entry of a server domain on the gateway's program.
+A streamed response or GET stream now ends when the token of the request
+that opened it expires, as requests with it are refused; clients resume
+with a fresh token. 0.8.0 also has the fixes of 0.7.1.
+
+Upgrading from 0.7.x needs no changes to `gateway.yaml` or role data.
+After the update, restart the gateway (`systemctl restart
+mcp-gateway.service`); the package does not. Things to know:
+
+- Update `mcp-gateway-selinux` in the same transaction as the gateway;
+  on transactional systems, reboot before restarting the gateway (user
+  guide, chapter 2, "Transactional systems").
+- `mcp-gateway inspect`, `profile`, `review`, `doctor` and
+  `admin-server` exit with status 2 and name the `mcp-gateway-admin`
+  command to run (`admin-server` is `serve`); change scripts that still
+  call them. A copy of `gateway-admin.yaml` in
+  `/etc/mcp-gateway/servers.d` that starts `mcp-gateway admin-server`
+  no longer starts the server: `mcp-gateway --check` warns about it;
+  start `mcp-gateway-admin serve`, or remove the copy.
+- HTTP clients holding a stream for longer than their token is valid see
+  it end at the token's expiry (plus one minute of leeway), with a last
+  comment `: token expired`. Clients that refresh their token and resume
+  with `Last-Event-ID` lose nothing; the SDKs tested in CI do (user
+  guide, chapter 5).
+- `mcp-gateway-admin doctor` prints `OK`, `WARN`, `FAIL` and `SKIP` in
+  capitals; scripts that read its text output should use `--json`,
+  whose status values are unchanged.
 
 ### Changed
 
