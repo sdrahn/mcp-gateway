@@ -1452,7 +1452,7 @@ docs/
 1. **Design doc** (this document).
 2. **Skeleton:** Go module, layout above, Makefile, CI (build, `go test`,
    `opa test`), placeholder SELinux module and systemd units.
-3. **PoC** (done, see `examples/poc/README.md`):
+3. **PoC** (done; `examples/dev` runs the gateway from a checkout):
    - unix-socket transport + `mcp-connect`;
    - protocol router for one backend (no aggregation yet);
    - OPA sidecar with the example policy; `allow`/`deny`/`ask`;

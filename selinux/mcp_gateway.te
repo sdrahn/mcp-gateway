@@ -5,9 +5,9 @@ policy_module(mcp_gateway, 0.1.0)
 # Declarations
 #
 # Policy module for mcp-gateway. It establishes the domains and the
-# isolation invariants from docs/architecture.md, section 5.8. The rules
-# below cover the proof-of-concept launch path; run new backend domains
-# permissive (semanage permissive -a) until their rules are complete.
+# isolation invariants from docs/architecture.md, section 5.8. For a new
+# backend domain, mcp-gateway profile drafts the rules; run it permissive
+# (semanage permissive -a) until they are complete.
 #
 
 ## <desc>
