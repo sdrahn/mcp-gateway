@@ -24,8 +24,8 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 )
 
-const profileUsage = `usage: mcp-gateway profile [options] --server NAME --out DIR
-       mcp-gateway profile [options] --server NAME --verify
+const profileUsage = `usage: mcp-gateway-admin profile [options] --server NAME --out DIR
+       mcp-gateway-admin profile [options] --server NAME --verify
 
 Runs a registered MCP server in a permissive SELinux domain (only that
 domain), calls its tools and records the SELinux denials of the run.
@@ -51,9 +51,9 @@ it removes the module and turns them back on.
 Options:
 `
 
-// runProfile implements "mcp-gateway profile"; it returns the exit code.
+// runProfile implements "mcp-gateway-admin profile"; it returns the exit code.
 func runProfile(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("mcp-gateway profile", flag.ContinueOnError)
+	fs := flag.NewFlagSet("mcp-gateway-admin profile", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
 		_, _ = fmt.Fprint(stderr, profileUsage)
@@ -78,7 +78,7 @@ func runProfile(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if os.Geteuid() != 0 {
-		say(stderr, "mcp-gateway profile needs root")
+		say(stderr, "mcp-gateway-admin profile needs root")
 		return 1
 	}
 	if !supervisor.SELinuxEnabled() {
@@ -168,7 +168,7 @@ func runProfile(args []string, stdout, stderr io.Writer) int {
 	}
 
 	log := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	launcher, err := newLauncher(log, gw.Supervisor)
+	launcher, err := supervisor.NewLauncher(log, gw.Supervisor)
 	if err != nil {
 		say(stderr, err)
 		return 1
@@ -309,7 +309,7 @@ func definition(orig *config.Backend, d profile.Domain, hints []string) ([]byte,
 	if err != nil {
 		return nil, err
 	}
-	head := fmt.Sprintf("# Draft by mcp-gateway profile: the definition of %s with selinux_type %s\n"+
+	head := fmt.Sprintf("# Draft by mcp-gateway-admin profile: the definition of %s with selinux_type %s\n"+
 		"# (and network: true if the run connected to the network). Compare it with the\n"+
 		"# definition in use before installing it in /etc/mcp-gateway/servers.d.\n", b.Name, d.Type)
 	return append([]byte(head), body...), nil

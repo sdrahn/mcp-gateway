@@ -74,7 +74,7 @@ As root it refuses (`refusing to run as root`) unless given
 `--allow-root`: the state files it would write would be root's, and the
 service would then fail to read them. If that happened, the gateway names
 the files at start (`state files not owned by mcp-gateway`) and exits, and
-`mcp-gateway doctor` names them too; `chown -R mcp-gateway:
+`mcp-gateway-admin doctor` names them too; `chown -R mcp-gateway:
 /var/lib/mcp-gateway` fixes it.
 
 ## Upgrades
@@ -174,7 +174,7 @@ but keeps running.
 Start with the self-check, as root:
 
 ```bash
-mcp-gateway doctor
+mcp-gateway-admin doctor
 ```
 
 ```
@@ -187,7 +187,7 @@ ok    gateway status: running version 0.4.0
 ok    policy: OPA decides (deny for an unknown principal)
 ok    server firewalld: starts: firewalld-mcp 0.1.0, 5 tools, 0 prompts, 0 resource templates
 fail  server fs: does not start: starting: …
-        journalctl -u 'mcp-fs-*' shows its output; mcp-gateway inspect -server fs for more
+        journalctl -u 'mcp-fs-*' shows its output; mcp-gateway-admin inspect -server fs for more
 ok    server systemd: starts: systemd-mcp 0.3.0, 9 tools, 0 prompts, 0 resource templates
 fail  SELinux mcpsrv_firewalld_t: 2 denials (1 distinct) since 2026-10-01 09:12:00
         2  mcpsrv_firewalld_t system_dbusd_var_run_t:dir { search } dbus (firewalld-mcp)
@@ -254,7 +254,7 @@ main package installs: the gateway's diagnostics as tools.
 
 | Tool | What it returns | With the role `gateway-admin` |
 |---|---|---|
-| `doctor` | the checks of `mcp-gateway doctor` (above), without starting servers and without asking OPA | allowed |
+| `doctor` | the checks of `mcp-gateway-admin doctor` (above), without starting servers and without asking OPA | allowed |
 | `check_config` | whether `gateway.yaml`, the server definitions and the role data are valid | allowed |
 | `explain_decision` | what the policy decides when a user calls a tool, with the user's roles and the permissions that match | approval |
 | `show_config` | the configuration files, values of keys that look like secrets (`token`, `secret`, `password`, `private`, `api_key`) masked | approval |
@@ -275,7 +275,7 @@ checks need, but in the sandbox without capabilities and in the domain
 `mcpsrv_admin_t`, which only reads: the configuration, the state
 directory, the journal, the audit log, file labels. Like every server it
 cannot reach the gateway's sockets or OPA, so the `doctor` tool skips
-what needs them (run `mcp-gateway doctor` as root for those), and
+what needs them (run `mcp-gateway-admin doctor` as root for those), and
 `explain_decision` evaluates the policy files with `opa eval` as
 `mcp-opa.service` loads them: with signed policy bundles, the active
 policy is the bundle's. It does not see approvals already given.

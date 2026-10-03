@@ -3,7 +3,8 @@
 # SELinux enforcing: domains, MCS pairs, polkit, credentials, kernel audit
 # and no SELinux denials. Runs inside the VM as root (test/vm/run-vm.sh
 # copies it there), with, next to it:
-#   rpms/     mcp-gateway, mcp-gateway-selinux and mcp-gateway-fs-server
+#   rpms/     mcp-gateway and its subpackages (selinux, fs-server, exec-server,
+#             tools, the profiles)
 #   mcpcall   the test client (test/vm/mcpcall)
 #   opa       OPA binary, used if the distribution has no opa package
 #   privsrv   test server for privileged backends (test/vm/privsrv)
@@ -224,11 +225,13 @@ install -m 0755 "$dir/mcpcall" /usr/local/bin/mcpcall
 install -D -m 0755 "$dir/privsrv" /usr/libexec/mcpgw-privtest
 since=$(date +%s)
 rpm -Uvh --nodeps "$dir"/rpms/mcp-gateway-[0-9]*.rpm "$dir"/rpms/mcp-gateway-selinux-*.rpm \
-	"$dir"/rpms/mcp-gateway-fs-server-*.rpm "$dir"/rpms/mcp-gateway-exec-server-*.rpm || die "installing the packages failed"
+	"$dir"/rpms/mcp-gateway-fs-server-*.rpm "$dir"/rpms/mcp-gateway-exec-server-*.rpm \
+	"$dir"/rpms/mcp-gateway-tools-*.rpm || die "installing the packages failed"
 check "SELinux module mcp_gateway is loaded" bash -c 'semodule -l | grep -qx mcp_gateway'
 # Labels as the packages leave them (no restorecon): a wrong label here is
 # a packaging bug.
-for f in /usr/bin/mcp-gateway:mcpgw_exec_t /usr/libexec/mcp-servers/mcp-server-fs:mcpsrv_fs_exec_t \
+for f in /usr/bin/mcp-gateway:mcpgw_exec_t /usr/bin/mcp-gateway-admin:mcpsrv_admin_exec_t \
+	/usr/libexec/mcp-servers/mcp-server-fs:mcpsrv_fs_exec_t \
 	/usr/libexec/mcp-servers/mcp-server-exec:mcpsrv_exec_exec_t \
 	/etc/mcp-gateway/credentials:mcpgw_cred_t /usr/etc/mcp-gateway/gateway.yaml:mcpgw_etc_t; do
 	echo "  $(file_label "${f%%:*}") ${f%%:*}"
@@ -618,7 +621,7 @@ END
 		cat /root/vmtest/data.json >/etc/mcp-gateway/policy/rbac/data.json
 	check "the role data binds the shipped roles" mcp-gateway --check-policy-data
 	# Each server, started as for shared discovery, has every tool its
-	# shipped roles name (mcp-gateway inspect, roadmap step 11). zypp
+	# shipped roles name (mcp-gateway-admin inspect, roadmap step 11). zypp
 	# offers the tools of zypp-installer only as root: its roles are
 	# checked against the privileged definition, in a configuration of
 	# its own.
@@ -628,7 +631,7 @@ END
 	for s in systemd firewalld zypp suseconnect snapper; do
 		conf=()
 		[ "$s" = zypp ] && conf=(-config /root/vmtest/inspect-gateway.yaml)
-		mcp-gateway inspect "${conf[@]}" -server "$s" -timeout 60s \
+		mcp-gateway-admin inspect "${conf[@]}" -server "$s" -timeout 60s \
 			-roles "/usr/share/mcp-gateway/policy/mcp/profiles/$s/data.json" >"/root/vmtest/inspect-$s.txt" 2>&1
 		rc=$?
 		sed -n '1p;/^Tools/,$p' "/root/vmtest/inspect-$s.txt" | sed "s/^/  [$s] /"
@@ -665,9 +668,9 @@ END
 
 	# snapper in the sandbox, as mcp-snapper: what snapperd allows the
 	# account through ALLOW_USERS. Changing a config is root's.
-	mcp-gateway doctor --server snapper --no-start 2>&1 | grep -E '^[a-z]+ +snapper' | sed 's/^/  /'
+	mcp-gateway-admin doctor --server snapper --no-start 2>&1 | grep -E '^[a-z]+ +snapper' | sed 's/^/  /'
 	check "doctor: snapperd allows mcp-snapper the vmtest config" \
-		sh -c 'mcp-gateway doctor --server snapper --no-start 2>&1 | grep -qE "^ok +snapper snapper: .*vmtest"'
+		sh -c 'mcp-gateway-admin doctor --server snapper --no-start 2>&1 | grep -qE "^ok +snapper snapper: .*vmtest"'
 	stool alice snapper list_configs '{}'
 	check "snapper: list_configs" succeeded_with "vmtest"
 	# The server's input schemas require every argument.
@@ -715,7 +718,7 @@ END
 
 	section "Profiling a new server"
 	# Roadmap step 11, stage 2: firewalld-mcp under another name and path,
-	# as a server nobody has written a module for. mcp-gateway profile
+	# as a server nobody has written a module for. mcp-gateway-admin profile
 	# drafts its domain from a permissive run; with the drafted module
 	# and definition it runs enforcing without denials.
 	install -m 0755 /usr/bin/firewalld-mcp /usr/libexec/mcpgw-fwprof
@@ -727,7 +730,7 @@ run_as: mcp-sysmgmt
 END
 	prof=/root/vmtest/fwprof
 	dontaudit_off_from=$(date +%s)
-	mcp-gateway profile -server fwprof -out "$prof" >"$prof.txt" 2>&1
+	mcp-gateway-admin profile -server fwprof -out "$prof" >"$prof.txt" 2>&1
 	rc=$?
 	dontaudit_off_to=$(date +%s)
 	sed 's/^/  /' "$prof.txt" | head -70
@@ -741,7 +744,7 @@ END
 	check "profile: the program has the new domain's label" file_has_type /usr/libexec/mcpgw-fwprof mcpsrv_fwprof_exec_t
 	cp "$prof/fwprof.yaml" /etc/mcp-gateway/servers.d/fwprof.yaml
 	check "profile: the drafted definition is valid" mcp-gateway --check --policy-data=
-	mcp-gateway profile -server fwprof -verify >"$prof-verify.txt" 2>&1
+	mcp-gateway-admin profile -server fwprof -verify >"$prof-verify.txt" 2>&1
 	rc=$?
 	sed 's/^/  /' "$prof-verify.txt" | head -40
 	check "profile: with the drafted module the server runs enforcing without denials" test "$rc" = 0
@@ -798,7 +801,7 @@ fi
 section "Self-check"
 # carol may connect (mcp-users) but holds no role: the doctor names her.
 useradd -m carol && usermod -aG mcp-users carol
-mcp-gateway doctor >/root/doctor.txt 2>&1
+mcp-gateway-admin doctor >/root/doctor.txt 2>&1
 rc=$?
 sed 's/^/  /' /root/doctor.txt | head -100
 echo "  exit status $rc (the profiling run's denials count as failures)"
@@ -818,7 +821,7 @@ check "doctor: the servers' programs are labeled as the policy says" doctor_says
 # A program that lost its label (installed before its module): the doctor
 # names it and the fix.
 chcon -t bin_t /usr/libexec/mcp-servers/mcp-server-fs
-mcp-gateway doctor --server fs --no-start >/root/doctor-label.txt 2>&1
+mcp-gateway-admin doctor --server fs --no-start >/root/doctor-label.txt 2>&1
 grep -A1 '^fail *program' /root/doctor-label.txt | sed 's/^/  /'
 check "doctor: names a program labeled bin_t, and restorecon" \
 	bash -c 'grep -qE "^fail +program fs: .* is labeled bin_t" /root/doctor-label.txt && grep -q "restorecon -v /usr/libexec/mcp-servers/mcp-server-fs" /root/doctor-label.txt'
@@ -835,7 +838,7 @@ run_as: root
 selinux_type: mcpsrv_notype_t
 privileged: true
 END
-mcp-gateway doctor --server notype --no-start >/root/doctor-notype.txt 2>&1
+mcp-gateway-admin doctor --server notype --no-start >/root/doctor-notype.txt 2>&1
 sed 's/^/  /' /root/doctor-notype.txt | grep -i 'selinux type'
 check "doctor: names the SELinux type that is not in the policy" \
 	grep -qE '^fail +SELinux type mcpsrv_notype_t: .*servers notype cannot start' /root/doctor-notype.txt
@@ -856,7 +859,7 @@ timeout 10 /usr/bin/mcp-gateway >/root/as-root.txt 2>&1
 sed 's/^/  /' /root/as-root.txt
 check "the gateway refuses to run as root" grep -q 'refusing to run as root' /root/as-root.txt
 echo '[]' >/var/lib/mcp-gateway/stray.json
-mcp-gateway doctor --no-start >/root/doctor-state.txt 2>&1
+mcp-gateway-admin doctor --no-start >/root/doctor-state.txt 2>&1
 grep 'state files' /root/doctor-state.txt | sed 's/^/  /'
 check "doctor: names the state file root owns" \
 	grep -qE '^fail +state files: not owned by mcp-gateway: 1 ' /root/doctor-state.txt
@@ -868,7 +871,11 @@ rm -f /var/lib/mcp-gateway/stray.json
 systemctl reset-failed mcp-gateway.service
 systemctl restart mcp-gateway.service
 wait_socket
-check "doctor: the state files are the gateway's" sh -c 'mcp-gateway doctor --no-start 2>&1 | grep -qE "^ok +state files: "'
+check "doctor: the state files are the gateway's" sh -c 'mcp-gateway-admin doctor --no-start 2>&1 | grep -qE "^ok +state files: "'
+# Until 0.8 the old command runs mcp-gateway-admin, with a warning.
+mcp-gateway doctor --no-start >/root/doctor-moved.txt 2>&1
+check "mcp-gateway doctor: deprecated, and still runs the doctor" \
+	sh -c 'grep -q "deprecated and goes away in 0.8" /root/doctor-moved.txt && grep -qE "^ok +state files: " /root/doctor-moved.txt'
 userdel -r carol 2>/dev/null
 
 section "Kernel audit"

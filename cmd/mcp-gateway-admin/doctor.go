@@ -28,10 +28,11 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/policydata"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/profile"
+	"github.com/sdrahn/mcp-gateway/internal/statedir"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 )
 
-const doctorUsage = `usage: mcp-gateway doctor [flags]
+const doctorUsage = `usage: mcp-gateway-admin doctor [flags]
 
 Checks the installation for what usually goes wrong with MCP servers
 behind the gateway: the configuration and role data, the services and
@@ -47,7 +48,7 @@ failed.
 `
 
 func runDoctor(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("mcp-gateway doctor", flag.ContinueOnError)
+	fs := flag.NewFlagSet("mcp-gateway-admin doctor", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
 		_, _ = fmt.Fprint(stderr, doctorUsage)
@@ -129,7 +130,7 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 	add(d.stateFiles())
 	if d.isolated {
 		add(doctor.Result{Check: "policy", Status: doctor.Skip,
-			Summary: "servers cannot reach OPA (mcp-gateway doctor as root asks it; explain_decision evaluates the policy files)"})
+			Summary: "servers cannot reach OPA (mcp-gateway-admin doctor as root asks it; explain_decision evaluates the policy files)"})
 	} else {
 		add(d.opa())
 	}
@@ -265,16 +266,16 @@ func (d *doctorRun) services() []doctor.Result {
 // owns it.)
 func (d *doctorRun) stateFiles() doctor.Result {
 	r := doctor.Result{Check: "state files"}
-	u, err := user.Lookup(gatewayUser)
+	u, err := user.Lookup(statedir.User)
 	if err != nil {
-		r.Status, r.Summary = doctor.Skip, "no "+gatewayUser+" account"
+		r.Status, r.Summary = doctor.Skip, "no "+statedir.User+" account"
 		return r
 	}
 	uid, _ := strconv.ParseUint(u.Uid, 10, 32)
 	dir := d.gw.StateDir
-	foreign, err := foreignFiles(dir, uint32(uid))
+	foreign, err := statedir.ForeignFiles(dir, uint32(uid))
 	if err != nil && d.isolated && errors.Is(err, fs.ErrPermission) {
-		r.Status, r.Summary = doctor.Skip, dir+" is the gateway's alone (0700), and this server has no capabilities: mcp-gateway doctor as root checks it"
+		r.Status, r.Summary = doctor.Skip, dir+" is the gateway's alone (0700), and this server has no capabilities: mcp-gateway-admin doctor as root checks it"
 		return r
 	}
 	if err != nil {
@@ -286,10 +287,10 @@ func (d *doctorRun) stateFiles() doctor.Result {
 	if len(r.Details) > 0 {
 		r.Status = doctor.Fail
 		r.Summary = fmt.Sprintf("not owned by %s: %d (was the gateway run as root?); the service fails to read them: chown -R %s: %s",
-			gatewayUser, len(r.Details), gatewayUser, dir)
+			statedir.User, len(r.Details), statedir.User, dir)
 		return r
 	}
-	r.Status, r.Summary = doctor.OK, dir+" owned by "+gatewayUser
+	r.Status, r.Summary = doctor.OK, dir+" owned by "+statedir.User
 	return r
 }
 
@@ -331,7 +332,7 @@ func (d *doctorRun) servers() []doctor.Result {
 	if d.gw.Supervisor.Mode == "systemd" && !d.root {
 		return []doctor.Result{{Check: "servers", Status: doctor.Skip, Summary: "starting servers through systemd needs root"}}
 	}
-	launcher, err := newLauncher(d.log, d.gw.Supervisor)
+	launcher, err := supervisor.NewLauncher(d.log, d.gw.Supervisor)
 	if err != nil {
 		return []doctor.Result{{Check: "servers", Status: doctor.Fail, Summary: err.Error()}}
 	}
@@ -341,11 +342,11 @@ func (d *doctorRun) servers() []doctor.Result {
 		b := sel[name]
 		r := doctor.Result{Check: "server " + name}
 		ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
-		res, err := probe(ctx, launcher, b, principal.Discovery)
+		res, err := inspect.Start(ctx, launcher, b, principal.Discovery)
 		cancel()
 		if err != nil {
 			r.Status, r.Summary = doctor.Fail, "does not start: "+err.Error()
-			r.Details = []string{fmt.Sprintf("journalctl -u 'mcp-%s-*' shows its output; mcp-gateway inspect -server %s for more", name, name)}
+			r.Details = []string{fmt.Sprintf("journalctl -u 'mcp-%s-*' shows its output; mcp-gateway-admin inspect -server %s for more", name, name)}
 			rs = append(rs, r)
 			continue
 		}

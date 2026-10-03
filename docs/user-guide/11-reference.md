@@ -7,14 +7,15 @@
 ```
 mcp-gateway [--config FILE] [--check] [--debug] [--allow-root] [--version]
 mcp-gateway --check-policy-data [--policy-data FILE]
-mcp-gateway inspect|profile|review|doctor [options]
-mcp-gateway help [COMMAND]
+mcp-gateway help
 ```
 
-Without a command it runs the gateway (as `mcp-gateway.service` does).
-`mcp-gateway -h` or `help` lists the commands (below) and the options;
-`mcp-gateway COMMAND -h` or `help COMMAND` shows a command's options. An
-unknown command is an error (status 2).
+It runs the gateway (as `mcp-gateway.service` does); `mcp-gateway -h`
+or `help` lists the options. The commands for administrators are
+`mcp-gateway-admin`'s (below). Until 0.8, `mcp-gateway-admin inspect`,
+`profile`, `review`, `doctor` and `admin-server` still work: they run
+`mcp-gateway-admin` with the same options (`admin-server` as `serve`),
+after a warning. Any other argument is an error (status 2).
 
 | Flag | Meaning |
 |---|---|
@@ -27,11 +28,26 @@ unknown command is an error (status 2).
 | `--allow-root` | run the gateway as root although the `mcp-gateway` account exists; without it the gateway refuses, since the state files it would create as root are unreadable for the service (`--check` runs as root without it) |
 | `--version` | print the version |
 
-### mcp-gateway inspect
+### mcp-gateway-admin
 
 ```
-mcp-gateway inspect [options] --server NAME
-mcp-gateway inspect [options] --name NAME -- COMMAND [ARG...]
+mcp-gateway-admin doctor|inspect|profile|review|serve [options]
+mcp-gateway-admin help [COMMAND]
+mcp-gateway-admin --version
+```
+
+The commands for administrators: `doctor` and `serve` come with the
+package `mcp-gateway`; `inspect`, `profile` and `review`, which help to
+add MCP servers, with `mcp-gateway-tools` (`zypper install
+mcp-gateway-tools`, which brings the SELinux policy development files
+`profile` needs). `mcp-gateway-admin COMMAND -h` or `help COMMAND` shows
+a command's options. An unknown command is an error (status 2).
+
+### mcp-gateway-admin inspect
+
+```
+mcp-gateway-admin inspect [options] --server NAME
+mcp-gateway-admin inspect [options] --name NAME -- COMMAND [ARG...]
 ```
 
 Starts an MCP server, reports its tools, prompts and resource templates
@@ -52,11 +68,11 @@ errors.
 | `--json` | print the result (server answers, classification, draft roles, findings) as JSON |
 | `--timeout D` | how long to wait for the server (default 60s) |
 
-### mcp-gateway profile
+### mcp-gateway-admin profile
 
 ```
-mcp-gateway profile [options] --server NAME --out DIR
-mcp-gateway profile [options] --server NAME --verify
+mcp-gateway-admin profile [options] --server NAME --out DIR
+mcp-gateway-admin profile [options] --server NAME --verify
 ```
 
 Runs a registered server with its SELinux domain permissive, calls its
@@ -76,10 +92,10 @@ with `--verify`, on a denial), 2 on usage errors.
 | `--config FILE` | gateway configuration, for the registry and the supervisor |
 | `--timeout D` | how long the run may take (default 5m) |
 
-### mcp-gateway review
+### mcp-gateway-admin review
 
 ```
-mcp-gateway review [options] --source DIR
+mcp-gateway-admin review [options] --source DIR
 ```
 
 Scans a server's source for programs it runs, D-Bus names and polkit
@@ -94,10 +110,10 @@ source"). Needs no root. Exit status 1 on errors, 2 on usage errors.
 | `--profile DIR` | drafts directory of a profiling run, whose `denials.json` marks what the run reached |
 | `--json` | print the findings as JSON |
 
-### mcp-gateway doctor
+### mcp-gateway-admin doctor
 
 ```
-mcp-gateway doctor [options]
+mcp-gateway-admin doctor [options]
 ```
 
 Checks the installation (chapter 10, "Self-check"). Run it as root;
@@ -115,10 +131,10 @@ check failed, 2 on usage errors.
 | `--timeout DURATION` | how long to wait for each server (default `30s`) |
 | `--json` | print the results as JSON |
 
-### mcp-gateway admin-server
+### mcp-gateway-admin serve
 
 ```
-mcp-gateway admin-server [options]
+mcp-gateway-admin serve [options]
 ```
 
 The MCP server `gateway-admin` on stdin/stdout, which the gateway starts

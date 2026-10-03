@@ -1,4 +1,5 @@
 /usr/bin/mcp-gateway					--	gen_context(system_u:object_r:mcpgw_exec_t,s0)
+/usr/bin/mcp-gateway-admin				--	gen_context(system_u:object_r:mcpsrv_admin_exec_t,s0)
 # One line per directory: a context's specificity is the literal prefix
 # before its first regex character, and /usr/(lib|libexec)/... would lose
 # to the policy's own /usr/libexec entries.

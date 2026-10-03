@@ -58,7 +58,7 @@ fetch aschnell/mcp-server-snapper mcp-server-snapper "$MCP_SERVER_SNAPPER"
 (cd "$src/mcp-server-snapper" && CGO_ENABLED=0 go build -mod=vendor -trimpath \
 	-ldflags "-X main.Version=$(cat VERSION)" -o "$out/usr/bin/mcp-server-snapper" ./src)
 
-# mcp-gateway review on the real sources (roadmap step 11, stage 3): the
+# mcp-gateway-admin review on the real sources (roadmap step 11, stage 3): the
 # reports go to the job log; the helpers systemd-mcp is known to run must
 # be found.
 repo=$(cd "$(dirname "$0")/../.." && pwd)

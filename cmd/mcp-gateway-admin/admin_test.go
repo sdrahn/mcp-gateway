@@ -17,10 +17,10 @@ import (
 
 func TestAdminUsage(t *testing.T) {
 	var out, errb bytes.Buffer
-	if rc := runAdminServer([]string{"extra"}, &out, &errb); rc != 2 {
+	if rc := runServe([]string{"extra"}, &out, &errb); rc != 2 {
 		t.Errorf("extra argument: rc %d", rc)
 	}
-	if rc := runAdminServer([]string{"-h"}, &out, &errb); rc != 0 || !strings.Contains(errb.String(), "usage: mcp-gateway admin-server") {
+	if rc := runServe([]string{"-h"}, &out, &errb); rc != 0 || !strings.Contains(errb.String(), "usage: mcp-gateway-admin serve") {
 		t.Errorf("-h: rc %d, %s", rc, errb.String())
 	}
 }
@@ -268,7 +268,7 @@ func TestAdminDefinition(t *testing.T) {
 	}
 	b := backends["gateway-admin"]
 	if b == nil || b.RunAs != "root" || b.Privileged || b.Network || b.SELinuxType != "mcpsrv_admin_t" ||
-		b.Sandbox.ProtectHome != "yes" || strings.Join(b.Command, " ") != "/usr/bin/mcp-gateway admin-server" {
+		b.Sandbox.ProtectHome != "yes" || strings.Join(b.Command, " ") != "/usr/bin/mcp-gateway-admin serve" {
 		t.Fatalf("%+v", b)
 	}
 	if findCommand(b.Command[1]) == nil {

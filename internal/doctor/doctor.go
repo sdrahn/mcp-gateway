@@ -1,4 +1,4 @@
-// Package doctor holds the checks of "mcp-gateway doctor", which finds
+// Package doctor holds the checks of "mcp-gateway-admin doctor", which finds
 // what had to be debugged by hand when setting up MCP servers: servers
 // that do not start, role data that does not validate or names tools a
 // server does not have, SELinux denials for the gateway and its servers,

@@ -53,8 +53,8 @@ const mcsWatchInterval = 30 * time.Second
 
 func main() {
 	if len(os.Args) > 1 {
-		if c := findCommand(os.Args[1]); c != nil {
-			os.Exit(c.run(os.Args[2:], os.Stdout, os.Stderr))
+		if _, ok := movedCommands[os.Args[1]]; ok {
+			os.Exit(runMoved(os.Args[1], os.Args[2:], os.Stderr))
 		}
 	}
 	configPath := flag.String("config", "", "path to the gateway configuration (default: "+
@@ -193,7 +193,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		return nil
 	}
 
-	launcher, err := newLauncher(log, gw.Supervisor)
+	launcher, err := supervisor.NewLauncher(log, gw.Supervisor)
 	if err != nil {
 		return err
 	}
@@ -549,26 +549,4 @@ func warnMissingSELinuxTypes(log *slog.Logger, backends map[string]*config.Backe
 		log.Warn("selinux_type is not in the loaded SELinux policy; install its module, or instances of these servers fail to start",
 			"selinux_type", t, "servers", strings.Join(missing[t], ","))
 	}
-}
-
-func newLauncher(log *slog.Logger, s config.Supervisor) (supervisor.Launcher, error) {
-	switch s.Mode {
-	case "exec":
-		log.Warn("supervisor mode exec: backends run unconfined as child processes (development only)")
-		return &supervisor.Exec{Log: log}, nil
-	case "systemd":
-		useSELinux := s.SELinux == "on" || (s.SELinux == "auto" && supervisor.SELinuxEnabled())
-		lo, hi, err := s.MCSCategories()
-		if err != nil {
-			return nil, err
-		}
-		mcs := supervisor.NewMCSAllocator(lo, hi)
-		if s.MCSAvoid == "auto" {
-			// Skip pairs of running containers and virtual machines.
-			mcs.Foreign = func() map[[2]int]supervisor.ForeignProc { return supervisor.ScanMCS("/proc").Pairs }
-		}
-		log.Info("supervisor mode systemd", "selinux", useSELinux, "mcs_range", s.MCSRange, "mcs_avoid", s.MCSAvoid)
-		return &supervisor.Systemd{Log: log, SELinux: useSELinux, MCS: mcs}, nil
-	}
-	return nil, fmt.Errorf("unknown supervisor mode %q", s.Mode)
 }

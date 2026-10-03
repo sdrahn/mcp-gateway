@@ -1,6 +1,6 @@
 // Package profile records what an MCP server needs from the system while
 // it runs in a permissive SELinux domain, and drafts a policy module and
-// definition settings from it. It backs "mcp-gateway profile".
+// definition settings from it. It backs "mcp-gateway-admin profile".
 //
 // See docs/architecture.md, section 11, step 11.
 package profile

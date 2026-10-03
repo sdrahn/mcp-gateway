@@ -5,3 +5,6 @@ package version
 
 // Version is the release version of the gateway binaries.
 var Version = "devel"
+
+// LibexecDir is where helper programs are installed (LIBEXECDIR).
+var LibexecDir = "/usr/libexec"

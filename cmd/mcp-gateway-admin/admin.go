@@ -31,10 +31,10 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
 
-const adminUsage = `usage: mcp-gateway admin-server [flags]
+const adminUsage = `usage: mcp-gateway-admin serve [flags]
 
 The MCP server gateway-admin, which the gateway starts (servers.d/
-gateway-admin.yaml): the checks of mcp-gateway doctor, the configuration
+gateway-admin.yaml): the checks of mcp-gateway-admin doctor, the configuration
 with secrets masked, what the policy decides for a user and why, the
 gateway's audit records and SELinux denials, for an agent debugging the
 gateway's setup. It speaks MCP on stdin/stdout and changes nothing.
@@ -56,8 +56,8 @@ type adminServer struct {
 	journal func(ctx context.Context, args ...string) ([]byte, error)
 }
 
-func runAdminServer(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("mcp-gateway admin-server", flag.ContinueOnError)
+func runServe(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("mcp-gateway-admin serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
 		_, _ = fmt.Fprint(stderr, adminUsage)
@@ -89,7 +89,7 @@ func runAdminServer(args []string, stdout, stderr io.Writer) int {
 
 const adminInstructions = `Diagnostics of the MCP gateway on this machine, for finding out why a server, tool or permission does not work. Nothing here changes the system.
 
-- doctor: the checks of "mcp-gateway doctor" (configuration, role data, services, state files, SELinux types, labels and denials, polkit, snapper, users without a role). Start here.
+- doctor: the checks of "mcp-gateway-admin doctor" (configuration, role data, services, state files, SELinux types, labels and denials, polkit, snapper, users without a role). Start here.
 - check_config: only whether the configuration and the role data are valid.
 - explain_decision: what the policy decides for a user calling a tool (or reading a resource, getting a prompt), with the roles the user holds and the permissions that match.
 - show_config: the configuration files (gateway.yaml, server definitions, role data), secrets masked.
@@ -144,8 +144,8 @@ func adminTool(name, title, description string, props map[string]any, required .
 
 var adminTools = []map[string]any{
 	adminTool("doctor", "Check the gateway",
-		"Runs the checks of mcp-gateway doctor and returns each with its status (ok, warn, fail, skip) and what to do. "+
-			"Servers are not started and OPA is not asked (run mcp-gateway doctor as root for those).",
+		"Runs the checks of mcp-gateway-admin doctor and returns each with its status (ok, warn, fail, skip) and what to do. "+
+			"Servers are not started and OPA is not asked (run mcp-gateway-admin doctor as root for those).",
 		map[string]any{
 			"server": map[string]any{"type": "string", "description": "check only this server"},
 			"since":  map[string]any{"type": "string", "description": "how far back to look for SELinux denials, e.g. 24h (default) or 30m"},

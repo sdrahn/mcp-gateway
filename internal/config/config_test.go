@@ -145,6 +145,27 @@ func TestLoadBackendsDeprecatedProgram(t *testing.T) {
 	}
 }
 
+// A definition starting a command mcp-gateway gave up gets a warning.
+func TestLoadBackendsDeprecatedCommand(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "old.yaml", "name: old\ncommand: [/usr/bin/mcp-gateway, admin-server]\n")
+	writeFile(t, dir, "new.yaml", "name: new\ncommand: [/usr/bin/mcp-gateway-admin, serve]\n")
+	writeFile(t, dir, "gw.yaml", "name: gw\ncommand: [/usr/bin/mcp-gateway]\n")
+	bs, err := LoadBackends(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := bs["old"].Warnings; len(w) != 1 || !strings.Contains(w[0], "mcp-gateway admin-server is deprecated since 0.7") ||
+		!strings.Contains(w[0], "mcp-gateway-admin serve") {
+		t.Errorf("old: %q", w)
+	}
+	for _, name := range []string{"new", "gw"} {
+		if w := bs[name].Warnings; len(w) != 0 {
+			t.Errorf("%s: %q", name, w)
+		}
+	}
+}
+
 func TestLoadBackendsVendorOverrideMask(t *testing.T) {
 	vendor, admin := t.TempDir(), t.TempDir()
 	writeFile(t, vendor, "fs.yaml", "name: fs\ncommand: [/usr/libexec/mcp-servers/fs]\n")

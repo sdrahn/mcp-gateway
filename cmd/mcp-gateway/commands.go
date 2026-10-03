@@ -4,50 +4,64 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"syscall"
 )
 
-// command is a subcommand of mcp-gateway: "mcp-gateway NAME [options]".
-type command struct {
-	name    string
-	summary string
-	run     func(args []string, stdout, stderr io.Writer) int
+// movedCommands are the subcommands mcp-gateway had until 0.6, by the
+// mcp-gateway-admin command that replaces each. Until 0.8 they run
+// mcp-gateway-admin, with a warning (D10).
+var movedCommands = map[string]string{
+	"inspect":      "inspect",
+	"profile":      "profile",
+	"review":       "review",
+	"doctor":       "doctor",
+	"admin-server": "serve",
 }
 
-// commands are the subcommands, in the order the usage lists them. Each
-// prints its own options with -h.
-var commands = []command{
-	{"inspect", "start an MCP server, list its tools, draft a definition and roles, check role data", runInspect},
-	{"profile", "run a registered server in a permissive SELinux domain and draft its policy module", runProfile},
-	{"review", "scan an MCP server's source for what it does to the system", runReview},
-	{"doctor", "check the installation: services, policy, servers, SELinux, polkit, principals", runDoctor},
-	{"admin-server", "the MCP server gateway-admin: the doctor, configuration and decisions for agents", runAdminServer},
-}
+// adminProgram is the program that has the administrators' commands.
+const adminProgram = "mcp-gateway-admin"
 
-func findCommand(name string) *command {
-	for i := range commands {
-		if commands[i].name == name {
-			return &commands[i]
+// findAdmin returns mcp-gateway-admin: next to this program (as installed,
+// and in bin/ of a checkout), else on PATH.
+func findAdmin() (string, error) {
+	if self, err := os.Executable(); err == nil {
+		p := filepath.Join(filepath.Dir(self), adminProgram)
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
 		}
 	}
-	return nil
+	return exec.LookPath(adminProgram)
 }
 
-// usage prints the top-level help: how to run the gateway, the
-// subcommands, and the gateway's options (fs).
+// runMoved runs the moved command name as "mcp-gateway-admin NEW args".
+// It returns only if that fails.
+func runMoved(name string, args []string, stderr io.Writer) int {
+	sub := movedCommands[name]
+	_, _ = fmt.Fprintf(stderr, "mcp-gateway: \"mcp-gateway %s\" is deprecated and goes away in 0.8; use \"%s %s\"\n",
+		name, adminProgram, sub)
+	admin, err := findAdmin()
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "mcp-gateway: %v\n", err)
+		return 1
+	}
+	err = syscall.Exec(admin, append([]string{admin, sub}, args...), os.Environ())
+	_, _ = fmt.Fprintf(stderr, "mcp-gateway: running %s: %v\n", admin, err)
+	return 1
+}
+
+// usage prints the top-level help: how to run the gateway and its
+// options (fs).
 func usage(w io.Writer, fs *flag.FlagSet) {
 	_, _ = fmt.Fprint(w, `usage: mcp-gateway [options]               run the gateway (as mcp-gateway.service does)
-       mcp-gateway COMMAND [options]       run a command
-       mcp-gateway help [COMMAND]          this help, or a command's
+       mcp-gateway help                    this help
 
-Commands:
-`)
-	for _, c := range commands {
-		_, _ = fmt.Fprintf(w, "  %-13s %s\n", c.name, c.summary)
-	}
-	_, _ = fmt.Fprint(w, `
-"mcp-gateway COMMAND -h" shows a command's options. Related programs:
-mcp-connect (the stdio bridge agents start), mcp-policy-bundle (signed
-policy bundles), mcp-gateway-notify (desktop notifications).
+Related programs: mcp-gateway-admin (doctor, inspect, profile, review and
+the server gateway-admin), mcp-connect (the stdio bridge agents start),
+mcp-policy-bundle (signed policy bundles), mcp-gateway-notify (desktop
+notifications).
 
 Options of the gateway:
 `)
@@ -57,17 +71,17 @@ Options of the gateway:
 	fs.SetOutput(out)
 }
 
-// runHelp is "mcp-gateway help [COMMAND]".
+// runHelp is "mcp-gateway help [COMMAND]"; a moved command's help is
+// mcp-gateway-admin's.
 func runHelp(args []string, stdout, stderr io.Writer, fs *flag.FlagSet) int {
 	if len(args) == 0 {
 		usage(stdout, fs)
 		return 0
 	}
-	c := findCommand(args[0])
-	if c == nil {
-		_, _ = fmt.Fprintf(stderr, "mcp-gateway: unknown command %q\n\n", args[0])
-		usage(stderr, fs)
-		return 2
+	if _, ok := movedCommands[args[0]]; ok {
+		return runMoved(args[0], []string{"-h"}, stderr)
 	}
-	return c.run([]string{"-h"}, stdout, stderr)
+	_, _ = fmt.Fprintf(stderr, "mcp-gateway: unknown command %q\n\n", args[0])
+	usage(stderr, fs)
+	return 2
 }

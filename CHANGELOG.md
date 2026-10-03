@@ -5,6 +5,31 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Added
+
+- `mcp-gateway-admin`, the program for administrators: `doctor`,
+  `serve` (the server `gateway-admin`), and `inspect`, `profile` and
+  `review`, which are in the new package `mcp-gateway-tools` with what
+  they need (the SELinux policy development files). The gateway's binary
+  and package keep only what runs the gateway.
+
+### Changed
+
+- The server `gateway-admin` runs `mcp-gateway-admin serve`, which has
+  its own program type (`mcpsrv_admin_exec_t`); update
+  `mcp-gateway-selinux` together with the gateway.
+
+### Deprecated
+
+- `mcp-gateway inspect`, `profile`, `review`, `doctor` and
+  `admin-server` run `mcp-gateway-admin` (`admin-server` as `serve`)
+  after a warning, and go away in 0.8. A server definition starting
+  `mcp-gateway admin-server` (a copy of `gateway-admin.yaml` in
+  `/etc/mcp-gateway/servers.d`) gets a warning from `mcp-gateway --check`,
+  at start and from the doctor; start `mcp-gateway-admin serve` instead.
+
 ## v0.6.1 — 2026-10-03
 
 A documentation fix for transactional systems. Upgrading from 0.6.0

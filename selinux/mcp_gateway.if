@@ -74,7 +74,7 @@ template(`mcp_gateway_backend_template',`
 	# stdio: the gateway-owned socketpair passed in by systemd.
 	allow mcpsrv_$1_t mcpgw_t:fd use;
 	allow mcpsrv_$1_t mcpgw_t:unix_stream_socket rw_socket_perms;
-	# mcp-gateway inspect -server, run by an administrator, hands an
+	# mcp-gateway-admin inspect -server, run by an administrator, hands an
 	# instance its socketpair the same way.
 	optional_policy(`
 		gen_require(`

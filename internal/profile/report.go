@@ -139,7 +139,7 @@ func (r *Report) Write(out io.Writer) error {
 		}
 		fmt.Fprintf(w, "  3. compare %s.yaml with the definition and install it in /etc/mcp-gateway/servers.d;\n", r.Server)
 		w.WriteString("     mcp-gateway --check && systemctl restart mcp-gateway.service\n")
-		fmt.Fprintf(w, "  4. mcp-gateway profile --server %s --verify\n", r.Server)
+		fmt.Fprintf(w, "  4. mcp-gateway-admin profile --server %s --verify\n", r.Server)
 	}
 	_, err := io.WriteString(out, w.String())
 	return err

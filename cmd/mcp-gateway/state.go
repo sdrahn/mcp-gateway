@@ -1,18 +1,16 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os/user"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
+
+	"github.com/sdrahn/mcp-gateway/internal/statedir"
 )
 
 // gatewayUser is the account mcp-gateway.service runs as.
-const gatewayUser = "mcp-gateway"
+const gatewayUser = statedir.User
 
 // refuseRoot returns an error if the gateway is about to run as root on a
 // system that has its service account: as root it would create state
@@ -30,43 +28,6 @@ func refuseRoot(euid int, allowRoot bool, lookup func(string) (*user.User, error
 		"(systemctl stop %[1]s; runuser -u %[2]s -- mcp-gateway), or pass -allow-root", gatewayUser, gatewayUser)
 }
 
-// foreignFile is a file in a gateway directory that another user owns.
-type foreignFile struct {
-	Path string
-	UID  uint32
-}
-
-func (f foreignFile) String() string {
-	owner := strconv.FormatUint(uint64(f.UID), 10)
-	if u, err := user.LookupId(owner); err == nil {
-		owner = u.Username
-	}
-	return f.Path + " (owner " + owner + ")"
-}
-
-// foreignFiles returns the files below dir, dir included, that uid does
-// not own. A missing dir has none.
-func foreignFiles(dir string, uid uint32) ([]foreignFile, error) {
-	var out []foreignFile
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if path == dir && errors.Is(err, fs.ErrNotExist) {
-				return filepath.SkipDir
-			}
-			return err
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		if st, ok := info.Sys().(*syscall.Stat_t); ok && st.Uid != uid {
-			out = append(out, foreignFile{path, st.Uid})
-		}
-		return nil
-	})
-	return out, err
-}
-
 // checkStateOwnership returns an error naming the files in the state
 // directory that the gateway's user (uid, its effective user) does not
 // own; reading or replacing them would fail later with a bare permission
@@ -75,7 +36,7 @@ func checkStateOwnership(dir string, uid int) error {
 	if uid == 0 {
 		return nil
 	}
-	foreign, err := foreignFiles(dir, uint32(uid))
+	foreign, err := statedir.ForeignFiles(dir, uint32(uid))
 	if err != nil {
 		return fmt.Errorf("state directory: %w", err)
 	}

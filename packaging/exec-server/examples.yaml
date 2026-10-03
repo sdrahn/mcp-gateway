@@ -10,7 +10,7 @@
 # match its pattern as a whole (and may not start with "-" unless
 # allow_dash is true). Commands run as the calling user, in the domain
 # mcpsrv_exec_t, without network; what they may read beyond /etc, /usr
-# and system state needs SELinux rules (mcp-gateway profile drafts them).
+# and system state needs SELinux rules (mcp-gateway-admin profile drafts them).
 # Avoid names starting with list_, read_ or get_: roles for every server
 # (the shipped viewer) allow those.
 version: 1

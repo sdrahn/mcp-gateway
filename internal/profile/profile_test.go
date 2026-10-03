@@ -201,7 +201,7 @@ func TestReport(t *testing.T) {
 		"authorization: get_zone was refused",
 		"2  mcpsrv_fw_t system_dbusd_t:unix_stream_socket { connectto } /run/dbus/system_bus_socket (fw-mcp)",
 		"restorecon -F /usr/bin/fw-mcp",
-		"mcp-gateway profile --server fw --verify",
+		"mcp-gateway-admin profile --server fw --verify",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in\n%s", want, out)

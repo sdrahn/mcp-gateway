@@ -716,19 +716,26 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 	return backends, nil
 }
 
-// deprecatedPrograms are program names a package keeps for a minor
-// release as links to the program that replaces them; definitions naming
-// one get a warning.
+// deprecatedPrograms are programs, or a program with its first argument,
+// that a package keeps for a minor release for what replaces them;
+// definitions starting one get a warning.
 var deprecatedPrograms = map[string]deprecation{
-	"mcp-fs-demo": {Key: "command: mcp-fs-demo", Since: "0.5", Use: "name mcp-server-fs, in the same directory, which it links to"},
+	"mcp-fs-demo":              {Key: "command: mcp-fs-demo", Since: "0.5", Use: "name mcp-server-fs, in the same directory, which it links to"},
+	"mcp-gateway admin-server": {Key: "command: mcp-gateway admin-server", Since: "0.7", Use: "run mcp-gateway-admin serve, in the same directory"},
 }
 
 func (b *Backend) deprecatedProgram() []string {
 	if len(b.Command) == 0 {
 		return nil
 	}
-	if d, ok := deprecatedPrograms[filepath.Base(b.Command[0])]; ok {
+	prog := filepath.Base(b.Command[0])
+	if d, ok := deprecatedPrograms[prog]; ok {
 		return []string{d.warning()}
+	}
+	if len(b.Command) > 1 {
+		if d, ok := deprecatedPrograms[prog+" "+b.Command[1]]; ok {
+			return []string{d.warning()}
+		}
 	}
 	return nil
 }
