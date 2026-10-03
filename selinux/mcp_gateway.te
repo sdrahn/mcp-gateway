@@ -142,6 +142,11 @@ ifdef(`rpm_exec',`
 ifdef(`systemd_read_logind_sessions_files',`
 	systemd_read_logind_sessions_files(mcpsrv_exec_t)
 ')
+optional_policy(`
+	gen_require(`type systemd_logind_sessions_t;')
+	list_dirs_pattern(mcpsrv_exec_t, systemd_logind_sessions_t, systemd_logind_sessions_t)
+	read_files_pattern(mcpsrv_exec_t, systemd_logind_sessions_t, systemd_logind_sessions_t)
+')
 # df looks at every mount, also the files the sandbox masks /proc/kmsg
 # and the like with; it does without them.
 optional_policy(`
