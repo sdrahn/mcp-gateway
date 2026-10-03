@@ -5,6 +5,26 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## v0.6.1 — 2026-10-03
+
+A documentation fix for transactional systems. Upgrading from 0.6.0
+needs no changes. If you installed `mcp-gateway-exec-server` after
+updating to 0.6 but before rebooting, its program may carry the wrong
+SELinux label (`bin_t`): `mcp-gateway doctor` says so, and
+`transactional-update run restorecon -v
+/usr/libexec/mcp-servers/mcp-server-exec` and a reboot fix it.
+
+### Documentation
+
+- On transactional systems, an SELinux module installed or updated in a
+  transaction takes effect at the next boot. A server program installed
+  before that reboot keeps the label it would have without its module,
+  also after the reboot. The user guide (chapter 2, "Transactional
+  systems") now says to install a program in the same transaction as
+  its module, or to reboot in between, and to run `mcp-gateway doctor`
+  after the reboot. The installed copy of the guide is what the
+  `gateway-docs` server serves to agents.
+
 ## v0.6.0 — 2026-10-03
 
 Agents get a few commands instead of a shell. The new server `exec`
