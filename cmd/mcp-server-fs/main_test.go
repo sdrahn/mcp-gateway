@@ -1,18 +1,15 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 )
 
 // newTestServer returns a server on fresh directories (the first is
@@ -497,92 +494,6 @@ func TestGlob(t *testing.T) {
 		if got := globMatch(tc.pattern, tc.name); got != tc.want {
 			t.Errorf("%q ~ %q: %v", tc.pattern, tc.name, got)
 		}
-	}
-}
-
-// The protocol: version negotiation, concurrent requests, cancellation,
-// oversized messages, notifications without answers.
-func TestProtocol(t *testing.T) {
-	fsrv, root := newTestServer(t, 1)
-	write(t, filepath.Join(root, "f"), "f")
-	inR, inW := io.Pipe()
-	outR, outW := io.Pipe()
-	srv := newServer(fsrv, outW)
-	done := make(chan error, 1)
-	go func() { done <- srv.serve(inR, 4096); _ = outW.Close() }()
-	responses := make(chan map[string]any, 16)
-	go func() {
-		sc := bufio.NewScanner(outR)
-		for sc.Scan() {
-			var m map[string]any
-			if json.Unmarshal(sc.Bytes(), &m) == nil {
-				responses <- m
-			}
-		}
-		close(responses)
-	}()
-	send := func(s string) {
-		if _, err := io.WriteString(inW, s+"\n"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	next := func() map[string]any {
-		select {
-		case m := <-responses:
-			return m
-		case <-time.After(5 * time.Second):
-			t.Fatal("no answer")
-		}
-		return nil
-	}
-
-	send(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`)
-	if m := next(); m["result"].(map[string]any)["protocolVersion"] != "2024-11-05" {
-		t.Errorf("negotiated: %v", m)
-	}
-	send(`{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"1999-01-01"}}`)
-	if m := next(); m["result"].(map[string]any)["protocolVersion"] != protocolVersions[0] {
-		t.Errorf("unknown version: %v", m)
-	}
-	send(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)
-	send(`{"jsonrpc":"2.0","id":3,"method":"nope"}`)
-	if m := next(); m["error"].(map[string]any)["code"] != float64(codeMethodNotFound) {
-		t.Errorf("unknown method: %v", m)
-	}
-	send(`not json`)
-	if m := next(); m["error"].(map[string]any)["code"] != float64(codeParse) {
-		t.Errorf("parse error: %v", m)
-	}
-	send(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"write_file","arguments":{"path":"g","content":"` +
-		strings.Repeat("x", 5000) + `"}}}`)
-	if m := next(); m["error"].(map[string]any)["message"] != "message too large" {
-		t.Errorf("oversized: %v", m)
-	}
-	send(`{"jsonrpc":"2.0","id":"s","method":"ping"}`)
-	if m := next(); m["id"] != "s" || m["result"] == nil {
-		t.Errorf("ping: %v", m)
-	}
-
-	// A cancelled request gets no answer; the next one does.
-	// Fill the slots so that the request waits until it is cancelled.
-	for i := 0; i < maxConcurrent; i++ {
-		srv.slots <- struct{}{}
-	}
-	send(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"read_text_file","arguments":{"path":"f"}}}`)
-	time.Sleep(50 * time.Millisecond)
-	send(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":5}}`)
-	time.Sleep(50 * time.Millisecond)
-	for i := 0; i < maxConcurrent; i++ {
-		<-srv.slots
-	}
-	send(`{"jsonrpc":"2.0","id":6,"method":"ping"}`)
-	if m := next(); m["id"] != float64(6) {
-		t.Errorf("after the cancelled request: %v (the cancelled one was answered?)", m)
-	}
-
-	_ = inW.Close()
-	if err := <-done; err != nil {
-		t.Errorf("serve: %v", err)
 	}
 }
 

@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sdrahn/mcp-gateway/internal/mcpserver"
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
 
@@ -93,7 +94,7 @@ func main() {
 	// A message carries at most a write's content, JSON-escaped (up to
 	// 6 bytes per byte for control characters), and some envelope.
 	maxMessage := int(*maxWrite)*6 + 64<<10
-	if err := newServer(s, os.Stdout).serve(os.Stdin, maxMessage); err != nil {
+	if err := mcpserver.New(s.handle, os.Stdout).Serve(os.Stdin, maxMessage); err != nil {
 		fmt.Fprintln(os.Stderr, serverName+":", err)
 		os.Exit(1)
 	}
