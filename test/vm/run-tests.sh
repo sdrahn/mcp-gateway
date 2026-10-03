@@ -831,6 +831,15 @@ grep -A1 '^FAIL *program' /root/doctor-label.txt | sed 's/^/  /'
 check "doctor: names a program labeled bin_t, and restorecon" \
 	bash -c 'grep -qE "^FAIL +program fs: .* is labeled bin_t" /root/doctor-label.txt && grep -q "restorecon -v /usr/libexec/mcp-servers/mcp-server-fs" /root/doctor-label.txt'
 restorecon /usr/libexec/mcp-servers/mcp-server-fs
+# A helper a server starts (zypp's worker, rpm_exec_t) is checked too.
+if [ -x /usr/libexec/mcp-server-zypp/zypp-mcp-tool ]; then
+	chcon -t bin_t /usr/libexec/mcp-server-zypp/zypp-mcp-tool
+	mcp-gateway-admin doctor --no-start >/root/doctor-helper.txt 2>&1
+	grep -A1 '^FAIL *program' /root/doctor-helper.txt | sed 's/^/  /'
+	check "doctor: names a helper program labeled bin_t" \
+		grep -qE '^FAIL +program /usr/libexec/mcp-server-zypp/zypp-mcp-tool: .* is labeled bin_t, the policy says rpm_exec_t' /root/doctor-helper.txt
+	restorecon /usr/libexec/mcp-server-zypp/zypp-mcp-tool
+fi
 no_type_warning() { ! journalctl -u mcp-gateway.service -o cat | grep -q 'not in the loaded SELinux policy'; }
 check "the gateway found every server's SELinux type" no_type_warning
 # A definition whose selinux_type has no module (as when a server

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -215,9 +216,73 @@ func TestProgramLabels(t *testing.T) {
 	}
 	// All right: one line.
 	ok := map[string]*config.Backend{"systemd": backends["systemd"]}
-	rs := ProgramLabels(ok, current, expected, func(string) bool { return false })
+	onlySystemd := func(p string) (string, error) {
+		if p == "/usr/bin/systemd-mcp" {
+			return current(p)
+		}
+		return "", errors.New(p + ": not found")
+	}
+	rs := ProgramLabels(ok, onlySystemd, expected, func(string) bool { return false })
 	if len(rs) != 1 || rs[0].Status != OK {
 		t.Errorf("all labeled: %+v", rs)
+	}
+}
+
+// A helper a server starts (zypp's worker) is checked too, where it is
+// installed: labeled bin_t, it would not run in rpm_t.
+func TestProgramLabelsHelpers(t *testing.T) {
+	const worker = "/usr/libexec/mcp-server-zypp/zypp-mcp-tool"
+	backends := map[string]*config.Backend{
+		"zypp": {Command: []string{"/usr/bin/mcp-server-zypp"}, SELinuxType: "mcpsrv_zypp_t"},
+	}
+	labels := map[string]string{"/usr/bin/mcp-server-zypp": "mcpsrv_zypp_exec_t", worker: "bin_t", "/usr/bin/mcp-gateway": "mcpgw_exec_t"}
+	current := func(p string) (string, error) {
+		if l, ok := labels[p]; ok {
+			return l, nil
+		}
+		return "", errors.New(p + ": not found")
+	}
+	expected := func(p string) (string, error) {
+		return map[string]string{"/usr/bin/mcp-server-zypp": "mcpsrv_zypp_exec_t", worker: "rpm_exec_t", "/usr/bin/mcp-gateway": "mcpgw_exec_t"}[p], nil
+	}
+	rs := ProgramLabels(backends, current, expected, func(string) bool { return false })
+	if len(rs) != 1 || rs[0].Check != "program "+worker || rs[0].Status != Fail ||
+		!strings.Contains(rs[0].Summary, "labeled bin_t, the policy says rpm_exec_t") || !strings.Contains(rs[0].Details[0], "restorecon -v "+worker) {
+		t.Fatalf("worker: %+v", rs)
+	}
+	labels[worker] = "rpm_exec_t"
+	rs = ProgramLabels(backends, current, expected, func(string) bool { return false })
+	if len(rs) != 1 || rs[0].Status != OK || !strings.Contains(rs[0].Summary, "1 servers' programs and 2 other programs") {
+		t.Errorf("all labeled: %+v", rs)
+	}
+}
+
+// TypedPrograms names every program path the modules' file contexts give
+// a type (plain paths of regular files below /usr).
+func TestTypedProgramsMatchFileContexts(t *testing.T) {
+	files, err := filepath.Glob("../../selinux/*.fc")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("file contexts: %v %v", files, err)
+	}
+	var want []string
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 3 || fields[1] != "--" || !strings.HasPrefix(fields[0], "/usr/") || strings.ContainsAny(fields[0], "()|?*[") {
+				continue
+			}
+			want = append(want, fields[0])
+		}
+	}
+	got := slices.Clone(TypedPrograms)
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("TypedPrograms %v\nfile contexts  %v", got, want)
 	}
 }
 
