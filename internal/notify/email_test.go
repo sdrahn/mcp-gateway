@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -189,5 +190,29 @@ func TestGetentMembers(t *testing.T) {
 	if err != nil {
 		t.Skipf("getent: %v", err)
 	}
-	_ = members // root usually has no listed members; the call must work
+	// root's primary group is root's: it is a member now.
+	if !slices.Contains(members, "root") {
+		t.Errorf("root not among the members of root: %v", members)
+	}
+}
+
+// Users whose primary group it is count as members, after the listed
+// ones and once.
+func TestGroupMembersParsing(t *testing.T) {
+	gid, listed := parseGroup("approvers:x:1500:alice,bob\n")
+	if gid != "1500" || strings.Join(listed, ",") != "alice,bob" {
+		t.Fatalf("parseGroup: %q %v", gid, listed)
+	}
+	if gid, listed := parseGroup("empty:x:1600:"); gid != "1600" || listed != nil {
+		t.Errorf("no listed members: %q %v", gid, listed)
+	}
+	passwd := "root:x:0:0:root:/root:/bin/bash\n" +
+		"carol:x:1001:1500:Carol:/home/carol:/bin/bash\n" +
+		"bob:x:1002:1500:Bob:/home/bob:/bin/bash\n" +
+		"dave:x:1003:100:Dave:/home/dave:/bin/bash\n" +
+		"broken line\n"
+	got := appendNew(listed, primaryMembers(passwd, gid)...)
+	if strings.Join(got, ",") != "alice,bob,carol" {
+		t.Errorf("members: %v", got)
+	}
 }
