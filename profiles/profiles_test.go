@@ -140,6 +140,7 @@ func TestGatewayServerRoles(t *testing.T) {
 	for name, tc := range map[string]struct{ file, role string }{
 		"gateway-docs":  {filepath.Join("fs-server", "gateway-docs-roles.json"), "gateway-docs-reader"},
 		"gateway-admin": {filepath.Join("admin", "gateway-admin-roles.json"), "gateway-admin"},
+		"exec":          {filepath.Join("exec-server", "exec-roles.json"), "exec-operator"},
 	} {
 		data, err := os.ReadFile(filepath.Join("..", "packaging", tc.file))
 		if err != nil {

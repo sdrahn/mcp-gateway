@@ -112,6 +112,19 @@ call reads and writes. Also registers the server "gateway-docs": the
 gateway's documentation, read-only, for agents to consult offline (role
 gateway-docs-reader).
 
+%package exec-server
+Summary:        Allowlisted command MCP server for mcp-gateway
+Group:          System/Management
+Requires:       %{name} = %{version}
+
+%description exec-server
+mcp-server-exec, an MCP server registered with mcp-gateway as server
+"exec": each command an administrator puts into /etc/mcp-gateway/exec.d
+is one tool, a fixed program whose arguments are checked against
+patterns and passed without a shell, with a timeout and an output
+limit, run as the calling user in its own SELinux domain. The shipped
+role exec-operator runs the commands with approval.
+
 %package profile-systemd
 Summary:        systemd-mcp behind mcp-gateway
 Group:          System/Management
@@ -204,7 +217,7 @@ make selinux
 %sysusers_generate_pre profiles/snapper/sysusers.conf %{name}-profile-snapper %{name}-profile-snapper.conf
 
 %install
-%make_install install install-selinux install-cockpit install-desktop install-fs-server install-profiles \
+%make_install install install-selinux install-cockpit install-desktop install-fs-server install-exec-server install-profiles \
     PREFIX=%{_prefix} BINDIR=%{_bindir} SBINDIR=%{_sbindir} LIBEXECDIR=%{_libexecdir} \
     DATADIR=%{_datadir} SYSCONFDIR=%{_sysconfdir} DISTCONFDIR=%{_distconfdir} \
     UNITDIR=%{_unitdir} SYSUSERSDIR=%{_sysusersdir} TMPFILESDIR=%{_tmpfilesdir} \
@@ -317,6 +330,14 @@ fi
 %{_datadir}/mcp-gateway/servers.d/fs-demo.yaml
 %{_datadir}/mcp-gateway/servers.d/gateway-docs.yaml
 %{_datadir}/mcp-gateway/policy/mcp/profiles/gateway-docs
+
+%files exec-server
+%dir %{_libexecdir}/mcp-servers
+%{_libexecdir}/mcp-servers/mcp-server-exec
+%{_datadir}/mcp-gateway/servers.d/exec.yaml
+%{_datadir}/mcp-gateway/exec
+%{_datadir}/mcp-gateway/policy/mcp/profiles/exec
+%dir %{_sysconfdir}/mcp-gateway/exec.d
 
 %files profile-systemd
 %{_datadir}/mcp-gateway/servers.d/systemd.yaml

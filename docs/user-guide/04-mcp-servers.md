@@ -515,6 +515,91 @@ in Python by opening relative to a directory descriptor and refusing
 links (`O_NOFOLLOW`) or by checking `os.path.realpath` of the opened
 file. `mcp-server-fs` shows the Go way.
 
+### Commands an administrator allows
+
+Agents such as Kit bring their own shell, which runs as the user without
+any of the gateway's confinement; you may have turned it off. When an
+agent should still run a few commands, `mcp-gateway-exec-server` offers
+them as tools of the server `exec`, under the gateway's policy, approvals
+and audit, in the domain `mcpsrv_exec_t`, without network, as the calling
+user (`run_as: principal`):
+
+```bash
+zypper install mcp-gateway-exec-server
+cp /usr/share/mcp-gateway/exec/examples.yaml /etc/mcp-gateway/exec.d/
+/usr/libexec/mcp-servers/mcp-server-exec --check      # lists the commands, warns
+```
+
+Each command in `/etc/mcp-gateway/exec.d/*.yaml` is one tool:
+
+```yaml
+version: 1
+commands:
+  disk_usage:
+    description: Space on the mounted file systems
+    argv: [/usr/bin/df, -h]
+    read_only: true
+  unit_log:
+    description: The last lines of a unit's journal
+    argv: [/usr/bin/journalctl, --no-pager, -u, "{unit}", -n, "{lines}"]
+    args:
+      unit:  {pattern: "[A-Za-z0-9@._-]+\\.service", description: the unit}
+      lines: {pattern: "[0-9]{1,4}", default: "50"}
+    timeout: 30s
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `argv` | — (required) | the program (an absolute path) and its arguments; `{name}` is replaced by the caller's argument `name`, also inside an element (`--unit={unit}`) |
+| `args.NAME.pattern` | — (required) | a regular expression the whole value must match |
+| `args.NAME.default` | none (required argument) | the value when the caller gives none |
+| `args.NAME.allow_dash` | `false` | let a value start with `-`; otherwise refused, so that it cannot become an option of the program |
+| `description` | the command line | what the tool does, for the agent |
+| `timeout` | `60s` | then the program and everything it started are killed (at most `1h`) |
+| `max_output` | 1 MiB | bytes of stdout and stderr kept (at most 16 MiB); the rest is cut |
+| `read_only` | `false` | the MCP annotation (`readOnlyHint`); a hint for clients, never a permission |
+| `env` | none | variables beyond `PATH=/usr/sbin:/usr/bin:/sbin:/bin` and `LANG=C.UTF-8`; nothing else is passed on |
+| `dir` | `/` | the working directory |
+
+There is no shell: `argv` is passed to the program as it is, one element
+one argument, so `;`, `$(…)`, quotes or globs in a value are just
+characters. Patterns are what keep values in bounds; make them as narrow
+as the command needs, and let no value name a file the command should
+not read. stdin is empty. A file that does not validate keeps the server
+from starting (its error is in the journal, `journalctl -u 'mcp-exec-*'`,
+and `mcp-gateway doctor` reports the server), so that no command goes
+missing unnoticed. The server reads the files when an instance starts:
+after a change, stop the running instances (Cockpit, Servers tab) or
+wait until they end when idle.
+
+Who may run which command is policy. The shipped role `exec-operator`
+runs every command with approval; a role of your own can allow some
+freely and others with approval (tool names are the command names):
+
+```json
+"roles": {"ops": {"permissions": [
+  {"server": "exec", "tool": "disk_usage"},
+  {"server": "exec", "tool": "unit_log"},
+  {"server": "exec", "tool": "*", "require_approval": true, "approval_channel": "oob"}
+]}}
+```
+
+Roles for every server reach commands too: the shipped `viewer` allows
+`list_*`, `read_*` and `get_*` on all servers, so avoid such names
+(`--check` warns). Add `"audit": "full"` to a permission to record the
+arguments in the audit log instead of their digest (chapter 6).
+
+Commands run with the calling user's rights and the domain's: they read
+`/etc`, `/usr`, system state, mounts and the rpm database, and change
+nothing beyond what the user may. For a command that needs more (another
+user's journal, files in homes), run it in a test with `mcp-gateway
+profile --server exec` and load the module it drafts, or define a second
+command server with a domain of its own (copy `exec.yaml` under another
+name, with its own `selinux_type` and `--commands` directory). Do not
+allow a shell or an interpreter with arguments from the caller
+(`/bin/sh -c "{cmd}"`): that is a shell again, only without the
+confinement this is for.
+
 ### A server with network access and an API token
 
 ```yaml

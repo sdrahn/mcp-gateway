@@ -108,6 +108,30 @@ domain_entry_file(mcpsrv_docs_t, mcpsrv_fs_exec_t)
 files_read_usr_files(mcpsrv_docs_t)
 fs_getattr_xattr_fs(mcpsrv_docs_t)
 
+# Commands an administrator allows (the server exec, cmd/mcp-server-exec,
+# package mcp-gateway-exec-server): it reads its command files below
+# /etc/mcp-gateway and runs the programs they name, which stay in this
+# domain. The rules cover the shipped examples (system state, mounts,
+# the rpm database); commands that need more get them from a local
+# module (mcp-gateway profile drafts it).
+mcp_gateway_backend_template(exec)
+read_files_pattern(mcpsrv_exec_t, mcpgw_etc_t, mcpgw_etc_t)
+list_dirs_pattern(mcpsrv_exec_t, mcpgw_etc_t, mcpgw_etc_t)
+corecmd_exec_bin(mcpsrv_exec_t)
+corecmd_exec_shell(mcpsrv_exec_t)
+files_read_usr_files(mcpsrv_exec_t)
+auth_use_nsswitch(mcpsrv_exec_t)
+kernel_read_kernel_sysctls(mcpsrv_exec_t)
+dev_read_sysfs(mcpsrv_exec_t)
+fs_getattr_all_fs(mcpsrv_exec_t)
+files_getattr_all_mountpoints(mcpsrv_exec_t)
+ifdef(`init_read_utmp',`
+	init_read_utmp(mcpsrv_exec_t)
+')
+ifdef(`rpm_read_db',`
+	rpm_read_db(mcpsrv_exec_t)
+')
+
 # The gateway diagnostics (the server gateway-admin, mcp-gateway
 # admin-server): root without capabilities, reading only. It reads the
 # configuration, the state directory, the journal and the audit log, file

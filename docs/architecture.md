@@ -669,6 +669,7 @@ Types:
 | `mcpgw_signing_key_t` | policy bundle signing key on the host (`/etc/mcp-gateway/bundle/signing.pem`); `neverallow` for the gateway, OPA and backends |
 | `mcpsrv_<name>_t` / `mcpsrv_<name>_exec_t` | per-backend domain / binary |
 | `mcpsrv_generic_t` | fallback for backends without a dedicated type |
+| `mcpsrv_exec_t` | `exec` (`mcp-server-exec`): commands an administrator allows, run as the calling user without network; reads system state, mounts and the rpm database |
 | `mcpsrv_admin_t` | `gateway-admin` (`mcp-gateway admin-server`, entered on `mcpgw_exec_t`): root without capabilities, reads configuration, state, journal, audit log and labels; under the same `neverallow`s as every backend |
 | `mcp_port_t` | gateway HTTPS port |
 | `mcp_metrics_port_t` | gateway metrics port (`metrics.listen`) |

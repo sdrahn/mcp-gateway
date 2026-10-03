@@ -36,6 +36,7 @@ checkout.
 | `internal/` | `transport` (unix socket, peer credentials, hello; Streamable HTTP), `authn` (peer credentials; OAuth/JWT), `router` (MCP proxy core), `pep` (OPA client, fail-closed evaluation), `broker` (approvals via form/URL/out-of-band, grants), `control` (approvals, grants, servers and policy status API on a unix socket), `supervisor` (systemd / exec launchers, MCS allocation), `notify` (approval mail), `notifyagent` (desktop notifications), `jsonrpc`, `audit`, `config`, `principal` |
 | `cockpit/` | Cockpit page (approvals and grants, servers and instances, role bindings, audit records) and its smoke test |
 | `cmd/mcp-server-fs/` | the file server (package `mcp-gateway-fs-server`) |
+| `cmd/mcp-server-exec/` | the command server for commands an administrator allows (package `mcp-gateway-exec-server`) |
 | `examples/` | running the gateway from a checkout (`examples/dev`) |
 | `e2e/` | end-to-end tests: OPA + gateway + mcp-connect or an HTTPS client with a test IdP + the file server |
 | `policy/` | default OPA policy bundle (`data.mcp.authz.decision`, `data.mcp.filter.visible`), RBAC data and tests |
@@ -54,7 +55,7 @@ files (`selinux-policy-devel` on openSUSE/SLES and Fedora,
 `selinux-policy-dev` on Debian/Ubuntu) plus `checkpolicy`.
 
 ```bash
-make build      # bin/mcp-gateway, bin/mcp-connect, bin/mcp-gateway-notify, bin/mcp-server-fs
+make build      # bin/mcp-gateway, bin/mcp-connect, bin/mcp-gateway-notify, bin/mcp-server-fs, bin/mcp-server-exec
 make check      # gofmt/opa fmt, go vet, go test (incl. e2e if opa is found), opa check, opa test
 make lint       # golangci-lint
 make selinux    # selinux/mcp_gateway.pp

@@ -180,13 +180,16 @@ jobs:
       - name: Install and smoke-test
         run: |
           # opa is a runtime dependency only; not needed for this test.
-          rpm -ivh --nodeps ~/rpmbuild/RPMS/x86_64/mcp-gateway-[0-9]*.rpm ~/rpmbuild/RPMS/x86_64/mcp-gateway-fs-server-*.rpm
+          rpm -ivh --nodeps ~/rpmbuild/RPMS/x86_64/mcp-gateway-[0-9]*.rpm ~/rpmbuild/RPMS/x86_64/mcp-gateway-fs-server-*.rpm \
+            ~/rpmbuild/RPMS/x86_64/mcp-gateway-exec-server-*.rpm
           getent passwd mcp-gateway mcp-opa
           getent group mcp-users
           mcp-gateway --version
           mcp-gateway --check 2>&1 | tee /tmp/check.log
           grep -q 'config=/usr/etc/mcp-gateway/gateway.yaml' /tmp/check.log
-          grep -q 'backends=3' /tmp/check.log
+          grep -q 'backends=4' /tmp/check.log
+          /usr/libexec/mcp-servers/mcp-server-exec --check --commands /usr/share/mcp-gateway/exec/examples.yaml
+          test -d /etc/mcp-gateway/exec.d
           test -f /usr/share/mcp-gateway/policy/mcp/profiles/gateway-admin/data.json
           test -f /usr/share/mcp-gateway/docs/user-guide/10-operations.md
           test -f /usr/share/mcp-gateway/policy/mcp/approvals.rego
@@ -205,7 +208,7 @@ jobs:
           getent passwd mcp-snapper
           id -nG mcp-sysmgmt | grep -qw systemd-journal
           mcp-gateway --check 2>&1 | tee /tmp/check.log
-          grep -q 'backends=8' /tmp/check.log
+          grep -q 'backends=9' /tmp/check.log
           test -f /usr/share/polkit-1/rules.d/60-mcp-gateway-systemd.rules
           test -f /usr/share/mcp-gateway/profiles/zypp-privileged.yaml
           test -f /usr/share/mcp-gateway/profiles/snapper-privileged.yaml
