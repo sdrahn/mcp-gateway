@@ -128,6 +128,23 @@ func TestLoadBackendsDefaults(t *testing.T) {
 	}
 }
 
+// A definition naming a program kept only as a link gets a warning.
+func TestLoadBackendsDeprecatedProgram(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "old.yaml", "name: old\ncommand: [/usr/libexec/mcp-servers/mcp-fs-demo, --root, /]\n")
+	writeFile(t, dir, "new.yaml", "name: new\ncommand: [/usr/libexec/mcp-servers/mcp-server-fs]\n")
+	bs, err := LoadBackends(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := bs["old"].Warnings; len(w) != 1 || !strings.Contains(w[0], "mcp-fs-demo is deprecated since 0.5") || !strings.Contains(w[0], "mcp-server-fs") {
+		t.Errorf("old: %q", w)
+	}
+	if w := bs["new"].Warnings; len(w) != 0 {
+		t.Errorf("new: %q", w)
+	}
+}
+
 func TestLoadBackendsVendorOverrideMask(t *testing.T) {
 	vendor, admin := t.TempDir(), t.TempDir()
 	writeFile(t, vendor, "fs.yaml", "name: fs\ncommand: [/usr/libexec/mcp-servers/fs]\n")

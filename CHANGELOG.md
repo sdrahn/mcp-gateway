@@ -7,6 +7,14 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Deprecated
+
+- The program name `mcp-fs-demo` (a link to `mcp-server-fs` since 0.5)
+  goes away in 0.7. A definition naming it gets a warning from
+  `mcp-gateway --check`, at start and from `mcp-gateway doctor`; name
+  `mcp-server-fs` instead. The definition the package installs already
+  does.
+
 ### Added
 
 - `mcp-gateway-exec-server`: the server `exec` runs commands an

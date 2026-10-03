@@ -153,7 +153,8 @@ install-desktop:
 	install -Dm0644 packaging/desktop/mcp-gateway-notify.desktop $(DESTDIR)$(SYSCONFDIR)/xdg/autostart/mcp-gateway-notify.desktop
 
 # The file server, as the server "fs". mcp-fs-demo, the demo server's
-# name, stays a link to it until 0.6 for definitions that name it.
+# name, stays a link to it until 0.7 for definitions that name it
+# (they get a deprecation warning).
 install-fs-server:
 	install -Dm0755 bin/mcp-server-fs $(DESTDIR)$(LIBEXECDIR)/mcp-servers/mcp-server-fs
 	ln -sf mcp-server-fs $(DESTDIR)$(LIBEXECDIR)/mcp-servers/mcp-fs-demo

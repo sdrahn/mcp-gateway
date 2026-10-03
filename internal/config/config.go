@@ -699,7 +699,7 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 		if err != nil {
 			return nil, err
 		}
-		b.Warnings = warnings
+		b.Warnings = append(warnings, b.deprecatedProgram()...)
 		b.setDefaults()
 		if err := b.Validate(); err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
@@ -714,6 +714,23 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 		from[b.Name] = p
 	}
 	return backends, nil
+}
+
+// deprecatedPrograms are program names a package keeps for a minor
+// release as links to the program that replaces them; definitions naming
+// one get a warning.
+var deprecatedPrograms = map[string]deprecation{
+	"mcp-fs-demo": {Key: "command: mcp-fs-demo", Since: "0.5", Use: "name mcp-server-fs, in the same directory, which it links to"},
+}
+
+func (b *Backend) deprecatedProgram() []string {
+	if len(b.Command) == 0 {
+		return nil
+	}
+	if d, ok := deprecatedPrograms[filepath.Base(b.Command[0])]; ok {
+		return []string{d.warning()}
+	}
+	return nil
 }
 
 // duplicateName explains two files defining the same server. A file in
