@@ -36,6 +36,34 @@ SELinux policy is installed. The packages create:
 | group `mcp-gateway` | shared by both (runtime directory) |
 | group `mcp-users` | local users allowed to connect to the gateway |
 
+### Transactional systems
+
+On openSUSE MicroOS, SLE Micro, Leap Micro and other systems with
+transactional updates, `/usr` is read-only: packages are installed into
+a new snapshot that becomes active at the next boot.
+
+```bash
+transactional-update pkg install mcp-gateway mcp-gateway-profile-systemd systemd-mcp
+reboot
+```
+
+- Install a server program and the package with its SELinux module in
+  the same transaction, or relabel the program in a later one: a program
+  that keeps the label it had before its module was there (for example
+  `bin_t`) cannot start in its domain. `mcp-gateway doctor` names such a
+  program ("program *name*: … is labeled bin_t, the policy says …") with
+  the fix, `transactional-update run restorecon -v <program>` and a
+  reboot. `restorecon` alone reports "Read only filesystem".
+- `/etc` and `/var` stay writable: definitions, role data and the
+  gateway's state are changed as on other systems.
+- A privileged server cannot change `/usr`: the privileged zypp server
+  cannot install or remove packages (zypper refuses on a read-only
+  root); install with `transactional-update` instead. Searching and
+  planning work. `mcp-gateway doctor` warns ("read-only /usr").
+- Snapshots and the default subvolume belong to transactional-update
+  (`transactional-update rollback`); do not use the snapper server's
+  `rollback` there.
+
 ## First start
 
 ```bash

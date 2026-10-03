@@ -60,6 +60,10 @@ Then bind users or groups to the roles, in Cockpit or in the role data:
   data; it replaces the shipped one.
 - To change a definition, put a file of the same name in
   `/etc/mcp-gateway/servers.d`; an empty file there disables the server.
+  The file name counts, not the `name:` in it: a file of another name
+  defining the same server (a hand-made one from before the setup) keeps
+  the gateway from starting ("server … is defined twice"); rename it to
+  the package's file name or remove it.
 - With signed policy bundles, rebuild the bundle after installing a
   setup (`mcp-policy-bundle`): the roles are part of the policy.
 - To let mcp-server-zypp install and remove packages, make it a
@@ -72,7 +76,8 @@ Then bind users or groups to the roles, in Cockpit or in the role data:
   ```
 
   Users then need `zypp-installer`; every installation and removal waits
-  for an approval.
+  for an approval. Not on a transactional system, whose `/usr` is
+  read-only (chapter 2): there, install with `transactional-update`.
 - mcp-server-snapper talks to snapperd, which answers an account only for
   the configs whose `ALLOW_USERS` name it ("snapper: the snapper
   configuration" below). Until you add `mcp-snapper` there, the server
@@ -207,7 +212,8 @@ over the system bus: `list_configs`, `get_config`, `list_snapshots`,
   file system: no sandbox allows it. For `set_config` and `rollback`,
   run the server privileged (`snapper-privileged.yaml`: root, no
   sandbox, still in `mcpsrv_snapper_t`). A rollback takes effect at the
-  next boot.
+  next boot. On a transactional system, roll back with
+  `transactional-update rollback` instead (chapter 2).
 - `create_snapshot` only adds a snapshot, which the config's cleanup
   removes again; `snapper-operator` allows it without approval, so that
   an agent can take a pre snapshot before a change and the post

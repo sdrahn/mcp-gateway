@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,5 +156,75 @@ func TestSnapper(t *testing.T) {
 	// The polkit check leaves the snapper server alone.
 	if rs := Polkit(backends, []string{dir}); len(rs) != 0 {
 		t.Fatalf("polkit: %+v", rs)
+	}
+}
+
+func TestProgramLabels(t *testing.T) {
+	backends := map[string]*config.Backend{
+		"snapper": {Command: []string{"/usr/bin/mcp-server-snapper"}, SELinuxType: "mcpsrv_snapper_t"},
+		"systemd": {Command: []string{"/usr/bin/systemd-mcp"}, SELinuxType: "mcpsrv_systemd_t"},
+		"gone":    {Command: []string{"/usr/bin/gone"}, SELinuxType: "mcpsrv_generic_t"},
+	}
+	current := func(p string) (string, error) {
+		switch p {
+		case "/usr/bin/mcp-server-snapper":
+			return "bin_t", nil
+		case "/usr/bin/systemd-mcp":
+			return "mcpsrv_systemd_exec_t", nil
+		}
+		return "", errors.New(p + ": not found")
+	}
+	expected := func(p string) (string, error) {
+		return map[string]string{
+			"/usr/bin/mcp-server-snapper": "mcpsrv_snapper_exec_t",
+			"/usr/bin/systemd-mcp":        "mcpsrv_systemd_exec_t",
+		}[p], nil
+	}
+	for _, ro := range []bool{false, true} {
+		rs := ProgramLabels(backends, current, expected, func(string) bool { return ro })
+		var snapper, gone *Result
+		for i := range rs {
+			switch rs[i].Check {
+			case "program snapper":
+				snapper = &rs[i]
+			case "program gone":
+				gone = &rs[i]
+			case "program systemd":
+				t.Errorf("systemd is labeled right: %+v", rs[i])
+			}
+		}
+		if snapper == nil || snapper.Status != Fail || !strings.Contains(snapper.Summary, "labeled bin_t, the policy says mcpsrv_snapper_exec_t") {
+			t.Fatalf("snapper: %+v", rs)
+		}
+		if want := map[bool]string{false: "relabel it: restorecon -v", true: "transactional-update run restorecon"}[ro]; !strings.Contains(snapper.Details[0], want) {
+			t.Errorf("read-only %v: fix %q", ro, snapper.Details[0])
+		}
+		if gone == nil || gone.Status != Fail || !strings.Contains(gone.Summary, "not found") {
+			t.Errorf("missing program: %+v", gone)
+		}
+	}
+	// All right: one line.
+	ok := map[string]*config.Backend{"systemd": backends["systemd"]}
+	rs := ProgramLabels(ok, current, expected, func(string) bool { return false })
+	if len(rs) != 1 || rs[0].Status != OK {
+		t.Errorf("all labeled: %+v", rs)
+	}
+}
+
+func TestReadOnlyRoot(t *testing.T) {
+	backends := map[string]*config.Backend{
+		"zypp":    {Privileged: true},
+		"systemd": {},
+	}
+	if rs := ReadOnlyRoot(backends, false); len(rs) != 0 {
+		t.Errorf("writable: %+v", rs)
+	}
+	rs := ReadOnlyRoot(backends, true)
+	if len(rs) != 1 || rs[0].Status != Warn || !strings.Contains(rs[0].Summary, "privileged servers zypp") {
+		t.Errorf("privileged on read-only /usr: %+v", rs)
+	}
+	delete(backends, "zypp")
+	if rs := ReadOnlyRoot(backends, true); len(rs) != 1 || rs[0].Status != OK {
+		t.Errorf("no privileged servers: %+v", rs)
 	}
 }
