@@ -51,8 +51,12 @@ systemctl restart mcp-gateway.service        # reads the new definition
 Then bind users or groups to the roles, in Cockpit or in the role data:
 
 ```json
-"bindings": {"groups": {"sysops": ["systemd-operator", "firewalld-reader", "zypp-reader"]}}
+"bindings": {"groups": {"sysops": ["systemd-operator", "firewalld-reader", "zypp-reader", "gateway-docs-reader"]}}
 ```
+
+`gateway-docs-reader` lets the agent read the gateway's own
+documentation, offline (chapter 10, "Asking an agent"), to find out why
+a server or a tool does not show up.
 
 - Approvals for these servers follow your approver rules
   (`"approvers"`); a setup does not set any.
@@ -453,8 +457,10 @@ the shipped `admin`, which allows everything, never asks):
 ```json
 "roles": {
   "sysops": {
-    "description": "systemd, firewalld, snapper: read freely, change only with approval",
+    "description": "systemd, firewalld, snapper: read freely, change only with approval; the gateway documentation",
     "permissions": [
+      {"server": "gateway-docs", "tool": "*"},
+      {"server": "gateway-docs", "resource": "*"},
       {"server": "systemd",   "tool": "list_*"},
       {"server": "systemd",   "tool": "get_man_page"},
       {"server": "systemd",   "tool": "check_restart_reload"},
@@ -477,6 +483,9 @@ the shipped `admin`, which allows everything, never asks):
 }
 ```
 
+- The two `gateway-docs` permissions give the role the gateway's
+  documentation (chapter 10, "Asking an agent"); the server has only
+  reading tools, so they need no approval.
 - Check the read patterns against the servers' actual tool names (a
   `tools/list` through `mcp-connect --server systemd`): a changing tool
   whose name starts with `list_` or `get_` would run without approval.

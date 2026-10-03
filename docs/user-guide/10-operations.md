@@ -236,6 +236,14 @@ include it, and the shipped role `gateway-docs-reader` grants only it:
 "bindings": {"groups": {"mcp-users": ["gateway-docs-reader"]}}
 ```
 
+A role of your own (such as `sysops` in chapter 13) gets it with two
+permissions, or by binding `gateway-docs-reader` next to it:
+
+```json
+{"server": "gateway-docs", "tool": "*"},
+{"server": "gateway-docs", "resource": "*"}
+```
+
 It runs as a throwaway user in the domain `mcpsrv_docs_t`, which reads
 `/usr` and nothing of the users'. An empty
 `/etc/mcp-gateway/servers.d/gateway-docs.yaml` disables it.
