@@ -39,6 +39,20 @@ var (
 	ErrTokenRejected = errors.New("the server refused the access token")
 )
 
+// LinkError is the answer to a call that needs a sign-in, for a client
+// that cannot open links (no URL elicitation): the principal opens URL,
+// a link to the gateway valid until Expires, and calls again.
+type LinkError struct {
+	Server  string
+	URL     string
+	Expires time.Time
+}
+
+func (e *LinkError) Error() string {
+	return fmt.Sprintf("sign in to %s with your account there to use its tools: open %s (valid until %s), then use the tool again",
+		e.Server, e.URL, e.Expires.Format("15:04 MST"))
+}
+
 // RejectedMarker is in the error the connector answers with when the
 // server refuses the access token (HTTP 401, mcp-http-connector -sign-in).
 const RejectedMarker = "refused the access token"
@@ -363,6 +377,35 @@ func (m *Manager) take(state string) *Pending {
 	return pd
 }
 
+// pendingOf returns k's pending sign-in to server, if one is valid.
+func (m *Manager) pendingOf(server string, k Key) *Pending {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.prune()
+	for _, pd := range m.pending {
+		if pd.Server == server && pd.Key.Same(k) {
+			return pd
+		}
+	}
+	return nil
+}
+
+// pendingByState returns the pending sign-in of state, if valid, without
+// taking it.
+func (m *Manager) pendingByState(state string) *Pending {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.prune()
+	return m.pending[state]
+}
+
+// startURL is the link to the gateway that leads to pd's authorization
+// URL (GET /oauth/start/{state}): short enough for an agent to show
+// intact.
+func (m *Manager) startURL(pd *Pending) string {
+	return strings.TrimSuffix(m.RedirectURI, "/callback") + "/start/" + pd.State
+}
+
 // PendingInfo describes a pending sign-in to its principal.
 type PendingInfo struct {
 	Server  string    `json:"server"`
@@ -455,16 +498,22 @@ func (m *Manager) Wait(ctx context.Context, pd *Pending) error {
 // to sign in (the link is shown to the principal only). It returns when
 // the sign-in completed, failed or timed out.
 func (m *Manager) Run(ctx context.Context, el broker.Elicitor, b *config.Backend, p principal.Principal) error {
-	pd, err := m.Begin(ctx, b, p)
-	if err != nil {
-		return err
+	var pd *Pending
+	if !el.SupportsURL() {
+		pd = m.pendingOf(b.Name, KeyOf(p)) // asked again before signing in: the same link
+	}
+	if pd == nil {
+		var err error
+		if pd, err = m.Begin(ctx, b, p); err != nil {
+			return err
+		}
 	}
 	if !el.SupportsURL() {
-		el.Notify("notifications/message", map[string]any{
-			"level": "notice", "logger": "mcp-gateway",
-			"data": fmt.Sprintf("Sign in to %s to use its tools: open the mcp-gateway page in Cockpit (Servers), which shows the sign-in link to you.", b.Name),
-		})
-		return m.Wait(ctx, pd)
+		// The call ends at once with the link, which the agent shows; the
+		// sign-in waits for its callback, and the next call goes on.
+		le := &LinkError{Server: b.Name, URL: m.startURL(pd), Expires: pd.Expires}
+		el.Notify("notifications/message", map[string]any{"level": "notice", "logger": "mcp-gateway", "data": "mcp-gateway: " + le.Error()})
+		return le
 	}
 	defer el.Notify("notifications/elicitation/complete", map[string]any{"elicitationId": pd.State})
 	type opened struct {

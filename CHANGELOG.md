@@ -7,6 +7,15 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Signing in to a server with `sign_in` works with clients without URL
+  elicitation: the call ends at once with a short link to the gateway
+  (`<origin>/oauth/start/…`) for the agent to show, instead of waiting
+  up to `sign_in.timeout` while the user looked for the link in Cockpit.
+  Remote users without a local account can now sign in with such
+  clients. The page after signing in names the server and the user.
+
 ### Fixed
 
 - Sign-ins no longer outlive their server's definition: removing it, its

@@ -384,8 +384,8 @@ check two things:
   approvals for `url`, one without any elicitation also for `form`;
   set up desktop notifications or mail for them (chapter 7).
 - **Signing in:** for servers with `sign_in` (chapter 4), an agent with
-  URL elicitation offers its user to open the sign-in page; with
-  others, the user opens the link on the Cockpit page (Servers).
+  URL elicitation offers its user to open the sign-in page; others get
+  a short link in the tool's error, which the agent shows its user.
 - **Timeouts:** an agent that gives up on calls after a fixed time
   (the TypeScript SDK's default is 60 s) fails approvals that take
   longer, unless it asks for progress and lets progress extend the

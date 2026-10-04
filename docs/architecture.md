@@ -790,15 +790,21 @@ server's tools without a token, starts a sign-in:
   `redirect_uri`, `scope`, `state`, `code_challenge` with `S256`,
   `resource`) and sends it to the client as a URL-mode elicitation
   (`elicitation/create`, `mode: "url"`), the call waiting meanwhile, as
-  for approvals (§5.6.1). A client without URL elicitations gets a
-  `notifications/message` instead, and the sign-in shows up for that
-  principal only, on the Cockpit page and in `GET /v1/sign-ins`, with
-  the link to open; the desktop agent shows it too;
+  for approvals (§5.6.1). A client without URL elicitations gets, at
+  once, a tool error (and a `notifications/message`) with a link to the
+  gateway, `<origin>/oauth/start/<state>`, which redirects to the
+  authorization URL while the sign-in waits (step 22): the agent shows
+  it, the principal opens it, and their next call goes on. Asking again
+  before signing in gives the same link; opening it does not use it up
+  (a chat program may preview it), the callback does. The sign-in also
+  shows up for that principal on the Cockpit page and in `GET
+  /v1/sign-ins`;
 - the principal signs in at the authorization server, which redirects
   the browser to `/oauth/callback?code=…&state=…`; the gateway takes the
   pending sign-in by its `state` (once; an unknown, used or expired
   `state` gets an error page), runs the exchange, stores the tokens,
-  answers with a page saying to return to the agent, sends
+  answers with a page naming the server and principal it signed in for
+  and saying to return to the agent, sends
   `notifications/elicitation/complete`, and tells the principal's
   sessions that the server's tools changed (`tools/list_changed`). A
   call of a server tool that waited goes on; a call of `sign_in`
@@ -1667,8 +1673,8 @@ keeps their tokens.**
 *Decision (accepted 2026-10-04, roadmap step 21):* a server defined with
 `url` and `sign_in` gets an OAuth 2.1 token per principal (§5.7.3). The
 gateway runs the authorization code flow with PKCE as the client: the
-sign-in link reaches the principal as a URL elicitation (else through
-Cockpit), the callback comes to the gateway's HTTP listener, and the
+sign-in link reaches the principal as a URL elicitation (else as a
+link to the gateway in the call's error, step 22), the callback comes to the gateway's HTTP listener, and the
 tokens are kept encrypted in `state_dir`. Network steps (discovery,
 registration, code exchange, refresh, revocation) run in a confined,
 short-lived helper; the access token reaches the principal's connector
@@ -2098,12 +2104,12 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       stay (§5.7.3, decision D16 amended with the design, §12);
     - signing in works with clients without URL elicitation: the call's
       error, and the `notifications/message`, carry a short link to the
-      gateway's HTTP listener (`<origin>/oauth/start/<id>`, single use,
-      valid for `sign_in.timeout`) that leads to the authorization
-      server, so the agent can show it and any principal, remote ones
-      without a local account included, can sign in without the Cockpit
-      page. The page after the callback names the principal and server
-      it signed in for (§12);
+      gateway's HTTP listener (`<origin>/oauth/start/<id>`, valid while
+      the sign-in waits, `sign_in.timeout`; the callback uses it up)
+      that leads to the authorization server, so the agent can show it
+      and any principal, remote ones without a local account included,
+      can sign in without the Cockpit page. The page after the callback
+      names the principal and server it signed in for (§12) (done);
     - tokens do not outlive their server's definition: when a definition
       with `sign_in` is removed, loses `sign_in`, or changes its `url`
       (tokens are bound to it, RFC 8707), the gateway revokes the
@@ -2153,9 +2159,9 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
   server; from step 22 the running instance gets the new token. Sign-in
   needs the HTTP listener, reachable from the principals' browsers; a
   gateway serving local clients only cannot offer it. A client without
-  URL elicitation leaves the principal to open the link on the Cockpit
-  page, which remote principals without a local account do not have;
-  step 22 gives them a link in the call's error.
+  URL elicitation gets the link in the call's error (step 22), which the
+  agent must show the principal; whoever opens it signs in for them, so
+  the page after the callback names the principal.
 - MCS pairs of stopped containers (their files keep the pair) are not
   known to the gateway (container storage is readable by root only), so a
   container started again, or a new one, can take an instance's pair; the
