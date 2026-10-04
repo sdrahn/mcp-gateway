@@ -641,6 +641,12 @@ if [ -d "$dir/servers" ]; then
 	check "/run/suseconnect is labeled mcpsrv_suseconnect_runtime_t" file_has_type /run/suseconnect mcpsrv_suseconnect_runtime_t
 	rmdir /run/suseconnect 2>/dev/null
 	check "the setups created mcp-sysmgmt in systemd-journal" bash -c 'id -nG mcp-sysmgmt | grep -qw systemd-journal'
+	# systemd-mcp 0.3.4 checks every read as com.suse.gatekeeper.readlog
+	# (auth_admin in its policy): the setup's rule allows it.
+	readlog_allowed() {
+		runuser -u mcp-sysmgmt -- sh -c 'pkcheck --action-id com.suse.gatekeeper.readlog --process $$'
+	}
+	check "polkit allows mcp-sysmgmt reads of systemd-mcp 0.3.4 (com.suse.gatekeeper.readlog)" readlog_allowed
 	check "the snapper setup created mcp-snapper" id mcp-snapper
 	cat >/etc/systemd/system/mcpgw-vmtest.service <<'END'
 [Unit]

@@ -55,7 +55,7 @@ func TestPolkit(t *testing.T) {
 		t.Fatal(err)
 	}
 	backends := map[string]*config.Backend{
-		"systemd": {Name: "systemd", RunAs: "mcp-sysmgmt"},
+		"systemd": {Name: "systemd", RunAs: "mcp-sysmgmt", SELinuxType: "mcpsrv_systemd_t"},
 		"fw":      {Name: "fw", RunAs: "mcp-fw"},
 		"fs":      {Name: "fs", RunAs: "principal"},
 		"zypp":    {Name: "zypp", RunAs: "root"},
@@ -67,6 +67,31 @@ func TestPolkit(t *testing.T) {
 	}
 	if !strings.Contains(rs[0].Summary, "servers fw run as mcp-fw") {
 		t.Errorf("summary %q", rs[0].Summary)
+	}
+
+	// With systemd-mcp's read action known to polkit (before 0.3.5 it
+	// checks every read with it), a rule must allow that too.
+	actions := t.TempDir()
+	old := polkitActionsDir
+	polkitActionsDir = actions
+	t.Cleanup(func() { polkitActionsDir = old })
+	if err := os.WriteFile(filepath.Join(actions, "com.suse.gatekeeper.policy"), []byte("<policyconfig/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rs = Polkit(backends, []string{dir})
+	if rs[1].Status != Warn || !strings.Contains(rs[1].Summary, "none allows com.suse.gatekeeper.readlog") ||
+		!strings.Contains(rs[1].Summary, "calling method was canceled by user") {
+		t.Errorf("systemd without readlog: %+v", rs[1])
+	}
+	shipped, err := os.ReadFile(filepath.Join("..", "..", "profiles", "systemd", "polkit.rules"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "60-x.rules"), shipped, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if rs = Polkit(backends, []string{dir}); rs[1].Status != OK {
+		t.Errorf("systemd with the shipped rule: %+v", rs[1])
 	}
 }
 
