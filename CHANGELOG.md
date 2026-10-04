@@ -7,6 +7,13 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v0.12.1 — 2026-10-04
+
+A fix for the systemd setup with systemd-mcp 0.3.4. Upgrading from
+0.12.0 needs no changes; the updated `mcp-gateway-profile-systemd`
+brings the new polkit rule, which polkit reads at once, and running
+`systemd` instances work from their next call.
+
 ### Fixed
 
 - systemd-mcp 0.3.4 checks every read (`list_loaded_units`, `list_log`,
