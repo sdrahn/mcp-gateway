@@ -712,6 +712,152 @@ server's, and `IPAddressAllow=` holds the proxy's addresses; the domain
 may also connect to proxy ports (`squid_port_t`, `http_cache_port_t`).
 No proxy is taken from the environment.
 
+#### 5.7.3 Signing in to servers for each principal
+
+*Design for 0.12 (roadmap step 21, decision D16); not implemented yet.*
+
+A server defined with `url` may need each principal to sign in to it
+with their own account there (OAuth 2.1 with PKCE, as the MCP
+authorization specification describes), instead of one secret for all
+(`headers`). The definition says so with `sign_in`:
+
+```yaml
+name: tickets
+url: https://mcp.tickets.example.com/mcp
+sign_in:
+  scopes: [tickets.read, tickets.write]  # default: what the server's metadata lists
+  client_id: mcp-gateway                 # optional, see "Client identity"
+  client_secret: tickets-oauth           # optional credential name (confidential client)
+```
+
+`sign_in` excludes an `Authorization` header in `headers` and needs the
+HTTP listener (`http.listen`, `http.audience`), whose origin receives
+the callback: the redirect URI is `<origin of http.audience>/oauth/callback`,
+which must be reachable from the principals' browsers. `mcp-gateway
+--check` refuses a definition with `sign_in` without it.
+
+**Who talks to the authorization server.** As for the servers
+themselves (D15), the gateway makes no outbound connection for signing
+in. Each step that needs the network runs `mcp-oauth-helper` in a
+transient unit like an instance: its own domain (`mcpsrv_oauth_t`), a
+dynamic user, the sandbox, and `IPAddressAllow=` the addresses of the
+one host the step talks to (resolved by the gateway, as for instances;
+through the definition's `proxy` if it has one). It reads one request
+from stdin and writes one answer to stdout (JSON), then exits; the client
+secret, if any, reaches it as a credential. Steps:
+
+1. *Discover* (talks to the server): the protected resource metadata
+   (RFC 9728; the `resource_metadata` of the server's `401`, else
+   `/.well-known/oauth-protected-resource` with the URL's path), whose
+   first `authorization_servers` entry is the authorization server; then
+   (talks to that) its metadata (RFC 8414, else OpenID Connect
+   discovery). An authorization server without PKCE `S256`
+   (`code_challenge_methods_supported`) is refused. The result is
+   cached per server for an hour.
+2. *Register* (talks to the authorization server; only without
+   `client_id`, see below), once per server.
+3. *Exchange* the authorization code for tokens, and *refresh* them
+   (the token endpoint).
+4. *Revoke* (RFC 7009, if the authorization server offers it), on sign
+   out.
+
+Every request names the server as the resource (RFC 8707 `resource`,
+the definition's `url`), so tokens are bound to it.
+
+**Client identity.** With `client_id` (registered with the
+authorization server for the redirect URI above), the gateway uses it;
+with `client_secret` it is a confidential client. Without, the gateway
+uses a client ID metadata document if the authorization server supports
+them (`client_id_metadata_document_supported`): the document is served
+by the gateway at `<origin>/oauth/client.json` and its URL is the
+client id. Else it registers dynamically (RFC 7591) if the
+authorization server offers it, once per server, and keeps the result
+in the token store. Else the definition is refused at the first sign-in
+with an error naming `client_id`.
+
+**Signing in.** A principal who has no token for the server sees, in
+place of its tools, one tool `<server>__sign_in` ("Sign in to tickets
+to use its tools"); such servers use `discovery: instance`, since what a
+server lists may depend on the account. The tool is decided by policy
+like the server's tools (`"tool": "sign_in"`; the shipped roles allow it
+where they allow any tool of the server). A call of it, or of any of the
+server's tools without a token, starts a sign-in:
+
+- the gateway makes a *pending sign-in* with an id of 128 random bits
+  (the OAuth `state`), a PKCE verifier, the principal and the server, valid
+  for `sign_in.timeout` (default 10 min), kept in memory only;
+- it builds the authorization URL (`response_type=code`, `client_id`,
+  `redirect_uri`, `scope`, `state`, `code_challenge` with `S256`,
+  `resource`) and sends it to the client as a URL-mode elicitation
+  (`elicitation/create`, `mode: "url"`), the call waiting meanwhile, as
+  for approvals (§5.6.1). A client without URL elicitations gets a
+  `notifications/message` instead, and the sign-in shows up for that
+  principal only, on the Cockpit page and in `GET /v1/sign-ins`, with
+  the link to open; the desktop agent shows it too;
+- the principal signs in at the authorization server, which redirects
+  the browser to `/oauth/callback?code=…&state=…`; the gateway takes the
+  pending sign-in by its `state` (once; an unknown, used or expired
+  `state` gets an error page), runs the exchange, stores the tokens,
+  answers with a page saying to return to the agent, sends
+  `notifications/elicitation/complete`, and tells the principal's
+  sessions that the server's tools changed (`tools/list_changed`). A
+  call of a server tool that waited goes on; a call of `sign_in`
+  returns "signed in".
+
+A declined elicitation, an error from the authorization server (its
+`error` on the callback) or the timeout ends the sign-in, and the call
+fails with the reason.
+
+**Tokens.** The gateway keeps each principal's tokens per server in
+`state_dir/tokens.json` (atomic writes, mode 0600, `mcpgw_token_t`),
+each entry encrypted with AES-256-GCM under a key that only the gateway
+reads (`state_dir/tokens.key`, made on first use, mode 0600,
+`mcpgw_token_key_t`), the server name and the principal's key
+(transport, issuer, subject) as associated data, so that an entry cannot
+be moved to another principal or server. The file holds, per entry, the
+access token, the refresh token, the expiry, the granted scopes and the
+time of the sign-in; the registration (dynamic clients) is kept the
+same way.
+
+**Tokens reach the connector as a credential.** Before starting the
+principal's instance, the gateway makes sure the access token is valid
+for at least five more minutes (else it refreshes it), writes it to
+`/run/mcp-gateway/credentials/<unit>/access-token` (tmpfs, mode 0600,
+`mcpgw_cred_run_t`, which systemd reads and no server domain may), and
+starts the unit with `LoadCredential=sign-in:` that file, removing the
+file once the unit runs; the connector sends `Authorization: Bearer
+${CREDENTIAL:sign-in}`. The refresh token never leaves the gateway and
+the helper. The access token is fixed for the instance's life: the unit
+gets `RuntimeMaxSec=` up to the token's expiry, and a connector whose
+server answers `401` exits (status 77); either way the next call
+refreshes the token and starts a new instance (and a new session with
+the server, as after a `404`, §5.7.2). A refresh that the authorization
+server refuses (`invalid_grant`) deletes the tokens: the principal signs
+in again.
+
+**Signing out and revoking.** `GET /v1/sign-ins` lists the caller's
+sign-ins (server, since, expiry, scopes; never tokens), and an
+administrator's all; `DELETE /v1/sign-ins/{server}` signs the caller out
+(an administrator names the principal: `?principal=…`). Who may see and
+end a principal's sign-in is policy, `data.mcp.approvals.manage_sign_in`,
+with the approver rules (by default the principal themself and the
+admin role). Signing out deletes the tokens, revokes them at the
+authorization server if it offers that, and stops the principal's
+instances of the server. Cockpit's Servers tab shows, per server with
+`sign_in`, whether the user is signed in, with Sign out, and for
+administrators all principals' sign-ins with Revoke.
+
+**Audit.** `mcp-sign-in` (started, completed, failed, with the reason),
+`mcp-sign-in-refresh` (each refresh, and refusals that delete tokens),
+`mcp-sign-out` (by the principal or an administrator, revoked at the
+authorization server or not): server, principal, scopes, never a token,
+code or verifier.
+
+**SELinux.** `mcpsrv_oauth_t` (the helper: HTTP ports, proxy ports, CA
+certificates, its credentials; with `mcpsrv_http_connect_any` any port),
+`mcpgw_token_t` and `mcpgw_token_key_t` (the gateway only),
+`mcpgw_cred_run_t` (the gateway writes, `init_t` reads).
+
 ### 5.8 SELinux policy module (`mcp_gateway`)
 
 Types:
@@ -1244,6 +1390,9 @@ either says about itself (client info, tool annotations).
 | Gateway hang | watchdog (`WatchdogSec=60s`) on the locks of sessions, instances and approvals; goroutine dump on SIGABRT | sessions end with the restart |
 | Resource exhaustion by a client | message size limits (32 MiB), instance memory and task limits, idle stop, restart backoff, rate-limit obligations, limits on sessions and instances per principal (D14) | many principals together, unless `limits.instances` is set; memory per session (replay buffers) within the session limit |
 | Rate limits reset by a restart | counters in memory (D11); a restart needs root or a crash, both audited | an agent that can crash the gateway; no such crash is known |
+| Theft of principals' upstream tokens (§5.7.3) | tokens encrypted in `state_dir` under a key only the gateway reads, bound to server and principal; refresh tokens never leave the gateway and the helper; a connector gets the access token for its own server and principal only, as a credential | root; a compromised connector uses its access token until it expires |
+| Sign-in link forwarded to someone else (login confusion: another person's account bound to the principal) | the link goes only to the principal's client or their own Cockpit view; its `state` is single-use and expires (10 min); PKCE; the authorization server's consent page names the client | a principal who passes their link on, and someone who signs in with it |
+| Compromised sign-in helper | own domain, a dynamic user, reaches one host per run, no access to the token store | the tokens of the one exchange or refresh it runs |
 | Telemetry disclosure | metrics only for root on the control socket; the HTTP listener is opt-in and carries counts, no names or arguments | counts per server and action to whoever reaches the listener |
 | Local user spoofing identity | kernel-provided peer credentials; `clientInfo` never trusted | — |
 
@@ -1489,6 +1638,36 @@ flaw in any server, in a domain that reaches one address; the instance
 pool, limits, isolation per principal and the audit trail apply without
 a second code path. The cost is a process per principal and server, as
 for stdio servers.
+
+**D16 — Principals sign in to servers through the gateway, which
+keeps their tokens.**
+*Decision (accepted 2026-10-04, roadmap step 21):* a server defined with
+`url` and `sign_in` gets an OAuth 2.1 token per principal (§5.7.3). The
+gateway runs the authorization code flow with PKCE as the client: the
+sign-in link reaches the principal as a URL elicitation (else through
+Cockpit), the callback comes to the gateway's HTTP listener, and the
+tokens are kept encrypted in `state_dir`. Network steps (discovery,
+registration, code exchange, refresh, revocation) run in a confined,
+short-lived helper; the access token reaches the principal's connector
+instance as a systemd credential, fixed for the instance's life, which
+ends when the token expires or is refused.
+*Rationale:* the principal consents at the server's own authorization
+server and the agent never sees a token, as the MCP specification asks
+of servers that act for users. Keeping the gateway free of outbound
+connections (D15) contains a flaw in parsing an authorization server's
+answers like a flaw in a server. A token fixed per instance keeps tokens
+out of the stdio stream and off command lines, with no second channel
+into the instance; the cost is a new instance, and a new session with
+the server, when a token expires (typically hourly), which the gateway
+does transparently.
+*Considered:* passing refreshed tokens to a running connector over its
+stdio (a private notification): sessions with the server survive
+expiry, but every token crosses the gateway's message path and the
+connector needs a second protocol; it can follow if restarts prove too
+costly. The callback on the Cockpit page (which would tie the browser
+to a local account): remote principals have no Cockpit login. Tokens
+in the kernel keyring or a TPM-sealed key: not available in containers
+and not on every host; a key sealed with `systemd-creds` may follow.
 
 ## 10. Repository layout
 
@@ -1871,7 +2050,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       exchange and refreshes go through a confined helper that reaches
       only the authorization server, and the access token reaches the
       principal's connector instance as a credential, never a command
-      line (decision D16, to be written with the design). A principal
+      line (§5.7.3, decision D16). A principal
       can sign out (Cockpit, control API), and an administrator can
       revoke a principal's tokens; the audit trail records sign-ins,
       refreshes and revocations, never tokens.
@@ -1900,7 +2079,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
   containers without `CAP_AUDIT_WRITE` only the journal records remain.
 - MCP servers that speak HTTP get headers per server (`credentials`);
   signing in for each principal (OAuth to the upstream server, with the
-  principal's consent) is planned for 0.12 (step 21).
+  principal's consent) is designed for 0.12 (§5.7.3, D16) and not
+  implemented yet.
 - MCS pairs of stopped containers (their files keep the pair) are not
   known to the gateway (container storage is readable by root only), so a
   container started again, or a new one, can take an instance's pair; the
