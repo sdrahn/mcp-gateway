@@ -158,8 +158,14 @@ http:
 ```
 
 ```bash
-mcp-gateway --check && systemctl restart mcp-gateway.service
+mcp-gateway --check && systemctl restart mcp-gateway.service   # http.listen takes effect at start
 ```
+
+A renewed certificate (the files at `cert_file` and `key_file` replaced)
+is picked up within `policy.watch_interval`, or at once with `systemctl
+reload mcp-gateway.service`, without ending sessions; connections opened
+before keep the old one. A certificate that does not load keeps the one
+in force (chapter 3).
 
 The gateway fetches the IdP's signing keys from
 `<issuer>/.well-known/openid-configuration` (or `http.jwks_url`) and

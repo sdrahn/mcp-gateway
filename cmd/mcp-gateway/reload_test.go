@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"maps"
 	"os"
@@ -191,7 +192,7 @@ func TestReloadWatch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	hup := make(chan os.Signal, 1)
-	go l.watch(ctx, 10*time.Millisecond, serversFingerprint(l.dirs), hup)
+	go l.watch(ctx, func() time.Duration { return 10 * time.Millisecond }, l.fingerprint(), hup)
 
 	waitFor := func(what string, cond func() bool) {
 		t.Helper()
@@ -255,4 +256,135 @@ func TestServersFingerprint(t *testing.T) {
 	if fp() == edited {
 		t.Fatal("move to the other directory not noticed")
 	}
+}
+
+// testConfigReloader adds gateway.yaml to testReloader: its file, and the
+// configurations applyConfig was given.
+func testConfigReloader(t *testing.T) (*serverReloader, *fakeAudit, string, *[]*config.Gateway) {
+	t.Helper()
+	l, _, a, vendor, admin := testReloader(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gateway.yaml")
+	base := "servers_dir: " + admin + "\nvendor_servers_dir: " + vendor + "\nsocket_group: mcp-users\n"
+	write(t, dir, "gateway.yaml", base)
+	running, err := config.LoadGateway(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var applied []*config.Gateway
+	l.loadConfig = func() (*config.Gateway, error) {
+		g, _, err := config.Resolve(path)
+		return g, err
+	}
+	l.applyConfig = func(g *config.Gateway) error {
+		applied = append(applied, g)
+		return nil
+	}
+	l.running, l.current = running, running
+	l.configFiles = func(*config.Gateway) []string { return []string{path} }
+	return l, a, path, &applied
+}
+
+func TestReloadConfig(t *testing.T) {
+	l, a, path, applied := testConfigReloader(t)
+	dir, base := filepath.Dir(path), func() string {
+		b, _ := os.ReadFile(path)
+		return string(b)
+	}()
+
+	// A reloadable key is applied and audited; nothing needs a restart.
+	write(t, dir, "gateway.yaml", base+"approval_timeout: 5m\nlimits:\n  instances: 7\n")
+	if err := l.reload("test"); err != nil || l.ConfigErr() != "" {
+		t.Fatalf("%v %q", err, l.ConfigErr())
+	}
+	if n := len(*applied); n != 1 || (*applied)[0].ApprovalTimeout != 5*time.Minute || (*applied)[0].Limits.Instances != 7 {
+		t.Fatalf("applied %+v", *applied)
+	}
+	if len(l.RestartNeeded()) != 0 {
+		t.Fatalf("restart needed %v", l.RestartNeeded())
+	}
+	rec := a.last()
+	if rec.op != "mcp-config-reload" || !rec.ok || rec.fields["changed"] != "approval_timeout,limits.instances" {
+		t.Fatalf("audit %+v", rec)
+	}
+
+	// A key bound to the start is reported; the reloadable ones still apply.
+	write(t, dir, "gateway.yaml", strings.Replace(base, "mcp-users", "other", 1)+"approval_timeout: 1m\n")
+	if err := l.reload("test"); err != nil {
+		t.Fatal(err)
+	}
+	if got := l.RestartNeeded(); !slices.Equal(got, []string{"socket_group"}) {
+		t.Fatalf("restart needed %v", got)
+	}
+	if (*applied)[len(*applied)-1].ApprovalTimeout != time.Minute {
+		t.Fatal("reloadable key not applied")
+	}
+
+	// A file that does not load changes nothing and is reported until fixed.
+	n := len(*applied)
+	for name, content := range map[string]string{
+		"broken yaml": "approval_timeout: [\n",
+		"unknown key": base + "aproval_timeout: 1m\n",
+		"invalid":     base + "policy:\n  watch_interval: 1ms\n",
+		"no version":  "version: 99\n",
+	} {
+		write(t, dir, "gateway.yaml", content)
+		err := l.reload("test")
+		if err == nil || l.ConfigErr() == "" || len(*applied) != n {
+			t.Fatalf("%s: %v %q, %d applied", name, err, l.ConfigErr(), len(*applied))
+		}
+		if rec := a.last(); rec.ok || rec.fields["file"] != "gateway.yaml" {
+			t.Fatalf("%s: audit %+v", name, rec)
+		}
+		if l.current.ApprovalTimeout != time.Minute {
+			t.Fatalf("%s: the configuration in force changed", name)
+		}
+	}
+	write(t, dir, "gateway.yaml", base)
+	if err := l.reload("test"); err != nil || l.ConfigErr() != "" {
+		t.Fatalf("fixed: %v %q", err, l.ConfigErr())
+	}
+}
+
+// An error or a panic while applying keeps the configuration in force.
+func TestReloadConfigApplyFails(t *testing.T) {
+	l, _, path, _ := testConfigReloader(t)
+	b, _ := os.ReadFile(path)
+	write(t, filepath.Dir(path), "gateway.yaml", string(b)+"approval_timeout: 3m\n")
+	for _, apply := range []func(*config.Gateway) error{
+		func(*config.Gateway) error { return errors.New("http.cert_file: no such file") },
+		func(*config.Gateway) error { panic("boom") },
+	} {
+		l.applyConfig = apply
+		if err := l.reload("test"); err == nil || l.ConfigErr() == "" {
+			t.Fatalf("%v %q", err, l.ConfigErr())
+		}
+		if l.current.ApprovalTimeout == 3*time.Minute {
+			t.Fatal("configuration in force changed")
+		}
+		// The server definitions are reloaded all the same.
+		if l.Err() != "" {
+			t.Fatalf("servers: %q", l.Err())
+		}
+	}
+}
+
+// Editing gateway.yaml triggers a reload, at the interval in force.
+func TestReloadWatchConfig(t *testing.T) {
+	l, _, path, applied := testConfigReloader(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go l.watch(ctx, func() time.Duration { return 10 * time.Millisecond }, l.fingerprint(), make(chan os.Signal))
+	b, _ := os.ReadFile(path)
+	write(t, filepath.Dir(path), "gateway.yaml", string(b)+"approval_timeout: 2m\n")
+	for range 500 {
+		l.mu.Lock()
+		n := len(*applied)
+		l.mu.Unlock()
+		if n > 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("an edit of gateway.yaml was not noticed")
 }

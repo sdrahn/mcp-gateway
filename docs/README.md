@@ -22,7 +22,7 @@ servers cannot read the gateway's files.
 |---|---|
 | What does the gateway do, what are principals, sessions, instances, grants? | [1. Introduction](user-guide/01-introduction.md) |
 | Which packages, first start, transactional systems (MicroOS, SLE Micro) | [2. Installation](user-guide/02-installation.md) |
-| Every key of `gateway.yaml`, which file is in force (`/etc` or `/usr/etc`) | [3. Configuration](user-guide/03-configuration.md) |
+| Every key of `gateway.yaml`, which file is in force (`/etc` or `/usr/etc`), which keys apply without a restart | [3. Configuration](user-guide/03-configuration.md) |
 | Adding an MCP server: definition keys, sandbox, secrets, SELinux domain; `inspect`, `profile`, `review`; the file server `fs` and the command server `exec` | [4. MCP servers](user-guide/04-mcp-servers.md) |
 | Changing server definitions while the gateway runs | [4. MCP servers, "Changing definitions while the gateway runs"](user-guide/04-mcp-servers.md#changing-definitions-while-the-gateway-runs) |
 | Connecting an agent: `mcp-connect`, the aggregated endpoint and `server__tool` names, remote access with OAuth, Claude Code, Kit | [5. Connecting clients](user-guide/05-connecting-clients.md) |
@@ -62,6 +62,8 @@ with placeholders.
 | `selinux_type is not in the loaded SELinux policy` | the same, as the gateway warns at start | [4, "SELinux domains for servers"](user-guide/04-mcp-servers.md#selinux-domains-for-servers) |
 | `invalid message from backend … parse error` | the server writes something other than MCP to stdout | [10, "Instances do not start"](user-guide/10-operations.md#instances-do-not-start) |
 | `server definitions not reloaded; serving the previous ones` | a definition in `servers.d` does not load | [4, "Changing definitions while the gateway runs"](user-guide/04-mcp-servers.md#changing-definitions-while-the-gateway-runs) |
+| `gateway.yaml not reloaded; the configuration in force stays` | `gateway.yaml`, its certificate or password file does not load | [3, "Changing the configuration while the gateway runs"](user-guide/03-configuration.md#changing-the-configuration-while-the-gateway-runs) |
+| `gateway.yaml changes keys that take effect at the next start only` | a key that needs a restart changed | [3, "Changing the configuration while the gateway runs"](user-guide/03-configuration.md#changing-the-configuration-while-the-gateway-runs) |
 | `server … is defined twice` | two files define the same server name | [13, "Setup packages"](user-guide/13-system-management-servers.md#setup-packages) |
 | `refusing to run as root`, `state files not owned by mcp-gateway` | the gateway was run as root | [10, "State and backup"](user-guide/10-operations.md#state-and-backup) |
 | `mcp-gateway was updated; restart …` | the package was updated, the gateway still runs the old version | [10, "Upgrades"](user-guide/10-operations.md#upgrades) |

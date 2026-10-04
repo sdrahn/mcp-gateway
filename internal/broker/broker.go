@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/audit"
@@ -115,7 +116,10 @@ const (
 
 // Broker obtains approvals and keeps grants.
 type Broker struct {
-	opts  Options
+	opts Options
+	// live holds the options a configuration reload changes (Timeout,
+	// URLTemplate); see SetApprovals.
+	live  atomic.Pointer[liveOptions]
 	now   func() time.Time
 	store *Store
 	log   *slog.Logger
@@ -179,7 +183,7 @@ func (b *Broker) publishPending(p *Pending, isNew bool) {
 // ApprovalURL returns the approval page URL for id ("" without
 // approvals.url_template).
 func (b *Broker) ApprovalURL(id string) string {
-	if b.opts.URLTemplate == "" {
+	if b.urlTemplate() == "" {
 		return ""
 	}
 	return b.approvalURL(id)
@@ -222,6 +226,7 @@ func New(opts Options) (*Broker, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	b := &Broker{opts: opts, now: time.Now, log: log, pending: map[string]*Pending{}}
+	b.live.Store(&liveOptions{timeout: opts.Timeout, urlTemplate: opts.URLTemplate})
 	store, err := OpenStore(opts.GrantsFile, func() time.Time { return b.now() })
 	if err != nil {
 		return nil, err
@@ -232,6 +237,23 @@ func New(opts Options) (*Broker, error) {
 	}
 	return b, nil
 }
+
+// liveOptions are the options a configuration reload changes.
+type liveOptions struct {
+	timeout     time.Duration
+	urlTemplate string
+}
+
+// SetApprovals changes the approval timeout and the approval page's URL
+// template (a reload of the configuration). Approvals already pending
+// keep their expiry.
+func (b *Broker) SetApprovals(timeout time.Duration, urlTemplate string) {
+	b.live.Store(&liveOptions{timeout: timeout, urlTemplate: urlTemplate})
+}
+
+func (b *Broker) timeout() time.Duration { return b.live.Load().timeout }
+
+func (b *Broker) urlTemplate() string { return b.live.Load().urlTemplate }
 
 // loadPending restores the pending approvals of a previous run; no call
 // waits for them any more.
@@ -341,7 +363,7 @@ func (b *Broker) Approve(ctx context.Context, el Elicitor, in pep.Input, ask pep
 	if len(ask.Scopes) == 0 {
 		ask.Scopes = []string{"once"}
 	}
-	ctx, cancel := context.WithTimeout(ctx, b.opts.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, b.timeout())
 	defer cancel()
 	for _, c := range []string{string(ask.Channel), ask.Fallback} {
 		switch pep.Channel(c) {
@@ -350,7 +372,7 @@ func (b *Broker) Approve(ctx context.Context, el Elicitor, in pep.Input, ask pep
 				return b.viaForm(ctx, el, in, ask)
 			}
 		case pep.ChannelURL:
-			if b.opts.URLTemplate != "" && el.SupportsURL() {
+			if b.urlTemplate() != "" && el.SupportsURL() {
 				return b.viaURL(ctx, el, in, ask)
 			}
 		case pep.ChannelOOB:
@@ -430,7 +452,7 @@ func formParams(in pep.Input, prompt string, scopes []string) ElicitParams {
 // --- url and out-of-band ------------------------------------------------
 
 func (b *Broker) approvalURL(id string) string {
-	return strings.ReplaceAll(b.opts.URLTemplate, "{id}", id)
+	return strings.ReplaceAll(b.urlTemplate(), "{id}", id)
 }
 
 func (b *Broker) viaURL(ctx context.Context, el Elicitor, in pep.Input, ask pep.AskSpec) (g *pep.Grant, err error) {
@@ -479,7 +501,7 @@ func (b *Broker) viaOOB(ctx context.Context, el Elicitor, in pep.Input, ask pep.
 	p := b.addPending(in, ask, pep.ChannelOOB)
 	defer func() { b.endWait(p, err) }()
 	where := "on the mcp-gateway approvals page"
-	if b.opts.URLTemplate != "" {
+	if b.urlTemplate() != "" {
 		where = "at " + b.approvalURL(p.ID)
 	}
 	el.Notify("notifications/message", map[string]any{
@@ -506,7 +528,7 @@ func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel) *Pendi
 	for _, p := range b.pending {
 		if p.result == nil && sameRequest(p, in) {
 			p.Principal, p.Scopes, p.Channel, p.Prompt = in.Principal, ask.Scopes, c, ask.Prompt
-			p.Expires = now.Add(b.opts.Timeout)
+			p.Expires = now.Add(b.timeout())
 			p.result = make(chan *pep.Grant, 1)
 			p.Waiting = true
 			b.persistPending()
@@ -528,7 +550,7 @@ func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel) *Pendi
 		Prompt:    ask.Prompt,
 		Scopes:    ask.Scopes,
 		Created:   now,
-		Expires:   now.Add(b.opts.Timeout),
+		Expires:   now.Add(b.timeout()),
 		Waiting:   true,
 		result:    make(chan *pep.Grant, 1),
 	}

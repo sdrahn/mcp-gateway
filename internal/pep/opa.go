@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/metrics"
@@ -82,8 +83,14 @@ func (o *OPA) WhatIf(ctx context.Context, in WhatIfInput) ([]Change, error) {
 // OPA queries an OPA server over its REST API on a unix socket.
 type OPA struct {
 	client  *http.Client
-	timeout time.Duration
+	timeout atomic.Int64 // time.Duration; SetTimeout changes it
 }
+
+// SetTimeout changes how long a decision may take (a reload of the
+// configuration); queries in flight keep theirs.
+func (o *OPA) SetTimeout(d time.Duration) { o.timeout.Store(int64(d)) }
+
+func (o *OPA) timeoutValue() time.Duration { return time.Duration(o.timeout.Load()) }
 
 // NewOPA returns a client for the OPA server listening on socket.
 func NewOPA(socket string, timeout time.Duration) *OPA {
@@ -95,7 +102,9 @@ func NewOPA(socket string, timeout time.Duration) *OPA {
 		MaxIdleConns:    16,
 		IdleConnTimeout: time.Minute,
 	}
-	return &OPA{client: &http.Client{Transport: tr}, timeout: timeout}
+	o := &OPA{client: &http.Client{Transport: tr}}
+	o.timeout.Store(int64(timeout))
+	return o
 }
 
 // Decide implements Decider. A missing result (undefined decision) is an
@@ -233,7 +242,7 @@ func (o *OPA) Bundles(ctx context.Context) (map[string]string, error) {
 }
 
 func (o *OPA) get(ctx context.Context, path string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, o.timeout)
+	ctx, cancel := context.WithTimeout(ctx, o.timeoutValue())
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://opa"+path, nil)
 	if err != nil {
@@ -271,7 +280,7 @@ func (o *OPA) Bool(ctx context.Context, path string, input any) (bool, error) {
 }
 
 func (o *OPA) query(ctx context.Context, path string, input, result any) error {
-	return o.queryWithin(ctx, o.timeout, path, input, result)
+	return o.queryWithin(ctx, o.timeoutValue(), path, input, result)
 }
 
 func (o *OPA) queryWithin(ctx context.Context, timeout time.Duration, path string, input, result any) (err error) {

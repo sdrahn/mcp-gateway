@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
@@ -39,9 +40,8 @@ type Policy interface {
 
 // Email mails approvers about new pending approvals.
 type Email struct {
-	cfg      config.Email
-	password string
-	policy   Policy
+	state  atomic.Pointer[emailState] // see Configure
+	policy Policy
 	// URL returns the approval page for an approval id ("" if none).
 	URL func(id string) string
 	Log *slog.Logger
@@ -53,15 +53,19 @@ type Email struct {
 	host string
 }
 
-// NewEmail returns the notifier for cfg.
+// emailState is the configuration in force, with the password read from
+// its file.
+type emailState struct {
+	cfg      config.Email
+	password string
+}
+
+// NewEmail returns the notifier for cfg; it sends nothing while cfg.SMTP
+// is empty.
 func NewEmail(cfg config.Email, policy Policy, log *slog.Logger) (*Email, error) {
-	e := &Email{cfg: cfg, policy: policy, Log: log, now: time.Now, GroupMembers: getentMembers}
-	if cfg.PasswordFile != "" {
-		b, err := os.ReadFile(cfg.PasswordFile)
-		if err != nil {
-			return nil, fmt.Errorf("notifications.email.password_file: %w", err)
-		}
-		e.password = strings.TrimRight(string(b), "\r\n")
+	e := &Email{policy: policy, Log: log, now: time.Now, GroupMembers: getentMembers}
+	if err := e.Configure(cfg); err != nil {
+		return nil, err
 	}
 	e.host, _ = os.Hostname()
 	e.Send = e.smtpSend
@@ -73,6 +77,26 @@ func NewEmail(cfg config.Email, policy Policy, log *slog.Logger) (*Email, error)
 	}
 	return e, nil
 }
+
+// Configure puts cfg in force (a reload of the configuration), reading
+// the password file anew. On an error the configuration in force stays.
+func (e *Email) Configure(cfg config.Email) error {
+	st := &emailState{cfg: cfg}
+	if cfg.PasswordFile != "" {
+		b, err := os.ReadFile(cfg.PasswordFile)
+		if err != nil {
+			return fmt.Errorf("notifications.email.password_file: %w", err)
+		}
+		st.password = strings.TrimRight(string(b), "\r\n")
+	}
+	e.state.Store(st)
+	return nil
+}
+
+func (e *Email) config() config.Email { return e.state.Load().cfg }
+
+// Enabled reports whether mail is configured (notifications.email.smtp).
+func (e *Email) Enabled() bool { return e.config().SMTP != "" }
 
 // Run mails about the pending approvals announced on events until ctx
 // ends or events is closed. Each approval is announced once.
@@ -93,6 +117,9 @@ func (e *Email) Run(ctx context.Context, events <-chan broker.Event) {
 }
 
 func (e *Email) notify(ctx context.Context, p broker.Pending) {
+	if !e.Enabled() {
+		return
+	}
 	to, err := e.Recipients(ctx, p)
 	if err != nil {
 		e.Log.Warn("approval mail: finding recipients failed", "id", p.ID, "err", err)
@@ -135,7 +162,7 @@ func (e *Email) Recipients(ctx context.Context, p broker.Pending) ([]string, err
 		if !validName(u) {
 			continue
 		}
-		addr := strings.ReplaceAll(e.cfg.To, "{user}", u)
+		addr := strings.ReplaceAll(e.config().To, "{user}", u)
 		if !slices.Contains(to, addr) {
 			to = append(to, addr)
 		}
@@ -173,7 +200,7 @@ func (e *Email) Message(p broker.Pending) []byte {
 	var b bytes.Buffer
 	subject := fmt.Sprintf("[mcp-gateway] Approval needed: %s/%s for %s", p.Server, p.Name, p.Principal.Sub)
 	hdr := func(k, v string) { fmt.Fprintf(&b, "%s: %s\r\n", k, v) }
-	hdr("From", clean(e.cfg.From))
+	hdr("From", clean(e.config().From))
 	hdr("To", "undisclosed-recipients:;")
 	hdr("Subject", mime.QEncoding.Encode("utf-8", clean(subject)))
 	hdr("Date", e.now().Format(time.RFC1123Z))
@@ -204,7 +231,7 @@ func (e *Email) Message(p broker.Pending) []byte {
 		line("  Client:     %s %s (self-reported)", p.Principal.Client.Name, p.Principal.Client.Version)
 	}
 	line("  Call:       %s %s/%s", p.Action, p.Server, p.Name)
-	if e.cfg.IncludeArgs && len(p.Args) > 0 {
+	if e.config().IncludeArgs && len(p.Args) > 0 {
 		args, _ := json.MarshalIndent(p.Args, "              ", "  ")
 		fmt.Fprintf(&b, "  Arguments:  %s\r\n", strings.ReplaceAll(string(args), "\n", "\r\n"))
 	}
@@ -223,9 +250,10 @@ func (e *Email) Message(p broker.Pending) []byte {
 
 // smtpSend delivers msg through the configured mail server.
 func (e *Email) smtpSend(ctx context.Context, to []string, msg []byte) error {
-	host, _, _ := net.SplitHostPort(e.cfg.SMTP)
+	st := e.state.Load()
+	host, _, _ := net.SplitHostPort(st.cfg.SMTP)
 	d := net.Dialer{}
-	conn, err := d.DialContext(ctx, "tcp", e.cfg.SMTP)
+	conn, err := d.DialContext(ctx, "tcp", st.cfg.SMTP)
 	if err != nil {
 		return err
 	}
@@ -241,21 +269,21 @@ func (e *Email) smtpSend(ctx context.Context, to []string, msg []byte) error {
 	if err := c.Hello(e.host); err != nil {
 		return err
 	}
-	if ok, _ := c.Extension("STARTTLS"); ok && e.cfg.StartTLS != "never" {
+	if ok, _ := c.Extension("STARTTLS"); ok && st.cfg.StartTLS != "never" {
 		if err := c.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
 			return err
 		}
-	} else if e.cfg.StartTLS == "always" {
+	} else if st.cfg.StartTLS == "always" {
 		return errors.New("notify: the mail server does not offer STARTTLS")
 	}
-	if e.cfg.Username != "" {
+	if st.cfg.Username != "" {
 		// PlainAuth refuses to send the password unencrypted except to
 		// localhost.
-		if err := c.Auth(smtp.PlainAuth("", e.cfg.Username, e.password, host)); err != nil {
+		if err := c.Auth(smtp.PlainAuth("", st.cfg.Username, st.password, host)); err != nil {
 			return err
 		}
 	}
-	if err := c.Mail(e.cfg.From); err != nil {
+	if err := c.Mail(st.cfg.From); err != nil {
 		return err
 	}
 	for _, rcpt := range to {

@@ -1720,7 +1720,9 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       hold: the whole file is validated before anything changes, a file
       that does not load (or a panic) keeps the configuration in force,
       is logged at error, audited (`mcp-config-reload`) and reported
-      (`config_error`), and the gateway goes on serving;
+      (`config_error`), and the gateway goes on serving. A renewed
+      certificate or password file counts as a change of the
+      configuration (done);
     - instances that run from a previous server definition (step 18)
       show as such: `GET /v1/servers` marks them (`definition:
       "previous"`), Cockpit's Servers tab shows them apart and

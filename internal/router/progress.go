@@ -69,7 +69,7 @@ func (s *Session) reportWaiting(t *callTarget) (stop func()) {
 	if cp == nil {
 		return func() {}
 	}
-	interval := s.r.ProgressInterval
+	interval := s.r.settings().ProgressInterval
 	if interval <= 0 {
 		interval = defaultProgressInterval
 	}

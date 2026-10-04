@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -214,5 +216,40 @@ func TestGroupMembersParsing(t *testing.T) {
 	got := appendNew(listed, primaryMembers(passwd, gid)...)
 	if strings.Join(got, ",") != "alice,bob,carol" {
 		t.Errorf("members: %v", got)
+	}
+}
+
+// A reload reads the password file anew; a configuration that does not
+// load leaves the one in force; without smtp nothing is sent.
+func TestEmailConfigure(t *testing.T) {
+	pw := filepath.Join(t.TempDir(), "pw")
+	if err := os.WriteFile(pw, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Email{SMTP: "x:25", From: "gw@x", To: "{user}", Username: "gw", PasswordFile: pw}
+	e, err := NewEmail(cfg, fakePolicy{"user:alice"}, nil)
+	if err != nil || e.state.Load().password != "old" || !e.Enabled() {
+		t.Fatalf("%v %+v", err, e.state.Load())
+	}
+	if err := os.WriteFile(pw, []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Configure(cfg); err != nil || e.state.Load().password != "new" {
+		t.Fatalf("%v %q", err, e.state.Load().password)
+	}
+	bad := cfg
+	bad.PasswordFile = filepath.Join(t.TempDir(), "missing")
+	bad.From = "other@x"
+	if err := e.Configure(bad); err == nil || e.config().From != "gw@x" {
+		t.Fatalf("%v %+v", err, e.config())
+	}
+	var sent int
+	e.Send = func(context.Context, []string, []byte) error { sent++; return nil }
+	if err := e.Configure(config.Email{}); err != nil || e.Enabled() {
+		t.Fatalf("%v enabled=%v", err, e.Enabled())
+	}
+	e.notify(context.Background(), broker.Pending{ID: "a-1"})
+	if sent != 0 {
+		t.Fatal("mail sent without smtp")
 	}
 }

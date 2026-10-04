@@ -47,6 +47,7 @@ type Router struct {
 	once      sync.Once
 	registry  atomic.Pointer[map[string]*config.Backend] // the definitions in force (SetBackends)
 	reloadMu  sync.Mutex
+	live      atomic.Pointer[Settings] // the settings in force (SetSettings)
 	pool      *pool
 	limiter   *pep.Limiter
 	discovery discoveryCache
@@ -78,13 +79,13 @@ func (r *Router) PolicyChanged() {
 	}
 }
 
-// WatchPolicy calls fingerprint every interval and PolicyChanged when the
+// WatchPolicy calls fingerprint every interval() and PolicyChanged when the
 // result changes. Errors are logged and skipped (decisions fail closed
 // meanwhile anyway). It returns when ctx ends.
-func (r *Router) WatchPolicy(ctx context.Context, interval time.Duration, fingerprint func(context.Context) (string, error), onChange func()) {
+func (r *Router) WatchPolicy(ctx context.Context, interval func() time.Duration, fingerprint func(context.Context) (string, error), onChange func()) {
 	r.init()
 	var last string
-	t := time.NewTicker(interval)
+	t := time.NewTimer(interval())
 	defer t.Stop()
 	for {
 		fp, err := fingerprint(ctx)
@@ -104,6 +105,7 @@ func (r *Router) WatchPolicy(ctx context.Context, interval time.Duration, finger
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			t.Reset(interval())
 		}
 	}
 }
@@ -149,15 +151,43 @@ func (r *Router) init() {
 		}
 		r.registry.Store(&initial)
 		r.pool = newPool(r.Launcher, r.IdleTimeout, r.Log)
-		r.pool.maxPerPrincipal = r.MaxInstancesPerPrincipal
-		if r.pool.maxPerPrincipal <= 0 {
-			r.pool.maxPerPrincipal = defaultInstancesPerPrincipal
-		}
-		r.pool.maxTotal = r.MaxInstances
+		r.applySettings(Settings{IdleTimeout: r.IdleTimeout, ProgressInterval: r.ProgressInterval,
+			MaxSessionsPerPrincipal: r.MaxSessionsPerPrincipal, MaxInstancesPerPrincipal: r.MaxInstancesPerPrincipal,
+			MaxInstances: r.MaxInstances})
 		r.pool.onListChanged = r.listChanged
 		r.pool.current = func(server string) *config.Backend { return (*r.registry.Load())[server] }
 		r.limiter = pep.NewLimiter()
 	})
+}
+
+// Settings are the router's options a configuration reload changes; at
+// start they are the fields of Router of the same names.
+type Settings struct {
+	IdleTimeout, ProgressInterval                                   time.Duration
+	MaxSessionsPerPrincipal, MaxInstancesPerPrincipal, MaxInstances int
+}
+
+// SetSettings changes the settings (a reload of the configuration):
+// limits apply to the next session or instance, the idle timeout to
+// instances that become idle from now on, the progress interval to calls
+// that start waiting for an approval.
+func (r *Router) SetSettings(s Settings) {
+	r.init()
+	r.applySettings(s)
+}
+
+func (r *Router) applySettings(s Settings) {
+	r.live.Store(&s)
+	perPrincipal := s.MaxInstancesPerPrincipal
+	if perPrincipal <= 0 {
+		perPrincipal = defaultInstancesPerPrincipal
+	}
+	r.pool.configure(s.IdleTimeout, perPrincipal, s.MaxInstances)
+}
+
+func (r *Router) settings() Settings {
+	r.init()
+	return *r.live.Load()
 }
 
 // Serve accepts connections from l until ctx ends, then stops all backend

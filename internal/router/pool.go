@@ -125,6 +125,13 @@ func (e *BackoffError) Error() string {
 	return fmt.Sprintf("%s failed recently; next start in %s", e.Server, e.RetryIn.Round(time.Second))
 }
 
+// configure sets the idle timeout and the instance limits.
+func (p *pool) configure(idle time.Duration, perPrincipal, total int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.idle, p.maxPerPrincipal, p.maxTotal = idle, perPrincipal, total
+}
+
 // errDefinitionChanged is returned by acquire for a definition that
 // SetBackends replaced; the caller gets the current one and tries again.
 var errDefinitionChanged = errors.New("server definition changed; try again")

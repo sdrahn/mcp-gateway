@@ -27,7 +27,8 @@ What needs what after a change:
 
 | Change | Action |
 |---|---|
-| `gateway.yaml`, TLS certificate, SMTP password | `mcp-gateway --check && systemctl restart mcp-gateway.service` |
+| `gateway.yaml`: approvals, notifications, limits, idle and policy timeouts; TLS certificate, SMTP password | nothing; picked up within seconds (`systemctl reload mcp-gateway.service` at once) |
+| `gateway.yaml`: other keys (sockets, listeners, supervisor, …; chapter 3) | `mcp-gateway --check && systemctl restart mcp-gateway.service`; until then `mcp-gateway-admin doctor` lists them |
 | server definitions (`servers.d`), setup packages | nothing; picked up within seconds (`systemctl reload mcp-gateway.service` at once) |
 | role data (directory mode) | nothing; picked up within seconds |
 | role data (signed bundle) | `mcp-policy-bundle` (or "Sign and apply" in Cockpit) |

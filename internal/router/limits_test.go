@@ -153,3 +153,28 @@ func TestInstanceLimitTotal(t *testing.T) {
 		t.Fatalf("bob at the gateway limit: %+v", m)
 	}
 }
+
+// A reload changes the limits for the sessions and instances that follow.
+func TestSetSettingsLimits(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	r.MaxSessionsPerPrincipal = 1
+	if _, m := openSession(t, r, alice(), nil); m.Error != nil {
+		t.Fatal(m.Error)
+	}
+	if _, m := openSession(t, r, alice(), nil); m.Error == nil {
+		t.Fatal("second session admitted at a limit of 1")
+	}
+	r.SetSettings(Settings{MaxSessionsPerPrincipal: 2, MaxInstancesPerPrincipal: 1})
+	if _, m := openSession(t, r, alice(), nil); m.Error != nil {
+		t.Fatalf("second session at a limit of 2: %+v", m.Error)
+	}
+	if r.settings().MaxSessionsPerPrincipal != 2 {
+		t.Fatal("settings not stored")
+	}
+	r.pool.mu.Lock()
+	per := r.pool.maxPerPrincipal
+	r.pool.mu.Unlock()
+	if per != 1 {
+		t.Fatalf("instance limit per principal %d", per)
+	}
+}

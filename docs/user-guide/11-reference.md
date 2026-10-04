@@ -200,7 +200,7 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | Method and path | Body / result |
 |---|---|
 | `GET /v1/whoami` | the caller: `{"name", "uid", "groups"}` |
-| `GET /v1/status` | `{"version", "restart_pending", "servers_error"}`: the running gateway's version, `true` when its program was updated and the gateway not yet restarted, and why the last reload of the server definitions failed (absent when it did not) |
+| `GET /v1/status` | `{"version", "restart_pending", "servers_error", "config_error", "restart_needed"}`: the running gateway's version; `true` when its program was updated and the gateway not yet restarted; why the last reload of the server definitions, or of `gateway.yaml`, failed (absent when it did not); the keys of `gateway.yaml` changed since the start that take effect at the next start (absent when none) |
 | `GET /v1/approvals` | pending approvals the caller may decide on (list of approvals, below) |
 | `GET /v1/approvals/{id}` | one approval; `404` if unknown or not the caller's to decide |
 | `POST /v1/approvals/{id}` | `{"decision": "approve"\|"deny", "scope": "once"\|"session"\|<duration>}`; returns the grant (`200`) or nothing (`204`, denied); `400 scope not offered` |
@@ -264,7 +264,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel` |
 | `mcp-grant-revoke` | a grant was revoked | `id`, `by`, `principal`, `server`, `target` |
 | `mcp-policy-change` | OPA loaded a different policy | `revision` |
-| `mcp-config-reload` | the server definitions were reloaded with changes (`res=success`), or could not be (`res=failed`; the previous ones stay in force) | `trigger` (`file change`, `SIGHUP`), `added`, `changed`, `removed`, `error` |
+| `mcp-config-reload` | the server definitions, or `gateway.yaml` (`file=gateway.yaml`), were reloaded with changes (`res=success`), or could not be (`res=failed`; what was in force stays) | `trigger` (`file change`, `SIGHUP`), `file`, `added`, `changed`, `removed`, `restart_needed`, `error` |
 | `mcp-mcs-collision` | an instance's MCS pair was taken by another workload | `instance`, `pair`, `foreign_pid`, `foreign_context` |
 | `mcp-limit` | a session or instance was refused at a limit (`res=failed`) | `principal`, `transport`, `session`, `limit`, `max` |
 | `mcp-token-expired` | an HTTP stream ended because the token that opened it expired | `principal`, `transport`, `session` |
