@@ -84,9 +84,11 @@ function site() {
     await page.waitForFunction(() => !document.querySelector("#servers").textContent.includes("signed in 2 h ago"));
     check((await page.evaluate(() => __calls)).some(c => c[0] === "DELETE" && c[1] === "/v1/sign-ins/tickets?principal=alice&transport=unix"),
           "revoke another principal's sign-in");
+    check(await page.isHidden("#error"), "revoked at the authorization server: no message");
     await page.click("#servers button:has-text('Sign out')");
     await page.waitForFunction(() => document.querySelector("#servers").textContent.includes("You are not signed in to tickets"));
     check((await page.evaluate(() => __calls)).some(c => c[0] === "DELETE" && c[1] === "/v1/sign-ins/tickets"), "sign out");
+    check((await page.textContent("#error")).includes("stay valid there until they expire"), "not revoked: said so");
 
     // A failed reload and keys that need a restart are shown; a reload
     // that fails says so.

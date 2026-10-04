@@ -36,8 +36,9 @@ func (c BackendChanges) Empty() bool {
 // changed server starts an instance from the new definition; the old
 // instance runs until no session uses it and no call is in flight on
 // it. Instances of removed servers stop once their calls in flight are
-// answered. Cached discovery lists of both are fetched anew. Every
-// session is told that its lists changed.
+// answered. Cached discovery lists of both are fetched anew, and
+// principals' tokens that no longer fit (SignIns.DefinitionChanged) go.
+// Every session is told that its lists changed.
 func (r *Router) SetBackends(next map[string]*config.Backend) BackendChanges {
 	r.init()
 	r.reloadMu.Lock()
@@ -89,10 +90,16 @@ func (r *Router) SetBackends(next map[string]*config.Backend) BackendChanges {
 	for _, name := range ch.Removed {
 		r.pool.retire(name, true)
 		r.forgetDiscovery(name)
+		if r.SignIns != nil {
+			r.SignIns.DefinitionChanged(prev[name], nil)
+		}
 	}
 	for _, name := range ch.Changed {
 		r.pool.retire(name, false)
 		r.forgetDiscovery(name)
+		if r.SignIns != nil {
+			r.SignIns.DefinitionChanged(prev[name], next[name])
+		}
 	}
 	r.Log.Info("server definitions changed; notifying sessions", "added", ch.Added, "changed", ch.Changed,
 		"removed", ch.Removed, "sessions", len(sessions))

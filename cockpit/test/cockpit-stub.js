@@ -90,6 +90,8 @@
                     if (opts.method === "DELETE" && opts.path.startsWith("/v1/sign-ins/")) {
                         const sub = new URLSearchParams(opts.path.split("?")[1] || "").get("principal") || "carol";
                         signIns = signIns.filter(e => e.principal.sub !== sub);
+                        // alice's authorization server revokes, carol's does not.
+                        return Promise.resolve(JSON.stringify({ signed_out: 1, revoked: sub === "alice" ? 1 : 0 }));
                     }
                     if (opts.method === "DELETE" && opts.path.startsWith("/v1/instances/")) {
                         instances = instances.filter(i => opts.path !== "/v1/instances/" + i.id);

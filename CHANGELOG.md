@@ -7,6 +7,14 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Fixed
+
+- Sign-ins no longer outlive their server's definition: removing it, its
+  `sign_in`, or changing its `url` deletes the principals' tokens and
+  revokes them at the authorization server, also for changes made while
+  the gateway was not running. Before, they stayed in the token store,
+  and discovered metadata was used for up to an hour after a change.
+
 ### Changed
 
 - `mcp-gateway-admin doctor` warns about a polkit rule without
@@ -18,6 +26,10 @@ minor release (with a warning) and removed in the next.
   (a program) or a file of more than 1 MiB, naming each
   (`tools/check-tree`): 0.12.0 and 0.12.1 shipped two programs built in
   the top directory, which are gone.
+- `DELETE /v1/sign-ins/{server}` answers how many sign-ins the
+  authorization server revoked (`revoked`), and Cockpit says when the
+  tokens were only deleted; `GET /v1/sign-ins` names each sign-in's
+  `resource`.
 
 ## v0.12.1 — 2026-10-04
 

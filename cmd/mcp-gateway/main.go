@@ -301,6 +301,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if signIns != nil {
 		r.SignIns = signIns
 		signIns.OnChange = r.SignInChanged
+		// Tokens of servers whose definition lost sign_in, went away or
+		// changed its url while the gateway was not running.
+		signIns.Reconcile(backends)
 	}
 
 	reloader := &serverReloader{
