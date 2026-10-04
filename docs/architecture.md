@@ -1641,7 +1641,7 @@ for stdio servers.
 
 **D16 — Principals sign in to servers through the gateway, which
 keeps their tokens.**
-*Decision (proposed 2026-10-04, roadmap step 21):* a server defined with
+*Decision (accepted 2026-10-04, roadmap step 21):* a server defined with
 `url` and `sign_in` gets an OAuth 2.1 token per principal (§5.7.3). The
 gateway runs the authorization code flow with PKCE as the client: the
 sign-in link reaches the principal as a URL elicitation (else through
