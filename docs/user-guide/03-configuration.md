@@ -124,7 +124,7 @@ policy:
 |---|---|---|
 | `policy.opa_socket` | `/run/mcp-gateway/opa.sock` | OPA's socket (`mcp-opa.service`) |
 | `policy.timeout` | `250ms` | a decision not received in time is a denial |
-| `policy.watch_interval` | `10s` (minimum `1s`) | how often the gateway checks whether OPA loaded changed policy; agents are then told to list tools, prompts and resources again. Also how often it checks configuration files in directories it cannot watch |
+| `policy.watch_interval` | `10s` (minimum `1s`) | how often the gateway checks whether OPA loaded changed policy (local policy files are also watched, and checked right after a change); agents are then told to list tools, prompts and resources again. Also how often it checks configuration files in directories it cannot watch |
 
 ### Approvals
 

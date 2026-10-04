@@ -7,7 +7,9 @@ package fswatch
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 
@@ -87,6 +89,36 @@ func (w *Watcher) Set(dirs []string) map[string]error {
 		w.watches[dir] = wd
 	}
 	return failed
+}
+
+// maxTree bounds the directories Tree returns.
+const maxTree = 1000
+
+// Tree returns roots and the directories below them (inotify watches
+// one directory, not its subdirectories), sorted, without duplicates;
+// roots that do not exist, and directories that cannot be read, are left
+// out.
+func Tree(roots ...string) []string {
+	var dirs []string
+	for _, root := range roots {
+		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				if d != nil && d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if d.IsDir() {
+				if len(dirs) >= maxTree {
+					return fs.SkipAll
+				}
+				dirs = append(dirs, path)
+			}
+			return nil
+		})
+	}
+	slices.Sort(dirs)
+	return slices.Compact(dirs)
 }
 
 // Close stops the watcher.

@@ -370,7 +370,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 |---|---|---|
 | approval wait | 120 s | `approval_timeout` |
 | policy decision | 250 ms | `policy.timeout` |
-| policy change detection | 10 s | `policy.watch_interval` |
+| policy change detection | when written (local policy); 10 s for policy from a bundle server | `policy.watch_interval` |
 | configuration change detection | when written; 10 s where a directory cannot be watched | `policy.watch_interval` |
 | instance idle stop | 15 min | `supervisor.idle_timeout` |
 | HTTP session idle | 30 min | `http.session_idle_timeout` |

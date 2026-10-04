@@ -339,7 +339,7 @@ claude mcp add --scope user --transport http fs https://gw.example.com:8443/mcp/
 | Sessions | one MCP session per server for the life of a Claude Code session; a "session" grant lasts as long |
 | Approvals | `url` (the default channel): Claude Code asks the user to open the approval page (URL elicitation); `form`: its own dialog. While a call waits, it shows the gateway's progress message ("Waiting for approval of fs/write_file") |
 | Timeouts | a tool call may take `MCP_TOOL_TIMEOUT` (per server: `timeout` in its configuration; default about 28 hours); a call that reports nothing is abandoned after `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` (default 30 minutes for local servers, 5 minutes for remote ones). The gateway's progress while waiting keeps it alive, so any `approval_timeout` works |
-| Policy changes | it lists tools again on `list_changed`, locally and over HTTP: role changes reach it within `policy.watch_interval` (10 s) |
+| Policy changes | it lists tools again on `list_changed`, locally and over HTTP: role changes reach it right after OPA has loaded them (with policy from a bundle server, within `policy.watch_interval`, 10 s) |
 
 ### Kit
 
