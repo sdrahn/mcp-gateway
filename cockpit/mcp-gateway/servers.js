@@ -94,8 +94,13 @@ async function signOut(entry, button) {
         path += "?" + q.toString();
     }
     try {
-        await api.request({ method: "DELETE", path, body: "" });
-        showError(null);
+        const out = JSON.parse(await api.request({ method: "DELETE", path, body: "" }) || "{}");
+        // Tokens the authorization server did not revoke stay valid there
+        // until they expire.
+        showError(out.revoked < out.signed_out
+            ? "Signed out. The authorization server of " + entry.server + " offers no revocation, or did not answer: " +
+              "the tokens are deleted here but stay valid there until they expire."
+            : null);
     } catch (ex) {
         showError(ex && ex.status === 404 ? "The sign-in is gone already." : describeFailure(ex));
     }

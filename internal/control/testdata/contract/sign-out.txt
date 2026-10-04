@@ -1,3 +1,4 @@
 # DELETE /v1/sign-ins/{server}
 # Fields may be added, never renamed or removed (docs/architecture.md, D10).
+revoked
 signed_out

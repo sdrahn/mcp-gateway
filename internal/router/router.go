@@ -70,6 +70,9 @@ type SignIns interface {
 	Prepare(ctx context.Context, b *config.Backend, p principal.Principal) (*config.Backend, func(), error)
 	// Rejected records that the server refused p's access token.
 	Rejected(server string, p principal.Principal)
+	// DefinitionChanged is told that a server's definition old was
+	// replaced by next (nil: removed); tokens that no longer fit go.
+	DefinitionChanged(old, next *config.Backend)
 }
 
 // SignInChanged tells the principal k's sessions that what server offers

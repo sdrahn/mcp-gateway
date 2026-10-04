@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,18 @@ type fakeSignIns struct {
 	// refuse makes the next Prepare report that the tokens were refused.
 	refuse   bool
 	rejected int
+	// changed records DefinitionChanged: "old->next" by url, "-" for nil.
+	changed []string
+}
+
+func (f *fakeSignIns) DefinitionChanged(old, next *config.Backend) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := "-"
+	if next != nil {
+		n = next.URL
+	}
+	f.changed = append(f.changed, old.Name+":"+old.URL+"->"+n)
 }
 
 func (f *fakeSignIns) Rejected(string, principal.Principal) {
@@ -112,6 +125,25 @@ func TestSignIn(t *testing.T) {
 	si.mu.Unlock()
 	if text, _ := toolText(t, c.roundTrip(5, "tools/call", map[string]any{"name": "tickets__read_file"})); text != "tickets did read_file" || si.runs != 3 {
 		t.Fatalf("after refusal: %q, runs %d", text, si.runs)
+	}
+}
+
+// A definition changed or removed is passed to the sign-ins with the
+// previous one, so that tokens that no longer fit go.
+func TestSignInDefinitionChanged(t *testing.T) {
+	r, _ := testRouter(t, time.Minute)
+	si := &fakeSignIns{signed: map[string]bool{}}
+	r.SignIns = si
+	tickets := &config.Backend{Name: "tickets", URL: "https://a/mcp", SignIn: &config.SignIn{}}
+	r.Backends["tickets"] = tickets
+	next := maps.Clone(r.CurrentBackends())
+	next["tickets"] = &config.Backend{Name: "tickets", URL: "https://b/mcp", SignIn: &config.SignIn{}}
+	r.SetBackends(next)
+	next = maps.Clone(next)
+	delete(next, "tickets")
+	r.SetBackends(next)
+	if got := strings.Join(si.changed, " "); got != "tickets:https://a/mcp->https://b/mcp tickets:https://b/mcp->-" {
+		t.Errorf("changes: %s", got)
 	}
 }
 

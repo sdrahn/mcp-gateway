@@ -12,6 +12,7 @@ sign_ins[].principal.sub
 sign_ins[].principal.transport
 sign_ins[].principal.uid
 sign_ins[].refreshable
+sign_ins[].resource
 sign_ins[].scope
 sign_ins[].server
 sign_ins[].since

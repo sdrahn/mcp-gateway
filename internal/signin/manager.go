@@ -83,6 +83,7 @@ type Manager struct {
 	meta     map[string]*serverInfo
 	refresh  map[string]*sync.Mutex // per server and principal
 	helperID func() string
+	wg       sync.WaitGroup // revocations in the background
 }
 
 // Pending is a sign-in waiting for its callback.
@@ -222,10 +223,10 @@ func randomHex(n int) string {
 }
 
 // discover returns the server's and its authorization server's metadata,
-// cached for metadataTTL.
+// cached for metadataTTL by server and url.
 func (m *Manager) discover(ctx context.Context, b *config.Backend, p principal.Principal) (*serverInfo, error) {
 	m.mu.Lock()
-	if info := m.meta[b.Name]; info != nil && m.now().Sub(info.fetched) < metadataTTL {
+	if info := m.meta[metaKey(b)]; info != nil && m.now().Sub(info.fetched) < metadataTTL {
 		m.mu.Unlock()
 		return info, nil
 	}
@@ -253,10 +254,14 @@ func (m *Manager) discover(ctx context.Context, b *config.Backend, p principal.P
 	if m.meta == nil {
 		m.meta = map[string]*serverInfo{}
 	}
-	m.meta[b.Name] = info
+	m.meta[metaKey(b)] = info
 	m.mu.Unlock()
 	return info, nil
 }
+
+// metaKey is what discovered metadata is cached by: the server and its
+// url (tokens of a previous url are revoked with that url's metadata).
+func metaKey(b *config.Backend) string { return b.Name + "\x00" + b.URL }
 
 // client returns the client the gateway is at the authorization server:
 // the definition's, a client ID metadata document, or a registered one.
@@ -424,7 +429,7 @@ func (m *Manager) exchange(ctx context.Context, pd *Pending, code string) error 
 	if t.ExpiresIn > 0 {
 		t.Expiry = m.now().Add(time.Duration(t.ExpiresIn) * time.Second)
 	}
-	return m.Store.Put(pd.Server, pd.Key, t, m.now(), false)
+	return m.Store.Put(pd.Server, pd.backend.URL, pd.Key, t, m.now(), false)
 }
 
 // Wait waits for pd's callback, the sign-in's expiry or ctx.
@@ -588,7 +593,7 @@ func (m *Manager) refreshTokens(ctx context.Context, b *config.Backend, p princi
 	if nt.ExpiresIn > 0 {
 		nt.Expiry = m.now().Add(time.Duration(nt.ExpiresIn) * time.Second)
 	}
-	if err := m.Store.Put(b.Name, k, nt, m.now(), true); err != nil {
+	if err := m.Store.Put(b.Name, b.URL, k, nt, m.now(), true); err != nil {
 		return Entry{}, Tokens{}, err
 	}
 	m.Audit.Event("mcp-sign-in-refresh", true, map[string]string{"server": b.Name, "principal": p.Sub})
@@ -608,26 +613,155 @@ func (m *Manager) Rejected(server string, p principal.Principal) {
 
 // SignOut deletes k's tokens for server b, revokes them at the
 // authorization server if it offers that, and reports whether there were
-// any. by names who signed them out.
-func (m *Manager) SignOut(ctx context.Context, b *config.Backend, k Key, by string) (bool, error) {
+// any and whether they were revoked. by names who signed them out.
+func (m *Manager) SignOut(ctx context.Context, b *config.Backend, k Key, by string) (found, revoked bool, err error) {
 	t, ok, err := m.Store.Delete(b.Name, k)
 	if err != nil || !ok {
-		return ok, err
+		return ok, false, err
 	}
-	revoked := "no"
-	if b.SignIn != nil {
-		if err := m.revoke(ctx, b, k, t); err == nil {
-			revoked = "yes"
-		} else {
-			m.log().Warn("revoking the tokens failed", "server", b.Name, "principal", k.Sub, "err", err)
-		}
-	}
-	m.Audit.Event("mcp-sign-out", true, map[string]string{"server": b.Name, "principal": k.Sub, "by": by, "revoked": revoked})
+	revoked = b.SignIn != nil && m.revokeLogged(ctx, b, k, t)
+	m.Audit.Event("mcp-sign-out", true, map[string]string{"server": b.Name, "principal": k.Sub, "by": by, "revoked": yesNo(revoked)})
 	if m.OnChange != nil {
 		m.OnChange(k, b.Name, false)
 	}
-	return true, nil
+	return true, revoked, nil
 }
+
+// revokeLogged revokes k's tokens t for b, logging a failure, and reports
+// whether the authorization server revoked them.
+func (m *Manager) revokeLogged(ctx context.Context, b *config.Backend, k Key, t Tokens) bool {
+	if err := m.revoke(ctx, b, k, t); err != nil {
+		m.log().Warn("revoking the tokens failed", "server", b.Name, "principal", k.Sub, "err", err)
+		return false
+	}
+	return true
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
+// --- tokens of a definition that changed ---------------------------------
+
+// byGateway is who signs principals out when their tokens no longer fit
+// the server's definition (the audit record's "by").
+const byGateway = "mcp-gateway"
+
+// obsolete says why the tokens kept for definition old do not fit next
+// (nil: the server is gone), or "" if they do. Tokens are bound to the
+// server's url (RFC 8707), so another url makes them useless.
+func obsolete(old, next *config.Backend) string {
+	switch {
+	case old == nil || old.SignIn == nil:
+		return ""
+	case next == nil:
+		return "the server's definition was removed"
+	case next.SignIn == nil:
+		return "the server's definition no longer has sign_in"
+	case next.URL != old.URL:
+		return "the server's url changed"
+	}
+	return ""
+}
+
+// DefinitionChanged is told that server old's definition was replaced by
+// next (nil: removed). It drops the metadata cached for the server, and
+// when the principals' tokens no longer fit (see obsolete), deletes them
+// at once and revokes them at the authorization server in the
+// background, with the old definition, auditing each as a sign-out by the
+// gateway.
+func (m *Manager) DefinitionChanged(old, next *config.Backend) {
+	m.Forget(old.Name)
+	if reason := obsolete(old, next); reason != "" {
+		m.drop(old, reason, func(Entry) bool { return true })
+	}
+}
+
+// Reconcile deletes the tokens kept for servers that no longer have
+// sign_in in backends, or whose url changed, while the gateway was not
+// running (at start). Tokens of another url are revoked with it; those of
+// a server without a definition cannot be and are only deleted.
+func (m *Manager) Reconcile(backends map[string]*config.Backend) {
+	byServer := map[string]bool{}
+	for _, e := range m.Store.List() {
+		byServer[e.Server] = true
+	}
+	for server := range byServer {
+		b := backends[server]
+		switch {
+		case b == nil:
+			m.drop(&config.Backend{Name: server}, "the server's definition is gone", func(Entry) bool { return true })
+		case b.SignIn == nil:
+			m.drop(&config.Backend{Name: server}, "the server's definition no longer has sign_in", func(Entry) bool { return true })
+		default:
+			// Entries of 0.12 do not name their url: they are kept.
+			urls := map[string]bool{}
+			for _, e := range m.Store.List() {
+				if e.Server == server && e.Resource != "" && e.Resource != b.URL {
+					urls[e.Resource] = true
+				}
+			}
+			for u := range urls {
+				old := *b
+				old.URL = u
+				m.drop(&old, "the server's url changed", func(e Entry) bool { return e.Resource == u })
+			}
+		}
+	}
+}
+
+// drop deletes the tokens of the entries of b's server that match, tells
+// the router, and revokes them in the background when b has sign_in.
+func (m *Manager) drop(b *config.Backend, reason string, match func(Entry) bool) {
+	type gone struct {
+		k Key
+		t Tokens
+	}
+	var dropped []gone
+	for _, e := range m.Store.List() {
+		if e.Server != b.Name || !match(e) {
+			continue
+		}
+		t, ok, err := m.Store.Delete(b.Name, e.Principal)
+		if err != nil {
+			m.log().Warn("cannot delete the tokens", "server", b.Name, "principal", e.Principal.Sub, "err", err)
+			continue
+		}
+		if ok {
+			dropped = append(dropped, gone{e.Principal, t})
+			if m.OnChange != nil {
+				m.OnChange(e.Principal, b.Name, false)
+			}
+		}
+	}
+	if len(dropped) == 0 {
+		return
+	}
+	m.log().Info("sign-ins deleted", "server", b.Name, "reason", reason, "principals", len(dropped))
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		for _, g := range dropped {
+			revoked := false
+			if b.SignIn != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*helperTimeout)
+				revoked = m.revokeLogged(ctx, b, g.k, g.t)
+				cancel()
+			}
+			m.Audit.Event("mcp-sign-out", true, map[string]string{"server": b.Name, "principal": g.k.Sub, "by": byGateway,
+				"reason": reason, "revoked": yesNo(revoked)})
+		}
+		// What revoking discovered is of the old definition.
+		m.forget(metaKey(b))
+	}()
+}
+
+// WaitRevocations waits for the revocations DefinitionChanged and Reconcile started
+// (tests, shutdown).
+func (m *Manager) WaitRevocations() { m.wg.Wait() }
 
 func (m *Manager) revoke(ctx context.Context, b *config.Backend, k Key, t Tokens) error {
 	p := principal.Principal{Sub: k.Sub, Issuer: k.Issuer, UID: k.UID, Transport: k.Transport}
@@ -659,5 +793,16 @@ func (m *Manager) revoke(ctx context.Context, b *config.Backend, k Key, t Tokens
 func (m *Manager) Forget(server string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.meta, server)
+	for key := range m.meta {
+		if strings.HasPrefix(key, server+"\x00") {
+			delete(m.meta, key)
+		}
+	}
+}
+
+// forget drops the metadata cached under key (metaKey).
+func (m *Manager) forget(key string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.meta, key)
 }

@@ -42,11 +42,14 @@ func (k Key) Same(o Key) bool { return k.id() == o.id() }
 // Entry is a principal's sign-in to a server, as the store lists it:
 // everything but the tokens.
 type Entry struct {
-	Server    string    `json:"server"`
-	Principal Key       `json:"principal"`
-	Since     time.Time `json:"since"`
-	Expiry    time.Time `json:"expiry,omitzero"`
-	Scope     string    `json:"scope,omitempty"`
+	Server    string `json:"server"`
+	Principal Key    `json:"principal"`
+	// Resource is the server's url the tokens are bound to (RFC 8707);
+	// empty in entries of 0.12.
+	Resource string    `json:"resource,omitempty"`
+	Since    time.Time `json:"since"`
+	Expiry   time.Time `json:"expiry,omitzero"`
+	Scope    string    `json:"scope,omitempty"`
 	// Refreshable says whether there is a refresh token.
 	Refreshable bool `json:"refreshable"`
 }
@@ -204,13 +207,13 @@ func (s *Store) find(server string, k Key) int {
 	return slices.IndexFunc(s.entries, func(e stored) bool { return e.Server == server && e.Principal.Same(k) })
 }
 
-// Put stores a token answer for the principal and server: of a sign-in
-// (since is now), or of a refresh (since is kept, and an answer without a
-// refresh token keeps the old one).
-func (s *Store) Put(server string, k Key, t *oauth.Token, now time.Time, refresh bool) error {
+// Put stores a token answer for the principal and server (at url
+// resource): of a sign-in (since is now), or of a refresh (since is kept,
+// and an answer without a refresh token keeps the old one).
+func (s *Store) Put(server, resource string, k Key, t *oauth.Token, now time.Time, refresh bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	e := Entry{Server: server, Principal: k, Since: now, Scope: t.Scope}
+	e := Entry{Server: server, Resource: resource, Principal: k, Since: now, Scope: t.Scope}
 	tokens := Tokens{AccessToken: t.AccessToken, RefreshToken: t.RefreshToken}
 	i := s.find(server, k)
 	if !refresh {

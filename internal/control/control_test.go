@@ -526,9 +526,9 @@ func (f *fakeSignIns) PendingFor(uid uint32) []signin.PendingInfo {
 	}
 	return nil
 }
-func (f *fakeSignIns) SignOut(_ context.Context, b *config.Backend, k signin.Key, by string) (bool, error) {
+func (f *fakeSignIns) SignOut(_ context.Context, b *config.Backend, k signin.Key, by string) (bool, bool, error) {
 	f.out = append(f.out, b.Name+"/"+k.Sub+" by "+by)
-	return true, nil
+	return true, k.Sub == "alice", nil
 }
 
 func TestSignIns(t *testing.T) {
@@ -557,7 +557,7 @@ func TestSignIns(t *testing.T) {
 	if rec := call(t, s, 1002, "DELETE", "/v1/sign-ins/tickets?principal=alice", ""); rec.Code != 404 {
 		t.Errorf("bob signs alice out: %d", rec.Code)
 	}
-	if rec := call(t, s, 1001, "DELETE", "/v1/sign-ins/tickets", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"signed_out":1`) {
+	if rec := call(t, s, 1001, "DELETE", "/v1/sign-ins/tickets", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"signed_out":1,"revoked":1`) {
 		t.Errorf("alice signs out: %d %s", rec.Code, rec.Body)
 	}
 	if len(si.out) != 1 || si.out[0] != "tickets/alice by alice" {

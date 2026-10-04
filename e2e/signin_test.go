@@ -84,37 +84,42 @@ sign_in:
 
 	// A call of whoami asks the client to open the sign-in page.
 	browser := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}}
-	c.request(100, "tools/call", map[string]any{"name": "whoami", "arguments": map[string]any{}})
-	var result msg
-	for result.ID == nil {
-		m := c.read()
-		switch {
-		case m.Method == "elicitation/create":
-			var p struct{ Mode, URL, ElicitationID string }
-			if err := json.Unmarshal(m.Params, &p); err != nil || p.Mode != "url" || !strings.HasPrefix(p.URL, as.Base+"/as/authorize?") {
-				t.Fatalf("elicitation %s", m.Params)
+	whoami := func(id int) msg {
+		t.Helper()
+		c.request(id, "tools/call", map[string]any{"name": "whoami", "arguments": map[string]any{}})
+		var result msg
+		for result.ID == nil {
+			m := c.read()
+			switch {
+			case m.Method == "elicitation/create":
+				var p struct{ Mode, URL, ElicitationID string }
+				if err := json.Unmarshal(m.Params, &p); err != nil || p.Mode != "url" || !strings.HasPrefix(p.URL, as.Base+"/as/authorize?") {
+					t.Fatalf("elicitation %s", m.Params)
+				}
+				c.send(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": map[string]any{"action": "accept"}})
+				// The browser: to the authorization server, and back to the
+				// gateway's callback.
+				resp, err := browser.Get(p.URL + "&login=alice")
+				if err != nil {
+					t.Fatal(err)
+				}
+				var page strings.Builder
+				_, _ = fmt.Fprint(&page, resp.Status)
+				b := make([]byte, 4096)
+				n, _ := resp.Body.Read(b)
+				_ = resp.Body.Close()
+				if resp.StatusCode != 200 || !strings.Contains(string(b[:n]), "signed in to tickets") {
+					t.Fatalf("callback: %s %s\n%s", page.String(), b[:n], e.gwLogs.String())
+				}
+			case m.Method != "":
+				// notifications (list_changed, elicitation/complete)
+			default:
+				result = m
 			}
-			c.send(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": map[string]any{"action": "accept"}})
-			// The browser: to the authorization server, and back to the
-			// gateway's callback.
-			resp, err := browser.Get(p.URL + "&login=alice")
-			if err != nil {
-				t.Fatal(err)
-			}
-			var page strings.Builder
-			_, _ = fmt.Fprint(&page, resp.Status)
-			b := make([]byte, 4096)
-			n, _ := resp.Body.Read(b)
-			_ = resp.Body.Close()
-			if resp.StatusCode != 200 || !strings.Contains(string(b[:n]), "signed in to tickets") {
-				t.Fatalf("callback: %s %s\n%s", page.String(), b[:n], e.gwLogs.String())
-			}
-		case m.Method != "":
-			// notifications (list_changed, elicitation/complete)
-		default:
-			result = m
 		}
+		return result
 	}
+	result := whoami(100)
 	if text, isErr := toolResult(t, result); isErr || text != "signed in as alice" {
 		t.Fatalf("whoami: %q %v\n%s", text, isErr, e.gwLogs.String())
 	}
@@ -136,8 +141,12 @@ sign_in:
 	if code := controlDo(t, ctl, "GET", "/v1/sign-ins", "", &list); code != 200 || len(list.SignIns) != 1 || list.SignIns[0].Server != "tickets" {
 		t.Fatalf("sign-ins: %d %+v", code, list)
 	}
-	if code := controlDo(t, ctl, "DELETE", "/v1/sign-ins/tickets", "", nil); code != 200 {
-		t.Fatalf("sign out: %d", code)
+	var out struct {
+		SignedOut int `json:"signed_out"`
+		Revoked   int `json:"revoked"`
+	}
+	if code := controlDo(t, ctl, "DELETE", "/v1/sign-ins/tickets", "", &out); code != 200 || out.SignedOut != 1 || out.Revoked != 1 {
+		t.Fatalf("sign out: %d %+v", code, out)
 	}
 	if len(as.Revoked()) != 1 {
 		t.Errorf("revoked: %v", as.Revoked())
@@ -150,6 +159,28 @@ sign_in:
 		if !strings.Contains(e.gwLogs.String(), ev) {
 			t.Errorf("no %s audit record", ev)
 		}
+	}
+
+	// Signed in again, then the definition drops sign_in: the tokens go,
+	// revoked at the authorization server.
+	if text, isErr := toolResult(t, whoami(103)); isErr || text != "signed in as alice" {
+		t.Fatalf("whoami again: %q %v", text, isErr)
+	}
+	writeFile(t, filepath.Join(e.tmp, "servers.d", "tickets.yaml"), fmt.Sprintf("name: tickets\nurl: %s\n", as.Resource()))
+	deadline = time.Now().Add(15 * time.Second)
+	for {
+		list.SignIns = nil
+		controlDo(t, ctl, "GET", "/v1/sign-ins", "", &list)
+		if len(list.SignIns) == 0 && len(as.Revoked()) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("after dropping sign_in: sign-ins %+v, revoked %v\n%s", list, as.Revoked(), e.gwLogs.String())
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !strings.Contains(e.gwLogs.String(), `"by":"mcp-gateway"`) {
+		t.Errorf("no sign-out by the gateway in the audit records")
 	}
 }
 
