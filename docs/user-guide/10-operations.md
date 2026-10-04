@@ -63,6 +63,7 @@ systemctl edit mcp-gateway.service
 | `grants.json` | standing approvals | users are asked again |
 | `pending.json` | pending approvals | pending approvals are gone; agents retry |
 | `audit.key` | key of the argument digests | new key: old digests can no longer be compared with new ones |
+| `principals.json` | local users who used the gateway or its control API (Cockpit) | approval mail finds primary-group members of approver groups only by enumeration until they come back (chapter 7) |
 
 Back up `/etc/mcp-gateway/` (configuration, definitions, role data,
 bundle keys, credentials) and `/var/lib/mcp-gateway/`. All files are
@@ -235,6 +236,7 @@ account, a path) that stay the same across releases (chapter 11).
 | snapper *server* | that a snapper config's `ALLOW_USERS` (or `ALLOW_GROUPS`) names the account mcp-server-snapper runs as; without, it can only list the configs. Warns when there is no config at all |
 | polkit *account* | servers running as a system account (`run_as` naming one; not `principal`, `root` or `dynamic`) that no polkit rule names: warns for servers that act through polkit (the systemd and firewalld setups' domains), which are refused without one; for other servers a note |
 | principals | members of `socket_group` bound to no role, by name or group (users whose primary group it is, and remote principals, are not checked) |
+| approver group *group* | with approval mail on: that mail finds members in each `group:` approver, as it does (chapter 7); warns about a group that does not exist or in which it finds nobody |
 
 Starting the servers runs them like the gateway would, once each; use
 `--no-start` to skip that, `--server` to check one. While someone

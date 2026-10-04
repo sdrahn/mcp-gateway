@@ -24,6 +24,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/doctor"
 	"github.com/sdrahn/mcp-gateway/internal/inspect"
+	"github.com/sdrahn/mcp-gateway/internal/notify"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/policydata"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
@@ -42,7 +43,8 @@ as root), servers that do not start (each registered server is started
 once, as for shared discovery), roles naming tools a server does not
 have, SELinux denials for the gateway and its servers, servers running
 as an account no polkit rule names, a snapper server no snapper config
-allows, and users who may connect but hold no role. A warning names
+allows, users who may connect but hold no role, and approver groups in
+which approval mail finds nobody. A warning names
 what to change; what the doctor cannot tell is wrong is OK, with a note.
 Run it as root; without root, the checks that need it are skipped.
 Exits 1 if a check failed, 3 with -strict if one warned, 0 otherwise.
@@ -163,6 +165,7 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 	add(doctor.Polkit(d.selected(), nil)...)
 	add(doctor.Snapper(d.selected(), doctor.SnapperConfigsDir, userGroups)...)
 	add(d.principals())
+	add(d.approverGroups()...)
 	return rs
 }
 
@@ -526,6 +529,59 @@ func bootTime() time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+// approverGroups checks, when approval mail is on, that the doctor finds
+// members in each approver group (group: rules) as the mail does: those
+// the group lists, and the users whose primary group it is as far as NSS
+// enumerates users or the gateway has seen them (principals.json in the
+// state directory).
+func (d *doctorRun) approverGroups() []doctor.Result {
+	if d.gw.Notifications.Email.SMTP == "" || d.rbac == nil {
+		return nil
+	}
+	var data struct {
+		Approvers map[string][]string `json:"approvers"`
+	}
+	_ = json.Unmarshal(d.rbac, &data)
+	var groups []string
+	for _, rules := range data.Approvers {
+		for _, rule := range rules {
+			if g, ok := strings.CutPrefix(rule, "group:"); ok && !slices.Contains(groups, g) {
+				groups = append(groups, g)
+			}
+		}
+	}
+	if len(groups) == 0 {
+		return nil
+	}
+	slices.Sort(groups)
+	seen, err := notify.LoadSeen(filepath.Join(d.gw.StateDir, "principals.json"))
+	if err != nil {
+		// Not root, or the gateway-admin server, which may not read the
+		// state directory: whom the mail finds cannot be told.
+		return []doctor.Result{{Check: "approver group " + strings.Join(groups, ", "), Status: doctor.Skip,
+			Summary: "the users the gateway has seen cannot be read (mcp-gateway-admin doctor as root reads them): " + err.Error()}}
+	}
+	known := seen.Names()
+	var out []doctor.Result
+	for _, g := range groups {
+		r := doctor.Result{Check: "approver group " + g}
+		members, err := notify.GroupMembers(context.Background(), g, known)
+		switch {
+		case err != nil:
+			r.Status, r.Summary = doctor.Warn, "group "+g+" not found: approval mail reaches nobody through it"
+			r.Details = []string{"fix the group: rule in the approvers of the role data, or create the group"}
+		case len(members) == 0:
+			r.Status, r.Summary = doctor.Warn, "approval mail finds nobody in "+g
+			r.Details = []string{"users whose primary group it is are found only if NSS enumerates users (SSSD, LDAP: enumerate = true)",
+				"or once they used the gateway; name them as user: approvers instead"}
+		default:
+			r.Status, r.Summary = doctor.OK, fmt.Sprintf("approval mail reaches %d members of %s", len(members), g)
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // principals finds members of the socket group without a role.

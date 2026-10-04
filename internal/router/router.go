@@ -43,6 +43,8 @@ type Router struct {
 	// ProgressInterval is how often a call waiting for approval reports
 	// progress to a client that asked for it (default 15 s).
 	ProgressInterval time.Duration
+	// Seen, if set, is told the name of each local user who connects.
+	Seen func(name string)
 
 	once      sync.Once
 	registry  atomic.Pointer[map[string]*config.Backend] // the definitions in force (SetBackends)
@@ -219,6 +221,9 @@ func (r *Router) handle(ctx context.Context, c *transport.UnixConn) {
 		log.Warn("authentication failed", "err", err)
 		_ = c.Close()
 		return
+	}
+	if r.Seen != nil {
+		r.Seen(p.Sub)
 	}
 	_ = c.SetReadDeadline(time.Now().Add(helloTimeout))
 	client := jsonrpc.NewConn(c)
