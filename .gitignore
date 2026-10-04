@@ -1,5 +1,13 @@
 /bin/
-# go build ./cmd/mcp-server-fs in the top directory writes it here.
+# go build ./cmd/<name> in the top directory writes the program here.
+/mcp-connect
+/mcp-gateway
+/mcp-gateway-admin
+/mcp-gateway-notify
+/mcp-gateway-tools
+/mcp-http-connector
+/mcp-oauth-helper
+/mcp-server-exec
 /mcp-server-fs
 /selinux/tmp/
 /selinux/*.pp
