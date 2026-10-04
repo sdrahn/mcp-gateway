@@ -15,6 +15,14 @@ minor release (with a warning) and removed in the next.
   that fails it before building anything, and verifies the published
   files against `SHA256SUMS` and `git archive` of the tag.
 
+- A server defined with an `https://` `url` may name an HTTP proxy
+  (`proxy`, with `proxy_headers` for its credentials from
+  `credentials`): the connector tunnels through it (`CONNECT`), TLS
+  still ends at the server, and the instance may reach the proxy's
+  addresses only. SELinux lets `mcpsrv_http_t` connect to the usual
+  proxy ports (3128, 8080). No proxy is taken from the environment
+  (user guide, chapter 4, Through a proxy).
+
 ### Changed
 
 - Policy changes reach agents at once: the gateway watches the local

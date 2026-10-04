@@ -253,6 +253,8 @@ Server names must be unique across all files.
 | `command` | — (required, or `url`) | the command line; the first element must be an absolute path. `${HOME}` and `${USER}` are replaced by the principal's home directory and name; other `${…}` are left as they are. |
 | `url` | none | instead of `command`: the endpoint of a server that speaks Streamable HTTP, `https://…` (`http://` only to the local host). See [Servers that speak HTTP](#servers-that-speak-http) |
 | `headers` | none | with `url`: headers sent with each request (map); `${CREDENTIAL:name}` in a value is the secret `name` from `credentials` |
+| `proxy` | none | with an `https://` `url`: an HTTP proxy to tunnel through, `http://host:port` (or `https://`). See [Through a proxy](#through-a-proxy) |
+| `proxy_headers` | none | with `proxy`: headers sent to the proxy (map), typically `Proxy-Authorization`; `${CREDENTIAL:name}` as in `headers` |
 | `env` | none | extra environment variables (map); `${HOME}` and `${USER}` are replaced as in `command` |
 | `selinux_type` | `mcpsrv_generic_t` (`mcpsrv_http_t` with `url`) | the SELinux domain instances run in; must be `mcpsrv_<name>_t` (see [SELinux domains](#selinux-domains-for-servers)) |
 | `isolation` | `principal` | `principal`: one instance per principal, shared by that principal's sessions. `session`: a new instance per session. |
@@ -465,9 +467,10 @@ mcp-gateway --check
 - The gateway resolves the server's name when it starts an instance and
   hands the addresses to it; the instance may reach those addresses
   only (systemd `IPAddressAllow=`) and HTTP ports only (SELinux; for
-  other ports `setsebool -P mcpsrv_http_connect_any on`). A proxy is not
-  used. A name that resolves to other addresses later is resolved anew
-  for the next instance.
+  other ports `setsebool -P mcpsrv_http_connect_any on`). No proxy is
+  taken from the environment (`https_proxy`); name one with `proxy`
+  ([Through a proxy](#through-a-proxy)). A name that resolves to other
+  addresses later is resolved anew for the next instance.
 - Secrets reach only the connector: `${CREDENTIAL:name}` in a header is
   replaced by the instance from `$CREDENTIALS_DIRECTORY` ([Secrets](#secrets)),
   not by the gateway, and is not on its command line. One secret serves
@@ -479,6 +482,43 @@ mcp-gateway --check
   reason, `MCP server over HTTP: …`.
 - `mcp-gateway-admin inspect --server tickets` and the doctor start such
   a server as any other.
+
+### Through a proxy
+
+Where the server can be reached only through an HTTP proxy, name it:
+
+```yaml
+# /etc/mcp-gateway/servers.d/tickets.yaml
+name: tickets
+url: https://mcp.tickets.example.com/mcp
+proxy: http://proxy.example.com:3128
+credentials: [tickets-token, proxy-auth]
+headers:
+  Authorization: "Bearer ${CREDENTIAL:tickets-token}"
+proxy_headers:
+  Proxy-Authorization: "Basic ${CREDENTIAL:proxy-auth}"
+```
+
+```bash
+# Basic authentication: base64 of user:password
+printf %s 'mcpuser:…' | base64 | install -m 0600 /dev/stdin /etc/mcp-gateway/credentials/proxy-auth
+```
+
+- The connector opens a tunnel through the proxy (`CONNECT`) and speaks
+  TLS to the server through it, verifying the server's certificate as
+  without a proxy: the proxy sees the server's name and port, not the
+  requests or the server's headers. `proxy_headers` go to the proxy
+  only, with the `CONNECT`.
+- The gateway resolves the proxy's name, not the server's (the proxy
+  does that), and the instance may reach the proxy's addresses only.
+  SELinux lets it connect to HTTP ports and the usual proxy ports
+  (`squid_port_t`: 3128; `http_cache_port_t`: 8080); for another port,
+  label it (`semanage port -a -t http_cache_port_t -p tcp 3129`) or turn
+  on `mcpsrv_http_connect_any`.
+- Only `https://` servers go through a proxy; credentials do not belong
+  in the proxy's URL (`http://user:password@…` is refused), but in
+  `proxy_headers`. With an `https://` proxy the connection to the proxy
+  is TLS too, verified against the system's certificates.
 
 ## Secrets
 

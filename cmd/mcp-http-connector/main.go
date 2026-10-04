@@ -7,7 +7,8 @@
 // server sends (responses, its requests and notifications, on a POST's
 // event stream or on the GET stream) to stdout. Headers may name
 // credentials, ${CREDENTIAL:name}, read from $CREDENTIALS_DIRECTORY, so
-// that secrets reach only this process.
+// that secrets reach only this process. With -proxy, it tunnels through
+// an HTTP proxy (CONNECT), and TLS still ends at the server.
 package main
 
 import (
@@ -41,9 +42,11 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	url := fs.String("url", "", "the MCP server's endpoint (https://…, or http:// to a local address)")
-	var headers, resolve listFlag
+	var headers, resolve, proxyHeaders listFlag
 	fs.Var(&headers, "header", `a request header, "Name: value"; ${CREDENTIAL:name} is replaced by the credential (repeatable)`)
 	fs.Var(&resolve, "resolve", `connect to host:port at address, "host:port:address" (repeatable): the addresses the gateway resolved and the instance may reach`)
+	proxy := fs.String("proxy", "", "tunnel to the server through this HTTP proxy (http://host:port or https://host:port; CONNECT, for an https:// -url); none is taken from the environment")
+	fs.Var(&proxyHeaders, "proxy-header", `a header sent to the proxy with CONNECT, "Name: value", with ${CREDENTIAL:name} as in -header (repeatable)`)
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(stderr, "usage: %s -url URL [options]\n\nConnects an MCP server that speaks Streamable HTTP to stdin/stdout.\n\n", name)
@@ -60,7 +63,13 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return 0
 	}
 	log := slog.New(slog.NewTextHandler(stderr, nil))
-	c, err := newConnector(*url, headers, resolve, os.Getenv("CREDENTIALS_DIRECTORY"))
+	c, err := newConnector(*url, options{
+		headers:      headers,
+		resolve:      resolve,
+		proxy:        *proxy,
+		proxyHeaders: proxyHeaders,
+		credDir:      os.Getenv("CREDENTIALS_DIRECTORY"),
+	})
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 2
