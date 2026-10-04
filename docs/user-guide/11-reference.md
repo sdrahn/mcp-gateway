@@ -342,7 +342,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | HTTP session idle | 30 min | `http.session_idle_timeout` |
 | instance memory / tasks / runtime | 512 MiB / 64 / 8 h | no |
 | restart backoff | 1 s doubling to 2 min | no |
-| MCS collision check | 30 s | no |
+| MCS collision check | 2 s | no |
 | "once" grant | 1 min (15 min if decided with no call waiting) | no |
 | "session" grant | session end, at most 8 h | no |
 | duration grant | at most 30 days | `approval_scopes` (role data) |
