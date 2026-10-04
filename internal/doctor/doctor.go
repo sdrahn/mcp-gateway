@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
@@ -249,11 +250,14 @@ var polkitTypes = map[string]bool{"mcpsrv_systemd_t": true, "mcpsrv_firewalld_t"
 // polkitActionsDir is where polkit reads action definitions.
 var polkitActionsDir = "/usr/share/polkit-1/actions"
 
-// readlogAction is the action systemd-mcp before 0.3.5 checks every read
-// with (over stdio, for its own process); its package defines it as
-// com.suse.gatekeeper.policy (auth_admin, which an account without a
-// session cannot pass).
-const readlogAction = "com.suse.gatekeeper.readlog"
+// readlogAction is the action systemd-mcp before readlogFixed checks
+// every read with (over stdio, for its own process); its package defines
+// it as com.suse.gatekeeper.policy (auth_admin, which an account without
+// a session cannot pass).
+const (
+	readlogAction = "com.suse.gatekeeper.readlog"
+	readlogFixed  = "0.3.5"
+)
 
 // Polkit checks the servers that run as a system account (not each
 // principal, not root, not a dynamic user, which gets a new name for each
@@ -265,8 +269,12 @@ const readlogAction = "com.suse.gatekeeper.readlog"
 // cannot tell whether such a server uses polkit at all. For a systemd
 // server (mcpsrv_systemd_t) it also warns when polkit knows
 // readlogAction but no rule naming the account allows it: systemd-mcp
-// before 0.3.5 refuses every read then. It never fails.
-func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
+// before 0.3.5 refuses every read then. versions are what the servers
+// reported at the doctor's probe, by name; a server missing from it (not
+// probed, or no version) counts as before 0.3.5. When all of an account's
+// systemd servers report 0.3.5 or later, a rule allowing readlogAction
+// gets a note that it is no longer needed. It never fails.
+func Polkit(backends map[string]*config.Backend, versions map[string]string, dirs []string) []Result {
 	if dirs == nil {
 		dirs = polkitRuleDirs
 	}
@@ -299,12 +307,17 @@ func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
 			}
 		}
 		servers := strings.Join(accounts[acct], ", ")
+		systemd, fixed := readlogServers(backends, versions, accounts[acct])
 		switch {
-		case named && readlogNeeded(backends, accounts[acct]) && !ruleAllows(rules, acct, readlogAction):
+		case named && systemd && !fixed && !ruleAllows(rules, acct, readlogAction):
 			out = append(out, Result{Check: "polkit " + acct, Status: Warn,
 				Summary: fmt.Sprintf("a polkit rule names %s, but none allows %s: systemd-mcp before 0.3.5 checks every read with it, and reads fail with \"calling method was canceled by user\" (servers %s)", acct, readlogAction, servers),
 				Details: []string{"update systemd-mcp to 0.3.5 or later, which allows reads over stdio,",
 					"or mcp-gateway-profile-systemd, whose rule allows " + readlogAction + " (user guide, chapter 13)"}})
+		case named && systemd && fixed && ruleAllows(rules, acct, readlogAction):
+			out = append(out, Result{Check: "polkit " + acct, Status: OK,
+				Summary: fmt.Sprintf("a polkit rule names %s (servers %s)", acct, servers),
+				Details: []string{fmt.Sprintf("systemd-mcp %s or later no longer checks reads with %s, which the rule also allows", readlogFixed, readlogAction)}})
 		case named:
 			out = append(out, Result{Check: "polkit " + acct, Status: OK,
 				Summary: fmt.Sprintf("a polkit rule names %s (servers %s)", acct, servers)})
@@ -322,18 +335,59 @@ func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
 	return out
 }
 
-// readlogNeeded reports whether one of servers is a systemd server and
-// polkit knows readlogAction (systemd-mcp's package installed it).
-func readlogNeeded(backends map[string]*config.Backend, servers []string) bool {
+// readlogServers reports whether one of servers is a systemd server
+// while polkit knows readlogAction (systemd-mcp's package installed it),
+// and whether all such servers reported readlogFixed or later.
+func readlogServers(backends map[string]*config.Backend, versions map[string]string, servers []string) (systemd, fixed bool) {
 	if _, err := os.Stat(filepath.Join(polkitActionsDir, "com.suse.gatekeeper.policy")); err != nil {
-		return false
+		return false, false
 	}
+	fixed = true
 	for _, name := range servers {
-		if backends[name].SELinuxType == "mcpsrv_systemd_t" {
-			return true
+		if backends[name].SELinuxType != "mcpsrv_systemd_t" {
+			continue
+		}
+		systemd = true
+		if !versionAtLeast(versions[name], readlogFixed) {
+			fixed = false
 		}
 	}
-	return false
+	return systemd, systemd && fixed
+}
+
+// versionAtLeast reports whether version v (as "0.3.5", "v0.3.5" or
+// "0.3.5-1") is min or later; a version it cannot read is not.
+func versionAtLeast(v, min string) bool {
+	parse := func(s string) ([]int, bool) {
+		s = strings.TrimPrefix(strings.TrimSpace(s), "v")
+		if i := strings.IndexAny(s, "-+ "); i >= 0 {
+			s = s[:i]
+		}
+		var n []int
+		for _, f := range strings.Split(s, ".") {
+			x, err := strconv.Atoi(f)
+			if err != nil {
+				return nil, false
+			}
+			n = append(n, x)
+		}
+		return n, len(n) > 0
+	}
+	a, ok := parse(v)
+	b, _ := parse(min)
+	if !ok {
+		return false
+	}
+	for i := 0; i < len(b); i++ {
+		x := 0
+		if i < len(a) {
+			x = a[i]
+		}
+		if x != b[i] {
+			return x > b[i]
+		}
+	}
+	return true
 }
 
 // ruleAllows reports whether a rule file names both the account and the

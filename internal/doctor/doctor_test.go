@@ -62,7 +62,7 @@ func TestPolkit(t *testing.T) {
 		"zypp":    {Name: "zypp", RunAs: "root"},
 		"docs":    {Name: "docs", RunAs: "dynamic"},
 	}
-	rs := Polkit(backends, []string{dir, filepath.Join(dir, "missing")})
+	rs := Polkit(backends, nil, []string{dir, filepath.Join(dir, "missing")})
 	if len(rs) != 3 {
 		t.Fatalf("%+v", rs)
 	}
@@ -88,7 +88,7 @@ func TestPolkit(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(actions, "com.suse.gatekeeper.policy"), []byte("<policyconfig/>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rs = Polkit(backends, []string{dir})
+	rs = Polkit(backends, nil, []string{dir})
 	if rs[2].Status != Warn || !strings.Contains(rs[2].Summary, "none allows com.suse.gatekeeper.readlog") ||
 		!strings.Contains(rs[2].Summary, "calling method was canceled by user") {
 		t.Errorf("systemd without readlog: %+v", rs[2])
@@ -100,8 +100,34 @@ func TestPolkit(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "60-x.rules"), shipped, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if rs = Polkit(backends, []string{dir}); rs[2].Status != OK {
+	if rs = Polkit(backends, nil, []string{dir}); rs[2].Status != OK || len(rs[2].Details) != 0 {
 		t.Errorf("systemd with the shipped rule: %+v", rs[2])
+	}
+	// systemd-mcp 0.3.5 and later allow reads over stdio: the rule's
+	// readlog is no longer needed, and its absence is no warning.
+	if rs = Polkit(backends, map[string]string{"systemd": "0.3.5"}, []string{dir}); rs[2].Status != OK ||
+		len(rs[2].Details) != 1 || !strings.Contains(rs[2].Details[0], "no longer checks reads") {
+		t.Errorf("systemd 0.3.5 with the shipped rule: %+v", rs[2])
+	}
+	if err := os.WriteFile(filepath.Join(dir, "60-x.rules"), []byte(`polkit.addRule(function(a, s) { if (s.user == "mcp-sysmgmt") return polkit.Result.YES; });`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for v, want := range map[string]Status{"0.3.5": OK, "v0.4.0": OK, "0.3.4": Warn, "": Warn, "dev": Warn} {
+		if rs = Polkit(backends, map[string]string{"systemd": v}, []string{dir}); rs[2].Status != want || len(rs[2].Details) != 0 && want == OK {
+			t.Errorf("systemd %q without readlog: %+v", v, rs[2])
+		}
+	}
+}
+
+func TestVersionAtLeast(t *testing.T) {
+	for _, c := range []struct {
+		v    string
+		want bool
+	}{{"0.3.5", true}, {"0.3.5\n", true}, {"v0.3.5", true}, {"0.3.10", true}, {"0.4", true}, {"1.0.0-rc1", true},
+		{"0.3.4", false}, {"0.3", false}, {"", false}, {"dev", false}, {"0.3.x", false}} {
+		if got := versionAtLeast(c.v, "0.3.5"); got != c.want {
+			t.Errorf("versionAtLeast(%q) = %v", c.v, got)
+		}
 	}
 }
 
@@ -201,7 +227,7 @@ func TestSnapper(t *testing.T) {
 		t.Fatalf("missing dir: %+v", rs)
 	}
 	// The polkit check leaves the snapper server alone.
-	if rs := Polkit(backends, []string{dir}); len(rs) != 0 {
+	if rs := Polkit(backends, nil, []string{dir}); len(rs) != 0 {
 		t.Fatalf("polkit: %+v", rs)
 	}
 }

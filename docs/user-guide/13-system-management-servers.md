@@ -182,7 +182,9 @@ Notes:
   defines as `auth_admin`: without a rule allowing that action for the
   account, every read fails with the same message. The rule below, and
   the setup package's from mcp-gateway 0.12.1 on, allow it; the doctor
-  warns when no rule does. The `--allow-read` and
+  warns when no rule does and the server reports a version before 0.3.5
+  (or, not having started it, cannot tell), and notes that a rule's
+  `readlog` is no longer needed when it reports 0.3.5 or later. The `--allow-read` and
   `--allow-write` options have no effect in version 0.3.5; do not use
   `--noauth`, which is meant for its HTTP mode.
 - `firewalld-mcp` (0.1.0) only reads: `get_default_zone`,
