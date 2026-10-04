@@ -7,6 +7,16 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Fixed
+
+- systemd-mcp 0.3.4 checks every read (`list_loaded_units`, `list_log`,
+  `get_file`, …) with polkit as `com.suse.gatekeeper.readlog`, which the
+  setup's rule did not allow: all reads failed with "calling method was
+  canceled by user". The rule of `mcp-gateway-profile-systemd` now
+  allows that action for `mcp-sysmgmt`, and `mcp-gateway-admin doctor`
+  warns when polkit knows the action but no rule for the server's
+  account allows it (user guide, chapter 13).
+
 ## v0.12.0 — 2026-10-04
 
 Each user signs in to MCP servers with their own account, servers are

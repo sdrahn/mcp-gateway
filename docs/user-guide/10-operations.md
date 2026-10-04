@@ -361,7 +361,7 @@ system service it asked, refused it.
 | `…: outside the allowed directories (…)` | `fs` | the file server works only below its `--root` directories, as shipped the user's home (`list_allowed_directories` names them). Files elsewhere are not meant to be reached through it; for the gateway's configuration, use `gateway-admin` ("Asking an agent" above) |
 | `…: leads outside the allowed directories (through a symbolic link)` | `fs` | a link below the root points out of it; the server does not follow it (chapter 9, "Paths and symbolic links") |
 | `read-only file system (on a transactional system, …)` | `fs` | the path is on the read-only root file system (chapter 2, "Transactional systems") |
-| `calling method was canceled by user` | `systemd` | systemd-mcp's own authorization refused the call: its polkit check found no rule for the account it runs as (chapter 13, "Service permissions"), or it cannot read the file `get_file` names. The gateway's own files are closed to it by SELinux (chapter 9) |
+| `calling method was canceled by user` | `systemd` | systemd-mcp's own authorization refused the call: its polkit check found no rule for the account it runs as (chapter 13, "Service permissions"; systemd-mcp 0.3.4 checks reads too, as `com.suse.gatekeeper.readlog`), or it cannot read the file `get_file` names. The gateway's own files are closed to it by SELinux (chapter 9) |
 | `Interactive authentication required`, `NOT_AUTHORIZED` | `systemd`, `firewalld` | polkit refused the server's account: the setup's polkit rule is missing or names another account (chapter 13) |
 | `D-Bus call failed: org.freedesktop.DBus.Error.Failed` | `snapper` | snapperd refused the account: it is not in the config's `ALLOW_USERS`, or the tool needs root (chapter 13) |
 

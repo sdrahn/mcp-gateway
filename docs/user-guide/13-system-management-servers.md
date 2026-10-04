@@ -16,7 +16,7 @@ The examples use the program names of the openSUSE/SLES packages
 (`/usr/bin/systemd-mcp`, `/usr/bin/firewalld-mcp`,
 `/usr/bin/mcp-server-snapper`); adjust the paths to your installation.
 Upstream projects: [systemd-mcp](https://github.com/openSUSE/systemd-mcp)
-(notes below are for version 0.3.5),
+(notes below are for version 0.3.5; 0.3.4 differs in checking reads),
 [firewalld-mcp](https://github.com/janvhs/firewalld-mcp) (0.1.0),
 [mcp-server-zypp](https://github.com/openSUSE/mcp-server-zypp) (0.1.2),
 [mcp-server-snapper](https://github.com/aschnell/mcp-server-snapper)
@@ -171,12 +171,18 @@ selinux_type: mcpsrv_snapper_t
 
 Notes:
 
-- On stdin/stdout, `systemd-mcp` allows all reads and checks every
+- On stdin/stdout, `systemd-mcp` 0.3.5 allows all reads and checks every
   change with polkit itself (`org.freedesktop.systemd1.manage-units` for
   its own process, without a login session to ask in). The polkit rule
   below answers that check as well as systemd's own. Calls that end with
   "calling method was canceled by user" mean the rule does not apply
-  (wrong account, or the rule file is missing). The `--allow-read` and
+  (wrong account, or the rule file is missing). Version 0.3.4 also
+  checks every read (`list_loaded_units`, `list_log`, `get_file`, …)
+  with polkit, as `com.suse.gatekeeper.readlog`, which its package
+  defines as `auth_admin`: without a rule allowing that action for the
+  account, every read fails with the same message. The rule below, and
+  the setup package's from mcp-gateway 0.12.1 on, allow it; the doctor
+  warns when no rule does. The `--allow-read` and
   `--allow-write` options have no effect in version 0.3.5; do not use
   `--noauth`, which is meant for its HTTP mode.
 - `firewalld-mcp` (0.1.0) only reads: `get_default_zone`,
@@ -414,7 +420,8 @@ polkit.addRule(function(action, subject) {
         return polkit.Result.NOT_HANDLED;
     if (action.id == "org.freedesktop.systemd1.manage-units" ||
         action.id == "org.freedesktop.systemd1.manage-unit-files" ||
-        action.id == "org.freedesktop.systemd1.reload-daemon")
+        action.id == "org.freedesktop.systemd1.reload-daemon" ||
+        action.id == "com.suse.gatekeeper.readlog")    // reads, systemd-mcp 0.3.4
         return polkit.Result.YES;
     if (action.id == "org.fedoraproject.FirewallD1.info" ||
         action.id == "org.fedoraproject.FirewallD1.config.info")
@@ -536,7 +543,7 @@ journalctl -u 'mcp-systemd-*' -u 'mcp-firewalld-*' -u 'mcp-snapper-*' -b
 | "invalid message from backend … parse error" | the server writes non-MCP output to stdout | its option for logging to stderr or a file |
 | a change runs without approval (audit: `effect: allow`) | a role of the principal allows the tool without approval (often `admin`) | check the principal's roles; only reads may match a permission without `require_approval` |
 | audit: `ask`, but nothing appears in Cockpit | the approval could not be delivered | `journalctl -u mcp-gateway.service \| grep -iE 'approval\|elicit'`; the control socket must be enabled |
-| "calling method was canceled by user" | `systemd-mcp`'s own authorization: its polkit check found no rule for the account in `run_as`, or the file `get_file` names is not readable for the server (the gateway's own configuration never is) | the polkit rule above, for that account; for the gateway's configuration, the server `gateway-admin` (chapter 10, "Asking an agent"). The `--allow-*` options have no effect in 0.3.5; do not use `--noauth` |
+| "calling method was canceled by user" | `systemd-mcp`'s own authorization: its polkit check found no rule for the account in `run_as` (for reads with 0.3.4: none allowing `com.suse.gatekeeper.readlog`; the doctor says so), or the file `get_file` names is not readable for the server (the gateway's own configuration never is) | the polkit rule above, for that account; for the gateway's configuration, the server `gateway-admin` (chapter 10, "Asking an agent"). The `--allow-*` options have no effect in 0.3.5; do not use `--noauth` |
 | "Interactive authentication required", `NOT_AUTHORIZED` after approval | the service's polkit check for the instance's account | the polkit rule above, for the account in `run_as` |
 | snapper calls fail with "D-Bus call failed: org.freedesktop.DBus.Error.Failed" | the account is not in the snapper configuration's `ALLOW_USERS`/`ALLOW_GROUPS` (`mcp-gateway-admin doctor` names it), or the tool needs root (`set_config`, `rollback`) | `snapper -c <config> set-config ALLOW_USERS=…`; for root, the privileged definition |
 | role data edits do not take effect | OPA did not notice the change (some editors replace the file) | `systemctl restart mcp-opa.service`; compare `curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/bindings` with the file |

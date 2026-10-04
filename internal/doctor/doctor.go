@@ -246,6 +246,15 @@ var polkitRuleDirs = []string{"/etc/polkit-1/rules.d", "/usr/share/polkit-1/rule
 // shipped domains cannot reach the bus; a domain of another module may.
 var polkitTypes = map[string]bool{"mcpsrv_systemd_t": true, "mcpsrv_firewalld_t": true}
 
+// polkitActionsDir is where polkit reads action definitions.
+var polkitActionsDir = "/usr/share/polkit-1/actions"
+
+// readlogAction is the action systemd-mcp before 0.3.5 checks every read
+// with (over stdio, for its own process); its package defines it as
+// com.suse.gatekeeper.policy (auth_admin, which an account without a
+// session cannot pass).
+const readlogAction = "com.suse.gatekeeper.readlog"
+
 // Polkit checks the servers that run as a system account (not each
 // principal, not root, not a dynamic user, which gets a new name for each
 // instance): servers like systemd-mcp and firewalld-mcp act through
@@ -253,7 +262,10 @@ var polkitTypes = map[string]bool{"mcpsrv_systemd_t": true, "mcpsrv_firewalld_t"
 // allows it. For each account no rule file under dirs (polkit's, if nil)
 // names, it warns if one of its servers runs in a domain that acts
 // through polkit (polkitTypes), and otherwise reports OK with a note: it
-// cannot tell whether such a server uses polkit at all. It never fails.
+// cannot tell whether such a server uses polkit at all. For a systemd
+// server (mcpsrv_systemd_t) it also warns when polkit knows
+// readlogAction but no rule naming the account allows it: systemd-mcp
+// before 0.3.5 refuses every read then. It never fails.
 func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
 	if dirs == nil {
 		dirs = polkitRuleDirs
@@ -288,6 +300,11 @@ func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
 		}
 		servers := strings.Join(accounts[acct], ", ")
 		switch {
+		case named && readlogNeeded(backends, accounts[acct]) && !ruleAllows(rules, acct, readlogAction):
+			out = append(out, Result{Check: "polkit " + acct, Status: Warn,
+				Summary: fmt.Sprintf("a polkit rule names %s, but none allows %s: systemd-mcp before 0.3.5 checks every read with it, and reads fail with \"calling method was canceled by user\" (servers %s)", acct, readlogAction, servers),
+				Details: []string{"update systemd-mcp to 0.3.5 or later, which allows reads over stdio,",
+					"or mcp-gateway-profile-systemd, whose rule allows " + readlogAction + " (user guide, chapter 13)"}})
 		case named:
 			out = append(out, Result{Check: "polkit " + acct, Status: OK,
 				Summary: fmt.Sprintf("a polkit rule names %s (servers %s)", acct, servers)})
@@ -303,6 +320,31 @@ func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
 		}
 	}
 	return out
+}
+
+// readlogNeeded reports whether one of servers is a systemd server and
+// polkit knows readlogAction (systemd-mcp's package installed it).
+func readlogNeeded(backends map[string]*config.Backend, servers []string) bool {
+	if _, err := os.Stat(filepath.Join(polkitActionsDir, "com.suse.gatekeeper.policy")); err != nil {
+		return false
+	}
+	for _, name := range servers {
+		if backends[name].SELinuxType == "mcpsrv_systemd_t" {
+			return true
+		}
+	}
+	return false
+}
+
+// ruleAllows reports whether a rule file names both the account and the
+// action.
+func ruleAllows(rules []string, acct, action string) bool {
+	for _, r := range rules {
+		if (strings.Contains(r, `"`+acct+`"`) || strings.Contains(r, `'`+acct+`'`)) && strings.Contains(r, action) {
+			return true
+		}
+	}
+	return false
 }
 
 // ProgramLabels checks that each server's program, and the other
