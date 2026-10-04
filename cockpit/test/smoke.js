@@ -50,13 +50,32 @@ function site() {
     check(serversText.includes("mcpsrv_fs_t") && serversText.includes("mcp-fs-i1.service") && serversText.includes("1 session"), "servers and instance shown");
     check(serversText.includes("No running instances you may manage"), "server without instances");
     check(serversText.includes("privileged: no sandbox") && serversText.includes("call running"), "privileged server and busy instance shown");
-    check(await page.$eval("#servers .card:last-child button.danger", b => b.disabled), "busy privileged instance cannot be stopped");
+    check(await page.$eval("#servers .card:nth-child(3) button.danger", b => b.disabled), "busy privileged instance cannot be stopped");
+    check(serversText.includes("previous definition: runs until no session uses it"), "instance of a previous definition marked");
+    check(serversText.includes("removed from the configuration") && serversText.includes("server removed: stops once its calls end"),
+          "removed server with its instance shown");
+    check(!(await page.isVisible("#reload-status")), "no reload status when all is well");
+    await page.click("#reload");
+    await page.waitForFunction(() => document.querySelector("#reload-result").textContent === "Reloaded.");
+    check((await page.evaluate(() => __calls)).some(c => c[0] === "spawn" && c[1] === "systemctl reload mcp-gateway.service" && c[2] === "require"),
+          "reload runs systemctl reload with administrative access");
     await page.click("#servers button:has-text('Show log')");
     await page.waitForFunction(() => document.querySelector("pre.log").textContent.includes("started"));
     check(true, "instance log shown");
     await page.click("#servers button:has-text('Stop'):not([disabled])");
-    await page.waitForFunction(() => !document.querySelector("#servers .instance:not(:has(button[disabled]))"));
+    await page.waitForFunction(() => !document.querySelector("#servers").textContent.includes("mcp-fs-i1.service"));
     check((await page.evaluate(() => __calls)).some(c => c[0] === "DELETE" && c[1] === "/v1/instances/i1"), "stop instance");
+
+    // A failed reload and keys that need a restart are shown; a reload
+    // that fails says so.
+    await page.goto(url.replace("index.html", "index.html?reload") + "#/servers");
+    await page.waitForSelector("#reload-status:not([hidden])");
+    const reloadText = await page.textContent("#reload-status");
+    check(reloadText.includes("gateway.yaml was not reloaded") && reloadText.includes("did not find expected key") &&
+          reloadText.includes("Restart needed") && reloadText.includes("socket_group"), "reload status shown");
+    await page.click("#reload");
+    await page.waitForFunction(() => document.querySelector("#error").textContent.includes("Reloading failed"));
+    check(true, "a failed reload is reported");
 
     await page.goto(url + "#/policy");
     await page.waitForSelector("#bindings tbody tr td");

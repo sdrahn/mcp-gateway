@@ -809,6 +809,8 @@ check "a call after the change works" eventually 20 rl_works
 rl_new=$(rl_units)
 echo "  instances before: ${rl_old:-none}; after: ${rl_new:-none}"
 check "the call after the change runs on a new instance" bash -c '[ -n "$1" ] && [ -n "$2" ] && [ "$1" != "$2" ]' _ "$rl_old" "$rl_new"
+rl_definition_current() { control alice GET /v1/servers | jq -e '[.[] | select(.name == "fsreload") | .instances[].definition] | index("current")' >/dev/null; }
+check "the control API marks the new instance as current" rl_definition_current
 
 rm -f /etc/mcp-gateway/servers.d/fsreload.yaml
 rl_gone() { rl_call; [ "$rc" != 0 ] && ! grep -qF "alice secret" <<<"$out"; } # refused as an unknown server

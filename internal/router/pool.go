@@ -548,6 +548,11 @@ type InstanceInfo struct {
 	// (requests in flight).
 	Privileged bool `json:"privileged,omitempty"`
 	Busy       bool `json:"busy,omitempty"`
+	// Definition is "current", "previous" (the server's definition
+	// changed since the instance started: it runs until no session uses
+	// it) or "removed" (the server went away: it stops once its calls
+	// are answered); see Router.SetBackends.
+	Definition string `json:"definition"`
 }
 
 // list describes the running instances, ordered by start.
@@ -567,7 +572,13 @@ func (p *pool) list() []InstanceInfo {
 		info := InstanceInfo{ID: e.up.id, Server: e.up.backend.Name, Unit: e.up.unit,
 			Sub: e.principal.Sub, Issuer: e.principal.Issuer, UID: e.principal.UID,
 			Transport: e.principal.Transport, Isolation: e.isolation, Started: e.started, Sessions: e.refs,
-			Privileged: e.up.backend.Privileged, Busy: e.up.busy()}
+			Privileged: e.up.backend.Privileged, Busy: e.up.busy(), Definition: "current"}
+		switch {
+		case e.drain:
+			info.Definition = "removed"
+		case e.retired:
+			info.Definition = "previous"
+		}
 		if e.isolation == config.IsolationSession {
 			info.SessionID = e.principal.SessionID
 		}

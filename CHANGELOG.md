@@ -23,6 +23,13 @@ minor release (with a warning) and removed in the next.
   that does not load, a certificate or password file that cannot be
   read, changes nothing: it is logged, audited (`mcp-config-reload`,
   `file=gateway.yaml`) and reported (`config_error`).
+- Instances that run from a server's previous definition, or of a server
+  removed from the configuration, are marked in `GET /v1/servers`
+  (`definition`: `previous`, `removed`; a removed server is listed with
+  `removed: true` while instances of it run) and in Cockpit's Servers
+  tab. The tab also shows a failed reload (`config_error`,
+  `servers_error`) and the keys that need a restart, and its **Reload
+  configuration** button runs `systemctl reload mcp-gateway.service`.
 
 ## v0.9.0 — 2026-10-03
 
