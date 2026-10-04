@@ -5,7 +5,46 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.10.0 — 2026-10-04
+
+The gateway's own configuration changes while it runs. `gateway.yaml`
+is reloaded like the server definitions, when it changes and on
+`systemctl reload`: approvals, mail notifications, limits and timeouts
+apply without ending sessions, and a renewed TLS certificate or SMTP
+password file is picked up without a restart. What a reload leaves
+behind is visible: instances of a previous or removed definition, a
+file that did not load, keys that wait for the next start, in
+`GET /v1/status`, `GET /v1/servers`, the doctor and Cockpit, whose
+Servers tab can now reload the configuration. Over HTTP, what belongs
+to a request goes on that request's stream, and containers that take
+an instance's MCS pair are noticed within 2 s.
+
+Upgrading from 0.9.x needs no changes to `gateway.yaml`, server
+definitions or role data. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. Things
+to know:
+
+- Changes to `/etc/mcp-gateway/gateway.yaml` now take effect within
+  `policy.watch_interval` (10 s) of saving the file, not at the next
+  restart, for the keys that can change while the gateway runs
+  (user guide, chapter 3). Check the file with `mcp-gateway --check`
+  before putting it in place. A file that does not load changes
+  nothing and is reported (log, audit record `mcp-config-reload` with
+  `file=gateway.yaml`, `config_error` in `GET /v1/status`, the doctor).
+- Other keys (sockets, listeners and the identity provider, the
+  supervisor's mode and MCS range, …) still need
+  `systemctl restart mcp-gateway.service`. Until then the gateway logs
+  them, `GET /v1/status` lists them in `restart_needed` and
+  `mcp-gateway-admin doctor` warns.
+- Replacing the files at `http.cert_file` and `http.key_file` is picked
+  up the same way; connections opened before keep the old certificate.
+  Hooks that restart the gateway after a certificate renewal can run
+  `systemctl reload mcp-gateway.service` instead, which keeps sessions.
+- HTTP clients now get a request's progress, approval dialog, and the
+  server's log messages, elicitations and sampling requests on that
+  request's stream, as the MCP specification describes; before, they
+  could arrive on the stream of another request. A client that relied
+  on the old behavior should read every stream it opens.
 
 ### Added
 
