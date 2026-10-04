@@ -2100,7 +2100,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       and the Release workflow refuse a tree holding a program (an ELF
       file or any file with NUL bytes) or a file of more than 1 MiB,
       naming each (0.12.0 and 0.12.1 shipped two programs built in the
-      top directory, 27 MB);
+      top directory, 27 MB) (done);
     - the doctor tells systemd-mcp versions apart: it warns about a
       missing `com.suse.gatekeeper.readlog` rule only when the server
       reports a version before 0.3.5 (or none) at the doctor's probe,

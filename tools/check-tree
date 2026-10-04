@@ -1,0 +1,34 @@
+#!/bin/sh
+# check-tree: check that a commit holds sources only: no program or other
+# binary file (as git tells them: a NUL byte in the first 8000 bytes) and
+# no file of more than 1 MiB. 0.12.0 and 0.12.1 shipped two programs that
+# go build had written in the top directory. CI runs it on every change
+# and check-release before a tag:
+#
+#   tools/check-tree [<commit>]
+#
+# Each such file is printed; the exit status is 1 if there is one.
+set -eu
+
+rev=${1:-HEAD}
+max=1048576
+
+git ls-tree -r -l "$rev" | awk -v max="$max" '
+	$1 == "160000" { next } # submodule
+	$4 > max { printf "check-tree: %s is %d bytes, more than %d\n", substr($0, index($0, "\t") + 1), $4, max; bad = 1 }
+	END { exit bad }' || failed=1
+
+# git grep -I lists the text files that hold anything; the others (but
+# empty files, symbolic links and submodules) are binary.
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+git grep -I -l -e '' "$rev" -- | sed "s|^$rev:||" | LC_ALL=C sort >"$tmp/text"
+git ls-tree -r -l "$rev" | awk '$1 != "120000" && $1 != "160000" && $4 > 0 { print substr($0, index($0, "\t") + 1) }' |
+	LC_ALL=C sort >"$tmp/all"
+LC_ALL=C comm -23 "$tmp/all" "$tmp/text" >"$tmp/binary"
+if [ -s "$tmp/binary" ]; then
+	sed 's/^/check-tree: /; s/$/ is a binary file/' "$tmp/binary"
+	failed=1
+fi
+
+exit "${failed:-0}"
