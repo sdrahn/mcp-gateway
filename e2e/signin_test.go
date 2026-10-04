@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -159,6 +160,32 @@ sign_in:
 		if !strings.Contains(e.gwLogs.String(), ev) {
 			t.Errorf("no %s audit record", ev)
 		}
+	}
+
+	// A client without URL elicitation gets a link to the gateway in the
+	// tool's error; the browser follows it to the authorization server
+	// and back, and the next call works.
+	c2 := newClient(t, e.connect, e.gwSock, "tickets")
+	c2.initialize(map[string]any{})
+	c2.request(200, "tools/call", map[string]any{"name": "whoami", "arguments": map[string]any{}})
+	text, isErr := toolResult(t, readResponse(t, c2, 200))
+	link := regexp.MustCompile(`https://\S+/oauth/start/\S+`).FindString(text)
+	if !isErr || link == "" || !strings.Contains(text, "sign in to tickets") {
+		t.Fatalf("without URL elicitation: %q %v", text, isErr)
+	}
+	resp, err := browser.Get(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := make([]byte, 4096)
+	n, _ := resp.Body.Read(page)
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 || !strings.Contains(string(page[:n]), "signed in to tickets for "+me.Username) {
+		t.Fatalf("link: %s %s", resp.Status, page[:n])
+	}
+	c2.request(201, "tools/call", map[string]any{"name": "whoami", "arguments": map[string]any{}})
+	if text, isErr := toolResult(t, readResponse(t, c2, 201)); isErr || text != "signed in as alice" {
+		t.Fatalf("whoami after the link: %q %v", text, isErr)
 	}
 
 	// Signed in again, then the definition drops sign_in: the tokens go,

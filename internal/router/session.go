@@ -1019,6 +1019,11 @@ func textResult(text string) map[string]any {
 
 func (s *Session) signInFailed(method, server string, err error) (any, *jsonrpc.Error) {
 	msg := "signing in to " + server + " failed: " + err.Error()
+	var le *signin.LinkError
+	if errors.As(err, &le) {
+		// The client cannot open the link: the agent shows it.
+		msg = le.Error()
+	}
 	if method == "tools/call" {
 		return map[string]any{
 			"content": []map[string]any{{"type": "text", "text": "mcp-gateway: " + msg}},

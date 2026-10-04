@@ -549,13 +549,18 @@ What users see:
 - Until a user has signed in, the server offers them one tool,
   `sign_in` (`tickets__sign_in` on the aggregated endpoint). Calling it,
   or any tool of the server, starts the sign-in: a client that handles
-  URL elicitations (MCP 2025-11-25) offers to open the sign-in page;
-  with other clients the link shows on the Cockpit page (Servers) for
-  that user only, and the agent is told so. The call waits up to
-  `sign_in.timeout` (10 min); then the server's tools are listed
-  (`tools/list_changed`) and the call goes on.
+  URL elicitations (MCP 2025-11-25) offers to open the sign-in page,
+  the call waits up to `sign_in.timeout` (10 min), then the server's
+  tools are listed (`tools/list_changed`) and the call goes on. Other
+  clients get, at once, a tool error with a short link: `sign in to
+  tickets with your account there to use its tools: open
+  https://gw.example.com/oauth/start/… (valid until 14:10 UTC), then
+  use the tool again`. The agent shows it, the user opens it (any
+  browser; the link also shows on the Cockpit page), and the next call
+  works. Asking again before signing in gives the same link.
 - The user signs in at the server's authorization server and consents
-  there; the page they land on afterwards says to return to the agent.
+  there; the page they land on afterwards names the server and the user
+  it signed in for and says to return to the agent.
 - Tokens are renewed when they expire (an instance ends shortly before
   its access token expires and the next call starts one with a fresh
   token, and a new session with the server). If the authorization

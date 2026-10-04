@@ -25,6 +25,8 @@ type fakeSignIns struct {
 	rejected int
 	// changed records DefinitionChanged: "old->next" by url, "-" for nil.
 	changed []string
+	// link makes Run answer as for a client without URL elicitation.
+	link bool
 }
 
 func (f *fakeSignIns) DefinitionChanged(old, next *config.Backend) {
@@ -53,6 +55,9 @@ func (f *fakeSignIns) Run(_ context.Context, _ broker.Elicitor, b *config.Backen
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.runs++
+	if f.link {
+		return &signin.LinkError{Server: b.Name, URL: "https://gw.example.com/oauth/start/s1", Expires: time.Now().Add(10 * time.Minute)}
+	}
 	f.signed[p.Sub+"/"+b.Name] = true
 	return nil
 }
@@ -125,6 +130,23 @@ func TestSignIn(t *testing.T) {
 	si.mu.Unlock()
 	if text, _ := toolText(t, c.roundTrip(5, "tools/call", map[string]any{"name": "tickets__read_file"})); text != "tickets did read_file" || si.runs != 3 {
 		t.Fatalf("after refusal: %q, runs %d", text, si.runs)
+	}
+}
+
+// A client without URL elicitation gets the link in the tool result, for
+// the agent to show.
+func TestSignInLink(t *testing.T) {
+	r, _ := testRouter(t, time.Minute)
+	r.SignIns = &fakeSignIns{signed: map[string]bool{}, link: true}
+	r.Backends["tickets"] = &config.Backend{Name: "tickets", Isolation: config.IsolationPrincipal,
+		Discovery: config.DiscoveryInstance, SignIn: &config.SignIn{}}
+	c := connect(t, r, alice(), "", nil)
+	for i, tool := range []string{"tickets__sign_in", "tickets__read_file"} {
+		text, isErr := toolText(t, c.roundTrip(i+1, "tools/call", map[string]any{"name": tool}))
+		if !isErr || !strings.Contains(text, "sign in to tickets") || !strings.Contains(text, "https://gw.example.com/oauth/start/s1") ||
+			strings.Contains(text, "failed") {
+			t.Errorf("%s: %q %v", tool, text, isErr)
+		}
 	}
 }
 

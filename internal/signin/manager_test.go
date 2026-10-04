@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -321,29 +322,63 @@ func TestReconcile(t *testing.T) {
 	}
 }
 
-func TestSignInDeclinedAndTimeout(t *testing.T) {
+func TestSignInDeclinedLinkAndTimeout(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	if err := f.m.Run(ctx, &fakeElicitor{url: true}, f.b, alice); err != ErrDeclined {
 		t.Errorf("declined: %v", err)
 	}
-	// Without URL elicitation: a message, and the link for the principal.
-	f.m.Timeout = 300 * time.Millisecond
+	// Without URL elicitation the call ends at once with a link to the
+	// gateway, which the agent shows; the link leads to the authorization
+	// server while the sign-in waits.
 	el := &fakeElicitor{}
-	done := make(chan error, 1)
-	go func() { done <- f.m.Run(ctx, el, f.b, alice) }()
-	deadline := time.Now().Add(2 * time.Second)
-	for len(f.m.PendingFor(1000)) == 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+	err := f.m.Run(ctx, el, f.b, alice)
+	var le *LinkError
+	if !errors.As(err, &le) || le.Server != "tickets" || !strings.HasPrefix(le.URL, f.gw.URL+"/oauth/start/") ||
+		!strings.Contains(err.Error(), le.URL) {
+		t.Fatalf("without URL elicitation: %v", err)
+	}
+	if len(el.notes) != 1 || el.notes[0] != "notifications/message" {
+		t.Errorf("notes %v", el.notes)
 	}
 	if p := f.m.PendingFor(1000); len(p) != 1 || p[0].Server != "tickets" || len(f.m.PendingFor(1001)) != 0 {
 		t.Errorf("pending: %+v", p)
 	}
-	if err := <-done; err != ErrTimeout {
-		t.Errorf("timeout: %v", err)
+	// Asked again before signing in: the same link.
+	var again *LinkError
+	if err := f.m.Run(ctx, el, f.b, alice); !errors.As(err, &again) || again.URL != le.URL {
+		t.Errorf("again: %v", err)
 	}
-	if el.notes[0] != "notifications/message" {
-		t.Errorf("notes %v", el.notes)
+	// Opening the link (twice: a chat program may preview it) signs in.
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := noFollow.Get(le.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusFound || !strings.HasPrefix(resp.Header.Get("Location"), f.as.Issuer()+"/authorize?") {
+		t.Fatalf("link: %d %s", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	if status, body := browse(t, le.URL); status != 200 || !strings.Contains(body, "signed in to tickets for alice") {
+		t.Fatalf("callback: %d %s", status, body)
+	}
+	if !f.m.Signed(alice, "tickets") {
+		t.Error("not signed in")
+	}
+	// The link is used up.
+	if status, body := browse(t, le.URL); status != 404 || !strings.Contains(body, "unknown, used or expired") {
+		t.Errorf("used link: %d %s", status, body)
+	}
+
+	// An expired sign-in.
+	f.m.Timeout = 50 * time.Millisecond
+	pd, err := f.m.Begin(ctx, f.b, alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if err := f.m.Wait(ctx, pd); err != ErrTimeout {
+		t.Errorf("timeout: %v", err)
 	}
 }
 
