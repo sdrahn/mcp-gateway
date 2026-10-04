@@ -642,7 +642,11 @@ if [ -d "$dir/servers" ]; then
 	rmdir /run/suseconnect 2>/dev/null
 	check "the setups created mcp-sysmgmt in systemd-journal" bash -c 'id -nG mcp-sysmgmt | grep -qw systemd-journal'
 	# systemd-mcp 0.3.4 checks every read as com.suse.gatekeeper.readlog
-	# (auth_admin in its policy): the setup's rule allows it.
+	# (auth_admin in its policy): the setup's rule allows it. polkitd reads
+	# the action file, copied with the servers above, when it starts.
+	restorecon /usr/share/polkit-1/actions/com.suse.gatekeeper.policy
+	systemctl try-restart polkit.service
+	ls -lZ /usr/share/polkit-1/actions/com.suse.gatekeeper.policy | sed 's/^/  /'
 	readlog_allowed() {
 		runuser -u mcp-sysmgmt -- sh -c 'pkcheck --action-id com.suse.gatekeeper.readlog --process $$'
 	}
