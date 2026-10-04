@@ -60,6 +60,17 @@ principal, unit name, sessions, start time. For each instance:
 - **Stop** ends it (calls in flight fail; the next call starts a new
   instance).
 
+A server each user signs in to (`sign_in`, chapter 4) is marked "each
+user signs in", and shows:
+
+- your sign-in, with when you signed in and when the current token
+  expires, and **Sign out** (revokes the tokens and stops your
+  instances of the server); or that you are not signed in;
+- a sign-in waiting for you (your agent cannot open links itself), with
+  **Sign in**, which opens the server's sign-in page;
+- for administrators (the approver rules, chapter 6), everyone's
+  sign-ins with **Revoke**.
+
 After the configuration changed while the gateway runs (chapter 3,
 "Changing the configuration while the gateway runs"; chapter 4,
 "Changing definitions while the gateway runs"):

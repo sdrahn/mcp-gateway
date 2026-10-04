@@ -80,10 +80,23 @@ type Gateway struct {
 	Metrics Metrics `yaml:"metrics"`
 	// Limits bound sessions and instances (decision D14).
 	Limits Limits `yaml:"limits"`
+	// SignIn configures signing principals in to servers (sign_in).
+	SignIn SignInSettings `yaml:"sign_in"`
 
 	// Warnings are the deprecated keys the file uses (see deprecation).
 	Warnings []string `yaml:"-"`
 }
+
+// SignInSettings configure principals' sign-ins to servers defined with
+// url and sign_in (docs/architecture.md, section 5.7.3).
+type SignInSettings struct {
+	// Timeout bounds how long a sign-in may take, from the link to the
+	// callback (default 10 min).
+	Timeout time.Duration `yaml:"timeout"`
+}
+
+// DefaultSignInTimeout is SignInSettings.Timeout's default.
+const DefaultSignInTimeout = 10 * time.Minute
 
 // Limits bound how many sessions and backend instances a principal, and
 // the gateway as a whole, may have (docs/architecture.md, decision D14).
@@ -270,10 +283,14 @@ type Backend struct {
 	// ProxyHeaders are sent to Proxy with each CONNECT (for example
 	// Proxy-Authorization), with ${CREDENTIAL:name} as in Headers.
 	ProxyHeaders map[string]string `yaml:"proxy_headers"`
-	SELinuxType  string            `yaml:"selinux_type"`
-	Isolation    Isolation         `yaml:"isolation"`
-	Network      bool              `yaml:"network"`
-	RunAs        string            `yaml:"run_as"`
+	// SignIn, with URL, has each principal sign in to the server with
+	// their own account there (OAuth 2.1 with PKCE; docs/architecture.md,
+	// section 5.7.3).
+	SignIn      *SignIn   `yaml:"sign_in"`
+	SELinuxType string    `yaml:"selinux_type"`
+	Isolation   Isolation `yaml:"isolation"`
+	Network     bool      `yaml:"network"`
+	RunAs       string    `yaml:"run_as"`
 	// Discovery is "shared" (tool, prompt and resource template lists
 	// come from a gateway-owned instance without any user's identity and
 	// are cached, so listing does not start instances for every user) or
@@ -293,9 +310,30 @@ type Backend struct {
 	// directory may define one, and only with run_as: root.
 	Privileged bool `yaml:"privileged"`
 
+	// RuntimeMax, if set, ends each instance after this long (the life of
+	// its access token, set by the gateway for a start; not in files).
+	RuntimeMax time.Duration `yaml:"-"`
+
 	// Warnings are the deprecated keys the file uses (see deprecation).
 	Warnings []string `yaml:"-"`
 }
+
+// SignIn configures how principals sign in to a server defined with url.
+type SignIn struct {
+	// Scopes to ask for; default: those the server's metadata lists.
+	Scopes []string `yaml:"scopes"`
+	// ClientID is the client registered with the authorization server
+	// for the gateway's redirect URI; without it, the gateway uses a
+	// client ID metadata document or registers dynamically.
+	ClientID string `yaml:"client_id"`
+	// ClientSecret names the credential (in credentials) holding the
+	// client's secret, for a confidential client.
+	ClientSecret string `yaml:"client_secret"`
+}
+
+// SignInCredential is the credential name of a principal's access token
+// in instances of a server with sign_in.
+const SignInCredential = "sign-in"
 
 // Credential is a parsed credentials entry.
 type Credential struct {
@@ -495,6 +533,9 @@ func (g *Gateway) setDefaults() {
 	}
 	if g.Policy.WatchInterval == 0 {
 		g.Policy.WatchInterval = DefaultWatchInterval
+	}
+	if g.SignIn.Timeout == 0 {
+		g.SignIn.Timeout = DefaultSignInTimeout
 	}
 	if g.Supervisor.Mode == "" {
 		g.Supervisor.Mode = "systemd"
@@ -795,6 +836,10 @@ func (b *Backend) setDefaults() {
 	if b.Version == 0 {
 		b.Version = Version
 	}
+	if b.URL != "" && b.SignIn != nil && b.Discovery == "" {
+		// What a server lists may depend on the account.
+		b.Discovery = DiscoveryInstance
+	}
 	if b.URL != "" && len(b.Command) == 0 {
 		b.Command = b.connectorCommand()
 		b.Network = true
@@ -838,6 +883,8 @@ func (b *Backend) Validate() error {
 		return errors.New("headers: only with url")
 	} else if b.Proxy != "" || len(b.ProxyHeaders) > 0 {
 		return errors.New("proxy: only with url")
+	} else if b.SignIn != nil {
+		return errors.New("sign_in: only with url")
 	}
 	if len(b.Command) == 0 || !filepath.IsAbs(b.Command[0]) {
 		return errors.New("command: must be non-empty and start with an absolute path (or give url)")
@@ -951,6 +998,37 @@ func hasKey(n *yaml.Node, path []string) bool {
 // defined with url (cmd/mcp-http-connector).
 var HTTPConnector = filepath.Join(version.LibexecDir, "mcp-gateway", "mcp-http-connector")
 
+// OAuthHelper is the program that makes the requests of principals'
+// sign-ins (cmd/mcp-oauth-helper), and OAuthSELinuxType its domain.
+var OAuthHelper = filepath.Join(version.LibexecDir, "mcp-gateway", "mcp-oauth-helper")
+
+const OAuthSELinuxType = "mcpsrv_oauth_t"
+
+// RedirectURI is where authorization servers send principals back after
+// they signed in to a server: /oauth/callback at the origin of the
+// gateway's public MCP URL (http.audience).
+func (g *Gateway) RedirectURI() string {
+	u, err := url.Parse(g.HTTP.Audience)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host + "/oauth/callback"
+}
+
+// CheckSignIn checks that servers with sign_in can be signed in to: the
+// HTTP listener receives the callback.
+func CheckSignIn(g *Gateway, backends map[string]*Backend) error {
+	for _, name := range slices.Sorted(maps.Keys(backends)) {
+		if backends[name].SignIn == nil {
+			continue
+		}
+		if g.HTTP.Listen == "" || g.RedirectURI() == "" {
+			return fmt.Errorf("server %s: sign_in needs the HTTP listener (http.listen and http.audience): the authorization server sends principals back to <origin of http.audience>/oauth/callback", name)
+		}
+	}
+	return nil
+}
+
 var headerName = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+.^_|~-]+$`)
 
 // connectorCommand runs HTTPConnector for URL with the headers and the
@@ -959,6 +1037,9 @@ func (b *Backend) connectorCommand() []string {
 	cmd := []string{HTTPConnector, "-url", b.URL}
 	for _, k := range slices.Sorted(maps.Keys(b.Headers)) {
 		cmd = append(cmd, "-header", k+": "+b.Headers[k])
+	}
+	if b.SignIn != nil {
+		cmd = append(cmd, "-sign-in", "-header", "Authorization: Bearer ${CREDENTIAL:"+SignInCredential+"}")
 	}
 	if b.Proxy != "" {
 		cmd = append(cmd, "-proxy", b.Proxy)
@@ -1007,7 +1088,50 @@ func (b *Backend) validateURL() error {
 	if err := checkHeaders("headers", b.Headers, creds); err != nil {
 		return err
 	}
-	return checkHeaders("proxy_headers", b.ProxyHeaders, creds)
+	if err := checkHeaders("proxy_headers", b.ProxyHeaders, creds); err != nil {
+		return err
+	}
+	if b.SignIn != nil {
+		return b.validateSignIn(creds)
+	}
+	return nil
+}
+
+var scopeToken = regexp.MustCompile(`^[\x21\x23-\x5b\x5d-\x7e]+$`)
+
+// validateSignIn checks sign_in: no Authorization header of its own, a
+// client secret only with a client id and from credentials, scopes as
+// OAuth defines them, instance discovery.
+func (b *Backend) validateSignIn(creds []Credential) error {
+	for k := range b.Headers {
+		if strings.EqualFold(k, "Authorization") {
+			return errors.New("sign_in: the Authorization header is each principal's token; remove it from headers")
+		}
+	}
+	if slices.ContainsFunc(creds, func(c Credential) bool { return c.Name == SignInCredential }) {
+		return fmt.Errorf("credentials: %q is the principal's token with sign_in; use another name", SignInCredential)
+	}
+	si := b.SignIn
+	if si.ClientSecret != "" {
+		if si.ClientID == "" {
+			return errors.New("sign_in: client_secret needs client_id")
+		}
+		if !slices.ContainsFunc(creds, func(c Credential) bool { return c.Name == si.ClientSecret }) {
+			return fmt.Errorf("sign_in: client_secret names the credential %s, which credentials does not list", si.ClientSecret)
+		}
+	}
+	if strings.ContainsAny(si.ClientID, "\r\n") {
+		return errors.New("sign_in: client_id has a line break")
+	}
+	for _, sc := range si.Scopes {
+		if !scopeToken.MatchString(sc) {
+			return fmt.Errorf("sign_in: %q is not a scope", sc)
+		}
+	}
+	if b.Discovery != DiscoveryInstance {
+		return errors.New("sign_in: discovery must be instance (what a server lists may depend on the account)")
+	}
+	return nil
 }
 
 // checkProxy accepts http:// and https:// proxies given as a host and a

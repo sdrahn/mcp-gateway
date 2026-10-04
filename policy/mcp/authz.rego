@@ -71,6 +71,18 @@ matching contains p if {
 	not sensitive_blocked(field, p)
 }
 
+# The tool sign_in, which the gateway offers in place of a server's tools
+# until the principal signed in to it (input.resource.sign_in), follows
+# the server's tools: a permission naming any tool of the server covers
+# it (docs/architecture.md, section 5.7.3).
+matching contains p if {
+	input.action == "tools.call"
+	input.resource.sign_in == true
+	some p in perms
+	server_ok(p)
+	is_string(p.tool)
+}
+
 # Completions follow what they complete: a prompt like prompts.get, a
 # resource template wherever the principal may read some resource of that
 # server. The same rules decide the visibility of resource templates.

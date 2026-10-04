@@ -373,3 +373,21 @@ func TestRunUsage(t *testing.T) {
 		t.Errorf("bad url: %d", rc)
 	}
 }
+
+// With -sign-in, a 401 ends the connector with status 77 (the gateway
+// refreshes the token); without, the call fails and the connector goes on.
+func TestConnectorUnauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	in := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n"
+	var out, errb strings.Builder
+	if rc := run(context.Background(), []string{"-url", srv.URL, "-sign-in"}, strings.NewReader(in), &out, &errb); rc != exitUnauthorized {
+		t.Errorf("-sign-in: rc %d, %s", rc, errb.String())
+	}
+	out.Reset()
+	if rc := run(context.Background(), []string{"-url", srv.URL}, strings.NewReader(in), &out, &errb); rc == exitUnauthorized || !strings.Contains(out.String(), "401") {
+		t.Errorf("without -sign-in: rc %d, %q", rc, out.String())
+	}
+}

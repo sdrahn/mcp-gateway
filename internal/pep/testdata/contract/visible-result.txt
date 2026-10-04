@@ -5,3 +5,4 @@
 [].name
 [].privileged
 [].server
+[].sign_in

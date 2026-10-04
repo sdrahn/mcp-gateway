@@ -64,6 +64,18 @@ test_manage_instance if {
 	approvals.manage_instance with input as {"approver": carol, "instance": remote}
 }
 
+test_manage_sign_in if {
+	own := {"server": "tickets", "uid": 1001}
+	approvals.manage_sign_in with input as {"approver": alice, "sign_in": own}
+	not approvals.manage_sign_in with input as {"approver": bob, "sign_in": own}
+	approvals.manage_sign_in with input as {"approver": carol, "sign_in": own}
+
+	# An unmapped remote principal's sign-in: admins only.
+	remote := {"server": "tickets", "uid": null}
+	not approvals.manage_sign_in with input as {"approver": alice, "sign_in": remote}
+	approvals.manage_sign_in with input as {"approver": carol, "sign_in": remote}
+}
+
 test_notify if {
 	# policy/mcp/rbac/data.json: default ["self", "role:admin"], wheel → admin
 	approvals.notify == {"user:alice", "group:wheel"} with input as {"request": alice_req}

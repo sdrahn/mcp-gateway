@@ -111,6 +111,7 @@ const (
 	approvePath        = "/v1/data/mcp/approvals/allow"
 	manageGrantPath    = "/v1/data/mcp/approvals/manage_grant"
 	manageInstancePath = "/v1/data/mcp/approvals/manage_instance"
+	manageSignInPath   = "/v1/data/mcp/approvals/manage_sign_in"
 	reviewPolicyPath   = "/v1/data/mcp/approvals/review_policy"
 )
 
@@ -610,6 +611,9 @@ type ApproverInput struct {
 	Request  *ApprovalTarget `json:"request,omitempty"`
 	Instance *InstanceTarget `json:"instance,omitempty"`
 	Grant    *pep.Grant      `json:"grant,omitempty"`
+	// SignIn is a principal's sign-in to a server (server and uid, as
+	// for an instance).
+	SignIn *InstanceTarget `json:"sign_in,omitempty"`
 }
 
 // ApprovalTarget is the call an approval is about, as approver rules see it.
@@ -678,6 +682,16 @@ func (b *Broker) MayManageInstance(ctx context.Context, a Approver, server strin
 		return uid != nil && *uid == a.UID
 	}
 	return b.ask(ctx, a, manageInstancePath, ApproverInput{Instance: &InstanceTarget{Server: server, UID: uid}})
+}
+
+// MayManageSignIn reports whether a may see and end the sign-in to server
+// of the principal with uid (nil: no local account). The same approver
+// rules as for instances apply.
+func (b *Broker) MayManageSignIn(ctx context.Context, a Approver, server string, uid *uint32) bool {
+	if b.opts.Policy == nil && a.UID != 0 {
+		return uid != nil && *uid == a.UID
+	}
+	return b.ask(ctx, a, manageSignInPath, ApproverInput{SignIn: &InstanceTarget{Server: server, UID: uid}})
 }
 
 func (b *Broker) mayManage(ctx context.Context, a Approver, g pep.Grant) bool {

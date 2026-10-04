@@ -255,12 +255,13 @@ Server names must be unique across all files.
 | `headers` | none | with `url`: headers sent with each request (map); `${CREDENTIAL:name}` in a value is the secret `name` from `credentials` |
 | `proxy` | none | with an `https://` `url`: an HTTP proxy to tunnel through, `http://host:port` (or `https://`). See [Through a proxy](#through-a-proxy) |
 | `proxy_headers` | none | with `proxy`: headers sent to the proxy (map), typically `Proxy-Authorization`; `${CREDENTIAL:name}` as in `headers` |
+| `sign_in` | none | with `url`: each user signs in to the server with their own account there (`scopes`, `client_id`, `client_secret`). See [Signing in for each user](#signing-in-for-each-user) |
 | `env` | none | extra environment variables (map); `${HOME}` and `${USER}` are replaced as in `command` |
 | `selinux_type` | `mcpsrv_generic_t` (`mcpsrv_http_t` with `url`) | the SELinux domain instances run in; must be `mcpsrv_<name>_t` (see [SELinux domains](#selinux-domains-for-servers)) |
 | `isolation` | `principal` | `principal`: one instance per principal, shared by that principal's sessions. `session`: a new instance per session. |
 | `network` | `false` | allow network access. Without it, the instance has a private network namespace and only unix sockets. |
 | `run_as` | `principal` (`dynamic` with `url`) | whom the instance runs as: `principal` (the local user; remote users without a local account get a throwaway dynamic user), `dynamic` (always a throwaway dynamic user), or the name of a system account |
-| `discovery` | `shared` | where tool and prompt lists come from: `shared` (one gateway-owned instance per server, cached; listing starts no per-user instances), `instance` (each principal's own instance, for servers whose tools depend on the user) |
+| `discovery` | `shared` (`instance` with `sign_in`) | where tool and prompt lists come from: `shared` (one gateway-owned instance per server, cached; listing starts no per-user instances), `instance` (each principal's own instance, for servers whose tools depend on the user) |
 | `credentials` | none | secrets handed to the server by systemd, see [Secrets](#secrets) |
 | `sandbox.protect_home` | `read-only` | access to home directories: `yes` (none), `read-only`, `read-write` |
 | `sandbox.read_write_paths` | none | existing absolute paths the instance may write despite `ProtectSystem=strict` (systemd `ReadWritePaths=`); paths of the gateway itself, and directories containing them, are refused |
@@ -474,8 +475,8 @@ mcp-gateway --check
 - Secrets reach only the connector: `${CREDENTIAL:name}` in a header is
   replaced by the instance from `$CREDENTIALS_DIRECTORY` ([Secrets](#secrets)),
   not by the gateway, and is not on its command line. One secret serves
-  all principals: signing in to the server for each user (OAuth) is not
-  supported.
+  all principals; for each user's own account, see
+  [Signing in for each user](#signing-in-for-each-user).
 - If the server ends the session (HTTP 404), the instance ends, and the
   next call starts a new one. A call whose answer cannot be had (an
   HTTP error, a broken stream that cannot be resumed) fails with the
@@ -519,6 +520,91 @@ printf %s 'mcpuser:…' | base64 | install -m 0600 /dev/stdin /etc/mcp-gateway/c
   in the proxy's URL (`http://user:password@…` is refused), but in
   `proxy_headers`. With an `https://` proxy the connection to the proxy
   is TLS too, verified against the system's certificates.
+
+### Signing in for each user
+
+A server that acts for each user with their own account there (a ticket
+system, a code host) authorizes them with OAuth, as the MCP
+authorization specification describes. With `sign_in`, each user signs
+in to it once, at its own authorization server; the gateway keeps their
+tokens and the agent never sees one:
+
+```yaml
+# /etc/mcp-gateway/servers.d/tickets.yaml
+name: tickets
+url: https://mcp.tickets.example.com/mcp
+sign_in:
+  scopes: [tickets.read, tickets.write]    # default: those the server lists
+```
+
+The authorization server sends users back to the gateway, to
+`<origin of http.audience>/oauth/callback`: `sign_in` needs the HTTP
+listener (chapter 3, "Remote access (HTTPS)"), reachable from the users'
+browsers. Without it, `mcp-gateway --check` refuses the definition:
+`server tickets: sign_in needs the HTTP listener (http.listen and
+http.audience) …`.
+
+What users see:
+
+- Until a user has signed in, the server offers them one tool,
+  `sign_in` (`tickets__sign_in` on the aggregated endpoint). Calling it,
+  or any tool of the server, starts the sign-in: a client that handles
+  URL elicitations (MCP 2025-11-25) offers to open the sign-in page;
+  with other clients the link shows on the Cockpit page (Servers) for
+  that user only, and the agent is told so. The call waits up to
+  `sign_in.timeout` (10 min); then the server's tools are listed
+  (`tools/list_changed`) and the call goes on.
+- The user signs in at the server's authorization server and consents
+  there; the page they land on afterwards says to return to the agent.
+- Tokens are renewed when they expire (an instance ends shortly before
+  its access token expires and the next call starts one with a fresh
+  token, and a new session with the server). If the authorization
+  server refuses the renewal, the user is asked to sign in again.
+- Users sign out on the Cockpit page (Servers) or through the control
+  API (`DELETE /v1/sign-ins/tickets`); administrators see and revoke
+  everyone's sign-ins there. Signing out revokes the tokens at the
+  authorization server if it offers revocation, and stops the user's
+  instances of the server.
+
+How the gateway is a client of the authorization server:
+
+| `sign_in` key | Default | Meaning |
+|---|---|---|
+| `scopes` | the server's `scopes_supported` | the scopes to ask for |
+| `client_id` | none | the client registered with the authorization server for the redirect URI above. Without it, the gateway uses a client ID metadata document (`<origin>/oauth/client.json`) where the authorization server supports them, else registers itself dynamically (RFC 7591) once per server. With neither, the first sign-in fails: `the authorization server … neither supports client ID metadata documents nor registration; register the gateway there (redirect URI …) and set sign_in.client_id`. |
+| `client_secret` | none | a credential name (in `credentials`) holding the client's secret, for a confidential client; needs `client_id` |
+
+```yaml
+name: tickets
+url: https://mcp.tickets.example.com/mcp
+credentials: [tickets-oauth]
+sign_in:
+  client_id: mcp-gateway-prod
+  client_secret: tickets-oauth
+```
+
+- The gateway finds the authorization server from the server's
+  protected resource metadata (RFC 9728) and reads its metadata
+  (RFC 8414); one without PKCE `S256` is refused. Every request names the
+  server as the resource (RFC 8707), so tokens are for that server only.
+- The gateway makes none of these requests itself: each runs
+  `mcp-oauth-helper` in a short-lived unit in the domain
+  `mcpsrv_oauth_t`, which may reach only the host of that step (or the
+  definition's `proxy`). Its unit names are
+  `mcp-<server>-sign-in-<id>.service`.
+- Tokens are kept per user and server in `/var/lib/mcp-gateway/tokens`
+  (`mcpgw_token_t`), encrypted with a key there that only the gateway
+  reads. An instance gets its user's access token from systemd as the
+  credential `sign-in` (`Authorization: Bearer …`), never on a command
+  line; refresh tokens never leave the gateway and the helper.
+- Policy decides the tool `sign_in` like the server's tools: a role that
+  allows any tool of the server allows it (chapter 6). Who may see and
+  end a user's sign-in is `data.mcp.approvals.manage_sign_in`, with the
+  approver rules (by default the user and the admin role).
+- A server's own tool named `sign_in` is reachable only once the user
+  has signed in.
+- Sign-ins, refreshes and sign-outs are audited (`mcp-sign-in`,
+  `mcp-sign-in-refresh`, `mcp-sign-out`), never tokens.
 
 ## Secrets
 

@@ -44,3 +44,6 @@ request.principal.sub
 request.principal.transport
 request.principal.uid
 request.server
+sign_in
+sign_in.server
+sign_in.uid

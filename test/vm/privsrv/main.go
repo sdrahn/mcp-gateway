@@ -15,7 +15,9 @@
 // With -http ADDR it is instead an MCP server over Streamable HTTP
 // (http.go); with -https ADDR CERTFILE the same over TLS, with a
 // certificate for mcp.vmtest it makes and writes to CERTFILE; with
-// -proxy ADDR an HTTP proxy that only tunnels (CONNECT).
+// -proxy ADDR an HTTP proxy that only tunnels (CONNECT); with -oauth ADDR
+// CERTFILE an MCP server each user signs in to, with its authorization
+// server, for auth.vmtest.
 package main
 
 import (
@@ -114,8 +116,10 @@ func main() {
 			err = serveHTTPS(os.Args[2], os.Args[3])
 		case len(os.Args) == 3 && os.Args[1] == "-proxy":
 			err = serveProxy(os.Args[2])
+		case len(os.Args) == 4 && os.Args[1] == "-oauth":
+			err = serveOAuth(os.Args[2], os.Args[3])
 		default:
-			err = fmt.Errorf("usage: %s [-http ADDR | -https ADDR CERTFILE | -proxy ADDR]", os.Args[0])
+			err = fmt.Errorf("usage: %s [-http ADDR | -https ADDR CERTFILE | -proxy ADDR | -oauth ADDR CERTFILE]", os.Args[0])
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)

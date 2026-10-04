@@ -162,6 +162,13 @@ can ask); `args` conditions are ignored for listing, since arguments are
 not known yet. Resource templates are shown where the principal may read
 some resource of that server.
 
+A server with `sign_in` (chapter 4) offers a user who has not signed in
+to it one tool, `sign_in`, instead of its tools. A permission naming any
+tool of the server (`"tool": "*"`, `"tool": "read_*"`, `"tool":
+"whoami"`, …) covers it; the policy input marks it with
+`"resource": {"name": "sign_in", "sign_in": true, …}`, so a server's
+own tool of that name is not covered this way.
+
 ### Obligations
 
 Obligations attach conditions to an allowed call:
@@ -335,9 +342,10 @@ first key that exists applies (`<server>`, else `default`, else
 | `group:<group>` | members of a local group |
 | `user:<user>` | a local user |
 
-The same rules decide who may **see and revoke grants** and who may
-**see and stop instances** of a server, and whom approval **e-mail**
-goes to (chapter 7). Approvers are identified by the kernel on the
+The same rules decide who may **see and revoke grants**, who may
+**see and stop instances** of a server, who may **see and end sign-ins**
+to a server with `sign_in` (`data.mcp.approvals.manage_sign_in`,
+chapter 4), and whom approval **e-mail** goes to (chapter 7). Approvers are identified by the kernel on the
 control socket, never by an agent.
 
 Examples:

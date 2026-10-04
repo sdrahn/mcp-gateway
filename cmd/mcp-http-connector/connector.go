@@ -9,15 +9,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sdrahn/mcp-gateway/internal/egress"
 )
 
 // maxLine bounds a message from the gateway or the server (as the
@@ -32,11 +30,21 @@ const resumeAttempts = 5
 // the instance ends, and the gateway's next call starts a new one.
 var errSessionGone = errors.New("the server ended the session (HTTP 404)")
 
+// errUnauthorized means the server refused the principal's access token
+// (HTTP 401, with -sign-in): the connector exits with exitUnauthorized,
+// and the gateway, seeing the error (signin.RejectedMarker), refreshes
+// the token for the next instance.
+var errUnauthorized = errors.New("the server refused the access token (HTTP 401)")
+
+// exitUnauthorized is the exit status for errUnauthorized.
+const exitUnauthorized = 77
+
 // connector relays between the gateway (stdio) and one MCP server
 // (Streamable HTTP).
 type connector struct {
 	endpoint string
 	headers  http.Header
+	signIn   bool
 	client   *http.Client
 	log      *slog.Logger
 
@@ -55,8 +63,6 @@ type connector struct {
 	stopOnce  sync.Once
 }
 
-var credentialRef = regexp.MustCompile(`\$\{CREDENTIAL:([A-Za-z0-9_][A-Za-z0-9_.-]{0,63})\}`)
-
 // options are the connector's flags besides -url.
 type options struct {
 	headers      []string // -header "Name: value"
@@ -64,6 +70,7 @@ type options struct {
 	proxy        string   // -proxy URL
 	proxyHeaders []string // -proxy-header "Name: value", sent with CONNECT
 	credDir      string   // $CREDENTIALS_DIRECTORY
+	signIn       bool     // -sign-in: Authorization is a principal's token
 }
 
 func newConnector(endpoint string, o options) (*connector, error) {
@@ -74,61 +81,36 @@ func newConnector(endpoint string, o options) (*connector, error) {
 	switch u.Scheme {
 	case "https":
 	case "http":
-		if !loopback(u.Hostname()) {
+		if !egress.Loopback(u.Hostname()) {
 			return nil, fmt.Errorf("-url: http:// only to a local address (localhost, 127.0.0.0/8, ::1), not %s", u.Hostname())
 		}
 	default:
 		return nil, fmt.Errorf("-url: scheme must be https or http, not %q", u.Scheme)
 	}
-	h, err := parseHeaders("-header", o.headers, o.credDir)
+	h, err := egress.ParseHeaders("-header", o.headers, o.credDir)
 	if err != nil {
 		return nil, err
 	}
-	var proxy *url.URL
-	var proxyHeader http.Header
+	eo := egress.Options{Resolve: o.resolve}
 	if o.proxy != "" {
-		proxy, err = url.Parse(o.proxy)
-		if err != nil || proxy.Host == "" || proxy.User != nil || (proxy.Scheme != "http" && proxy.Scheme != "https") {
-			return nil, fmt.Errorf("-proxy: want http://host:port or https://host:port, got %q", o.proxy)
+		if eo.Proxy, err = egress.ParseProxy(o.proxy); err != nil {
+			return nil, err
 		}
 		if u.Scheme != "https" {
 			return nil, errors.New("-proxy: only for an https:// -url (the tunnel carries TLS to the server)")
 		}
-		if proxyHeader, err = parseHeaders("-proxy-header", o.proxyHeaders, o.credDir); err != nil {
+		if eo.ProxyHeader, err = egress.ParseHeaders("-proxy-header", o.proxyHeaders, o.credDir); err != nil {
 			return nil, err
 		}
 	} else if len(o.proxyHeaders) > 0 {
 		return nil, errors.New("-proxy-header: only with -proxy")
 	}
-	dialTo := map[string]string{} // host:port to address:port
-	for _, r := range o.resolve {
-		parts := strings.SplitN(r, ":", 3)
-		if len(parts) != 3 || parts[0] == "" || parts[1] == "" || net.ParseIP(strings.Trim(parts[2], "[]")) == nil {
-			return nil, fmt.Errorf("-resolve: want host:port:address, got %q", r)
-		}
-		dialTo[net.JoinHostPort(parts[0], parts[1])] = net.JoinHostPort(strings.Trim(parts[2], "[]"), parts[1])
-	}
-	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
-	transport := &http.Transport{
-		// The instance reaches the server's addresses only, or the
-		// proxy's, never one from the environment.
-		Proxy:              nil,
-		ProxyConnectHeader: proxyHeader,
-		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-			if to, ok := dialTo[address]; ok {
-				address = to
-			}
-			return dialer.DialContext(ctx, network, address)
-		},
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 2 * time.Minute,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConnsPerHost:   8,
-	}
-	if proxy != nil {
-		transport.Proxy = http.ProxyURL(proxy)
+	transport, err := egress.Transport(eo)
+	if err != nil {
+		return nil, err
 	}
 	return &connector{
+		signIn:   o.signIn,
 		endpoint: endpoint,
 		headers:  h,
 		client:   &http.Client{Transport: transport},
@@ -136,49 +118,6 @@ func newConnector(endpoint string, o options) (*connector, error) {
 		fatal:    make(chan error, 1),
 		stopped:  make(chan struct{}),
 	}, nil
-}
-
-// parseHeaders parses "Name: value" lines of flag, replacing
-// ${CREDENTIAL:name} by the credential read from credDir.
-func parseHeaders(flag string, lines []string, credDir string) (http.Header, error) {
-	h := http.Header{}
-	for _, line := range lines {
-		k, v, ok := strings.Cut(line, ":")
-		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
-		if !ok || k == "" {
-			return nil, fmt.Errorf("%s: want \"Name: value\", got %q", flag, line)
-		}
-		var credErr error
-		v = credentialRef.ReplaceAllStringFunc(v, func(ref string) string {
-			name := credentialRef.FindStringSubmatch(ref)[1]
-			if credDir == "" {
-				credErr = fmt.Errorf("%s %s: credential %s: no $CREDENTIALS_DIRECTORY", flag, k, name)
-				return ""
-			}
-			b, err := os.ReadFile(filepath.Join(credDir, name))
-			if err != nil {
-				credErr = fmt.Errorf("%s %s: credential %s: %w", flag, k, name, err)
-				return ""
-			}
-			return strings.TrimRight(string(b), "\r\n")
-		})
-		if credErr != nil {
-			return nil, credErr
-		}
-		if strings.ContainsAny(v, "\r\n") {
-			return nil, fmt.Errorf("%s %s: the value has a line break", flag, k)
-		}
-		h.Add(k, v)
-	}
-	return h, nil
-}
-
-func loopback(host string) bool {
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
 
 // serve relays until stdin ends, ctx ends, or the session is gone.
@@ -225,6 +164,11 @@ loop:
 		case err := <-readErr:
 			if !errors.Is(err, io.EOF) {
 				result = err
+			}
+			select {
+			case err := <-c.fatal: // what ended it before stdin did
+				result = err
+			default:
 			}
 			break loop
 		case err := <-c.fatal:
@@ -326,6 +270,10 @@ func (c *connector) post(ctx context.Context, body []byte) {
 		c.answerError(m.ID, isRequest, errSessionGone)
 		c.fail(errSessionGone)
 		return
+	case resp.StatusCode == http.StatusUnauthorized && c.signIn:
+		c.answerError(m.ID, isRequest, errUnauthorized)
+		c.fail(errUnauthorized)
+		return
 	case resp.StatusCode/100 != 2:
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		c.answerError(m.ID, isRequest, fmt.Errorf("HTTP %s: %s", resp.Status, strings.TrimSpace(string(snippet))))
@@ -406,6 +354,10 @@ func (c *connector) listen(ctx context.Context) {
 		case resp.StatusCode == http.StatusNotFound && c.sessionID() != "":
 			_ = resp.Body.Close()
 			c.fail(errSessionGone)
+			return
+		case resp.StatusCode == http.StatusUnauthorized && c.signIn:
+			_ = resp.Body.Close()
+			c.fail(errUnauthorized)
 			return
 		case resp.StatusCode == http.StatusOK && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream"):
 			backoff = time.Second

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 )
@@ -53,5 +54,20 @@ func TestHTTPTarget(t *testing.T) {
 	props := httpProperties(allow)
 	if len(props) != 2 || props[0].Name != "IPAddressDeny" || props[1].Name != "IPAddressAllow" {
 		t.Errorf("props %+v", props)
+	}
+}
+
+func TestRuntimeMax(t *testing.T) {
+	for _, c := range []struct {
+		set, want time.Duration
+	}{
+		{0, instanceRuntimeMax},
+		{time.Hour, time.Hour},
+		{100 * time.Millisecond, time.Second},
+		{24 * time.Hour, instanceRuntimeMax},
+	} {
+		if got := runtimeMax(&config.Backend{RuntimeMax: c.set}); got != c.want {
+			t.Errorf("RuntimeMax %v: %v, want %v", c.set, got, c.want)
+		}
 	}
 }

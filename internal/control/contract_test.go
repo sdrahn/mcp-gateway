@@ -20,6 +20,8 @@ func TestContract(t *testing.T) {
 		"grants.txt":           []pep.Grant{},
 		"servers.txt":          []serverInfo{},
 		"policy.txt":           policyResponse{},
+		"sign-ins.txt":         signInsResponse{},
+		"sign-out.txt":         signOutResponse{},
 		"whatif.txt":           whatIfResponse{},
 		"events.txt":           approvalEvent{},
 		"error.txt":            errorResponse{},

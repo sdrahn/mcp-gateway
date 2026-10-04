@@ -50,6 +50,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/router"
+	"github.com/sdrahn/mcp-gateway/internal/signin"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
@@ -120,6 +121,8 @@ type Server struct {
 	RestartNeeded func() []string
 	// Metrics serves GET /v1/metrics; optional.
 	Metrics *metrics.Registry
+	// SignIns serves /v1/sign-ins; optional.
+	SignIns SignIns
 
 	stopping <-chan struct{} // closed when Serve's context ends
 }
@@ -201,6 +204,8 @@ func (s *Server) Handler() http.Handler {
 	}))
 	mux.HandleFunc("GET /v1/servers", s.with(s.servers))
 	mux.HandleFunc("DELETE /v1/instances/{id}", s.with(s.stopInstance))
+	mux.HandleFunc("GET /v1/sign-ins", s.with(s.signIns))
+	mux.HandleFunc("DELETE /v1/sign-ins/{server}", s.with(s.signOut))
 	mux.HandleFunc("GET /v1/policy", s.with(s.policy))
 	mux.HandleFunc("POST /v1/policy/whatif", s.with(s.whatIf))
 	mux.HandleFunc("GET /v1/events", s.with(s.events))
@@ -270,6 +275,28 @@ func (s *Server) metrics(w http.ResponseWriter, _ *http.Request, a broker.Approv
 
 // serverInfo is a registry entry as the API shows it (without command
 // and environment, which may carry secrets).
+// SignIns is what the control API needs of the sign-in manager
+// (signin.Manager).
+type SignIns interface {
+	List() []signin.Entry
+	PendingFor(uid uint32) []signin.PendingInfo
+	SignOut(ctx context.Context, b *config.Backend, k signin.Key, by string) (bool, error)
+}
+
+// signInsResponse is the body of GET /v1/sign-ins.
+type signInsResponse struct {
+	// SignIns are the sign-ins the caller may see and end.
+	SignIns []signin.Entry `json:"sign_ins"`
+	// Pending are the caller's own sign-ins waiting for them to open the
+	// link.
+	Pending []signin.PendingInfo `json:"pending"`
+}
+
+// signOutResponse is the body of DELETE /v1/sign-ins/{server}.
+type signOutResponse struct {
+	SignedOut int `json:"signed_out"`
+}
+
 type serverInfo struct {
 	Name        string           `json:"name"`
 	SELinuxType string           `json:"selinux_type"`
@@ -277,6 +304,8 @@ type serverInfo struct {
 	Network     bool             `json:"network"`
 	RunAs       string           `json:"run_as"`
 	Privileged  bool             `json:"privileged,omitempty"`
+	// SignIn marks a server each principal signs in to (sign_in).
+	SignIn bool `json:"sign_in,omitempty"`
 	// Removed marks a server whose definition went away while instances
 	// of it still run (they stop once their calls are answered).
 	Removed   bool                  `json:"removed,omitempty"`
@@ -303,7 +332,7 @@ func (s *Server) servers(w http.ResponseWriter, r *http.Request, a broker.Approv
 			insts = []router.InstanceInfo{}
 		}
 		out = append(out, serverInfo{Name: name, SELinuxType: b.SELinuxType, Isolation: b.Isolation,
-			Network: b.Network, RunAs: b.RunAs, Privileged: b.Privileged, Instances: insts})
+			Network: b.Network, RunAs: b.RunAs, Privileged: b.Privileged, SignIn: b.SignIn != nil, Instances: insts})
 	}
 	for name, insts := range byServer {
 		if _, ok := backends[name]; !ok {
@@ -312,6 +341,70 @@ func (s *Server) servers(w http.ResponseWriter, r *http.Request, a broker.Approv
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) signIns(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+	out := signInsResponse{SignIns: []signin.Entry{}, Pending: []signin.PendingInfo{}}
+	if s.SignIns != nil {
+		for _, e := range s.SignIns.List() {
+			if s.Broker.MayManageSignIn(r.Context(), a, e.Server, e.Principal.UID) {
+				out.SignIns = append(out.SignIns, e)
+			}
+		}
+		if p := s.SignIns.PendingFor(a.UID); p != nil {
+			out.Pending = p
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// signOut ends sign-ins to a server: the caller's own, or with
+// ?principal=<sub> (and optionally transport and iss) another
+// principal's, as the approver rules allow.
+func (s *Server) signOut(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+	server := r.PathValue("server")
+	var b *config.Backend
+	if s.Backends != nil {
+		b = s.Backends()[server]
+	}
+	if s.SignIns == nil || b == nil {
+		writeError(w, http.StatusNotFound, "no such sign-in")
+		return
+	}
+	q := r.URL.Query()
+	n := 0
+	for _, e := range s.SignIns.List() {
+		if e.Server != server {
+			continue
+		}
+		if sub := q.Get("principal"); sub != "" {
+			if e.Principal.Sub != sub || (q.Has("transport") && string(e.Principal.Transport) != q.Get("transport")) ||
+				(q.Has("iss") && e.Principal.Issuer != q.Get("iss")) {
+				continue
+			}
+		} else if e.Principal.UID == nil || *e.Principal.UID != a.UID {
+			continue
+		}
+		if !s.Broker.MayManageSignIn(r.Context(), a, server, e.Principal.UID) {
+			continue
+		}
+		ok, err := s.SignIns.SignOut(r.Context(), b, e.Principal, a.Name)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if ok {
+			n++
+			if s.Log != nil {
+				s.Log.Info("signed out via control API", "server", server, "principal", e.Principal.Sub, "by", a.Name)
+			}
+		}
+	}
+	if n == 0 {
+		writeError(w, http.StatusNotFound, "no such sign-in")
+		return
+	}
+	writeJSON(w, http.StatusOK, signOutResponse{SignedOut: n})
 }
 
 func (s *Server) stopInstance(w http.ResponseWriter, r *http.Request, a broker.Approver) {

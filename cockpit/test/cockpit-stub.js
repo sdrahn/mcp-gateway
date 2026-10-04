@@ -18,6 +18,12 @@
         { id: "i0", server: "fs", unit: "mcp-fs-i0.service", sub: "bob", uid: 1002, transport: "unix", isolation: "principal",
           started: new Date(Date.now() - 900000).toISOString(), sessions: 1, definition: "previous" },
     ];
+    let signIns = [
+        { server: "tickets", principal: { sub: "carol", uid: 1003, transport: "unix" }, since: new Date(Date.now() - 3600000).toISOString(),
+          expiry: new Date(Date.now() + 1800000).toISOString(), scope: "mcp.read", refreshable: true },
+        { server: "tickets", principal: { sub: "alice", uid: 1001, transport: "unix" }, since: new Date(Date.now() - 7200000).toISOString(),
+          refreshable: false },
+    ];
     const routes = {
         "/v1/whoami": () => ({ name: "carol", uid: 1003 }),
         "/v1/status": () => query.has("reload")
@@ -35,9 +41,13 @@
                               { name: "zypp", selinux_type: "mcpsrv_zypp_t", isolation: "principal", network: true, run_as: "root", privileged: true,
                                 instances: [{ id: "i2", server: "zypp", unit: "mcp-zypp-i2.service", sub: "alice", uid: 1001, transport: "unix",
                                               isolation: "principal", started: new Date().toISOString(), sessions: 0, privileged: true, busy: true }] },
+                              { name: "tickets", selinux_type: "mcpsrv_http_t", isolation: "principal", network: true, run_as: "dynamic",
+                                sign_in: true, instances: [] },
                               { name: "web", removed: true, instances: [{ id: "i3", server: "web", unit: "mcp-web-i3.service", sub: "alice", uid: 1001,
                                   transport: "unix", isolation: "principal", started: new Date().toISOString(), sessions: 0, busy: true,
                                   definition: "removed" }] }],
+        "/v1/sign-ins": () => ({ sign_ins: signIns,
+            pending: [{ server: "tickets", url: "https://as.example.com/authorize?state=s1", expires: new Date(Date.now() + 600000).toISOString() }] }),
         "/v1/policy": () => ({ mode: "bundle",
             bundles: query.get("source") === "server" ? { mcp: "r42" } : { "/etc/mcp-gateway/bundle/policy.tar.gz": "r42" },
             shipped_roles: { "systemd-reader": { setup: "systemd", description: "read the system state",
@@ -77,6 +87,10 @@
                 },
                 request(opts) {
                     log.push([opts.method, opts.path]);
+                    if (opts.method === "DELETE" && opts.path.startsWith("/v1/sign-ins/")) {
+                        const sub = new URLSearchParams(opts.path.split("?")[1] || "").get("principal") || "carol";
+                        signIns = signIns.filter(e => e.principal.sub !== sub);
+                    }
                     if (opts.method === "DELETE" && opts.path.startsWith("/v1/instances/")) {
                         instances = instances.filter(i => opts.path !== "/v1/instances/" + i.id);
                     }

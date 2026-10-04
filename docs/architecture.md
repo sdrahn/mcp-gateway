@@ -714,7 +714,7 @@ No proxy is taken from the environment.
 
 #### 5.7.3 Signing in to servers for each principal
 
-*Design for 0.12 (roadmap step 21, decision D16); not implemented yet.*
+*Roadmap step 21 (0.12), decision D16.*
 
 A server defined with `url` may need each principal to sign in to it
 with their own account there (OAuth 2.1 with PKCE, as the MCP
@@ -809,10 +809,11 @@ A declined elicitation, an error from the authorization server (its
 fails with the reason.
 
 **Tokens.** The gateway keeps each principal's tokens per server in
-`state_dir/tokens.json` (atomic writes, mode 0600, `mcpgw_token_t`),
-each entry encrypted with AES-256-GCM under a key that only the gateway
-reads (`state_dir/tokens.key`, made on first use, mode 0600,
-`mcpgw_token_key_t`), the server name and the principal's key
+`state_dir/tokens/tokens.json` (atomic writes, mode 0600), each entry
+encrypted with AES-256-GCM under a key that only the gateway reads
+(`state_dir/tokens/tokens.key`, made on first use, mode 0600; the
+directory is `mcpgw_token_t`, which no other domain may read), the
+server name and the principal's key
 (transport, issuer, subject) as associated data, so that an entry cannot
 be moved to another principal or server. The file holds, per entry, the
 access token, the refresh token, the expiry, the granted scopes and the
@@ -855,7 +856,7 @@ code or verifier.
 
 **SELinux.** `mcpsrv_oauth_t` (the helper: HTTP ports, proxy ports, CA
 certificates, its credentials; with `mcpsrv_http_connect_any` any port),
-`mcpgw_token_t` and `mcpgw_token_key_t` (the gateway only),
+`mcpgw_token_t` (the gateway only),
 `mcpgw_cred_run_t` (the gateway writes, `init_t` reads).
 
 ### 5.8 SELinux policy module (`mcp_gateway`)
@@ -986,6 +987,7 @@ socket), HTTP with JSON:
 | `GET /v1/grants`, `DELETE /v1/grants/{id}` | the caller's grants (all for admins); revoke |
 | `GET /v1/servers` | the server registry (without command and environment) and the running instances the caller may manage |
 | `DELETE /v1/instances/{id}` | stop an instance; its sessions get a new one on their next call |
+| `GET /v1/sign-ins`, `DELETE /v1/sign-ins/{server}` | sign-ins to servers with `sign_in` the caller may see (never tokens) and the caller's pending ones with their link; sign out (§5.7.3) |
 | `GET /v1/policy` | policy mode (directories or bundle) and the active bundle revisions |
 | `POST /v1/policy/whatif` | "what changes?": the decisions proposed role data would change (`data.mcp.whatif.changes`, for reviewers per `data.mcp.approvals.review_policy`) |
 | `GET /v1/events` | server-sent events: the pending approvals the caller may decide on, then changes (§5.6.3) |
@@ -1074,6 +1076,10 @@ instead of OPA's default `/system/log/mask`, and bundles from
   }
 }
 ```
+
+`resource.sign_in` is `true` for the tool `sign_in` the gateway offers
+in place of a server's tools until the principal signed in to it
+(§5.7.3).
 
 `version` is the version of the input documents (D10); the OPA client
 adds it to the input of every query, also the filter's and the approver
@@ -1678,6 +1684,7 @@ cmd/
   mcp-gateway-tools/      # inspect, profile, review (package mcp-gateway-tools)
   mcp-connect/            # stdio ↔ unix-socket shim
   mcp-http-connector/     # instances of servers defined with url (D15)
+  mcp-oauth-helper/       # the requests of principals' sign-ins (D16)
 internal/
   transport/              # unix, http (streamable), shim protocol
   authn/                  # peercred/peersec, OAuth resource server
@@ -1693,6 +1700,9 @@ internal/
   profile/                # mcp-gateway-admin profile: permissive run, denials, drafted module
   review/                 # mcp-gateway-admin review: source scan for what a server does to the system
   supervisor/             # systemd transient units, instance pool, MCS allocator
+  egress/                 # HTTP clients of the connector and the helper: -resolve, proxy
+  oauth/                  # OAuth 2.1 client side: metadata, PKCE, the helper's steps
+  signin/                 # principals' sign-ins, token store, tokens for instances (D16)
   audit/
   config/
 policy/                   # default Rego bundle + tests
@@ -2053,7 +2063,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       line (§5.7.3, decision D16). A principal
       can sign out (Cockpit, control API), and an administrator can
       revoke a principal's tokens; the audit trail records sign-ins,
-      refreshes and revocations, never tokens.
+      refreshes and revocations, never tokens (done).
 
 ## 12. Open items
 
@@ -2077,10 +2087,14 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
   stay polled.
 - The kernel audit subsystem is optional (`audit.kernel: auto`); in
   containers without `CAP_AUDIT_WRITE` only the journal records remain.
-- MCP servers that speak HTTP get headers per server (`credentials`);
-  signing in for each principal (OAuth to the upstream server, with the
-  principal's consent) is designed for 0.12 (§5.7.3, D16) and not
-  implemented yet.
+- Servers with `sign_in` (§5.7.3): an instance's access token is fixed
+  for its life, so an instance ends when its token expires (typically
+  hourly) and the next call starts a new one, with a new session at the
+  server. Sign-in needs the HTTP listener, reachable from the
+  principals' browsers; a gateway serving local clients only cannot
+  offer it. A client without URL elicitation leaves the principal to
+  open the link on the Cockpit page, which remote principals without a
+  local account do not have.
 - MCS pairs of stopped containers (their files keep the pair) are not
   known to the gateway (container storage is readable by root only), so a
   container started again, or a new one, can take an instance's pair; the

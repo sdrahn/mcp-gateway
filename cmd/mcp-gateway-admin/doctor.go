@@ -197,6 +197,11 @@ func (d *doctorRun) configuration(path string) doctor.Result {
 		return r
 	}
 	d.gw, d.backends = gw, backends
+	if err := config.CheckSignIn(gw, backends); err != nil {
+		r.Status, r.Summary = doctor.Fail, err.Error()
+		r.Details = []string{"set http.listen and http.audience (user guide, chapter 3, Remote access), or remove sign_in"}
+		return r
+	}
 	r.Status = doctor.OK
 	r.Summary = fmt.Sprintf("%s, %d servers", used, len(backends))
 	if len(backends) > 0 {

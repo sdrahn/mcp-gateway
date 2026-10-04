@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -47,6 +48,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	fs.Var(&resolve, "resolve", `connect to host:port at address, "host:port:address" (repeatable): the addresses the gateway resolved and the instance may reach`)
 	proxy := fs.String("proxy", "", "tunnel to the server through this HTTP proxy (http://host:port or https://host:port; CONNECT, for an https:// -url); none is taken from the environment")
 	fs.Var(&proxyHeaders, "proxy-header", `a header sent to the proxy with CONNECT, "Name: value", with ${CREDENTIAL:name} as in -header (repeatable)`)
+	signIn := fs.Bool("sign-in", false, "the Authorization header is a principal's access token (sign_in): a 401 ends the connector with status 77, so that the gateway refreshes the token")
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(stderr, "usage: %s -url URL [options]\n\nConnects an MCP server that speaks Streamable HTTP to stdin/stdout.\n\n", name)
@@ -69,13 +71,17 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		proxy:        *proxy,
 		proxyHeaders: proxyHeaders,
 		credDir:      os.Getenv("CREDENTIALS_DIRECTORY"),
+		signIn:       *signIn,
 	})
 	if err != nil {
 		log.Error("cannot start", "err", err)
 		return 2
 	}
 	c.log = log
-	if err := c.serve(ctx, stdin, stdout); err != nil {
+	if err := c.serve(ctx, stdin, stdout); errors.Is(err, errUnauthorized) {
+		log.Info("the server refused the access token; ending for a refreshed one", "url", *url)
+		return exitUnauthorized
+	} else if err != nil {
 		log.Error("connection to the server failed", "url", *url, "err", err)
 		return 1
 	}

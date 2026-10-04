@@ -432,3 +432,53 @@ func TestBackendURL(t *testing.T) {
 		}
 	}
 }
+
+func TestBackendSignIn(t *testing.T) {
+	b := Backend{Name: "tickets", URL: "https://mcp.example.com/mcp", SignIn: &SignIn{Scopes: []string{"read"}}}
+	b.setDefaults()
+	if err := b.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{HTTPConnector, "-url", "https://mcp.example.com/mcp", "-sign-in", "-header", "Authorization: Bearer ${CREDENTIAL:sign-in}"}
+	if !slices.Equal(b.Command, want) || b.Discovery != DiscoveryInstance {
+		t.Errorf("defaults: %q %s", b.Command, b.Discovery)
+	}
+
+	for _, c := range []struct {
+		b   Backend
+		err string
+	}{
+		{Backend{Name: "x", Command: []string{"/bin/true"}, SignIn: &SignIn{}}, "sign_in: only with url"},
+		{Backend{Name: "x", URL: "https://x/", SignIn: &SignIn{}, Headers: map[string]string{"authorization": "Bearer x"}}, "Authorization header"},
+		{Backend{Name: "x", URL: "https://x/", SignIn: &SignIn{}, Credentials: []string{"sign-in"}}, "use another name"},
+		{Backend{Name: "x", URL: "https://x/", SignIn: &SignIn{ClientSecret: "s"}, Credentials: []string{"s"}}, "needs client_id"},
+		{Backend{Name: "x", URL: "https://x/", SignIn: &SignIn{ClientID: "c", ClientSecret: "s"}}, "credentials does not list"},
+		{Backend{Name: "x", URL: "https://x/", SignIn: &SignIn{Scopes: []string{"a b"}}}, "not a scope"},
+		{Backend{Name: "x", URL: "https://x/", SignIn: &SignIn{}, Discovery: DiscoveryShared}, "discovery must be instance"},
+	} {
+		c.b.setDefaults()
+		if err := c.b.Validate(); err == nil || !strings.Contains(err.Error(), c.err) {
+			t.Errorf("%+v: %v", c.b, err)
+		}
+	}
+	ok := Backend{Name: "x", URL: "https://x/", SignIn: &SignIn{ClientID: "c", ClientSecret: "s"}, Credentials: []string{"s"}}
+	ok.setDefaults()
+	if err := ok.Validate(); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestCheckSignIn(t *testing.T) {
+	backends := map[string]*Backend{"tickets": {Name: "tickets", SignIn: &SignIn{}}, "fs": {Name: "fs"}}
+	g := &Gateway{}
+	if err := CheckSignIn(g, backends); err == nil || !strings.Contains(err.Error(), "server tickets: sign_in needs the HTTP listener") {
+		t.Errorf("no listener: %v", err)
+	}
+	g.HTTP = HTTP{Listen: ":8443", Audience: "https://gw.example.com:8443/mcp"}
+	if err := CheckSignIn(g, backends); err != nil {
+		t.Error(err)
+	}
+	if got := g.RedirectURI(); got != "https://gw.example.com:8443/oauth/callback" {
+		t.Errorf("redirect %s", got)
+	}
+}

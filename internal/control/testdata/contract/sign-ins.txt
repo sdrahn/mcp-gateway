@@ -1,0 +1,17 @@
+# GET /v1/sign-ins
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+pending
+pending[].expires
+pending[].server
+pending[].url
+sign_ins
+sign_ins[].expiry
+sign_ins[].principal
+sign_ins[].principal.iss
+sign_ins[].principal.sub
+sign_ins[].principal.transport
+sign_ins[].principal.uid
+sign_ins[].refreshable
+sign_ins[].scope
+sign_ins[].server
+sign_ins[].since

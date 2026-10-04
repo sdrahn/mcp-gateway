@@ -1,5 +1,8 @@
 /* Servers tab: the registry and the backend instances the user may see,
- * with stop and the instance's journal; the state of the last reload of
+ * with stop and the instance's journal; for servers each user signs in to
+ * (sign_in), the user's sign-in (with Sign out, and the link of a sign-in
+ * waiting for them) and, for administrators, everyone's (with Revoke);
+ * the state of the last reload of
  * the configuration (gateway.yaml, servers.d) and a button to reload it;
  * the self-check's summary (mcp-gateway-admin doctor).
  */
@@ -78,7 +81,62 @@ function instanceRow(inst) {
               log);
 }
 
-function renderServers(servers) {
+async function signOut(entry, button) {
+    const own = currentUser && entry.principal.uid === currentUser.uid;
+    const what = own ? "Sign out of " + entry.server + "?" :
+        "Revoke " + entry.principal.sub + "'s sign-in to " + entry.server + "?";
+    if (!window.confirm(what + " Their instances of it stop; their agent asks them to sign in again.")) return;
+    button.disabled = true;
+    let path = "/v1/sign-ins/" + encodeURIComponent(entry.server);
+    if (!own) {
+        const q = new URLSearchParams({ principal: entry.principal.sub, transport: entry.principal.transport });
+        if (entry.principal.iss) q.set("iss", entry.principal.iss);
+        path += "?" + q.toString();
+    }
+    try {
+        await api.request({ method: "DELETE", path, body: "" });
+        showError(null);
+    } catch (ex) {
+        showError(ex && ex.status === 404 ? "The sign-in is gone already." : describeFailure(ex));
+    }
+    tabs.servers.refresh();
+}
+
+/* signInRows shows a server's sign-ins: the user's own first. */
+function signInRows(server, signIns) {
+    const rows = [];
+    for (const p of signIns.pending.filter(p => p.server === server.name)) {
+        rows.push(el("div", { class: "instance" },
+                     el("div", { class: "instance-head" },
+                        el("strong", null, "Sign-in waiting for you"),
+                        el("span", { class: "muted" }, "expires " + relative(p.expires)),
+                        el("span", { class: "actions" },
+                           el("a", { href: p.url, target: "_blank", rel: "noopener noreferrer", class: "button" }, "Sign in")))));
+    }
+    const entries = signIns.sign_ins.filter(e => e.server === server.name);
+    const mine = entries.some(e => currentUser && e.principal.uid === currentUser.uid);
+    if (!mine) {
+        rows.push(el("div", { class: "muted" },
+                     "You are not signed in to " + server.name + ". Your agent asks you to sign in when you use one of its tools."));
+    }
+    for (const e of entries) {
+        const own = currentUser && e.principal.uid === currentUser.uid;
+        const button = el("button", { class: "danger" }, own ? "Sign out" : "Revoke");
+        button.addEventListener("click", () => signOut(e, button));
+        let when = "signed in " + relative(e.since);
+        if (e.expiry) when += ", token " + (new Date(e.expiry) > Date.now() ? "expires " : "expired ") + relative(e.expiry);
+        if (e.refreshable) when += " (renewed as needed)";
+        rows.push(el("div", { class: "instance" },
+                     el("div", { class: "instance-head" },
+                        el("span", null, (own ? "You (" + e.principal.sub + ")" : e.principal.sub) +
+                           (e.principal.iss ? " (" + e.principal.iss + ")" : "") + " via " + e.principal.transport),
+                        el("span", { class: "muted" }, when + (e.scope ? " · scope " + e.scope : "")),
+                        el("span", { class: "actions" }, button))));
+    }
+    return rows;
+}
+
+function renderServers(servers, signIns) {
     const box = document.getElementById("servers");
     box.replaceChildren();
     if (servers.length === 0) {
@@ -89,10 +147,12 @@ function renderServers(servers) {
         let facts = [s.selinux_type || "mcpsrv_generic_t", "isolation: " + s.isolation,
             s.network ? "network" : "no network", "runs as " + s.run_as];
         if (s.privileged) facts.push("privileged: no sandbox, every call by policy and approval");
+        if (s.sign_in) facts.push("each user signs in");
         if (s.removed) facts = ["removed from the configuration; its instances stop once their calls end"];
         const card = el("div", { class: "card" },
                         el("h3", null, s.name),
                         el("div", { class: "muted" }, facts.join(" · ")));
+        if (s.sign_in) card.append(...signInRows(s, signIns));
         if (s.instances.length === 0) {
             card.append(el("div", { class: "muted" }, "No running instances you may manage."));
         }
@@ -194,8 +254,9 @@ tabs.servers = {
         selfCheck(check);
     },
     async refresh() {
-        const [servers, status] = await Promise.all([getJSON("/v1/servers"), getJSON("/v1/status")]);
-        renderServers(servers);
+        const [servers, status, signIns] = await Promise.all([getJSON("/v1/servers"), getJSON("/v1/status"),
+            getJSON("/v1/sign-ins").catch(() => ({ sign_ins: [], pending: [] }))]);
+        renderServers(servers, signIns);
         renderReloadStatus(status);
     },
 };
