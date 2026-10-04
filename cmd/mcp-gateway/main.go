@@ -49,8 +49,10 @@ import (
 )
 
 // How often running containers and virtual machines are checked for
-// category pairs that backend instances hold (supervisor.mcs_avoid).
-const mcsWatchInterval = 30 * time.Second
+// category pairs that backend instances hold (supervisor.mcs_avoid). A
+// container that takes an instance's pair shares it for at most this long;
+// a scan reads one small file per process.
+const mcsWatchInterval = 2 * time.Second
 
 func main() {
 	configPath := flag.String("config", "", "path to the gateway configuration (default: "+

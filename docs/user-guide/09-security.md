@@ -91,7 +91,7 @@ containers (podman). To keep them from picking the same pair:
 - **podman** and other container engines pick pairs from the whole
   range and cannot be restricted per engine. With `supervisor.mcs_avoid:
   auto` (the default) the gateway skips pairs held by running processes
-  and checks every 30 s; if a container later takes an instance's pair,
+  and checks every 2 s; if a container later takes an instance's pair,
   the instance is stopped (the next call starts a new one with a fresh
   pair) and a `mcp-mcs-collision` audit event is written.
 

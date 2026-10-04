@@ -40,6 +40,10 @@ minor release (with a warning) and removed in the next.
   went to the most recently opened request stream, which could belong to
   another request. What belongs to no request (list changes, resource
   updates) goes on the GET stream if the client opened one.
+- With `supervisor.mcs_avoid: auto`, running containers and virtual
+  machines are checked for instances' MCS pairs every 2 s instead of
+  every 30 s, so a container that takes an instance's pair shares it for
+  at most about 2 s before the instance is replaced.
 
 ## v0.9.0 — 2026-10-03
 

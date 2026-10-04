@@ -730,14 +730,14 @@ second, independent barrier:
   `security_selinux.c`). The drop-ins in `/usr/share/mcp-gateway/mcs/`
   (`virtqemud.conf`, `libvirtd.conf`) start the daemon with
   `s0-s0:c0.c767`, so its machines never get a pair from the gateway's
-  range. The gateway warns at start and every 30 s while a libvirt daemon's
-  range overlaps its own.
+  range. The gateway warns at start, and when such a daemon starts later,
+  if a libvirt daemon's range overlaps its own.
 - **podman** (go-selinux) picks from the whole range: go-selinux has
   `SetCategoryRange`, but podman (checked with v6.1.2) does not expose it,
   and it only avoids pairs of its own containers. With
   `supervisor.mcs_avoid: auto` (default) the gateway reads the contexts of
   running container and machine processes, skips their pairs when it
-  allocates, and every 30 s stops an instance whose pair a container or
+  allocates, and every 2 s stops an instance whose pair a container or
   machine started later holds too (logged and recorded as an
   `mcp-mcs-collision` audit event); its sessions get a new instance with a
   new pair on their next call. Containers given explicit levels
@@ -1756,5 +1756,6 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
 - The kernel audit subsystem is optional (`audit.kernel: auto`); in
   containers without `CAP_AUDIT_WRITE` only the journal records remain.
 - MCS pairs of stopped containers (their files keep the pair) are not
-  known to the gateway, and a container can take an instance's pair for up
-  to 30 s before the instance is replaced (§5.8).
+  known to the gateway (container storage is readable by root only), so a
+  container started again, or a new one, can take an instance's pair; the
+  two share it for up to 2 s before the instance is replaced (§5.8).
