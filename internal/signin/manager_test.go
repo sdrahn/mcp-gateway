@@ -179,8 +179,8 @@ func TestSignInFlow(t *testing.T) {
 	cred := nb.Credentials[len(nb.Credentials)-1]
 	name, path, _ := strings.Cut(cred, ":")
 	tok, _ := os.ReadFile(path)
-	if name != config.SignInCredential || len(tok) == 0 || nb.RuntimeMax <= 50*time.Minute || nb.RuntimeMax > time.Hour {
-		t.Errorf("prepared: %s %q %v", cred, tok, nb.RuntimeMax)
+	if name != config.SignInCredential || len(tok) == 0 {
+		t.Errorf("prepared: %s %q", cred, tok)
 	}
 	cleanup()
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -217,6 +217,34 @@ func TestSignInFlow(t *testing.T) {
 	}
 	if _, _, err := f.m.Prepare(ctx, f.b, alice); err != ErrNotSignedIn {
 		t.Errorf("after sign out: %v", err)
+	}
+}
+
+// A running instance whose server refused its token gets a refreshed
+// one; if another instance refreshed it meanwhile, that one as is.
+func TestToken(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	if _, _, err := f.m.Token(ctx, f.b, alice, "x"); err != ErrNotSignedIn {
+		t.Fatalf("not signed in: %v", err)
+	}
+	signIn(t, f, alice)
+	_, first, _, _ := f.m.Store.Get("tickets", KeyOf(alice))
+	tok, exp, err := f.m.Token(ctx, f.b, alice, first.AccessToken)
+	if err != nil || tok == "" || tok == first.AccessToken || exp.IsZero() || f.as.Refreshes() != 1 {
+		t.Fatalf("refused token: %q %v %v, refreshes %d", tok, exp, err, f.as.Refreshes())
+	}
+	// Another instance still sending the first token: the new one, no
+	// second refresh.
+	if again, _, err := f.m.Token(ctx, f.b, alice, "stale-"+first.AccessToken); err != nil || again != tok || f.as.Refreshes() != 1 {
+		t.Errorf("refreshed meanwhile: %q %v, refreshes %d", again, err, f.as.Refreshes())
+	}
+	// A refused refresh: sign in again.
+	if err := f.m.Store.Put("tickets", f.b.URL, KeyOf(alice), &oauth.Token{AccessToken: "at", RefreshToken: "unknown"}, time.Now(), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := f.m.Token(ctx, f.b, alice, "at"); err != ErrNotSignedIn {
+		t.Errorf("refused refresh: %v", err)
 	}
 }
 

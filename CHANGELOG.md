@@ -9,6 +9,11 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- An instance of a server with `sign_in` outlives its access token: when
+  the server refuses it (401), the connector gets a renewed one from the
+  gateway and the call goes on, in the same session with the server.
+  Before, the instance ended at the token's expiry (typically hourly)
+  and the next call started a new one, with a new session.
 - Signing in to a server with `sign_in` works with clients without URL
   elicitation: the call ends at once with a short link to the gateway
   (`<origin>/oauth/start/…`) for the agent to show, instead of waiting

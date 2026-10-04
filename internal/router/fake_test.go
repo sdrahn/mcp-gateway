@@ -302,6 +302,16 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 					}
 					respond(m, text("answer: "+string(resp.Result)))
 				}(m)
+			case "read_renewed_token":
+				// As mcp-http-connector after a 401 (mcp-gateway/token).
+				go func(m *jsonrpc.Message) {
+					resp := ask("mcp-gateway/token", map[string]any{"refused": "old"})
+					if resp.Error != nil {
+						respond(m, text("token error: "+resp.Error.Message))
+						return
+					}
+					respond(m, text("token: "+string(resp.Result)))
+				}(m)
 			case "read_customer":
 				respond(m, text(`{"id":4711,"name":"Alice Doe","email":"alice@example.com","manager":"forbidden@example.com"}`))
 			case "update_customer":

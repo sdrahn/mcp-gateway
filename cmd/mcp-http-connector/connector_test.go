@@ -374,20 +374,88 @@ func TestRunUsage(t *testing.T) {
 	}
 }
 
-// With -sign-in, a 401 ends the connector with status 77 (the gateway
-// refreshes the token); without, the call fails and the connector goes on.
+// With -sign-in, a 401 makes the connector ask the gateway for a new
+// token and send the request again; if the gateway has none, it ends with
+// status 77. Without -sign-in, the call fails and the connector goes on.
 func TestConnectorUnauthorized(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
+		mu.Lock()
+		seen = append(seen, r.Method+" "+r.Header.Get("Authorization"))
+		mu.Unlock()
+		if r.Header.Get("Authorization") != "Bearer new" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18"}}`)
 	}))
 	defer srv.Close()
-	in := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n"
-	var out, errb strings.Builder
-	if rc := run(context.Background(), []string{"-url", srv.URL, "-sign-in"}, strings.NewReader(in), &out, &errb); rc != exitUnauthorized {
-		t.Errorf("-sign-in: rc %d, %s", rc, errb.String())
+	initialize := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n"
+
+	// gateway runs the connector and answers its requests for a token
+	// with answer (a JSON-RPC result or error member); it returns the
+	// exit status and what the connector wrote, but the token requests.
+	gateway := func(answer string) (int, string, []string) {
+		inR, inW := io.Pipe()
+		outR, outW := io.Pipe()
+		done := make(chan int, 1)
+		var errb strings.Builder
+		go func() {
+			done <- run(context.Background(), []string{"-url", srv.URL, "-sign-in", "-header", "Authorization: Bearer old"}, inR, outW, &errb)
+			_ = outW.Close()
+		}()
+		_, _ = io.WriteString(inW, initialize)
+		var out strings.Builder
+		var asked []string
+		r := bufio.NewReader(outR)
+		for {
+			line, err := r.ReadString('\n')
+			if strings.Contains(line, `"method":"mcp-gateway/token"`) {
+				var m struct {
+					ID     string            `json:"id"`
+					Params map[string]string `json:"params"`
+				}
+				_ = json.Unmarshal([]byte(line), &m)
+				asked = append(asked, m.Params["refused"])
+				_, _ = io.WriteString(inW, `{"jsonrpc":"2.0","id":"`+m.ID+`",`+answer+"}\n")
+				continue
+			}
+			out.WriteString(line)
+			if strings.Contains(line, `"id":1`) {
+				_ = inW.Close() // answered: stdin ends
+			}
+			if err != nil {
+				break
+			}
+		}
+		return <-done, out.String(), asked
 	}
-	out.Reset()
-	if rc := run(context.Background(), []string{"-url", srv.URL}, strings.NewReader(in), &out, &errb); rc == exitUnauthorized || !strings.Contains(out.String(), "401") {
-		t.Errorf("without -sign-in: rc %d, %q", rc, out.String())
+
+	// A new token: the request goes through with it.
+	rc, out, asked := gateway(`"result":{"access_token":"new","expires_at":"2026-10-04T18:00:00Z"}`)
+	if rc != 0 || !strings.Contains(out, `"protocolVersion":"2025-06-18"`) || len(asked) != 1 || asked[0] != "old" {
+		t.Errorf("new token: rc %d, out %q, asked %v", rc, out, asked)
+	}
+	mu.Lock()
+	if len(seen) < 2 || seen[0] != "POST Bearer old" || seen[1] != "POST Bearer new" {
+		t.Errorf("requests %v", seen)
+	}
+	mu.Unlock()
+
+	// No token: status 77, the call fails naming the refusal.
+	rc, out, _ = gateway(`"error":{"code":-32603,"message":"refused the access token: not signed in"}`)
+	if rc != exitUnauthorized || !strings.Contains(out, "refused the access token") {
+		t.Errorf("no token: rc %d, out %q", rc, out)
+	}
+
+	var plain, errb strings.Builder
+	if rc := run(context.Background(), []string{"-url", srv.URL}, strings.NewReader(initialize), &plain, &errb); rc == exitUnauthorized || !strings.Contains(plain.String(), "401") {
+		t.Errorf("without -sign-in: rc %d, %q", rc, plain.String())
 	}
 }
