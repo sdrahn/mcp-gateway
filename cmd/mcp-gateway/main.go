@@ -37,6 +37,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	controlapi "github.com/sdrahn/mcp-gateway/internal/control"
+	"github.com/sdrahn/mcp-gateway/internal/fswatch"
 	"github.com/sdrahn/mcp-gateway/internal/metrics"
 	"github.com/sdrahn/mcp-gateway/internal/notify"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
@@ -331,7 +332,12 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		go watchMCS(ctx, log, auditLog, sd, gw.Supervisor)
 	}
 	go watchUpdate(ctx, log)
-	go reloader.watch(ctx, reloader.Interval, reloadFP, hup)
+	fsw, err := fswatch.New()
+	if err != nil {
+		log.Warn("changes to the configuration are noticed by polling only", "err", err)
+	}
+	defer func() { _ = fsw.Close() }()
+	go reloader.watch(ctx, reloader.Interval, reloadFP, hup, fsw)
 
 	// Clients learn about policy changes through list_changed.
 	go r.WatchPolicy(ctx, reloader.Interval, opa.Fingerprint, func() {

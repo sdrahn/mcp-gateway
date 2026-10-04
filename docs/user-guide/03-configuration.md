@@ -40,10 +40,15 @@ file.
 
 ### Changing the configuration while the gateway runs
 
-The gateway reloads `gateway.yaml` when it changes (within
-`policy.watch_interval`, 10 s) and on `systemctl reload
-mcp-gateway.service`, together with the MCP server definitions (chapter
-4, "Changing definitions while the gateway runs"). Sessions stay open.
+The gateway reloads `gateway.yaml` when it changes and on `systemctl
+reload mcp-gateway.service`, together with the MCP server definitions
+(chapter 4, "Changing definitions while the gateway runs"). Sessions
+stay open. A change is noticed when the file is written (inotify, also
+for a file replaced by renaming another onto it), and several writes in
+a row are reloaded once. Where a directory cannot be watched (another
+file system, SELinux, inotify's limit; the journal says "changes in a
+directory are noticed by polling only"), changes there are noticed
+within `policy.watch_interval` (10 s).
 
 | Keys | After a change |
 |---|---|
@@ -119,7 +124,7 @@ policy:
 |---|---|---|
 | `policy.opa_socket` | `/run/mcp-gateway/opa.sock` | OPA's socket (`mcp-opa.service`) |
 | `policy.timeout` | `250ms` | a decision not received in time is a denial |
-| `policy.watch_interval` | `10s` (minimum `1s`) | how often the gateway checks whether OPA loaded changed policy; agents are then told to list tools, prompts and resources again |
+| `policy.watch_interval` | `10s` (minimum `1s`) | how often the gateway checks whether OPA loaded changed policy; agents are then told to list tools, prompts and resources again. Also how often it checks configuration files in directories it cannot watch |
 
 ### Approvals
 

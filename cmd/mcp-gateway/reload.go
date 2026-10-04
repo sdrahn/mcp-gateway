@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/fswatch"
 	"github.com/sdrahn/mcp-gateway/internal/router"
 )
 
@@ -194,15 +195,35 @@ func (l *serverReloader) reloadServers(trigger string) (err error) {
 	return nil
 }
 
-// watch reloads when the files change (checked every interval, which
-// may change with the configuration) and on SIGHUP, until ctx ends.
-// start is the fingerprint the configuration in force was loaded with.
-// A failed reload is retried when the files change again, not at every
-// check.
-func (l *serverReloader) watch(ctx context.Context, interval func() time.Duration, start string, hup <-chan os.Signal) {
+// settle is how long watch waits after a change it was told about
+// before it looks: a save or a certificate renewal writes several files,
+// which are reloaded together.
+const settle = 200 * time.Millisecond
+
+// watch reloads when the files change and on SIGHUP, until ctx ends.
+// Changes are noticed through fsw (inotify) when it is set and can watch
+// the files' directories, and else at the latest every interval (which
+// may change with the configuration). start is the fingerprint the
+// configuration in force was loaded with. A failed reload is retried
+// when the files change again, not at every check.
+func (l *serverReloader) watch(ctx context.Context, interval func() time.Duration, start string, hup <-chan os.Signal, fsw *fswatch.Watcher) {
 	last := start
 	t := time.NewTimer(interval())
 	defer t.Stop()
+	settled := time.NewTimer(time.Hour)
+	settled.Stop()
+	defer settled.Stop()
+	unwatched := map[string]bool{}
+	l.watchDirs(fsw, unwatched)
+	// check reloads if the files changed, and renews the watches: a
+	// directory may have been created, or replaced by another.
+	check := func() {
+		if fp := l.fingerprint(); fp != last {
+			last = fp
+			_ = l.reload("file change")
+		}
+		l.watchDirs(fsw, unwatched)
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -210,12 +231,51 @@ func (l *serverReloader) watch(ctx context.Context, interval func() time.Duratio
 		case <-hup:
 			last = l.fingerprint()
 			_ = l.reload("SIGHUP")
+			l.watchDirs(fsw, unwatched)
+		case <-fsw.Events():
+			settled.Reset(settle)
+		case <-settled.C:
+			check()
 		case <-t.C:
-			if fp := l.fingerprint(); fp != last {
-				last = fp
-				_ = l.reload("file change")
-			}
+			check()
 			t.Reset(interval())
+		}
+	}
+}
+
+// watchDirs points fsw at the directories of the files whose change
+// triggers a reload, and of the files their symbolic links name (a
+// certificate under /etc/letsencrypt/live). A directory that cannot be
+// watched is logged once while it stays so; its changes are noticed by
+// polling.
+func (l *serverReloader) watchDirs(fsw *fswatch.Watcher, unwatched map[string]bool) {
+	if fsw == nil {
+		return
+	}
+	dirs := slices.Clone(l.dirs)
+	l.mu.Lock()
+	var files []string
+	if l.configFiles != nil {
+		files = l.configFiles(l.current)
+	}
+	l.mu.Unlock()
+	for _, f := range files {
+		dirs = append(dirs, filepath.Dir(f))
+		if r, err := filepath.EvalSymlinks(f); err == nil {
+			dirs = append(dirs, filepath.Dir(r))
+		}
+	}
+	slices.Sort(dirs)
+	dirs = slices.Compact(dirs)
+	failed := fsw.Set(dirs)
+	for _, d := range dirs {
+		err, bad := failed[d]
+		switch {
+		case bad && !unwatched[d]:
+			unwatched[d] = true
+			l.log.Info("changes in a directory are noticed by polling only", "dir", d, "err", err)
+		case !bad:
+			delete(unwatched, d)
 		}
 	}
 }

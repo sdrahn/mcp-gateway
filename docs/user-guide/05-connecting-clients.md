@@ -162,8 +162,9 @@ mcp-gateway --check && systemctl restart mcp-gateway.service   # http.listen tak
 ```
 
 A renewed certificate (the files at `cert_file` and `key_file` replaced)
-is picked up within `policy.watch_interval`, or at once with `systemctl
-reload mcp-gateway.service`, without ending sessions; connections opened
+is picked up when the files are written, also when they are symbolic
+links replaced as certbot does it, or with `systemctl reload
+mcp-gateway.service`, without ending sessions; connections opened
 before keep the old one. A certificate that does not load keeps the one
 in force (chapter 3).
 

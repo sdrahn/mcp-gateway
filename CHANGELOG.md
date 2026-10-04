@@ -7,6 +7,16 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Changed
+
+- Changes to `gateway.yaml`, the server definitions, the TLS certificate
+  and key and the SMTP password file take effect when the file is
+  written (inotify), not within `policy.watch_interval`; a file replaced
+  by rename (editors, certbot's symbolic links) counts, and several
+  writes in a row are reloaded once. Directories that cannot be watched
+  are logged ("changes in a directory are noticed by polling only") and
+  checked every `policy.watch_interval` as before.
+
 ## v0.10.0 — 2026-10-04
 
 The gateway's own configuration changes while it runs. `gateway.yaml`
