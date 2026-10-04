@@ -122,7 +122,8 @@ mcp-gateway-admin doctor [options]
 
 Checks the installation (chapter 10, "Self-check"). Run it as root;
 without root, the checks that need it are skipped. Exit status 1 if a
-check failed, 2 on usage errors.
+check failed, 3 with `--strict` if one warned (and none failed), 2 on
+usage errors, 0 otherwise.
 
 | Flag | Meaning |
 |---|---|
@@ -134,7 +135,36 @@ check failed, 2 on usage errors.
 | `--since DURATION` | how far back to look for SELinux denials (default `24h`), within the current boot |
 | `--previous-boots` | with `--since`, also count denials from before the current boot |
 | `--timeout DURATION` | how long to wait for each server (default `30s`) |
-| `--json` | print the results as JSON |
+| `--json` | print the results as JSON (below) |
+| `--strict` | exit 3 if a check warned and none failed |
+
+With `--json`, the output is an array of results: `check` (the label of
+the text output), `id`, `subject` (absent for checks about nothing in
+particular), `status` (`ok`, `warn`, `fail`, `skip`), `summary` and
+`details` (lines; absent when there are none). `id` and `subject` stay
+the same across releases; the texts may change.
+
+| `id` | `subject` | Text label |
+|---|---|---|
+| `configuration` | | configuration |
+| `role-data` | | role data |
+| `unit` | `mcp-gateway.service`, `mcp-opa.service` | the unit |
+| `state-files` | | state files |
+| `gateway-status` | | gateway status |
+| `policy` | | policy |
+| `servers` | | servers |
+| `server` | server name | server *name* |
+| `roles` | server name | roles *name* |
+| `selinux-denials` | SELinux type (absent when there are none) | SELinux *type*, SELinux |
+| `selinux-transitions` | | SELinux transitions |
+| `selinux-types` | | SELinux types |
+| `selinux-type` | SELinux type | SELinux type *type* |
+| `program` | program path or name | program *path* |
+| `program-labels` | | program labels |
+| `read-only-usr` | | read-only /usr |
+| `snapper` | server name | snapper *name* |
+| `polkit` | account | polkit *account* |
+| `principals` | | principals |
 
 ### mcp-gateway-admin serve
 

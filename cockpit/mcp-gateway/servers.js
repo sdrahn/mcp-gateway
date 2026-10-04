@@ -1,6 +1,7 @@
 /* Servers tab: the registry and the backend instances the user may see,
  * with stop and the instance's journal; the state of the last reload of
- * the configuration (gateway.yaml, servers.d) and a button to reload it.
+ * the configuration (gateway.yaml, servers.d) and a button to reload it;
+ * the self-check's summary (mcp-gateway-admin doctor).
  */
 "use strict";
 
@@ -142,11 +143,55 @@ async function reload(button) {
     tabs.servers.refresh();
 }
 
+/* doctorOutput runs the doctor and returns its output, also when it
+ * exits 1 (a check failed) or 3: cockpit.spawn rejects then, and hands
+ * the output to catch as its second argument. */
+function doctorOutput() {
+    return new Promise((resolve, reject) => {
+        cockpit.spawn(["mcp-gateway-admin", "doctor", "--no-start", "--json"], { superuser: "try", err: "message" })
+                .then(resolve)
+                .catch((ex, data) => (data ? resolve(data) : reject(ex)));
+    });
+}
+
+/* selfCheck runs mcp-gateway-admin doctor without starting servers (as
+ * root where the user may, else the checks that need root are skipped)
+ * and shows the counts, and the warnings and failures with what to do. */
+async function selfCheck(button) {
+    const box = document.getElementById("self-check");
+    button.disabled = true;
+    box.textContent = "Checking…";
+    try {
+        const results = JSON.parse(await doctorOutput());
+        const n = { ok: 0, warn: 0, fail: 0, skip: 0 };
+        for (const r of results) n[r.status] = (n[r.status] || 0) + 1;
+        const summary = "Self-check: " + n.ok + " ok, " + n.warn + (n.warn === 1 ? " warning, " : " warnings, ") +
+                        n.fail + " failed, " + n.skip + " skipped.";
+        const bad = results.filter(r => r.status === "warn" || r.status === "fail");
+        if (bad.length === 0) {
+            box.replaceChildren(el("span", null, summary + " Nothing to do."));
+            return;
+        }
+        const list = el("ul", null, ...bad.map(r => el("li", null,
+            el("strong", null, r.status.toUpperCase() + " " + r.check + ": "), r.summary,
+            ...(r.details || []).map(d => el("div", { class: "muted" }, d)))));
+        box.replaceChildren(el("details", { open: "" }, el("summary", null, summary), list,
+            el("div", { class: "muted" }, "All results: mcp-gateway-admin doctor (as root); chapter 10 of the user guide.")));
+    } catch (ex) {
+        box.textContent = "The self-check did not run: " + (ex.message || ex.problem || ex);
+    } finally {
+        button.disabled = false;
+    }
+}
+
 tabs.servers = {
     intervalMs: 5000,
     init() {
         const button = document.getElementById("reload");
         button.addEventListener("click", () => reload(button));
+        const check = document.getElementById("self-check-run");
+        check.addEventListener("click", () => selfCheck(check));
+        selfCheck(check);
     },
     async refresh() {
         const [servers, status] = await Promise.all([getJSON("/v1/servers"), getJSON("/v1/status")]);

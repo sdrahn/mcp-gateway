@@ -1757,7 +1757,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       failure and 0 otherwise, `--strict` exits 3 when there are
       warnings, and `--json` gives each result a stable `check` id and
       `status`, documented in the reference; Cockpit's
-      Servers tab shows the doctor's summary with a link to the details;
+      Servers tab shows the doctor's summary with a link to the details
+      (done);
     - approval mail reaches the users whose primary group an approver
       group is also where the user database does not enumerate (SSSD,
       LDAP without `enumerate = true`, §12): besides `getent passwd`,

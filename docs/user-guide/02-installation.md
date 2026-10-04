@@ -77,7 +77,7 @@ reboot
 - A privileged server cannot change `/usr`: the privileged zypp server
   cannot install or remove packages (zypper refuses on a read-only
   root); install with `transactional-update` instead. Searching and
-  planning work. `mcp-gateway-admin doctor` warns ("read-only /usr").
+  planning work. `mcp-gateway-admin doctor` notes it ("read-only /usr").
 - The file server (`mcp-gateway-fs-server`) works on home directories as
   on other systems; directories on the read-only root file system it
   shows as read-only and refuses to change, saying why (chapter 4).

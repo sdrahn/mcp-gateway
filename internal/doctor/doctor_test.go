@@ -55,18 +55,28 @@ func TestPolkit(t *testing.T) {
 		t.Fatal(err)
 	}
 	backends := map[string]*config.Backend{
-		"systemd": {Name: "systemd", RunAs: "mcp-sysmgmt"},
-		"fw":      {Name: "fw", RunAs: "mcp-fw"},
+		"systemd": {Name: "systemd", RunAs: "mcp-sysmgmt", SELinuxType: "mcpsrv_systemd_t"},
+		"fw":      {Name: "fw", RunAs: "mcp-fw", SELinuxType: "mcpsrv_firewalld_t"},
+		"custom":  {Name: "custom", RunAs: "mcp-custom"},
 		"fs":      {Name: "fs", RunAs: "principal"},
 		"zypp":    {Name: "zypp", RunAs: "root"},
 		"docs":    {Name: "docs", RunAs: "dynamic"},
 	}
 	rs := Polkit(backends, []string{dir, filepath.Join(dir, "missing")})
-	if len(rs) != 2 || rs[0].Check != "polkit mcp-fw" || rs[0].Status != Warn || rs[1].Status != OK {
+	if len(rs) != 3 {
 		t.Fatalf("%+v", rs)
 	}
-	if !strings.Contains(rs[0].Summary, "servers fw run as mcp-fw") {
-		t.Errorf("summary %q", rs[0].Summary)
+	// A server whose domain may not use polkit at all: a note.
+	if rs[0].Check != "polkit mcp-custom" || rs[0].Status != OK || len(rs[0].Details) == 0 {
+		t.Errorf("custom: %+v", rs[0])
+	}
+	// One that acts through polkit without a rule: a warning naming the fix.
+	if rs[1].Check != "polkit mcp-fw" || rs[1].Status != Warn ||
+		!strings.Contains(rs[1].Summary, "servers fw act through polkit as mcp-fw") || len(rs[1].Details) == 0 {
+		t.Errorf("fw: %+v", rs[1])
+	}
+	if rs[2].Check != "polkit mcp-sysmgmt" || rs[2].Status != OK {
+		t.Errorf("systemd: %+v", rs[2])
 	}
 }
 
@@ -296,11 +306,30 @@ func TestReadOnlyRoot(t *testing.T) {
 		t.Errorf("writable: %+v", rs)
 	}
 	rs := ReadOnlyRoot(backends, true)
-	if len(rs) != 1 || rs[0].Status != Warn || !strings.Contains(rs[0].Summary, "privileged servers zypp") {
+	if len(rs) != 1 || rs[0].Status != OK || !strings.Contains(rs[0].Summary, "privileged servers zypp") || len(rs[0].Details) == 0 {
 		t.Errorf("privileged on read-only /usr: %+v", rs)
 	}
 	delete(backends, "zypp")
 	if rs := ReadOnlyRoot(backends, true); len(rs) != 1 || rs[0].Status != OK {
 		t.Errorf("no privileged servers: %+v", rs)
+	}
+}
+
+func TestIdentify(t *testing.T) {
+	rs := []Result{{Check: "gateway status"}, {Check: "polkit mcp-fw"}, {Check: "SELinux type mcpsrv_x_t"},
+		{Check: "SELinux mcpsrv_fs_t"}, {Check: "SELinux"}, {Check: "program /usr/bin/x"}, {Check: "program labels"},
+		{Check: "mcp-opa.service"}, {Check: "server fs"}, {Check: "something new"}}
+	Identify(rs)
+	var got []string
+	for _, r := range rs {
+		got = append(got, r.ID+"|"+r.Subject)
+	}
+	want := "gateway-status|,polkit|mcp-fw,selinux-type|mcpsrv_x_t,selinux-denials|mcpsrv_fs_t,selinux-denials|," +
+		"program|/usr/bin/x,program-labels|,unit|mcp-opa.service,server|fs,something new|"
+	if strings.Join(got, ",") != want {
+		t.Errorf("got  %s\nwant %s", strings.Join(got, ","), want)
+	}
+	if Warned(rs) || !Warned([]Result{{Status: OK}, {Status: Warn}}) {
+		t.Error("Warned")
 	}
 }

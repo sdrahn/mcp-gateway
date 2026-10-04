@@ -41,7 +41,7 @@ func TestDoctorOffline(t *testing.T) {
 		}
 		return p
 	}
-	write("servers.d/sys.yaml", "name: sys\ncommand: [/usr/bin/true]\nrun_as: mcp-nobody-has-rules\n")
+	write("servers.d/sys.yaml", "name: sys\ncommand: [/usr/bin/true]\nrun_as: mcp-nobody-has-rules\nselinux_type: mcpsrv_systemd_t\n")
 	cfg := write("gateway.yaml", "servers_dir: "+servers+"\nvendor_servers_dir: "+filepath.Join(dir, "none")+
 		"\npolicy:\n  opa_socket: "+filepath.Join(dir, "opa.sock")+"\napprovals:\n  control_socket: "+filepath.Join(dir, "control.sock")+"\n")
 	rbac := write("data.json", `{"roles": {"r": {"permissions": []}}, "bindings": {"users": {"alice": ["nope"]}}}`)
@@ -74,7 +74,7 @@ func TestDoctorOffline(t *testing.T) {
 	if r := got["servers"]; r.Status != doctor.Skip {
 		t.Errorf("servers: %+v", r)
 	}
-	if r := got["polkit mcp-nobody-has-rules"]; r.Status != doctor.Warn {
+	if r := got["polkit mcp-nobody-has-rules"]; r.Status != doctor.Warn || r.ID != "polkit" || r.Subject != "mcp-nobody-has-rules" {
 		t.Errorf("polkit: %+v", r)
 	}
 
@@ -195,5 +195,24 @@ func TestDoctorBrokenDefinition(t *testing.T) {
 	}
 	if _, ok := got["gateway status"]; !ok {
 		t.Errorf("the checks stopped after the configuration: %+v", rs)
+	}
+}
+
+func TestDoctorExit(t *testing.T) {
+	ok, warn, fail := doctor.Result{Status: doctor.OK}, doctor.Result{Status: doctor.Warn}, doctor.Result{Status: doctor.Fail}
+	for _, c := range []struct {
+		rs     []doctor.Result
+		strict bool
+		want   int
+	}{
+		{[]doctor.Result{ok}, true, 0},
+		{[]doctor.Result{ok, warn}, false, 0},
+		{[]doctor.Result{ok, warn}, true, 3},
+		{[]doctor.Result{warn, fail}, true, 1},
+		{[]doctor.Result{fail}, false, 1},
+	} {
+		if got := doctorExit(c.rs, c.strict); got != c.want {
+			t.Errorf("%+v strict=%v: %d, want %d", c.rs, c.strict, got, c.want)
+		}
 	}
 }

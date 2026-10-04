@@ -42,9 +42,10 @@ as root), servers that do not start (each registered server is started
 once, as for shared discovery), roles naming tools a server does not
 have, SELinux denials for the gateway and its servers, servers running
 as an account no polkit rule names, a snapper server no snapper config
-allows, and users who may connect but hold no role. Run it as root;
-without root, the checks that need it are skipped. Exits 1 if a check
-failed.
+allows, and users who may connect but hold no role. A warning names
+what to change; what the doctor cannot tell is wrong is OK, with a note.
+Run it as root; without root, the checks that need it are skipped.
+Exits 1 if a check failed, 3 with -strict if one warned, 0 otherwise.
 
 `
 
@@ -64,6 +65,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	previousBoots := fs.Bool("previous-boots", false, "with -since, also count SELinux denials from before the current boot")
 	timeout := fs.Duration("timeout", 30*time.Second, "how long to wait for each server")
 	asJSON := fs.Bool("json", false, "print the results as JSON")
+	strict := fs.Bool("strict", false, "exit 3 if a check warned (and none failed)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -86,6 +88,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 		log:        slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelError})),
 	}
 	rs := d.run(*configPath)
+	doctor.Identify(rs)
 	var err error
 	if *asJSON {
 		err = doctor.WriteJSON(stdout, rs)
@@ -96,8 +99,17 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 		say(stderr, err)
 		return 1
 	}
-	if doctor.Failed(rs) {
+	return doctorExit(rs, *strict)
+}
+
+// doctorExit is the doctor's exit status: 1 if a check failed, 3 if one
+// warned and strict is set, else 0.
+func doctorExit(rs []doctor.Result, strict bool) int {
+	switch {
+	case doctor.Failed(rs):
 		return 1
+	case strict && doctor.Warned(rs):
+		return 3
 	}
 	return 0
 }
@@ -203,7 +215,7 @@ func (d *doctorRun) roleData() doctor.Result {
 	r := doctor.Result{Check: "role data"}
 	data, err := os.ReadFile(d.policyData)
 	if errors.Is(err, fs.ErrNotExist) {
-		r.Status, r.Summary = doctor.Warn, d.policyData+" does not exist (policy from a bundle?): not checked"
+		r.Status, r.Summary = doctor.Skip, d.policyData+" does not exist (policy from a bundle?): not checked"
 		return r
 	}
 	if err != nil {
@@ -389,7 +401,9 @@ func (d *doctorRun) servers() []doctor.Result {
 			orDash(res.Server.Name), res.Server.Version, len(res.Tools), len(res.Prompts), len(res.ResourceTemplates))
 		if len(res.Tools) == 0 {
 			r.Status = doctor.Warn
-			r.Summary += " (no tools: as the account it runs as, the server may hide them)"
+			r.Summary += " (no tools)"
+			r.Details = []string{fmt.Sprintf("see what it offers: mcp-gateway-admin inspect --server %s; a server may offer", name),
+				"its tools only to root, which needs a privileged definition (chapter 4), or none without its configuration"}
 		}
 		rs = append(rs, r)
 		if len(roleFiles) > 0 {
@@ -535,7 +549,8 @@ func (d *doctorRun) principals() doctor.Result {
 	if len(unbound) > 0 {
 		r.Status = doctor.Warn
 		r.Summary = fmt.Sprintf("%d of %d members of %s hold no role: they may connect but see no server", len(unbound), len(members), group)
-		r.Details = []string{strings.Join(unbound, ", ")}
+		r.Details = []string{strings.Join(unbound, ", "),
+			"bind them to a role (Cockpit's Roles tab, or bindings in " + d.policyData + "), or remove them from " + group}
 		return r
 	}
 	r.Status, r.Summary = doctor.OK, fmt.Sprintf("all %d members of %s hold a role (remote principals are not checked)", len(members), group)
