@@ -173,9 +173,11 @@ func contextTypeOf(field string) string {
 var polkitRuleDirs = []string{"/etc/polkit-1/rules.d", "/usr/share/polkit-1/rules.d"}
 
 // Polkit checks the servers that run as a system account (not each
-// principal, not root): servers like systemd-mcp and firewalld-mcp act
-// through polkit, which refuses an account without a session unless a
-// rule allows it. It warns for each account no rule file under dirs
+// principal, not root, not a dynamic user): servers like systemd-mcp and
+// firewalld-mcp act through polkit, which refuses an account without a
+// session unless a rule allows it. A dynamic user gets a new name for
+// each instance, so no rule can name it; servers that need polkit run as
+// the account their setup package creates. It warns for each account no rule file under dirs
 // (polkit's, if nil) names. It cannot tell whether a server needs polkit
 // at all, so it never fails.
 func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
@@ -194,7 +196,7 @@ func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
 	accounts := map[string][]string{} // account to servers
 	for _, name := range sortedKeys(backends) {
 		b := backends[name]
-		if b.RunAs == "principal" || b.RunAs == "root" || isSnapper(b) {
+		if b.RunAs == "principal" || b.RunAs == "root" || b.RunAs == "dynamic" || isSnapper(b) {
 			continue
 		}
 		accounts[b.RunAs] = append(accounts[b.RunAs], name)

@@ -221,7 +221,7 @@ orange, `FAIL` red (not with `NO_COLOR` set or `--json`, where the status is
 | program *name* | that a server's program, and every other program the gateway's and the setups' modules give a type (the gateway's own, helpers a server starts like zypp's `zypp-mcp-tool`), where installed, carries the label the policy gives its path (`matchpathcon`, else `restorecon -n`); a program installed before its module (e.g. still `bin_t`) cannot start in its domain, and its tools are missing. The fix it names is `restorecon`, on a transactional system `transactional-update run restorecon` and a reboot |
 | read-only /usr | on a transactional system: warns about privileged servers, which cannot change `/usr` (chapter 2, "Transactional systems") |
 | snapper *server* | that a snapper config's `ALLOW_USERS` (or `ALLOW_GROUPS`) names the account mcp-server-snapper runs as; without, it can only list the configs |
-| polkit *account* | servers running as a system account that no polkit rule names: servers that act through polkit (systemd, firewalld) are refused without one |
+| polkit *account* | servers running as a system account (`run_as` naming one; not `principal`, `root` or `dynamic`) that no polkit rule names: servers that act through polkit (systemd, firewalld) are refused without one |
 | principals | members of `socket_group` bound to no role, by name or group (users whose primary group it is, and remote principals, are not checked) |
 
 Starting the servers runs them like the gateway would, once each; use
