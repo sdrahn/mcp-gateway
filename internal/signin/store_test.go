@@ -19,15 +19,15 @@ func TestStore(t *testing.T) {
 	alice := Key{Transport: "unix", Sub: "alice"}
 	bob := Key{Transport: "http", Issuer: "https://idp", Sub: "bob"}
 	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
-	if err := s.Put("tickets", alice, &oauth.Token{AccessToken: "at-a", RefreshToken: "rt-a", Scope: "read", Expiry: now.Add(time.Hour)}, now, false); err != nil {
+	if err := s.Put("tickets", "https://t.example/mcp", alice, &oauth.Token{AccessToken: "at-a", RefreshToken: "rt-a", Scope: "read", Expiry: now.Add(time.Hour)}, now, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Put("tickets", bob, &oauth.Token{AccessToken: "at-b"}, now, false); err != nil {
+	if err := s.Put("tickets", "https://t.example/mcp", bob, &oauth.Token{AccessToken: "at-b"}, now, false); err != nil {
 		t.Fatal(err)
 	}
 	// A refresh without a refresh token keeps the old one and the time of
 	// the sign-in.
-	if err := s.Put("tickets", alice, &oauth.Token{AccessToken: "at-a2", Expiry: now.Add(2 * time.Hour)}, now.Add(time.Hour), true); err != nil {
+	if err := s.Put("tickets", "https://t.example/mcp", alice, &oauth.Token{AccessToken: "at-a2", Expiry: now.Add(2 * time.Hour)}, now.Add(time.Hour), true); err != nil {
 		t.Fatal(err)
 	}
 	e, tok, ok, err := s.Get("tickets", alice)

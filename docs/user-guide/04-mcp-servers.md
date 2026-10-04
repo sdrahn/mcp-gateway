@@ -564,7 +564,16 @@ What users see:
   API (`DELETE /v1/sign-ins/tickets`); administrators see and revoke
   everyone's sign-ins there. Signing out revokes the tokens at the
   authorization server if it offers revocation, and stops the user's
-  instances of the server.
+  instances of the server. Where it does not (or does not answer), the
+  tokens are only deleted and stay valid at the authorization server
+  until they expire; Cockpit says so, and the API counts the revoked
+  ones (`"revoked"`).
+- Removing the definition, its `sign_in`, or changing its `url` (tokens
+  are bound to it) signs everyone out of the server the same way: the
+  tokens are deleted and revoked with the previous definition, also when
+  the change was made while the gateway was not running (except for a
+  definition that is gone by then: its tokens are only deleted). Other
+  changes, such as `scopes`, keep the sign-ins.
 
 How the gateway is a client of the authorization server:
 

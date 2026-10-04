@@ -844,13 +844,30 @@ end a principal's sign-in is policy, `data.mcp.approvals.manage_sign_in`,
 with the approver rules (by default the principal themself and the
 admin role). Signing out deletes the tokens, revokes them at the
 authorization server if it offers that, and stops the principal's
-instances of the server. Cockpit's Servers tab shows, per server with
+instances of the server; the answer counts the sign-ins the
+authorization server revoked (`revoked`), the others' tokens were only
+deleted. Cockpit's Servers tab shows, per server with
 `sign_in`, whether the user is signed in, with Sign out, and for
 administrators all principals' sign-ins with Revoke.
 
+**Tokens go with their definition** (from 0.12.2). Each entry records the
+`url` it was signed in for (`resource`). When a reload removes a
+definition with `sign_in`, removes its `sign_in`, or changes its `url`
+(tokens are bound to it, RFC 8707), the gateway deletes the principals'
+tokens for it at once, tells their sessions, and revokes the tokens in
+the background with the previous definition (`mcp-sign-out` by
+`mcp-gateway`, with the reason). At start it does the same for entries
+whose server lost `sign_in` or whose `url` differs from the definition
+(revoked with the recorded `url`); the tokens of a server that has no
+definition any more are only deleted, as there is nothing to revoke
+them with. Entries of 0.12 record no `url` and are kept. Discovered
+metadata is cached per server and `url`, and dropped when the
+definition changes.
+
 **Audit.** `mcp-sign-in` (started, completed, failed, with the reason),
 `mcp-sign-in-refresh` (each refresh, and refusals that delete tokens),
-`mcp-sign-out` (by the principal or an administrator, revoked at the
+`mcp-sign-out` (by the principal, an administrator, or `mcp-gateway`
+with the reason when the definition changed; revoked at the
 authorization server or not): server, principal, scopes, never a token,
 code or verifier.
 

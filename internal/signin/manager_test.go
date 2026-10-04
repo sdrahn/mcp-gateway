@@ -208,14 +208,116 @@ func TestSignInFlow(t *testing.T) {
 	}
 
 	// Signing out revokes the refresh token.
-	if ok, err := f.m.SignOut(ctx, f.b, KeyOf(alice), "alice"); !ok || err != nil {
-		t.Fatalf("sign out: %v %v", ok, err)
+	if ok, revoked, err := f.m.SignOut(ctx, f.b, KeyOf(alice), "alice"); !ok || !revoked || err != nil {
+		t.Fatalf("sign out: %v %v %v", ok, revoked, err)
 	}
 	if len(f.as.Revoked()) != 1 || f.m.Signed(alice, "tickets") {
 		t.Errorf("revoked %v", f.as.Revoked())
 	}
 	if _, _, err := f.m.Prepare(ctx, f.b, alice); err != ErrNotSignedIn {
 		t.Errorf("after sign out: %v", err)
+	}
+}
+
+// signIn signs p in to f.b, as TestSignInFlow does.
+func signIn(t *testing.T, f *fixture, p principal.Principal) {
+	t.Helper()
+	el := &fakeElicitor{url: true, accept: true, opened: make(chan string, 1)}
+	done := make(chan error, 1)
+	go func() { done <- f.m.Run(context.Background(), el, f.b, p) }()
+	select {
+	case u := <-el.opened:
+		if status, body := browse(t, u); status != 200 {
+			t.Fatalf("callback page: %d %s", status, body)
+		}
+	case err := <-done:
+		t.Fatalf("Run ended early: %v", err)
+	}
+	if err := <-done; err != nil || !f.m.Signed(p, f.b.Name) {
+		t.Fatalf("sign in: %v", err)
+	}
+}
+
+// Tokens go with the definition they were for: removed, without sign_in,
+// or with another url (they are bound to it), they are revoked and
+// deleted; other changes keep them.
+func TestDefinitionChanged(t *testing.T) {
+	f := newFixture(t)
+	signIn(t, f, alice)
+	if e := f.m.Store.List(); len(e) != 1 || e[0].Resource != f.b.URL {
+		t.Fatalf("entry %+v", e)
+	}
+	scopes := *f.b
+	scopes.SignIn = &config.SignIn{Scopes: []string{"mcp.read"}}
+	f.m.DefinitionChanged(f.b, &scopes)
+	f.m.WaitRevocations()
+	if !f.m.Signed(alice, "tickets") || len(f.as.Revoked()) != 0 {
+		t.Fatalf("other scopes: signed %v, revoked %v", f.m.Signed(alice, "tickets"), f.as.Revoked())
+	}
+
+	moved := *f.b
+	moved.URL = f.srv.URL + "/v2/mcp"
+	f.m.DefinitionChanged(f.b, &moved)
+	if f.m.Signed(alice, "tickets") || f.changes[len(f.changes)-1] != "alice:tickets:out" {
+		t.Fatalf("other url: %v", f.changes)
+	}
+	f.m.WaitRevocations()
+	if len(f.as.Revoked()) != 1 {
+		t.Errorf("other url: revoked %v", f.as.Revoked())
+	}
+
+	signIn(t, f, alice)
+	f.m.DefinitionChanged(f.b, nil)
+	f.m.WaitRevocations()
+	if f.m.Signed(alice, "tickets") || len(f.as.Revoked()) != 2 {
+		t.Errorf("removed: revoked %v", f.as.Revoked())
+	}
+
+	signIn(t, f, alice)
+	plain := *f.b
+	plain.SignIn = nil
+	f.m.DefinitionChanged(f.b, &plain)
+	f.m.WaitRevocations()
+	if f.m.Signed(alice, "tickets") || len(f.as.Revoked()) != 3 {
+		t.Errorf("without sign_in: revoked %v", f.as.Revoked())
+	}
+}
+
+// At start, tokens of servers that lost sign_in, went away or changed
+// their url while the gateway was down go too.
+func TestReconcile(t *testing.T) {
+	f := newFixture(t)
+	signIn(t, f, alice)
+	f.m.Reconcile(map[string]*config.Backend{"tickets": f.b})
+	f.m.WaitRevocations()
+	if !f.m.Signed(alice, "tickets") {
+		t.Fatal("same definition: signed out")
+	}
+
+	// Another url: revoked with the url the tokens were for.
+	moved := *f.b
+	moved.URL = f.srv.URL + "/v2/mcp"
+	f.m.Reconcile(map[string]*config.Backend{"tickets": &moved})
+	f.m.WaitRevocations()
+	if f.m.Signed(alice, "tickets") || len(f.as.Revoked()) != 1 {
+		t.Fatalf("other url: revoked %v", f.as.Revoked())
+	}
+
+	// No definition: nothing to revoke with, the tokens are deleted.
+	signIn(t, f, alice)
+	f.m.Reconcile(map[string]*config.Backend{})
+	f.m.WaitRevocations()
+	if f.m.Signed(alice, "tickets") || len(f.as.Revoked()) != 1 {
+		t.Fatalf("no definition: revoked %v", f.as.Revoked())
+	}
+
+	// Entries of 0.12 do not name their url and are kept.
+	if err := f.m.Store.Put("tickets", "", KeyOf(alice), &oauth.Token{AccessToken: "at"}, time.Now(), false); err != nil {
+		t.Fatal(err)
+	}
+	f.m.Reconcile(map[string]*config.Backend{"tickets": &moved})
+	if !f.m.Signed(alice, "tickets") {
+		t.Error("entry of 0.12: signed out")
 	}
 }
 
@@ -248,7 +350,7 @@ func TestSignInDeclinedAndTimeout(t *testing.T) {
 // A refused refresh deletes the tokens: the principal signs in again.
 func TestRefreshRefused(t *testing.T) {
 	f := newFixture(t)
-	if err := f.m.Store.Put("tickets", KeyOf(alice), &oauth.Token{AccessToken: "old", RefreshToken: "unknown",
+	if err := f.m.Store.Put("tickets", f.b.URL, KeyOf(alice), &oauth.Token{AccessToken: "old", RefreshToken: "unknown",
 		Expiry: time.Now().Add(time.Minute)}, time.Now(), false); err != nil {
 		t.Fatal(err)
 	}

@@ -280,7 +280,7 @@ func (s *Server) metrics(w http.ResponseWriter, _ *http.Request, a broker.Approv
 type SignIns interface {
 	List() []signin.Entry
 	PendingFor(uid uint32) []signin.PendingInfo
-	SignOut(ctx context.Context, b *config.Backend, k signin.Key, by string) (bool, error)
+	SignOut(ctx context.Context, b *config.Backend, k signin.Key, by string) (found, revoked bool, err error)
 }
 
 // signInsResponse is the body of GET /v1/sign-ins.
@@ -295,6 +295,10 @@ type signInsResponse struct {
 // signOutResponse is the body of DELETE /v1/sign-ins/{server}.
 type signOutResponse struct {
 	SignedOut int `json:"signed_out"`
+	// Revoked counts the sign-ins the authorization server revoked; the
+	// others' tokens were only deleted (it offers no revocation, or
+	// failed).
+	Revoked int `json:"revoked"`
 }
 
 type serverInfo struct {
@@ -372,7 +376,7 @@ func (s *Server) signOut(w http.ResponseWriter, r *http.Request, a broker.Approv
 		return
 	}
 	q := r.URL.Query()
-	n := 0
+	n, revoked := 0, 0
 	for _, e := range s.SignIns.List() {
 		if e.Server != server {
 			continue
@@ -388,10 +392,13 @@ func (s *Server) signOut(w http.ResponseWriter, r *http.Request, a broker.Approv
 		if !s.Broker.MayManageSignIn(r.Context(), a, server, e.Principal.UID) {
 			continue
 		}
-		ok, err := s.SignIns.SignOut(r.Context(), b, e.Principal, a.Name)
+		ok, rev, err := s.SignIns.SignOut(r.Context(), b, e.Principal, a.Name)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if rev {
+			revoked++
 		}
 		if ok {
 			n++
@@ -404,7 +411,7 @@ func (s *Server) signOut(w http.ResponseWriter, r *http.Request, a broker.Approv
 		writeError(w, http.StatusNotFound, "no such sign-in")
 		return
 	}
-	writeJSON(w, http.StatusOK, signOutResponse{SignedOut: n})
+	writeJSON(w, http.StatusOK, signOutResponse{SignedOut: n, Revoked: revoked})
 }
 
 func (s *Server) stopInstance(w http.ResponseWriter, r *http.Request, a broker.Approver) {
