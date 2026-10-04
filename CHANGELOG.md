@@ -5,6 +5,25 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## v0.10.2 — 2026-10-04
+
+A fix for the systemd setup with systemd-mcp 0.3.4. Upgrading from
+0.10.x needs no changes; the updated `mcp-gateway-profile-systemd`
+brings the new polkit rule, which polkit reads at once, and running
+`systemd` instances work from their next call. The package's version is
+right again (0.10.1's spec said 0.10.0).
+
+### Fixed
+
+- systemd-mcp 0.3.4 checks every read (`list_loaded_units`, `list_log`,
+  `get_file`, …) with polkit as `com.suse.gatekeeper.readlog`, which the
+  setup's rule did not allow: all reads failed with "calling method was
+  canceled by user". The rule of `mcp-gateway-profile-systemd` now
+  allows that action for `mcp-sysmgmt`, and `mcp-gateway-admin doctor`
+  warns when polkit knows the action but no rule for the server's
+  account allows it (user guide, chapter 13).
+- The spec file names the release's version (0.10.1 said 0.10.0).
+
 ## v0.10.1 — 2026-10-04
 
 A fix for MCP servers given secrets. Upgrading from 0.10.0 needs no
