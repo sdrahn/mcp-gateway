@@ -9,6 +9,11 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- `mcp-gateway-admin doctor` warns about a polkit rule without
+  `com.suse.gatekeeper.readlog` only when the systemd server reports a
+  version of systemd-mcp before 0.3.5 (or the doctor did not start it),
+  and notes that the rule's `readlog` is no longer needed with 0.3.5 or
+  later.
 - CI and `tools/check-release` refuse a tree that holds a binary file
   (a program) or a file of more than 1 MiB, naming each
   (`tools/check-tree`): 0.12.0 and 0.12.1 shipped two programs built in

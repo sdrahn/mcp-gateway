@@ -132,6 +132,8 @@ type doctorRun struct {
 	gw       *config.Gateway
 	backends map[string]*config.Backend
 	rbac     []byte // the role data, if read
+	// versions are what the servers that started reported, by name.
+	versions map[string]string
 }
 
 func (d *doctorRun) run(configPath string) []doctor.Result {
@@ -162,7 +164,7 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 		add(doctor.ProgramLabels(d.selected(), fileType, policyType, readOnly)...)
 	}
 	add(doctor.ReadOnlyRoot(d.selected(), readOnly("/usr"))...)
-	add(doctor.Polkit(d.selected(), nil)...)
+	add(doctor.Polkit(d.selected(), d.versions, nil)...)
 	add(doctor.Snapper(d.selected(), doctor.SnapperConfigsDir, userGroups)...)
 	add(d.principals())
 	add(d.approverGroups()...)
@@ -404,6 +406,10 @@ func (d *doctorRun) servers() []doctor.Result {
 			rs = append(rs, r)
 			continue
 		}
+		if d.versions == nil {
+			d.versions = map[string]string{}
+		}
+		d.versions[name] = res.Server.Version
 		r.Status = doctor.OK
 		r.Summary = fmt.Sprintf("starts: %s %s, %d tools, %d prompts, %d resource templates",
 			orDash(res.Server.Name), res.Server.Version, len(res.Tools), len(res.Prompts), len(res.ResourceTemplates))

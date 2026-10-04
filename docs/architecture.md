@@ -2106,7 +2106,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       reports a version before 0.3.5 (or none) at the doctor's probe,
       and with 0.3.5 or later notes that the rule is no longer needed,
       so that the systemd setup can drop it once its package requires
-      systemd-mcp 0.3.5.
+      systemd-mcp 0.3.5 (done).
 
 ## 12. Open items
 
