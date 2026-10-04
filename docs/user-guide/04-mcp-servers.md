@@ -500,7 +500,9 @@ The server finds each secret as the file `$CREDENTIALS_DIRECTORY/<name>`
 `.` and `-`; paths must be absolute. `/etc/mcp-gateway/credentials` is
 mode 0700 and labelled `mcpgw_cred_t`, which neither the gateway nor any
 MCP server may read. Every instance of the server gets the same secret;
-servers that need per-user secrets must obtain them otherwise.
+servers that need per-user secrets must obtain them otherwise. An
+instance sees only its own unit's credentials under `/run/credentials`,
+and not the transient unit files of other instances.
 
 Many servers expect the token in an environment variable. Wrap them:
 

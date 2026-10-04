@@ -58,6 +58,7 @@ template(`mcp_gateway_backend_template',`
 		type init_t;
 		type cgroup_t;
 		type sysfs_t;
+		type init_var_run_t;
 		class process2 { nnp_transition nosuid_transition };
 	')
 
@@ -103,6 +104,13 @@ template(`mcp_gateway_backend_template',`
 	# stderr: the journal stream systemd connected for the unit.
 	init_rw_stream_sockets(mcpsrv_$1_t)
 	miscfiles_read_localization(mcpsrv_$1_t)
+	# Secrets (credentials:): systemd mounts the credentials of the unit
+	# at $CREDENTIALS_DIRECTORY, /run/credentials/<unit>, labeled
+	# init_var_run_t; those of other units are not visible in the mount
+	# namespace of the instance, and the transient unit files are
+	# inaccessible (supervisor: InaccessiblePaths=).
+	search_dirs_pattern(mcpsrv_$1_t, init_var_run_t, init_var_run_t)
+	read_files_pattern(mcpsrv_$1_t, init_var_run_t, init_var_run_t)
 ')
 
 ########################################
