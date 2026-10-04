@@ -8,6 +8,9 @@
 //	hold        {seconds, marker}
 //	                     waits, then writes marker; ignores cancellation,
 //	                     as a running RPM transaction must
+//
+// With -http ADDR it is instead an MCP server over Streamable HTTP
+// (http.go).
 package main
 
 import (
@@ -71,6 +74,13 @@ func call(name string, args map[string]string) map[string]any {
 }
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "-http" {
+		if err := serveHTTP(os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	in := bufio.NewScanner(os.Stdin)
 	out := json.NewEncoder(os.Stdout)
 	for in.Scan() {

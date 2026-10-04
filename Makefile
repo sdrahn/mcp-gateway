@@ -34,7 +34,7 @@ DESTDIR     ?=
 LDFLAGS := -X github.com/sdrahn/mcp-gateway/internal/version.Version=$(VERSION) \
 	-X github.com/sdrahn/mcp-gateway/internal/version.LibexecDir=$(LIBEXECDIR)
 
-BINARIES := bin/mcp-gateway bin/mcp-gateway-admin bin/mcp-gateway-tools bin/mcp-connect bin/mcp-gateway-notify bin/mcp-server-fs bin/mcp-server-exec
+BINARIES := bin/mcp-gateway bin/mcp-gateway-admin bin/mcp-gateway-tools bin/mcp-connect bin/mcp-gateway-notify bin/mcp-server-fs bin/mcp-server-exec bin/mcp-http-connector
 
 # Server setups (profiles/<name>, SELinux module selinux/mcp_<name>.te),
 # packaged as mcp-gateway-profile-<name>.
@@ -93,6 +93,8 @@ install-gateway:
 	install -Dm0755 bin/mcp-gateway $(DESTDIR)$(BINDIR)/mcp-gateway
 	install -Dm0755 bin/mcp-gateway-admin $(DESTDIR)$(BINDIR)/mcp-gateway-admin
 	install -Dm0755 bin/mcp-connect $(DESTDIR)$(BINDIR)/mcp-connect
+	# Runs the instances of servers defined with url (config.HTTPConnector).
+	install -Dm0755 bin/mcp-http-connector $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/mcp-http-connector
 	install -Dm0755 tools/mcp-policy-bundle $(DESTDIR)$(SBINDIR)/mcp-policy-bundle
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/opa
 	install -m0644 packaging/opa/* $(DESTDIR)$(DATADIR)/mcp-gateway/opa/

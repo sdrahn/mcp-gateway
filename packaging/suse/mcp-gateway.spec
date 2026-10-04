@@ -290,6 +290,8 @@ fi
 %{_bindir}/mcp-gateway
 %{_bindir}/mcp-gateway-admin
 %{_bindir}/mcp-connect
+%dir %{_libexecdir}/mcp-gateway
+%{_libexecdir}/mcp-gateway/mcp-http-connector
 %{_sbindir}/mcp-policy-bundle
 %dir %{_sysconfdir}/mcp-gateway
 %dir %{_sysconfdir}/mcp-gateway/servers.d

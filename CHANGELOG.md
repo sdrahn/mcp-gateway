@@ -9,6 +9,17 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- MCP servers that speak Streamable HTTP: a definition gives `url`
+  (`https://…`, `http://` only to the local host) instead of `command`,
+  and `headers`, whose `${CREDENTIAL:name}` come from `credentials`. The
+  calls go through the same policy, approvals, audit and limits. Each
+  principal's instance is `mcp-http-connector` (in the main package),
+  run by systemd as a dynamic user in the new SELinux domain
+  `mcpsrv_http_t`, which may reach the server's addresses only
+  (resolved by the gateway, `IPAddressAllow=`) on HTTP ports (any port
+  with the boolean `mcpsrv_http_connect_any`). The gateway makes no
+  outbound connection, and secrets reach only the connector (user
+  guide, chapter 4, "Servers that speak HTTP").
 - `mcp-gateway-admin doctor --strict` exits 3 when a check warned and
   none failed (the exit status stays 1 for a failure and 0 otherwise).
   With `--json`, each result has an `id` and a `subject` that stay the
