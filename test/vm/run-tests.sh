@@ -933,22 +933,29 @@ END
 	check "before signing in, the server offers only sign_in" eventually 30 si_offers
 	echo "  ${out:0:300}"
 
-	tickets tools/call '{"name":"whoami","arguments":{}}' >/root/si-call.out &
-	call_pid=$!
+	# mcpcall has no URL elicitation: the call answers at once with a link
+	# to the gateway, which the agent would show.
+	tickets tools/call '{"name":"whoami","arguments":{}}' >/root/si-call.out
+	start=$(grep -o 'https://gw\.vmtest:9443/oauth/start/[A-Za-z0-9_-]*' /root/si-call.out | head -1)
+	check "the call answers at once with a sign-in link to the gateway" test -n "$start"
+	echo "  $(head -c 300 /root/si-call.out)"
 	si_link() { link=$(control alice GET /v1/sign-ins | jq -r '.pending[0].url // empty') && [ -n "$link" ]; }
-	check "the call waits; the sign-in link is shown to alice (control API)" eventually 30 si_link
+	check "the sign-in is shown to alice (control API)" si_link
 	si_not_bob() { [ "$(control bob GET /v1/sign-ins | jq '.pending | length')" = 0 ]; }
 	check "the link is not shown to bob" si_not_bob
-	# alice opens the link; the authorization server sends her browser
-	# back to the gateway's callback.
-	back=$(curl -s --noproxy '*' -o /dev/null -w '%{redirect_url}' "$link&login=alice")
+	# alice opens the link: the gateway sends her browser on to the
+	# authorization server, which sends it back to the gateway's callback.
+	auth=$(curl -s --noproxy '*' -o /dev/null -w '%{redirect_url}' --cacert /etc/mcp-gateway/tls/cert.pem \
+		--resolve gw.vmtest:9443:127.0.0.1 "$start")
+	check "the link leads to the authorization server" test "$auth" = "$link"
+	back=$(curl -s --noproxy '*' -o /dev/null -w '%{redirect_url}' "$auth&login=alice")
 	echo "  callback: ${back%%\?*}"
 	cb=$(curl -s --noproxy '*' -o /root/si-callback.html -w '%{http_code}' --cacert /etc/mcp-gateway/tls/cert.pem \
 		--resolve gw.vmtest:9443:127.0.0.1 "$back")
-	si_callback() { [ "$cb" = 200 ] && grep -q 'signed in to tickets' /root/si-callback.html; }
-	check "the callback signs alice in" si_callback
-	wait "$call_pid"
-	check "the waiting call goes on, as alice's account at the server" grep -qF "signed in as alice" /root/si-call.out
+	si_callback() { [ "$cb" = 200 ] && grep -q 'signed in to tickets for alice' /root/si-callback.html; }
+	check "the callback signs alice in, and says so" si_callback
+	tickets tools/call '{"name":"whoami","arguments":{}}' >/root/si-call.out
+	check "the next call works, as alice's account at the server" grep -qF "signed in as alice" /root/si-call.out
 	echo "  $(head -c 300 /root/si-call.out)"
 	si_audit() { journalctl -u mcp-gateway.service -o cat --since "@$si_since" | grep -F "\"event\":\"$1\"" | grep -qF "$2"; }
 	check "the sign-in is audited" si_audit mcp-sign-in '"step":"completed"'
