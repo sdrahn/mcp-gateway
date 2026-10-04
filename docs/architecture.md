@@ -60,9 +60,6 @@ Access must be governed. The gateway shall
 
 ### Non-goals (for now)
 
-- Signing in to MCP servers that speak HTTP for each principal (OAuth to
-  the upstream server); servers with a key or token per server are
-  planned for 0.11 (§11, step 20).
 - Being an identity provider. The gateway consumes identities from the
   kernel (local) or an external OIDC IdP (remote).
 - Content-level safety filtering of tool output (prompt-injection
@@ -1829,6 +1826,43 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       handle such servers; a VM test runs one. Signing in to the server
       for each principal (OAuth to the upstream) is not part of 0.11
       (§12) (done);
+21. **Policy at once, releases that check themselves, and HTTP servers
+    behind proxies and per-user sign-in** (0.12):
+    - the Release workflow refuses a tag that does not match what it
+      releases: the spec's `Version` and the first CHANGELOG heading
+      must name the tag's version, and the tarball must equal `git
+      archive` of the tag; a mismatch fails the run before anything is
+      published, naming the file to fix (0.10.1 shipped a spec saying
+      0.10.0);
+    - policy changes are noticed when written: with local policy (the
+      directories OPA runs with `--watch`, and the role data), the
+      gateway watches them with inotify as it does its configuration
+      (step 20) and checks OPA's fingerprint right after a change
+      settles, so agents are told to list their tools again at once.
+      Bundles from a bundle server keep being polled every
+      `policy.watch_interval` (§12);
+    - a server defined with `url` may name a proxy (`proxy:
+      http://host:port`, credentials for it from `credentials`): the
+      connector tunnels through it (`CONNECT`; TLS still ends at the
+      server, whose certificate it verifies), and the instance may then
+      reach the proxy's addresses only. No proxy is taken from the
+      environment;
+    - signing in to a server defined with `url` for each principal
+      (OAuth 2.1 with PKCE, as the MCP authorization specification
+      describes): the server's protected resource metadata names its
+      authorization server; a principal's first call asks them to sign
+      in through a URL elicitation (the approval page, or the client's
+      own URL handling), the callback comes to the gateway's HTTP
+      listener, and the tokens are kept per principal and server in
+      `state_dir`, encrypted with a key only the gateway reads. The
+      gateway makes no outbound connection for it either: the code
+      exchange and refreshes go through a confined helper that reaches
+      only the authorization server, and the access token reaches the
+      principal's connector instance as a credential, never a command
+      line (decision D16, to be written with the design). A principal
+      can sign out (Cockpit, control API), and an administrator can
+      revoke a principal's tokens; the audit trail records sign-ins,
+      refreshes and revocations, never tokens.
 
 ## 12. Open items
 
@@ -1847,12 +1881,14 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
 - Exact JSON-RPC error codes for policy denials (align with any future
   MCP-spec guidance).
 - Policy changes are noticed by polling (up to `policy.watch_interval`
-  late); OPA has no change notification over its REST API.
+  late); OPA has no change notification over its REST API. Local policy
+  is watched with inotify from step 21; bundles from a bundle server
+  stay polled.
 - The kernel audit subsystem is optional (`audit.kernel: auto`); in
   containers without `CAP_AUDIT_WRITE` only the journal records remain.
 - MCP servers that speak HTTP get headers per server (`credentials`);
   signing in for each principal (OAuth to the upstream server, with the
-  principal's consent) is not done (step 20).
+  principal's consent) is planned for 0.12 (step 21).
 - MCS pairs of stopped containers (their files keep the pair) are not
   known to the gateway (container storage is readable by root only), so a
   container started again, or a new one, can take an instance's pair; the
