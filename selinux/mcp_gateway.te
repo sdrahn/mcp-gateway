@@ -268,6 +268,12 @@ read_lnk_files_pattern(mcpgw_t, mcpgw_etc_t, mcpgw_etc_t)
 dev_rw_null(mcpgw_t)
 # Vendor backend definitions in /usr/share/mcp-gateway/servers.d.
 files_read_usr_files(mcpgw_t)
+# Changes to gateway.yaml, both servers.d directories and the TLS
+# certificate are noticed with inotify; elsewhere, by polling.
+gen_require(`
+	type usr_t, cert_t;
+')
+allow mcpgw_t { mcpgw_etc_t usr_t cert_t }:dir watch;
 manage_files_pattern(mcpgw_t, mcpgw_var_lib_t, mcpgw_var_lib_t)
 append_files_pattern(mcpgw_t, mcpgw_log_t, mcpgw_log_t)
 

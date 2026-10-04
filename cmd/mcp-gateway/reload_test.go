@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/fswatch"
 	"github.com/sdrahn/mcp-gateway/internal/router"
 )
 
@@ -192,7 +193,7 @@ func TestReloadWatch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	hup := make(chan os.Signal, 1)
-	go l.watch(ctx, func() time.Duration { return 10 * time.Millisecond }, l.fingerprint(), hup)
+	go l.watch(ctx, func() time.Duration { return 10 * time.Millisecond }, l.fingerprint(), hup, nil)
 
 	waitFor := func(what string, cond func() bool) {
 		t.Helper()
@@ -374,7 +375,7 @@ func TestReloadWatchConfig(t *testing.T) {
 	l, _, path, applied := testConfigReloader(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go l.watch(ctx, func() time.Duration { return 10 * time.Millisecond }, l.fingerprint(), make(chan os.Signal))
+	go l.watch(ctx, func() time.Duration { return 10 * time.Millisecond }, l.fingerprint(), make(chan os.Signal), nil)
 	b, _ := os.ReadFile(path)
 	write(t, filepath.Dir(path), "gateway.yaml", string(b)+"approval_timeout: 2m\n")
 	for range 500 {
@@ -387,4 +388,66 @@ func TestReloadWatchConfig(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("an edit of gateway.yaml was not noticed")
+}
+
+// With inotify, changes are noticed when written, long before the
+// interval: an edit of gateway.yaml, a new definition, and a certificate
+// renewed the way certbot does it (a new file elsewhere, the symbolic
+// link in the configured directory pointed at it).
+func TestReloadWatchInotify(t *testing.T) {
+	l, _, path, applied := testConfigReloader(t)
+	archive, live := t.TempDir(), t.TempDir()
+	write(t, archive, "cert1.pem", "one")
+	cert := filepath.Join(live, "cert.pem")
+	if err := os.Symlink(filepath.Join(archive, "cert1.pem"), cert); err != nil {
+		t.Fatal(err)
+	}
+	l.configFiles = func(*config.Gateway) []string { return []string{path, cert} }
+	fsw, err := fswatch.New()
+	if err != nil {
+		t.Skipf("no inotify: %v", err)
+	}
+	defer func() { _ = fsw.Close() }()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go l.watch(ctx, func() time.Duration { return time.Hour }, l.fingerprint(), make(chan os.Signal), fsw)
+
+	reloads := func() int {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return len(*applied)
+	}
+	waitFor := func(what string, n int) {
+		t.Helper()
+		for range 500 {
+			if reloads() >= n {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatal(what)
+	}
+	time.Sleep(50 * time.Millisecond) // the watches are set
+	b, _ := os.ReadFile(path)
+	write(t, filepath.Dir(path), "gateway.yaml", string(b)+"approval_timeout: 2m\n")
+	waitFor("an edit of gateway.yaml was not noticed", 1)
+
+	write(t, l.dirs[1], "web.yaml", "name: web\ncommand: [/opt/web]\n")
+	waitFor("a new definition was not noticed", 2)
+
+	write(t, archive, "cert2.pem", "two")
+	tmp := filepath.Join(live, "cert.pem.new")
+	if err := os.Symlink(filepath.Join(archive, "cert2.pem"), tmp); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, cert); err != nil {
+		t.Fatal(err)
+	}
+	waitFor("a renewed certificate was not noticed", 3)
+
+	// The renewal wrote the archive and replaced the link: one reload.
+	time.Sleep(3 * settle)
+	if n := reloads(); n != 3 {
+		t.Fatalf("%d reloads", n)
+	}
 }

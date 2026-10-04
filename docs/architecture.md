@@ -1746,7 +1746,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       file replaced by rename, as certbot and editors do), not within
       `policy.watch_interval`; a burst of writes is reloaded once, after
       the last. Polling stays as the fallback (a file system without
-      inotify, a watch that could not be set) and keeps its interval;
+      inotify, a watch that could not be set) and keeps its interval
+      (done);
     - the doctor warns only about what an administrator can change, and
       each warning names the change; a check that cannot tell whether
       something is wrong (as `polkit` for a server that may not use

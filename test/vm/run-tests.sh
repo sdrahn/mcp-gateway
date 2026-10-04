@@ -780,8 +780,16 @@ rl_journal_has() { journalctl -u mcp-gateway.service -o cat --since "@$rl_since"
 check "a new definition is picked up without a restart" eventually 40 rl_works
 check "the reload is audited" rl_journal_has '"event":"mcp-config-reload"'
 
+rl_watched() {
+	! journalctl -u mcp-gateway.service -o cat \
+		_SYSTEMD_INVOCATION_ID="$(systemctl show -p InvocationID --value mcp-gateway.service)" |
+		grep -F 'noticed by polling only'
+}
+check "all configuration directories are watched (inotify)" rl_watched
+
+# Noticed when written, well within policy.watch_interval (10 s).
 printf 'netwrok: true\n' >>/etc/mcp-gateway/servers.d/fsreload.yaml
-check "a broken definition is reported" eventually 40 rl_journal_has 'server definitions not reloaded'
+check "a broken definition is reported" eventually 5 rl_journal_has 'server definitions not reloaded'
 check "with a broken definition the previous ones stay in force" rl_works
 status=$(control alice GET /v1/status)
 echo "  $status"

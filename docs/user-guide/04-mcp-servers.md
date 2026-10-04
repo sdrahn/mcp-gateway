@@ -9,7 +9,8 @@ SELinux, and stops them when idle.
 
 Create one file per server in `/etc/mcp-gateway/servers.d/` (packages
 install theirs to `/usr/share/mcp-gateway/servers.d/`), and check it.
-The running gateway picks it up within `policy.watch_interval` (10 s):
+The running gateway picks it up when the file is written (chapter 3,
+"Changing the configuration while the gateway runs"):
 
 ```yaml
 # /etc/mcp-gateway/servers.d/git.yaml
