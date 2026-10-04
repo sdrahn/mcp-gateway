@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 	"sync"
@@ -20,13 +21,14 @@ const defaultProgressInterval = 15 * time.Second
 type clientProgress struct {
 	s     *Session
 	token json.RawMessage
+	req   json.RawMessage // the client request it reports on
 
 	mu   sync.Mutex
 	sent float64
 }
 
 // progressOf returns the progress the client asked for in params, or nil.
-func (s *Session) progressOf(params map[string]json.RawMessage) *clientProgress {
+func (s *Session) progressOf(ctx context.Context, params map[string]json.RawMessage) *clientProgress {
 	var meta map[string]json.RawMessage
 	if json.Unmarshal(params["_meta"], &meta) != nil {
 		return nil
@@ -35,7 +37,7 @@ func (s *Session) progressOf(params map[string]json.RawMessage) *clientProgress 
 	if !ok {
 		return nil
 	}
-	return &clientProgress{s: s, token: token}
+	return &clientProgress{s: s, token: token, req: requestOf(ctx)}
 }
 
 // report sends one progress notification with message.
@@ -48,7 +50,7 @@ func (cp *clientProgress) report(message string) {
 	if err != nil {
 		return
 	}
-	_ = cp.s.client.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: "notifications/progress", Params: params})
+	_ = jsonrpc.WriteRelated(cp.s.client, &jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: "notifications/progress", Params: params}, cp.req)
 }
 
 // offset is the progress the gateway reported itself (0 for nil).

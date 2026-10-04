@@ -53,6 +53,7 @@ func (r initResult) has(capability string) bool {
 type progressRoute struct {
 	s     *Session
 	token json.RawMessage
+	req   json.RawMessage // the client request the progress is for
 	// offset is added to the backend's progress and total: the gateway
 	// reported that much progress itself before (while the call waited
 	// for approval), and progress must keep increasing.
@@ -87,6 +88,10 @@ type upstream struct {
 	mu       sync.Mutex
 	pending  map[string]chan *jsonrpc.Message
 	sessions map[*Session]int // attached sessions → requests in flight
+	// calls holds, per session, the client requests its requests in
+	// flight serve (by upstream request id), to tell which one a
+	// backend's request or log message belongs to.
+	calls    map[*Session]map[string]json.RawMessage
 	progress map[string]progressRoute
 	// inflight holds the requests sent and not yet answered, including
 	// those whose caller gave up (cancelled, session gone): a backend may
@@ -111,6 +116,7 @@ func newUpstream(ctx context.Context, b *config.Backend, id string, inst supervi
 		closed:        make(chan struct{}),
 		pending:       map[string]chan *jsonrpc.Message{},
 		sessions:      map[*Session]int{},
+		calls:         map[*Session]map[string]json.RawMessage{},
 		progress:      map[string]progressRoute{},
 		inflight:      map[string]struct{}{},
 	}
@@ -246,12 +252,24 @@ func (u *upstream) request(ctx context.Context, s *Session, method string, param
 	if _, ok := u.sessions[s]; ok {
 		u.sessions[s]++
 	}
+	if req := requestOf(ctx); s != nil && req != nil {
+		if u.calls[s] == nil {
+			u.calls[s] = map[string]json.RawMessage{}
+		}
+		u.calls[s][string(id)] = req
+	}
 	u.mu.Unlock()
 	defer func() {
 		u.mu.Lock()
 		delete(u.pending, string(id))
 		if n, ok := u.sessions[s]; ok && n > 0 {
 			u.sessions[s] = n - 1
+		}
+		if c := u.calls[s]; c != nil {
+			delete(c, string(id))
+			if len(c) == 0 {
+				delete(u.calls, s)
+			}
 		}
 		u.mu.Unlock()
 	}()
@@ -273,10 +291,10 @@ func (u *upstream) request(ctx context.Context, s *Session, method string, param
 
 // registerProgress maps a client's progress token to a gateway token that
 // is unique on this upstream.
-func (u *upstream) registerProgress(s *Session, token json.RawMessage, offset float64) json.RawMessage {
+func (u *upstream) registerProgress(s *Session, token json.RawMessage, offset float64, req json.RawMessage) json.RawMessage {
 	gw := json.RawMessage(strconv.Quote("gw-" + strconv.FormatInt(u.nextID.Add(1), 10)))
 	u.mu.Lock()
-	u.progress[string(gw)] = progressRoute{s: s, token: token, offset: offset}
+	u.progress[string(gw)] = progressRoute{s: s, token: token, offset: offset, req: req}
 	u.mu.Unlock()
 	return gw
 }
@@ -314,6 +332,25 @@ func (u *upstream) attached() []*Session {
 // activeSession returns the attached session with the most requests in
 // flight, or nil if none has any: a backend may only ask a client
 // something while serving it.
+// relatedRequest returns the client request of s that what the backend
+// sends now belongs to: the one s has in flight on u, nil if it has none
+// or several (JSON-RPC does not say which of them a backend means).
+func (u *upstream) relatedRequest(s *Session) json.RawMessage {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	reqs := map[string]json.RawMessage{}
+	for _, req := range u.calls[s] {
+		reqs[string(req)] = req
+	}
+	if len(reqs) != 1 {
+		return nil
+	}
+	for _, req := range reqs {
+		return req
+	}
+	return nil
+}
+
 func (u *upstream) activeSession() *Session {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -386,7 +423,7 @@ func (u *upstream) notification(m *jsonrpc.Message) {
 		if err != nil {
 			return
 		}
-		_ = r.s.client.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: m.Method, Params: params})
+		_ = jsonrpc.WriteRelated(r.s.client, &jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: m.Method, Params: params}, r.req)
 	case "notifications/tools/list_changed",
 		"notifications/resources/list_changed",
 		"notifications/prompts/list_changed":
@@ -394,11 +431,17 @@ func (u *upstream) notification(m *jsonrpc.Message) {
 			u.onListChanged(u, m)
 		}
 		for _, s := range u.attached() {
-			s.upstreamNotification(u, m)
+			s.upstreamNotification(u, m, nil)
 		}
-	case "notifications/message", "notifications/resources/updated":
+	case "notifications/message":
+		// A log message during a call belongs to it, as far as one can
+		// tell (relatedRequest).
 		for _, s := range u.attached() {
-			s.upstreamNotification(u, m)
+			s.upstreamNotification(u, m, u.relatedRequest(s))
+		}
+	case "notifications/resources/updated":
+		for _, s := range u.attached() {
+			s.upstreamNotification(u, m, nil)
 		}
 	default:
 		u.log.Debug("dropped backend notification", "method", m.Method)
@@ -417,7 +460,7 @@ func (u *upstream) backendRequest(m *jsonrpc.Message) {
 		_ = u.conn.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeForbidden, "no client request in progress"))
 		return
 	}
-	_ = u.conn.Write(s.relayBackendRequest(u, m))
+	_ = u.conn.Write(s.relayBackendRequest(u, m, u.relatedRequest(s)))
 }
 
 // maxLoggedLine bounds what is logged of a backend line that is not

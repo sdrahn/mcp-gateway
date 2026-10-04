@@ -234,7 +234,7 @@ func (s *Session) clientRequest(m *jsonrpc.Message) {
 		_ = s.client.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeMethodNotFound, "method not permitted by gateway"))
 		return
 	}
-	ctx, cancel := context.WithCancel(s.ctx)
+	ctx, cancel := context.WithCancel(withRequest(s.ctx, m.ID))
 	s.mu.Lock()
 	s.inflight[m.Key()] = cancel
 	s.mu.Unlock()
@@ -342,6 +342,35 @@ func (s *Session) leave(name string, u *upstream) {
 	if release != nil {
 		release()
 	}
+}
+
+// requestKey is the context key of the client request being served.
+type requestKey struct{}
+
+// withRequest marks ctx as serving the client's request id.
+func withRequest(ctx context.Context, id json.RawMessage) context.Context {
+	return context.WithValue(ctx, requestKey{}, id)
+}
+
+// requestOf returns the client request ctx serves, nil if none.
+func requestOf(ctx context.Context) json.RawMessage {
+	id, _ := ctx.Value(requestKey{}).(json.RawMessage)
+	return id
+}
+
+// requestElicitor is the session as the broker's Elicitor for one client
+// request: what it sends belongs to that request (its HTTP stream).
+type requestElicitor struct {
+	*Session
+	req json.RawMessage
+}
+
+// Notify implements broker.Elicitor.
+func (e requestElicitor) Notify(method string, params any) { e.notifyRelated(method, params, e.req) }
+
+// Elicit implements broker.Elicitor.
+func (e requestElicitor) Elicit(ctx context.Context, p any) (broker.ElicitResult, error) {
+	return e.elicitRelated(ctx, p, e.req)
 }
 
 // --- initialize ---------------------------------------------------------
@@ -691,7 +720,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	if err := s.checkArgNames(ctx, t); err != nil {
 		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params: "+err.Error())
 	}
-	t.progress = s.progressOf(params)
+	t.progress = s.progressOf(ctx, params)
 
 	decisionID := newDecisionID()
 	dec, grantID, in := s.decide(ctx, t, decisionID)
@@ -737,7 +766,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	// not route; it runs synchronously instead. The gateway does not offer
 	// tasks, but some clients ask regardless.
 	delete(params, "task")
-	if gw := s.rewriteProgressToken(u, params, t.progress.offset()); gw != nil {
+	if gw := s.rewriteProgressToken(u, params, t.progress.offset(), requestOf(ctx)); gw != nil {
 		defer u.unregisterProgress(gw)
 	}
 	resp, err := u.request(ctx, s, m.Method, params)
@@ -807,7 +836,7 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 		return dec, "", in
 	}
 	stop := s.reportWaiting(t)
-	g, err := s.r.Broker.Approve(ctx, s, in, *dec.Ask)
+	g, err := s.r.Broker.Approve(ctx, requestElicitor{s, requestOf(ctx)}, in, *dec.Ask)
 	stop()
 	switch {
 	case errors.Is(err, broker.ErrNoChannel):
@@ -920,7 +949,7 @@ func (s *Session) denial(method, reason string) (any, *jsonrpc.Error) {
 // rewriteProgressToken replaces params._meta.progressToken with a token
 // unique on u and returns it (nil if there was none).
 // The backend's progress values are shifted by offset (see clientProgress).
-func (s *Session) rewriteProgressToken(u *upstream, params map[string]json.RawMessage, offset float64) json.RawMessage {
+func (s *Session) rewriteProgressToken(u *upstream, params map[string]json.RawMessage, offset float64, req json.RawMessage) json.RawMessage {
 	var meta map[string]json.RawMessage
 	if json.Unmarshal(params["_meta"], &meta) != nil {
 		return nil
@@ -929,7 +958,7 @@ func (s *Session) rewriteProgressToken(u *upstream, params map[string]json.RawMe
 	if !ok {
 		return nil
 	}
-	gw := u.registerProgress(s, token, offset)
+	gw := u.registerProgress(s, token, offset, req)
 	meta["progressToken"] = gw
 	params["_meta"], _ = json.Marshal(meta)
 	return gw
@@ -1024,7 +1053,9 @@ func (s *Session) policyContext(decisionID string) pep.Context {
 
 // --- notifications and requests from backends ---------------------------
 
-func (s *Session) upstreamNotification(u *upstream, m *jsonrpc.Message) {
+// upstreamNotification passes on a notification of u; req is the client
+// request it belongs to, if known (nil: none).
+func (s *Session) upstreamNotification(u *upstream, m *jsonrpc.Message, req json.RawMessage) {
 	switch m.Method {
 	case "notifications/resources/updated":
 		var p map[string]json.RawMessage
@@ -1043,7 +1074,7 @@ func (s *Session) upstreamNotification(u *upstream, m *jsonrpc.Message) {
 		_ = s.client.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: m.Method, Params: params})
 	case "notifications/message":
 		if !s.endpoint().aggregated {
-			_ = s.client.Write(m)
+			_ = jsonrpc.WriteRelated(s.client, m, req)
 			return
 		}
 		var p map[string]json.RawMessage
@@ -1057,7 +1088,7 @@ func (s *Session) upstreamNotification(u *upstream, m *jsonrpc.Message) {
 		}
 		p["logger"], _ = json.Marshal(logger)
 		params, _ := json.Marshal(p)
-		_ = s.client.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: m.Method, Params: params})
+		_ = jsonrpc.WriteRelated(s.client, &jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: m.Method, Params: params}, req)
 	default: // */list_changed
 		_ = s.client.Write(m)
 	}
@@ -1079,7 +1110,7 @@ func (s *Session) stillAllowed(server, action string, r pep.Resource) bool {
 
 // relayBackendRequest decides and relays a request from backend u to this
 // session's client, and returns the response for the backend.
-func (s *Session) relayBackendRequest(u *upstream, m *jsonrpc.Message) *jsonrpc.Message {
+func (s *Session) relayBackendRequest(u *upstream, m *jsonrpc.Message, req json.RawMessage) *jsonrpc.Message {
 	p := s.snapshotPrincipal()
 	action, known := backendRequests[m.Method]
 	dec := pep.Decision{Effect: pep.Deny, Reason: "method not permitted"}
@@ -1117,7 +1148,7 @@ func (s *Session) relayBackendRequest(u *upstream, m *jsonrpc.Message) *jsonrpc.
 	if m.Method == "elicitation/create" {
 		params = labelElicitation(params, u.backend.Name)
 	}
-	resp, err := s.requestClient(s.ctx, m.Method, params)
+	resp, err := s.requestClient(s.ctx, m.Method, params, req)
 	if err != nil {
 		var rpcErr *jsonrpc.Error
 		if errors.As(err, &rpcErr) {
@@ -1237,14 +1268,22 @@ func (s *Session) SupportsURL() bool {
 
 // Notify implements broker.Elicitor.
 func (s *Session) Notify(method string, params any) {
+	s.notifyRelated(method, params, nil)
+}
+
+func (s *Session) notifyRelated(method string, params any, req json.RawMessage) {
 	if n, err := jsonrpc.NewNotification(method, params); err == nil {
-		_ = s.client.Write(n)
+		_ = jsonrpc.WriteRelated(s.client, n, req)
 	}
 }
 
 // Elicit implements broker.Elicitor.
 func (s *Session) Elicit(ctx context.Context, p any) (broker.ElicitResult, error) {
-	resp, err := s.requestClient(ctx, "elicitation/create", p)
+	return s.elicitRelated(ctx, p, nil)
+}
+
+func (s *Session) elicitRelated(ctx context.Context, p any, req json.RawMessage) (broker.ElicitResult, error) {
+	resp, err := s.requestClient(ctx, "elicitation/create", p, req)
 	if err != nil {
 		return broker.ElicitResult{}, err
 	}
@@ -1255,11 +1294,12 @@ func (s *Session) Elicit(ctx context.Context, p any) (broker.ElicitResult, error
 	return r, nil
 }
 
-// requestClient sends a gateway-originated request to the client and waits
-// for the response.
-func (s *Session) requestClient(ctx context.Context, method string, params any) (*jsonrpc.Message, error) {
+// requestClient sends a gateway-originated request to the client, as
+// belonging to the client's request req (nil: none), and waits for the
+// response.
+func (s *Session) requestClient(ctx context.Context, method string, params any, req json.RawMessage) (*jsonrpc.Message, error) {
 	id := json.RawMessage(strconv.Quote("mcpgw-" + strconv.FormatInt(s.nextID.Add(1), 10)))
-	req, err := jsonrpc.NewRequest(id, method, params)
+	out, err := jsonrpc.NewRequest(id, method, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1272,7 +1312,7 @@ func (s *Session) requestClient(ctx context.Context, method string, params any) 
 		delete(s.outbound, string(id))
 		s.mu.Unlock()
 	}()
-	if err := s.client.Write(req); err != nil {
+	if err := jsonrpc.WriteRelated(s.client, out, req); err != nil {
 		return nil, err
 	}
 	select {
@@ -1283,7 +1323,7 @@ func (s *Session) requestClient(ctx context.Context, method string, params any) 
 		return resp, nil
 	case <-ctx.Done():
 		n, _ := jsonrpc.NewNotification("notifications/cancelled", map[string]any{"requestId": id, "reason": "timeout"})
-		_ = s.client.Write(n)
+		_ = jsonrpc.WriteRelated(s.client, n, req)
 		return nil, ctx.Err()
 	}
 }
