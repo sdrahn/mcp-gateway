@@ -53,6 +53,15 @@ minor release (with a warning) and removed in the next.
   warning. The warnings about servers without tools, users without a
   role and missing snapper configs say what to do.
 
+### Fixed
+
+- MCP servers can read their secrets (`credentials:`) under SELinux: the
+  files in `$CREDENTIALS_DIRECTORY` are labeled `init_var_run_t`, which
+  no server domain could read, so a confined server given credentials
+  failed to read them. Server domains may now read them; instances no
+  longer see the transient unit files of other instances
+  (`InaccessiblePaths=/run/systemd/transient`).
+
 ## v0.10.0 — 2026-10-04
 
 The gateway's own configuration changes while it runs. `gateway.yaml`

@@ -190,6 +190,9 @@ func sandboxProperties(b *config.Backend, prop func(string, any) sddbus.Property
 	props := []sddbus.Property{
 		prop("NoNewPrivileges", true),
 		prop("ProtectSystem", "strict"),
+		// Other units' definitions, with their command lines and
+		// environment: not for a server ("-": absent is fine).
+		prop("InaccessiblePaths", []string{"-/run/systemd/transient"}),
 		prop("ProtectHome", protectHome),
 		prop("PrivateTmp", true),
 		prop("PrivateDevices", true),
