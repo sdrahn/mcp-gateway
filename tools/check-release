@@ -10,7 +10,8 @@
 #   - packaging/suse/mcp-gateway.spec has Version: X.Y.Z;
 #   - the first "## " heading of CHANGELOG.md is "## vX.Y.Z — <date>";
 #   - packaging/suse/_service builds from release-X.Y with the version
-#     of its latest tag (a release branch, not main).
+#     of its latest tag (a release branch, not main);
+#   - the tree holds sources only (tools/check-tree).
 # Each mismatch is printed with the file to fix; the exit status is 1 if
 # there is one.
 set -eu
@@ -52,6 +53,8 @@ echo "$service" | grep -q "<param name=\"revision\">release-$series</param>" ||
 	fail "packaging/suse/_service does not build from release-$series"
 echo "$service" | grep -q '<param name="versionformat">@PARENT_TAG@</param>' ||
 	fail "packaging/suse/_service does not take the version from the tag (versionformat @PARENT_TAG@)"
+
+"$(dirname "$0")/check-tree" "$rev" >&2 || failed=1
 
 if [ "$failed" = 0 ]; then
 	echo "check-release: $(git rev-parse --short "$rev") is ready for $tag"

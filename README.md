@@ -50,7 +50,7 @@ checkout.
 | `selinux/` | `mcp_gateway` SELinux policy module (domains, types, isolation invariants) and the modules of the server setups |
 | `profiles/` | server setups for system management (zypp, systemd, firewalld, snapper, SUSEConnect): definitions and roles, packaged as `mcp-gateway-profile-<name>` |
 | `systemd/` | `mcp-gateway.service`, `mcp-opa.service` |
-| `tools/` | `mcp-policy-bundle`: builds and signs a policy bundle; `check-release`: checks a commit is ready to be tagged (run by the Release workflow) |
+| `tools/` | `mcp-policy-bundle`: builds and signs a policy bundle; `check-release`: checks a commit is ready to be tagged (run by the Release workflow); `check-tree`: checks a commit holds sources only (run by CI) |
 | `config/` | example `gateway.yaml` and backend definitions (`servers.d/`) |
 | `packaging/` | OBS package for openSUSE/SLES (`suse/`), `mcp-opa.service` drop-ins for signed bundles (`opa/`), sysusers.d, tmpfiles.d, polkit rule, the shipped servers' definitions and roles (`fs-server/`, with the server of the gateway's own docs; `exec-server/`; `admin/`), MCS settings for libvirt (`mcs/`), the notification agent's autostart (`desktop/`) |
 | `docs/` | [user guide](docs/user-guide/README.md), [architecture](docs/architecture.md) |

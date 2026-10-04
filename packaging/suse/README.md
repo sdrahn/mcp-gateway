@@ -37,7 +37,8 @@ commit.
 
 Before tagging, check the release branch: `tools/check-release vX.Y.Z`
 (the spec's `Version`, the first CHANGELOG.md section and `_service` must
-name the release). The Release workflow runs the same check before it
+name the release, and the tree must hold no binary file and nothing over
+1 MiB, `tools/check-tree`, which CI runs on every change). The Release workflow runs the same check before it
 builds anything and refuses a tag that fails it, and after publishing it
 downloads the files again and checks them against `SHA256SUMS` and `git
 archive` of the tag.

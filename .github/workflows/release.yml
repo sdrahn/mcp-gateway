@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       # Before anything is built or published: the spec, the CHANGELOG
       # and _service must name this tag (0.10.1 shipped a spec saying
-      # 0.10.0).
+      # 0.10.0), and the tree must hold sources only.
       - name: Tag matches the files
         run: tools/check-release "$GITHUB_REF_NAME" HEAD
       - uses: actions/setup-go@v5

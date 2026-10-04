@@ -20,6 +20,10 @@ jobs:
       - uses: open-policy-agent/setup-opa@v2
         with:
           version: latest
+      # Sources only: no program or other binary file, nothing over 1 MiB
+      # (0.12.0 and 0.12.1 shipped two programs built in the top directory).
+      - name: Tree
+        run: tools/check-tree
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...

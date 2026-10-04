@@ -7,6 +7,13 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Changed
+
+- CI and `tools/check-release` refuse a tree that holds a binary file
+  (a program) or a file of more than 1 MiB, naming each
+  (`tools/check-tree`): 0.12.0 and 0.12.1 shipped two programs built in
+  the top directory, which are gone.
+
 ## v0.12.1 — 2026-10-04
 
 A fix for the systemd setup with systemd-mcp 0.3.4. Upgrading from
