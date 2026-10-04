@@ -55,6 +55,12 @@ function site() {
     check(serversText.includes("removed from the configuration") && serversText.includes("server removed: stops once its calls end"),
           "removed server with its instance shown");
     check(!(await page.isVisible("#reload-status")), "no reload status when all is well");
+    await page.waitForFunction(() => document.querySelector("#self-check").textContent.includes("Self-check:"));
+    const selfCheckText = await page.textContent("#self-check");
+    check(selfCheckText.includes("1 ok, 1 warning, 0 failed, 1 skipped") && selfCheckText.includes("WARN principals") &&
+          selfCheckText.includes("bind them to a role"), "self-check summary with the warning and what to do");
+    check((await page.evaluate(() => __calls)).some(c => c[0] === "spawn" && c[1] === "mcp-gateway-admin doctor --no-start --json" && c[2] === "try"),
+          "self-check runs the doctor without starting servers");
     await page.click("#reload");
     await page.waitForFunction(() => document.querySelector("#reload-result").textContent === "Reloaded.");
     check((await page.evaluate(() => __calls)).some(c => c[0] === "spawn" && c[1] === "systemctl reload mcp-gateway.service" && c[2] === "require"),

@@ -91,6 +91,15 @@
                     ? Promise.reject(new Error("Job for mcp-gateway.service failed because the control process exited with error code."))
                     : Promise.resolve("");
             }
+            if (args[0] === "mcp-gateway-admin") {
+                return Promise.resolve(JSON.stringify([
+                    { check: "configuration", id: "configuration", status: "ok", summary: "3 servers" },
+                    { check: "principals", id: "principals", status: "warn",
+                      summary: "1 of 4 members of mcp-users hold no role: they may connect but see no server",
+                      details: ["carol", "bind them to a role (Cockpit's Roles tab, or bindings in data.json), or remove them from mcp-users"] },
+                    { check: "SELinux", id: "selinux-denials", status: "skip", summary: "reading the audit log needs root" },
+                ]));
+            }
             if (args[0] === "mcp-gateway") {
                 // --check-policy-data: a misspelt field is the one problem it knows.
                 const result = data => data.includes("require_aproval")

@@ -77,6 +77,13 @@ After the configuration changed while the gateway runs (chapter 3,
   (administrative access): the gateway checks the configuration first
   and keeps what it has if a file does not load; the page says so.
 
+Below, the tab shows the self-check's counts (`mcp-gateway-admin doctor
+--no-start`, chapter 10), run when the page opens and with **Run
+self-check**, and lists its warnings and failures with what to do. It
+runs as root where you have administrative access; otherwise the checks
+that need root are skipped. Servers are not started; the full check,
+which starts each server once, is `mcp-gateway-admin doctor` as root.
+
 ## Policy
 
 - **Policy status**: whether OPA loads the policy directories or a
