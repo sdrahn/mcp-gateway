@@ -473,6 +473,34 @@ echo s3cr3t | install -m 0600 /dev/stdin /etc/mcp-gateway/credentials/probe
 echo "  $(file_label /etc/mcp-gateway/credentials/probe) /etc/mcp-gateway/credentials/probe"
 check "credentials are labeled mcpgw_cred_t" file_has_type /etc/mcp-gateway/credentials/probe mcpgw_cred_t
 check "the gateway user cannot read credentials" as_gateway_user_fails cat /etc/mcp-gateway/credentials/probe
+# A server reads its secret from $CREDENTIALS_DIRECTORY, in its domain
+# (mcpsrv_generic_t), and sees neither other units' credentials nor their
+# transient unit files.
+jq '.roles.tester.permissions += [{"server": "credtest", "tool": "*"}]' \
+	/etc/mcp-gateway/policy/rbac/data.json >/root/cred-data.json &&
+	cat /root/cred-data.json >/etc/mcp-gateway/policy/rbac/data.json
+cat >/etc/mcp-gateway/servers.d/credtest.yaml <<'END'
+name: credtest
+command: ["/usr/libexec/mcpgw-privtest"]
+credentials: [probe]
+END
+restorecon /etc/mcp-gateway/servers.d/credtest.yaml
+ctool() {
+	out=$(runuser -u alice -- /usr/local/bin/mcpcall --server credtest --method tools/call \
+		--params "{\"name\":\"$1\",\"arguments\":$2}" 2>&1)
+	rc=$?
+	echo "  [$1] rc=$rc ${out:0:300}"
+}
+cred_read() { ctool read_credential '{"name":"probe"}' >/dev/null && succeeded_with "credential: s3cr3t"; }
+check "a server reads its secret from \$CREDENTIALS_DIRECTORY" eventually 40 cred_read
+echo "  rc=$rc ${out:0:300}"
+ctool list_credentials '{}'
+cred_only_own() { succeeded_with "units: mcp-credtest-" && ! grep -qE 'units: .* ' <<<"$out"; }
+check "it sees only its own unit's credentials" cred_only_own
+transient=$(ls /run/systemd/transient/mcp-*.service 2>/dev/null | head -1)
+ctool read_file "{\"path\":\"${transient:-/run/systemd/transient/none}\"}"
+check "it cannot read transient unit files" test "$rc" != 0 -o -z "$transient"
+rm -f /etc/mcp-gateway/servers.d/credtest.yaml
 
 section "Privileged server"
 # A server that installs packages, as mcp-server-zypp does: its own

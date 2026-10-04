@@ -112,6 +112,9 @@ func TestSystemdProperties(t *testing.T) {
 	if _, ok := m["SystemCallFilter"]; !ok {
 		t.Error("SystemCallFilter missing")
 	}
+	if p, ok := m["InaccessiblePaths"].([]string); !ok || len(p) != 1 || p[0] != "-/run/systemd/transient" {
+		t.Errorf("InaccessiblePaths %v", m["InaccessiblePaths"])
+	}
 	for _, k := range []string{"ReadWritePaths", "StateDirectory"} {
 		if _, ok := m[k]; ok {
 			t.Errorf("unexpected %s without sandbox settings", k)

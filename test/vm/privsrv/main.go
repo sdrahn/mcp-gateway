@@ -8,6 +8,9 @@
 //	hold        {seconds, marker}
 //	                     waits, then writes marker; ignores cancellation,
 //	                     as a running RPM transaction must
+//	read_credential {name}  $CREDENTIALS_DIRECTORY/name
+//	list_credentials        the entries of /run/credentials
+//	read_file   {path}   a file's content (what the sandbox lets it see)
 package main
 
 import (
@@ -16,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -40,6 +44,9 @@ var tools = []map[string]any{
 	{"name": "install_rpm", "inputSchema": schema("path")},
 	{"name": "remove_rpm", "inputSchema": schema("name")},
 	{"name": "hold", "inputSchema": schema("seconds", "marker")},
+	{"name": "read_credential", "inputSchema": schema("name")},
+	{"name": "list_credentials", "inputSchema": schema()},
+	{"name": "read_file", "inputSchema": schema("path")},
 }
 
 func text(s string, isErr bool) map[string]any {
@@ -66,6 +73,28 @@ func call(name string, args map[string]string) map[string]any {
 			return text(err.Error(), true)
 		}
 		return text("held", false)
+	case "read_credential":
+		b, err := os.ReadFile(filepath.Join(os.Getenv("CREDENTIALS_DIRECTORY"), args["name"]))
+		if err != nil {
+			return text(err.Error(), true)
+		}
+		return text("credential: "+strings.TrimSpace(string(b)), false)
+	case "list_credentials":
+		entries, err := os.ReadDir("/run/credentials")
+		if err != nil {
+			return text(err.Error(), true)
+		}
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		return text("units: "+strings.Join(names, " "), false)
+	case "read_file":
+		b, err := os.ReadFile(args["path"])
+		if err != nil {
+			return text(err.Error(), true)
+		}
+		return text(string(b), false)
 	}
 	return text("unknown tool "+name, true)
 }
