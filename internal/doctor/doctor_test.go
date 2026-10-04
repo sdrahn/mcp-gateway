@@ -59,6 +59,7 @@ func TestPolkit(t *testing.T) {
 		"fw":      {Name: "fw", RunAs: "mcp-fw"},
 		"fs":      {Name: "fs", RunAs: "principal"},
 		"zypp":    {Name: "zypp", RunAs: "root"},
+		"docs":    {Name: "docs", RunAs: "dynamic"},
 	}
 	rs := Polkit(backends, []string{dir, filepath.Join(dir, "missing")})
 	if len(rs) != 2 || rs[0].Check != "polkit mcp-fw" || rs[0].Status != Warn || rs[1].Status != OK {
