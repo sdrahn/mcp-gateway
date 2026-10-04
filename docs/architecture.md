@@ -299,9 +299,12 @@ Responsibilities:
    also policy-checked and labelled with the originating backend.
 6. **Change propagation.** Emits `notifications/tools/list_changed` (and
    the resources/prompts equivalents) to every session when OPA loads a
-   changed policy or RBAC data. The gateway polls a fingerprint (a hash of
-   OPA's `/v1/policies` and `/v1/data/rbac`) every `policy.watch_interval`
-   (default 10 s) and advertises `listChanged` for all three lists.
+   changed policy or RBAC data. The gateway checks a fingerprint (a hash
+   of OPA's `/v1/policies` and `/v1/data/rbac`) every
+   `policy.watch_interval` (default 10 s), and 0.3, 1 and 3 s after a file
+   in the local policy trees changed (inotify; OPA reloads with `--watch`
+   a moment after the write), and advertises `listChanged` for all three
+   lists.
    Grants do not change visibility (discovery shows items that need
    approval), so they trigger no notification. Backends' own
    `list_changed` notifications are passed through.
@@ -1841,7 +1844,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       (step 20) and checks OPA's fingerprint right after a change
       settles, so agents are told to list their tools again at once.
       Bundles from a bundle server keep being polled every
-      `policy.watch_interval` (§12);
+      `policy.watch_interval` (§12) (done);
     - a server defined with `url` may name a proxy (`proxy:
       http://host:port`, credentials for it from `credentials`): the
       connector tunnels through it (`CONNECT`; TLS still ends at the

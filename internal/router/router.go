@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -81,15 +82,19 @@ func (r *Router) PolicyChanged() {
 	}
 }
 
-// WatchPolicy calls fingerprint every interval() and PolicyChanged when the
-// result changes. Errors are logged and skipped (decisions fail closed
-// meanwhile anyway). It returns when ctx ends.
-func (r *Router) WatchPolicy(ctx context.Context, interval func() time.Duration, fingerprint func(context.Context) (string, error), onChange func()) {
+// policyRechecks are the delays after a policy file changed (changed in
+// WatchPolicy) at which the fingerprint is checked: OPA reloads changed
+// files itself, a moment after they were written.
+var policyRechecks = []time.Duration{300 * time.Millisecond, time.Second, 3 * time.Second}
+
+// WatchPolicy calls fingerprint every interval(), and shortly after each
+// value from changed (a policy file was written; nil: none), and
+// PolicyChanged when the result changes. Errors are logged and skipped
+// (decisions fail closed meanwhile anyway). It returns when ctx ends.
+func (r *Router) WatchPolicy(ctx context.Context, interval func() time.Duration, fingerprint func(context.Context) (string, error), onChange func(), changed <-chan struct{}) {
 	r.init()
 	var last string
-	t := time.NewTimer(interval())
-	defer t.Stop()
-	for {
+	check := func() bool {
 		fp, err := fingerprint(ctx)
 		switch {
 		case err != nil:
@@ -100,14 +105,37 @@ func (r *Router) WatchPolicy(ctx context.Context, interval func() time.Duration,
 				onChange()
 			}
 			last = fp
+			return true
 		default:
 			last = fp
 		}
+		return false
+	}
+	t := time.NewTimer(interval())
+	defer t.Stop()
+	soon := time.NewTimer(time.Hour)
+	soon.Stop()
+	defer soon.Stop()
+	var pending []time.Duration // rechecks still due after a change
+	check()
+	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			check()
 			t.Reset(interval())
+		case <-changed:
+			pending = slices.Clone(policyRechecks)
+			soon.Reset(pending[0])
+		case <-soon.C:
+			waited := pending[0]
+			pending = pending[1:]
+			if check() || len(pending) == 0 {
+				pending = nil
+				continue
+			}
+			soon.Reset(pending[0] - waited)
 		}
 	}
 }

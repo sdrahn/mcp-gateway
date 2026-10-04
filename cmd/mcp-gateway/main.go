@@ -359,10 +359,11 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	defer func() { _ = fsw.Close() }()
 	go reloader.watch(ctx, reloader.Interval, reloadFP, hup, fsw)
 
-	// Clients learn about policy changes through list_changed.
+	// Clients learn about policy changes through list_changed: when a
+	// local policy file is written, and every policy.watch_interval.
 	go r.WatchPolicy(ctx, reloader.Interval, opa.Fingerprint, func() {
 		auditLog.Event("mcp-policy-change", true, map[string]string{"revision": bundleRevisions(ctx, opa)})
-	})
+	}, watchPolicyFiles(ctx, log, policyData, shippedPolicy))
 	if revs := bundleRevisions(ctx, opa); revs != "" {
 		log.Info("policy bundles", "revisions", revs)
 	}

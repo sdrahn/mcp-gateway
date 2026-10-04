@@ -673,7 +673,7 @@ func TestPolicyChangedNotifiesSessions(t *testing.T) {
 		fp := fps[min(i, len(fps)-1)]
 		i++
 		return fp, nil
-	}, func() { changes <- struct{}{} })
+	}, func() { changes <- struct{}{} }, nil)
 
 	for _, c := range []*client{c1, c2} {
 		var got []string

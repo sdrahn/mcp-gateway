@@ -846,6 +846,9 @@ rl_call() {
 }
 rl_works() { rl_call && grep -qF "alice secret" <<<"$out"; }
 rl_journal_has() { journalctl -u mcp-gateway.service -o cat --since "@$rl_since" | grep -qF -- "$1"; }
+# The role data changed above: noticed when OPA reloaded it (inotify on
+# the policy trees), well within policy.watch_interval (10 s).
+check "the policy change is noticed at once" eventually 5 rl_journal_has '"event":"mcp-policy-change"'
 check "a new definition is picked up without a restart" eventually 40 rl_works
 check "the reload is audited" rl_journal_has '"event":"mcp-config-reload"'
 

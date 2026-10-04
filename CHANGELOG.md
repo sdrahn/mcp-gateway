@@ -15,6 +15,14 @@ minor release (with a warning) and removed in the next.
   that fails it before building anything, and verifies the published
   files against `SHA256SUMS` and `git archive` of the tag.
 
+### Changed
+
+- Policy changes reach agents at once: the gateway watches the local
+  policy trees (role data, shipped and custom rules) with inotify and
+  checks OPA right after a change, instead of within
+  `policy.watch_interval`. Policy from a bundle server is still checked
+  every `policy.watch_interval`.
+
 ## v0.11.0 — 2026-10-04
 
 MCP servers that speak HTTP, and a gateway that reacts at once and says

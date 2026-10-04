@@ -3,6 +3,7 @@ package fswatch
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -88,5 +89,22 @@ func TestNil(t *testing.T) {
 	var w *Watcher
 	if w.Events() != nil || w.Close() != nil {
 		t.Fatal("nil watcher")
+	}
+}
+
+func TestTree(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"a/b", "c"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "a", "f.rego"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := Tree(filepath.Join(root, "a"), root, filepath.Join(root, "missing"))
+	want := []string{root, filepath.Join(root, "a"), filepath.Join(root, "a", "b"), filepath.Join(root, "c")}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v\nwant %v", got, want)
 	}
 }

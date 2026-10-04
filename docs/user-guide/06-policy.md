@@ -360,9 +360,11 @@ approve their own agent's calls.
 
 Edit `/etc/mcp-gateway/policy/rbac/data.json` (or use the Policy tab in
 Cockpit, chapter 8). OPA watches the policy directories and loads
-changes within seconds; the gateway notices within `policy.watch_interval`
-(10 s), tells connected agents to list their tools again and writes a
-`mcp-policy-change` audit event. No restart is needed.
+changes within seconds; the gateway notices right after OPA has loaded
+them (it watches the same directories), tells connected agents to list
+their tools again and writes a `mcp-policy-change` audit event. No
+restart is needed. Policy from a bundle server is checked every
+`policy.watch_interval` (10 s).
 
 Changes apply to calls that start afterwards; a call already forwarded to
 the server runs to its end (chapter 9).
