@@ -1701,6 +1701,37 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       `rpm_exec_t`) labeled `bin_t` runs in the wrong domain too (done);
     - approval mail reaches the users whose primary group an approver
       group is, which NSS does not list as members (done).
+19. **The rest of the configuration live, and what a reload leaves
+    behind** (0.10):
+    - `gateway.yaml` is reloaded like the server definitions (when the
+      file changes, and on `systemctl reload`): keys that can change
+      without ending sessions take effect at once (`approval_timeout`,
+      `approvals.url_template` and `progress_interval`,
+      `notifications.email`, `limits`, `supervisor.idle_timeout`,
+      `policy.timeout` and `watch_interval`), and the TLS certificate
+      and key of `http` and the SMTP password are read anew, so that a
+      renewed certificate needs no restart. Keys bound to what the
+      gateway set up at start (sockets and their group, `http.listen`
+      and the identity provider, `metrics.listen`, `state_dir`, the
+      supervisor's mode, SELinux and MCS range, the servers
+      directories) keep their running values: the gateway logs them,
+      `GET /v1/status` lists them (`restart_needed`) and the doctor
+      warns until a restart. The same rules as for server definitions
+      hold: the whole file is validated before anything changes, a file
+      that does not load (or a panic) keeps the configuration in force,
+      is logged at error, audited (`mcp-config-reload`) and reported
+      (`config_error`), and the gateway goes on serving;
+    - instances that run from a previous server definition (step 18)
+      show as such: `GET /v1/servers` marks them (`definition:
+      "previous"`), Cockpit's Servers tab shows them apart and
+      shows a failed reload or a pending restart, with the error, and
+      offers to reload the configuration (administrative access,
+      `systemctl reload`);
+    - HTTP streams: a server's notification or request that belongs to
+      a client request (progress, logging during the call, elicitation,
+      sampling) goes to that request's stream, not to the most recently
+      opened one (§12); what belongs to no request goes to the GET
+      stream.
 
 ## 12. Open items
 
