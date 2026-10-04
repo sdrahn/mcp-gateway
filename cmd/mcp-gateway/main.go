@@ -164,7 +164,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if used == "" {
 		used = "built-in defaults"
 	}
-	serversFP := serversFingerprint([]string{gw.VendorServersDir, gw.ServersDir})
+	reloadFP := reloadFingerprint([]string{gw.VendorServersDir, gw.ServersDir}, reloadFiles(configPath, gw))
 	backends, err := config.LoadBackends(gw.VendorServersDir, gw.ServersDir)
 	if err != nil {
 		return fmt.Errorf("loading backend registry: %w", err)
@@ -210,7 +210,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	hup, stopHUP := notifyHUP() // systemctl reload: server definitions
+	hup, stopHUP := notifyHUP() // systemctl reload: gateway.yaml and the server definitions
 	defer stopHUP()
 
 	if err := os.MkdirAll(gw.StateDir, 0o700); err != nil {
@@ -237,16 +237,24 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if err != nil {
 		return err
 	}
-	if gw.Notifications.Email.SMTP != "" {
-		mail, err := notify.NewEmail(gw.Notifications.Email, opa, log)
-		if err != nil {
+	// Mail is set up whether or not it is configured, so that a reload can
+	// turn it on.
+	mail, err := notify.NewEmail(gw.Notifications.Email, opa, log)
+	if err != nil {
+		return err
+	}
+	mail.URL = b.ApprovalURL
+	events, stopEvents := b.Subscribe()
+	defer stopEvents()
+	go mail.Run(ctx, events)
+	if mail.Enabled() {
+		log.Info("approval mail enabled", "smtp", gw.Notifications.Email.SMTP)
+	}
+	certs := &certStore{}
+	if gw.HTTP.Listen != "" {
+		if err := certs.load(gw.HTTP.CertFile, gw.HTTP.KeyFile); err != nil {
 			return err
 		}
-		mail.URL = b.ApprovalURL
-		events, stopEvents := b.Subscribe()
-		defer stopEvents()
-		go mail.Run(ctx, events)
-		log.Info("approval mail enabled", "smtp", gw.Notifications.Email.SMTP)
 	}
 	if !control && gw.Approvals.URLTemplate != "" {
 		log.Warn("approvals.url_template is set but the control socket is disabled; url approvals cannot be decided")
@@ -270,6 +278,16 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	reloader := &serverReloader{
 		log: log, audit: auditLog, dirs: []string{gw.VendorServersDir, gw.ServersDir},
 		load: config.LoadBackends, set: r.SetBackends,
+		loadConfig: func() (*config.Gateway, error) {
+			next, _, err := config.Resolve(configPath)
+			return next, err
+		},
+		applyConfig: func(next *config.Gateway) error {
+			return applyConfig(log, next, gw, certs, mail, b, opa, r)
+		},
+		running:     gw,
+		current:     gw,
+		configFiles: func(c *config.Gateway) []string { return reloadFiles(configPath, c) },
 		loaded: func(next map[string]*config.Backend) {
 			for _, name := range slices.Sorted(maps.Keys(next)) {
 				if next[name].Privileged {
@@ -297,7 +315,8 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 			return fmt.Errorf("listening on %s: %w", gw.Approvals.ControlSocket, err)
 		}
 		log.Info("listening", "control", gw.Approvals.ControlSocket)
-		cs := &controlapi.Server{Broker: b, Backends: r.CurrentBackends, ServersError: reloader.Err, Instances: r, Policy: opa,
+		cs := &controlapi.Server{Broker: b, Backends: r.CurrentBackends, ServersError: reloader.Err,
+			ConfigError: reloader.ConfigErr, RestartNeeded: reloader.RestartNeeded, Instances: r, Policy: opa,
 			Review: opa, Catalog: r, Log: log, RestartPending: restartPending, Metrics: metrics.Default}
 		go func() {
 			if err := cs.Serve(ctx, cl); err != nil {
@@ -310,10 +329,10 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		go watchMCS(ctx, log, auditLog, sd, gw.Supervisor)
 	}
 	go watchUpdate(ctx, log)
-	go reloader.watch(ctx, gw.Policy.WatchInterval, serversFP, hup)
+	go reloader.watch(ctx, reloader.Interval, reloadFP, hup)
 
 	// Clients learn about policy changes through list_changed.
-	go r.WatchPolicy(ctx, gw.Policy.WatchInterval, opa.Fingerprint, func() {
+	go r.WatchPolicy(ctx, reloader.Interval, opa.Fingerprint, func() {
 		auditLog.Event("mcp-policy-change", true, map[string]string{"revision": bundleRevisions(ctx, opa)})
 	})
 	if revs := bundleRevisions(ctx, opa); revs != "" {
@@ -329,7 +348,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	stopHTTP := func() {}
 	if gw.HTTP.Listen != "" {
 		httpErrs = make(chan error, 1)
-		if stopHTTP, err = serveHTTP(log, gw.HTTP, r, httpErrs); err != nil {
+		if stopHTTP, err = serveHTTP(log, gw.HTTP, certs, r, httpErrs); err != nil {
 			stop()
 			<-served
 			return err
@@ -360,7 +379,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 // serveHTTP starts the remote transport (MCP Streamable HTTP, OAuth
 // resource server). The returned function ends all HTTP sessions and
 // shuts the server down.
-func serveHTTP(log *slog.Logger, cfg config.HTTP, r *router.Router, errc chan<- error) (func(), error) {
+func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Router, errc chan<- error) (func(), error) {
 	h, err := transport.NewHTTPHandler(transport.HTTPConfig{
 		Resource:             cfg.Audience,
 		AuthorizationServers: []string{cfg.Issuer},
@@ -385,6 +404,7 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, r *router.Router, errc chan<- 
 	if err != nil {
 		return nil, err
 	}
+	tlsConfig.GetCertificate = certs.getCertificate
 	srv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           h,
@@ -392,7 +412,7 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, r *router.Router, errc chan<- 
 		TLSConfig:         tlsConfig,
 	}
 	go func() {
-		err := srv.ListenAndServeTLS(cfg.CertFile, cfg.KeyFile)
+		err := srv.ListenAndServeTLS("", "") // the certificate comes from certs
 		if !errors.Is(err, http.ErrServerClosed) {
 			errc <- fmt.Errorf("http: %w", err)
 		}

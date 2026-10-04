@@ -11,7 +11,9 @@
 //
 //	GET    /v1/whoami
 //	GET    /v1/status           {"version": "0.4.0", "restart_pending": true} after an update,
-//	                            "servers_error" when servers.d could not be reloaded
+//	                            "servers_error" when servers.d could not be reloaded,
+//	                            "config_error" when gateway.yaml could not be,
+//	                            "restart_needed": keys of gateway.yaml changed since the start
 //	GET    /v1/approvals
 //	GET    /v1/approvals/{id}
 //	POST   /v1/approvals/{id}   {"decision": "approve"|"deny", "scope": "session"}
@@ -111,6 +113,11 @@ type Server struct {
 	// definitions failed ("" when it did not): the gateway then serves
 	// the definitions it had.
 	ServersError func() string
+	// ConfigError, if set, returns why the last reload of gateway.yaml
+	// failed; RestartNeeded the keys changed since the start that take
+	// effect at the next start only.
+	ConfigError   func() string
+	RestartNeeded func() []string
 	// Metrics serves GET /v1/metrics; optional.
 	Metrics *metrics.Registry
 
@@ -162,6 +169,12 @@ func (s *Server) Handler() http.Handler {
 		if s.ServersError != nil {
 			st.ServersError = s.ServersError()
 		}
+		if s.ConfigError != nil {
+			st.ConfigError = s.ConfigError()
+		}
+		if s.RestartNeeded != nil {
+			st.RestartNeeded = s.RestartNeeded()
+		}
 		writeJSON(w, http.StatusOK, st)
 	}))
 	mux.HandleFunc("GET /v1/approvals", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
@@ -205,6 +218,12 @@ type statusResponse struct {
 	// ServersError tells why the last reload of the server definitions
 	// failed; the gateway serves the definitions it had.
 	ServersError string `json:"servers_error,omitempty"`
+	// ConfigError tells why the last reload of gateway.yaml failed; the
+	// gateway runs with the configuration it had.
+	ConfigError string `json:"config_error,omitempty"`
+	// RestartNeeded lists the keys of gateway.yaml whose change takes
+	// effect at the next start only.
+	RestartNeeded []string `json:"restart_needed,omitempty"`
 }
 
 // policyResponse is the body of GET /v1/policy.

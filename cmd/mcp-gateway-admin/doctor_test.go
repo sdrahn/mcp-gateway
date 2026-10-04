@@ -157,6 +157,11 @@ func TestGatewayStatus(t *testing.T) {
 		r.Details[0] != "/etc/mcp-gateway/servers.d/web.yaml: unknown key netwrok" {
 		t.Errorf("%+v", r)
 	}
+	body.Store(`{"version": "0.10.0", "config_error": "/etc/mcp-gateway/gateway.yaml: yaml: line 3", "restart_needed": ["socket_group", "http.listen"]}`)
+	if r := gatewayStatus(sock); r.Status != doctor.Warn || !strings.Contains(r.Summary, "gateway.yaml not reloaded") ||
+		!strings.Contains(r.Summary, "next start") || r.Details[2] != "changed since the start: socket_group, http.listen" {
+		t.Errorf("%+v", r)
+	}
 }
 
 // A definition that does not load fails the configuration check, and the

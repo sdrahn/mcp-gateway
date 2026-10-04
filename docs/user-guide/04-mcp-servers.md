@@ -44,7 +44,9 @@ definitions it had, logs the error, audits it (`mcp-config-reload`,
 chapter 9), and `mcp-gateway-admin doctor` warns about it until a reload
 succeeds. `systemctl reload` runs `mcp-gateway --check` first and fails
 then, so you see the problem at once. The gateway's own configuration
-(`gateway.yaml`) is read at start only.
+(`gateway.yaml`) is reloaded the same way; some of its keys take effect
+at the next start only (chapter 3, "Changing the configuration while the
+gateway runs").
 
 A server is only usable by principals whose roles have permissions for it
 (chapter 6). A server nobody has permissions for is invisible.

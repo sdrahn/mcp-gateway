@@ -169,7 +169,7 @@ notifications:
 
 ```bash
 setsebool -P mcpgw_can_send_mail on    # let the gateway connect to the mail server
-systemctl restart mcp-gateway.service
+systemctl reload mcp-gateway.service    # or wait 10 s: notifications are reloaded
 ```
 
 - **Recipients** come from the approver rules of the request's server
@@ -200,7 +200,8 @@ systemctl restart mcp-gateway.service
   install -m0640 -g mcp-gateway /dev/stdin /etc/mcp-gateway/smtp-password <<<'secret'
   ```
 
-  The password is read at start and sent only over TLS or to localhost.
+  The password is read at start and at every reload (also when the file
+  changes), and sent only over TLS or to localhost.
   Do not put it in `/etc/mcp-gateway/credentials`: that directory is for
   MCP servers and the gateway itself cannot read it.
 

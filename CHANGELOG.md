@@ -5,6 +5,25 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Added
+
+- The gateway reloads `gateway.yaml` while it runs, like the server
+  definitions: when the file changes and on `systemctl reload
+  mcp-gateway.service`. Approvals (`approval_timeout`,
+  `approvals.url_template`, `progress_interval`), mail notifications,
+  limits, `supervisor.idle_timeout` and the policy timeouts apply at
+  once, without ending sessions; the TLS certificate and key and the
+  SMTP password file are read again, also when only those files change,
+  so that a renewed certificate needs no restart. Keys that take effect
+  at the next start only (sockets, listeners, the identity provider,
+  the supervisor's mode and MCS range, …) are logged, listed in
+  `GET /v1/status` (`restart_needed`) and reported by the doctor. A file
+  that does not load, a certificate or password file that cannot be
+  read, changes nothing: it is logged, audited (`mcp-config-reload`,
+  `file=gateway.yaml`) and reported (`config_error`).
+
 ## v0.9.0 — 2026-10-03
 
 Server definitions that change while the gateway runs. The gateway

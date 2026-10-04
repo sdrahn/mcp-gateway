@@ -31,15 +31,38 @@ To change the configuration, copy the default and edit the copy:
 ```bash
 cp /usr/etc/mcp-gateway/gateway.yaml /etc/mcp-gateway/gateway.yaml
 $EDITOR /etc/mcp-gateway/gateway.yaml
-mcp-gateway --check && systemctl restart mcp-gateway.service
+mcp-gateway --check && systemctl reload mcp-gateway.service
 ```
 
 The copy replaces the default as a whole; settings you leave out take
 their built-in defaults (listed below), not the values of the default
-file. The gateway reads its configuration at start; a restart ends open
-sessions (agents reconnect). The MCP server definitions are reloaded
-while it runs (chapter 4, "Changing definitions while the gateway
-runs").
+file.
+
+### Changing the configuration while the gateway runs
+
+The gateway reloads `gateway.yaml` when it changes (within
+`policy.watch_interval`, 10 s) and on `systemctl reload
+mcp-gateway.service`, together with the MCP server definitions (chapter
+4, "Changing definitions while the gateway runs"). Sessions stay open.
+
+| Keys | After a change |
+|---|---|
+| `approval_timeout`, `approvals.url_template`, `approvals.progress_interval` | apply to approvals asked from then on |
+| `notifications.email` (all keys) | apply to the next mail; the password file is read again |
+| `limits` | apply to the next session or instance |
+| `supervisor.idle_timeout` | applies to instances that become idle from then on |
+| `policy.timeout`, `policy.watch_interval` | apply to the next decision and check |
+| `http.cert_file`, `http.key_file` | the certificate and key are read again; new connections get them. Renewing the files is a change too, so a renewed certificate needs no restart |
+| all others (sockets, `socket_group`, `http.listen` and the identity provider, `metrics`, `audit`, `state_dir`, the other `supervisor` keys, `policy.opa_socket`, the servers directories) | take effect at the next start (`systemctl restart mcp-gateway.service`, which ends all sessions). Until then the gateway logs them, `GET /v1/status` lists them (`restart_needed`) and `mcp-gateway-admin doctor` warns |
+
+A reload reads and validates the whole file before it changes anything.
+If the file does not parse or validate, or the certificate or the
+password file cannot be read, nothing changes: the gateway keeps the
+configuration in force, logs the error, audits it (`mcp-config-reload`
+with `file=gateway.yaml`), reports it (`config_error` in `GET
+/v1/status`, the doctor) and retries when the file changes again.
+`systemctl reload` runs `mcp-gateway --check` first and fails on such a
+file.
 
 ## Reference
 

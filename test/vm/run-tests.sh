@@ -815,6 +815,31 @@ rl_gone() { rl_call; [ "$rc" != 0 ] && ! grep -qF "alice secret" <<<"$out"; } # 
 check "a removed definition is dropped" eventually 40 rl_gone
 rl_no_instance() { [ -z "$(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-fsreload-*')" ]; }
 check "the removed server's instances are stopped" eventually 10 rl_no_instance
+# gateway.yaml: reloadable keys apply, others are reported as needing a
+# restart, a broken file changes nothing.
+rl_status() { curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/status; }
+sed 's/^approval_timeout:.*/approval_timeout: 3m/' /usr/etc/mcp-gateway/gateway.yaml >/etc/mcp-gateway/gateway.yaml
+restorecon /etc/mcp-gateway/gateway.yaml
+check "a reloadable key of gateway.yaml is applied" \
+	eventually 40 rl_journal_has '"changed":"approval_timeout"'
+rl_no_restart() { ! rl_status | grep -q restart_needed; }
+check "nothing needs a restart for it" rl_no_restart
+sed -i 's/^socket_group:.*/socket_group: wheel/' /etc/mcp-gateway/gateway.yaml
+check "systemctl reload accepts a key that needs a restart" systemctl reload mcp-gateway.service
+rl_restart_reported() { rl_status | grep -qF '"restart_needed":["socket_group"]'; }
+check "the key that needs a restart is reported" eventually 10 rl_restart_reported
+mcp-gateway-admin doctor --no-start 2>&1 | grep -E '^WARN +gateway status' | sed 's/^/  /'
+check "the doctor asks for a restart" \
+	sh -c 'mcp-gateway-admin doctor --no-start 2>&1 | grep -qE "^WARN +gateway status: .*next start"'
+printf 'approval_timeout: [\n' >>/etc/mcp-gateway/gateway.yaml
+check "systemctl reload fails on a broken gateway.yaml" reload_fails
+rl_config_error() { rl_status | grep -qF '"config_error":'; }
+check "a broken gateway.yaml is reported" eventually 40 rl_config_error
+rl_works_fs() { tool alice read_file '{"path":"/home/alice/secret.txt"}' >/dev/null; succeeded_with "alice secret"; }
+check "with a broken gateway.yaml the gateway still serves" rl_works_fs
+rm -f /etc/mcp-gateway/gateway.yaml
+rl_config_clean() { s=$(rl_status); ! grep -q 'config_error\|restart_needed' <<<"$s"; }
+check "back to the default gateway.yaml, nothing is reported" eventually 40 rl_config_clean
 check "the gateway was not restarted" test "$(systemctl show -p MainPID --value mcp-gateway.service)" = "$gw_pid"
 
 section "Update without restart"

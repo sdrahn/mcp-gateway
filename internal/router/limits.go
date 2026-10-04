@@ -51,7 +51,7 @@ type idler interface {
 // limit it first ends the principal's longest-idle evictable session (see
 // idler); if there is none, it refuses.
 func (r *Router) admit(s *Session) error {
-	max := r.MaxSessionsPerPrincipal
+	max := r.settings().MaxSessionsPerPrincipal
 	if max <= 0 {
 		max = defaultSessionsPerPrincipal
 	}

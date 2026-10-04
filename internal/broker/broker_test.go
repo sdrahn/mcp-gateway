@@ -652,3 +652,27 @@ func TestEvents(t *testing.T) {
 	default:
 	}
 }
+
+// A reload changes the approval timeout and the approval page for the
+// approvals that follow.
+func TestSetApprovals(t *testing.T) {
+	b := newBroker(t, func(o *Options) { o.Timeout = time.Hour })
+	if u := b.ApprovalURL("a-1"); u != "https://gw/approvals/a-1" {
+		t.Fatalf("url %q", u)
+	}
+	b.SetApprovals(50*time.Millisecond, "https://new/{id}")
+	if u := b.ApprovalURL("a-1"); u != "https://new/a-1" {
+		t.Fatalf("url %q", u)
+	}
+	start := time.Now()
+	if _, err := b.Approve(context.Background(), &fakeElicitor{}, input(), urlAsk); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err %v", err)
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("waited %v: the new timeout did not apply", d)
+	}
+	b.SetApprovals(time.Hour, "")
+	if u := b.ApprovalURL("a-1"); u != "" {
+		t.Fatalf("url %q without a template", u)
+	}
+}

@@ -261,9 +261,11 @@ func (d *doctorRun) services() []doctor.Result {
 func gatewayStatus(sock string) doctor.Result {
 	r := doctor.Result{Check: "gateway status"}
 	var st struct {
-		Version        string `json:"version"`
-		RestartPending bool   `json:"restart_pending"`
-		ServersError   string `json:"servers_error"`
+		Version        string   `json:"version"`
+		RestartPending bool     `json:"restart_pending"`
+		ServersError   string   `json:"servers_error"`
+		ConfigError    string   `json:"config_error"`
+		RestartNeeded  []string `json:"restart_needed"`
 	}
 	if err := controlGet(sock, "/v1/status", &st); err != nil {
 		return skipOrFail(r, err)
@@ -277,6 +279,16 @@ func gatewayStatus(sock string) doctor.Result {
 		r.Status = doctor.Warn
 		r.Summary += "; server definitions not reloaded, it serves the previous ones"
 		r.Details = append(r.Details, st.ServersError, "fix the file (mcp-gateway --check shows the problem); the gateway reloads by itself")
+	}
+	if st.ConfigError != "" {
+		r.Status = doctor.Warn
+		r.Summary += "; gateway.yaml not reloaded, it runs with the configuration it had"
+		r.Details = append(r.Details, st.ConfigError, "fix the file (mcp-gateway --check shows the problem); the gateway reloads by itself")
+	}
+	if len(st.RestartNeeded) > 0 {
+		r.Status = doctor.Warn
+		r.Summary += "; gateway.yaml changes keys that take effect at the next start: systemctl restart mcp-gateway.service"
+		r.Details = append(r.Details, "changed since the start: "+strings.Join(st.RestartNeeded, ", "))
 	}
 	return r
 }

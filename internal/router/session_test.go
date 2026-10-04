@@ -656,7 +656,7 @@ func TestPolicyChangedNotifiesSessions(t *testing.T) {
 	changes := make(chan struct{}, 4)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go r.WatchPolicy(ctx, 10*time.Millisecond, func(context.Context) (string, error) {
+	go r.WatchPolicy(ctx, func() time.Duration { return 10 * time.Millisecond }, func(context.Context) (string, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		fp := fps[min(i, len(fps)-1)]
