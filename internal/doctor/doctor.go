@@ -27,18 +27,86 @@ import (
 type Status string
 
 const (
-	OK   Status = "ok"
-	Warn Status = "warn" // probably a problem; the gateway works otherwise
+	OK Status = "ok"
+	// Warn is for something an administrator can change, and the details
+	// say what; the gateway works otherwise. What a check cannot tell is
+	// wrong is OK, with a note.
+	Warn Status = "warn"
 	Fail Status = "fail" // something does not work
 	Skip Status = "skip" // could not be checked (e.g. needs root)
 )
 
-// Result is the outcome of one check.
+// Result is the outcome of one check. Check is the line's label; ID and
+// Subject (what it is about: a server, an account, a path), which
+// Identify sets from it, stay the same across releases for monitoring.
 type Result struct {
 	Check   string   `json:"check"`
+	ID      string   `json:"id"`
+	Subject string   `json:"subject,omitempty"`
 	Status  Status   `json:"status"`
 	Summary string   `json:"summary"`
 	Details []string `json:"details,omitempty"`
+}
+
+// checkIDs are the IDs of the checks with a fixed label.
+var checkIDs = map[string]string{
+	"configuration":       "configuration",
+	"role data":           "role-data",
+	"policy":              "policy",
+	"state files":         "state-files",
+	"gateway status":      "gateway-status",
+	"servers":             "servers",
+	"principals":          "principals",
+	"program labels":      "program-labels",
+	"read-only /usr":      "read-only-usr",
+	"SELinux":             "selinux-denials",
+	"SELinux types":       "selinux-types",
+	"SELinux transitions": "selinux-transitions",
+}
+
+// checkPrefixes are the IDs of the checks labeled "<prefix><subject>",
+// longest prefix first.
+var checkPrefixes = []struct{ prefix, id string }{
+	{"SELinux type ", "selinux-type"},
+	{"SELinux ", "selinux-denials"},
+	{"polkit ", "polkit"},
+	{"program ", "program"},
+	{"roles ", "roles"},
+	{"server ", "server"},
+	{"snapper ", "snapper"},
+}
+
+// Identify sets each result's ID and Subject from its Check label (see
+// Result); a systemd unit's state has the ID "unit".
+func Identify(rs []Result) {
+	for i := range rs {
+		r := &rs[i]
+		if id, ok := checkIDs[r.Check]; ok {
+			r.ID = id
+			continue
+		}
+		if strings.HasSuffix(r.Check, ".service") {
+			r.ID, r.Subject = "unit", r.Check
+			continue
+		}
+		r.ID = r.Check
+		for _, p := range checkPrefixes {
+			if s, ok := strings.CutPrefix(r.Check, p.prefix); ok {
+				r.ID, r.Subject = p.id, s
+				break
+			}
+		}
+	}
+}
+
+// Warned reports whether any result warns.
+func Warned(rs []Result) bool {
+	for _, r := range rs {
+		if r.Status == Warn {
+			return true
+		}
+	}
+	return false
 }
 
 // Failed reports whether any result failed.
@@ -172,14 +240,19 @@ func contextTypeOf(field string) string {
 // polkitRuleDirs are where polkit reads JavaScript rules.
 var polkitRuleDirs = []string{"/etc/polkit-1/rules.d", "/usr/share/polkit-1/rules.d"}
 
+// polkitTypes are the SELinux domains of servers that act through polkit
+// (the system bus): the setups' systemd and firewalld servers. Other
+// shipped domains cannot reach the bus; a domain of another module may.
+var polkitTypes = map[string]bool{"mcpsrv_systemd_t": true, "mcpsrv_firewalld_t": true}
+
 // Polkit checks the servers that run as a system account (not each
-// principal, not root, not a dynamic user): servers like systemd-mcp and
-// firewalld-mcp act through polkit, which refuses an account without a
-// session unless a rule allows it. A dynamic user gets a new name for
-// each instance, so no rule can name it; servers that need polkit run as
-// the account their setup package creates. It warns for each account no rule file under dirs
-// (polkit's, if nil) names. It cannot tell whether a server needs polkit
-// at all, so it never fails.
+// principal, not root, not a dynamic user, which gets a new name for each
+// instance): servers like systemd-mcp and firewalld-mcp act through
+// polkit, which refuses an account without a session unless a rule
+// allows it. For each account no rule file under dirs (polkit's, if nil)
+// names, it warns if one of its servers runs in a domain that acts
+// through polkit (polkitTypes), and otherwise reports OK with a note: it
+// cannot tell whether such a server uses polkit at all. It never fails.
 func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
 	if dirs == nil {
 		dirs = polkitRuleDirs
@@ -194,12 +267,14 @@ func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
 		}
 	}
 	accounts := map[string][]string{} // account to servers
+	users := map[string]bool{}        // accounts with a server that acts through polkit
 	for _, name := range sortedKeys(backends) {
 		b := backends[name]
 		if b.RunAs == "principal" || b.RunAs == "root" || b.RunAs == "dynamic" || isSnapper(b) {
 			continue
 		}
 		accounts[b.RunAs] = append(accounts[b.RunAs], name)
+		users[b.RunAs] = users[b.RunAs] || polkitTypes[b.SELinuxType]
 	}
 	var out []Result
 	for _, acct := range sortedKeys(accounts) {
@@ -211,15 +286,20 @@ func Polkit(backends map[string]*config.Backend, dirs []string) []Result {
 			}
 		}
 		servers := strings.Join(accounts[acct], ", ")
-		if named {
+		switch {
+		case named:
 			out = append(out, Result{Check: "polkit " + acct, Status: OK,
 				Summary: fmt.Sprintf("a polkit rule names %s (servers %s)", acct, servers)})
-			continue
+		case users[acct]:
+			out = append(out, Result{Check: "polkit " + acct, Status: Warn,
+				Summary: fmt.Sprintf("servers %s act through polkit as %s, which no polkit rule names: polkit refuses them", servers, acct),
+				Details: []string{"there is no session to ask in; install the server's setup package, which brings the rule,",
+					"or add a rule for the account (user guide, chapter 13)"}})
+		default:
+			out = append(out, Result{Check: "polkit " + acct, Status: OK,
+				Summary: fmt.Sprintf("no polkit rule names %s (servers %s): needed only if they act through polkit", acct, servers),
+				Details: []string{"if one does (systemd, firewalld, ...), add a rule for the account (user guide, chapter 13)"}})
 		}
-		out = append(out, Result{Check: "polkit " + acct, Status: Warn,
-			Summary: fmt.Sprintf("servers %s run as %s, which no polkit rule names", servers, acct),
-			Details: []string{"if the server acts through polkit (systemd, firewalld, ...), polkit refuses it: there is no session to ask in;",
-				"add a rule for the account (user guide, chapter 13) or install the server's setup package"}})
 	}
 	return out
 }
@@ -348,7 +428,8 @@ func ReadOnlyRoot(backends map[string]*config.Backend, readOnly bool) []Result {
 	r := Result{Check: "read-only /usr", Status: OK,
 		Summary: "a transactional system: programs and their labels change only in a new snapshot (transactional-update)"}
 	if len(priv) > 0 {
-		r.Status = Warn
+		// Nothing to change: how such a system works. A note, not a
+		// warning.
 		r.Summary = fmt.Sprintf("a transactional system: privileged servers %s cannot change /usr (e.g. install packages)", strings.Join(priv, ", "))
 		r.Details = []string{"install with transactional-update pkg install and reboot; see the user guide, chapter 13"}
 	}
@@ -413,7 +494,8 @@ func Snapper(backends map[string]*config.Backend, dir string, groupsOf func(user
 		case len(allowed) > 0:
 			r.Status, r.Summary = OK, fmt.Sprintf("snapperd allows %s the configs %s", b.RunAs, strings.Join(allowed, ", "))
 		case len(all) == 0:
-			r.Status, r.Summary = Warn, "no snapper configs"
+			r.Status, r.Summary = Warn, "no snapper configs: the server has nothing to work on"
+			r.Details = []string{"create one (snapper -c root create-config /), or remove the server's definition"}
 		default:
 			r.Status = Warn
 			r.Summary = fmt.Sprintf("snapperd allows %s none of the configs (%s): the server can list them, nothing else", b.RunAs, strings.Join(all, ", "))

@@ -206,12 +206,24 @@ WARN  principals: 1 of 4 members of mcp-users hold no role: they may connect but
 
 On a terminal the statuses are colored: `OK` and `SKIP` green, `WARN`
 orange, `FAIL` red (not with `NO_COLOR` set or `--json`, where the status is
-`ok`, `warn`, `fail` or `skip`). It exits 1 if a check failed.
+`ok`, `warn`, `fail` or `skip`).
+
+- `FAIL`: something does not work; the lines below say what to do.
+- `WARN`: something you can change, and the lines below name the change.
+  The gateway works otherwise.
+- `OK` with lines below: a note. The doctor cannot tell whether
+  something is wrong (a server that may not need polkit), or it is how
+  the system works (a transactional system's read-only `/usr`).
+
+It exits 1 if a check failed and 0 otherwise; with `--strict`, 3 if a
+check warned and none failed. For monitoring, `--json` gives each result
+an `id` and, where it is about something, a `subject` (a server, an
+account, a path) that stay the same across releases (chapter 11).
 
 | Check | Looks at |
 |---|---|
 | configuration | `gateway.yaml` and the server definitions; deprecated keys warn |
-| role data | the schema and references (as `--check-policy-data`) |
+| role data | the schema and references (as `--check-policy-data`); skipped when the file does not exist (policy from a bundle) |
 | services, gateway status | `mcp-gateway.service` and `mcp-opa.service` active; the running version, and whether an update waits for a restart |
 | state files | that `mcp-gateway` owns every file in `/var/lib/mcp-gateway`; a file root owns (the gateway was run as root) keeps the service from starting |
 | policy | that OPA answers a decision (every request is denied otherwise) |
@@ -219,9 +231,9 @@ orange, `FAIL` red (not with `NO_COLOR` set or `--json`, where the status is
 | SELinux *type* | denials in the last day, but not from before the current boot, involving the gateway's, OPA's and the servers' types; denials in permissive mode (a profiling run) only warn. Denials from before a reboot came from the policy and labels of then: on a transactional system a module installed with its packages takes effect at the next boot (chapter 2). `--previous-boots` counts them too |
 | SELinux types | that the loaded policy knows each server's `selinux_type`; a server whose module is missing cannot start, also in permissive mode |
 | program *name* | that a server's program, and every other program the gateway's and the setups' modules give a type (the gateway's own, helpers a server starts like zypp's `zypp-mcp-tool`), where installed, carries the label the policy gives its path (`matchpathcon`, else `restorecon -n`); a program installed before its module (e.g. still `bin_t`) cannot start in its domain, and its tools are missing. The fix it names is `restorecon`, on a transactional system `transactional-update run restorecon` and a reboot |
-| read-only /usr | on a transactional system: warns about privileged servers, which cannot change `/usr` (chapter 2, "Transactional systems") |
-| snapper *server* | that a snapper config's `ALLOW_USERS` (or `ALLOW_GROUPS`) names the account mcp-server-snapper runs as; without, it can only list the configs |
-| polkit *account* | servers running as a system account (`run_as` naming one; not `principal`, `root` or `dynamic`) that no polkit rule names: servers that act through polkit (systemd, firewalld) are refused without one |
+| read-only /usr | on a transactional system: notes privileged servers, which cannot change `/usr` (chapter 2, "Transactional systems") |
+| snapper *server* | that a snapper config's `ALLOW_USERS` (or `ALLOW_GROUPS`) names the account mcp-server-snapper runs as; without, it can only list the configs. Warns when there is no config at all |
+| polkit *account* | servers running as a system account (`run_as` naming one; not `principal`, `root` or `dynamic`) that no polkit rule names: warns for servers that act through polkit (the systemd and firewalld setups' domains), which are refused without one; for other servers a note |
 | principals | members of `socket_group` bound to no role, by name or group (users whose primary group it is, and remote principals, are not checked) |
 
 Starting the servers runs them like the gateway would, once each; use

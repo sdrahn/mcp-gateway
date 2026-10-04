@@ -7,6 +7,13 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- `mcp-gateway-admin doctor --strict` exits 3 when a check warned and
+  none failed (the exit status stays 1 for a failure and 0 otherwise).
+  With `--json`, each result has an `id` and a `subject` that stay the
+  same across releases, for monitoring (user guide, chapter 11).
+
 ### Changed
 
 - Changes to `gateway.yaml`, the server definitions, the TLS certificate
@@ -16,6 +23,15 @@ minor release (with a warning) and removed in the next.
   writes in a row are reloaded once. Directories that cannot be watched
   are logged ("changes in a directory are noticed by polling only") and
   checked every `policy.watch_interval` as before.
+
+- The doctor warns only about what an administrator can change, and
+  the warning names the change. A server running as an account no
+  polkit rule names warns only if it acts through polkit (the systemd
+  and firewalld setups); for other servers it is a note (`OK`). So is a
+  privileged server on a transactional system ("read-only /usr"). Role
+  data that does not exist (policy from a bundle) is skipped, not a
+  warning. The warnings about servers without tools, users without a
+  role and missing snapper configs say what to do.
 
 ## v0.10.0 — 2026-10-04
 

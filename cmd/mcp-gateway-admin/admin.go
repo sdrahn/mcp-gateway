@@ -298,6 +298,7 @@ func (a *adminServer) doctorRun(only string, since time.Duration) *doctorRun {
 }
 
 func (a *adminServer) results(rs []doctor.Result) map[string]any {
+	doctor.Identify(rs)
 	var b strings.Builder
 	_ = doctor.WriteText(&b, rs, false)
 	return textResult(b.String(), map[string]any{"results": rs, "failed": doctor.Failed(rs)})
