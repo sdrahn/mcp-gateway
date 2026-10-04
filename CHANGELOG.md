@@ -5,6 +5,27 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## v0.12.2 — 2026-10-04
+
+A fix for servers with `sign_in`. Upgrading from 0.12.x needs no
+changes; restart the gateway after the update (`systemctl restart
+mcp-gateway.service`). At that start it deletes the tokens kept for
+servers that no longer have `sign_in` or a definition (tokens kept by
+0.12.0 and 0.12.1 do not record the server's `url`, so a `url` changed
+before the update is not noticed).
+
+### Fixed
+
+- Sign-ins no longer outlive their server's definition: removing it, its
+  `sign_in`, or changing its `url` deletes the principals' tokens and
+  revokes them at the authorization server, also for changes made while
+  the gateway was not running. Before, they stayed in the token store,
+  and discovered metadata was used for up to an hour after a change.
+- `DELETE /v1/sign-ins/{server}` answers how many sign-ins the
+  authorization server revoked (`revoked`), and Cockpit says when the
+  tokens were only deleted; `GET /v1/sign-ins` names each sign-in's
+  `resource`.
+
 ## v0.12.1 — 2026-10-04
 
 A fix for the systemd setup with systemd-mcp 0.3.4. Upgrading from
