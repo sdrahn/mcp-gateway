@@ -56,6 +56,9 @@ type pool struct {
 	// rejected is told when a server with sign_in refused the token an
 	// instance started with (SignIns.Rejected).
 	rejected func(server string, p principal.Principal)
+	// token, if set, gives a running instance of a server with sign_in a
+	// new access token (SignIns.Token, upstreamHooks.token).
+	token func(ctx context.Context, b *config.Backend, p principal.Principal, refused string) (string, time.Time, error)
 
 	backoffBase, backoffMax, stableAfter time.Duration
 	// drainTimeout bounds how long closeAll waits for privileged calls.
@@ -349,10 +352,16 @@ func (p *pool) start(ctx context.Context, b *config.Backend, pr principal.Princi
 		metrics.InstanceFailures.Inc(b.Name, "start")
 		return nil, err
 	}
-	up, err := newUpstream(ctx, b, id, inst, p.log, upstreamHooks{
+	hooks := upstreamHooks{
 		internal:      pr.Transport == principal.TransportInternal,
 		onListChanged: p.onListChanged,
-	})
+	}
+	if unit != b && p.token != nil {
+		hooks.token = func(ctx context.Context, refused string) (string, time.Time, error) {
+			return p.token(ctx, b, pr, refused)
+		}
+	}
+	up, err := newUpstream(ctx, b, id, inst, p.log, hooks)
 	if err != nil && b.SignIn != nil && p.rejected != nil && strings.Contains(err.Error(), signin.RejectedMarker) {
 		// A token the server refused although it had not expired: the
 		// next start refreshes it.

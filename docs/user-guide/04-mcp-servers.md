@@ -561,10 +561,11 @@ What users see:
 - The user signs in at the server's authorization server and consents
   there; the page they land on afterwards names the server and the user
   it signed in for and says to return to the agent.
-- Tokens are renewed when they expire (an instance ends shortly before
-  its access token expires and the next call starts one with a fresh
-  token, and a new session with the server). If the authorization
-  server refuses the renewal, the user is asked to sign in again.
+- Tokens are renewed when they expire: when the server refuses the
+  access token, the running instance gets a renewed one from the gateway
+  and the call goes on, in the same session with the server. If the
+  authorization server refuses the renewal, the user is asked to sign in
+  again.
 - Users sign out on the Cockpit page (Servers) or through the control
   API (`DELETE /v1/sign-ins/tickets`); administrators see and revoke
   everyone's sign-ins there. Signing out revokes the tokens at the

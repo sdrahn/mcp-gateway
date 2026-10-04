@@ -14,6 +14,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
+	"github.com/sdrahn/mcp-gateway/internal/signin"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
@@ -73,10 +74,13 @@ type upstream struct {
 	// onListChanged, if set, is told about the backend's */list_changed
 	// notifications (the router invalidates cached lists).
 	onListChanged func(*upstream, *jsonrpc.Message)
-	unit          string // the instance's name, e.g. its systemd unit
-	conn          *jsonrpc.Conn
-	log           *slog.Logger
-	init          initResult
+	// token answers mcp-gateway/token (upstreamHooks.token); nil for
+	// instances without a principal's sign-in.
+	token func(ctx context.Context, refused string) (string, time.Time, error)
+	unit  string // the instance's name, e.g. its systemd unit
+	conn  *jsonrpc.Conn
+	log   *slog.Logger
+	init  initResult
 
 	nextID    atomic.Int64
 	closed    chan struct{}
@@ -110,6 +114,7 @@ func newUpstream(ctx context.Context, b *config.Backend, id string, inst supervi
 		id:            id,
 		internal:      hooks.internal,
 		onListChanged: hooks.onListChanged,
+		token:         hooks.token,
 		unit:          inst.Name(),
 		conn:          jsonrpc.NewConn(inst),
 		log:           log.With("server", b.Name, "instance", inst.Name()),
@@ -309,6 +314,9 @@ func (u *upstream) unregisterProgress(gw json.RawMessage) {
 type upstreamHooks struct {
 	internal      bool
 	onListChanged func(*upstream, *jsonrpc.Message)
+	// token, for an instance of a server with sign_in, answers its
+	// connector's mcp-gateway/token requests.
+	token func(ctx context.Context, refused string) (string, time.Time, error)
 }
 
 // isAttached reports whether s uses u.
@@ -455,12 +463,59 @@ func (u *upstream) backendRequest(m *jsonrpc.Message) {
 		}
 		return
 	}
+	if m.Method == TokenMethod {
+		_ = u.conn.Write(u.answerToken(m))
+		return
+	}
 	s := u.activeSession()
 	if s == nil {
 		_ = u.conn.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeForbidden, "no client request in progress"))
 		return
 	}
 	_ = u.conn.Write(s.relayBackendRequest(u, m, u.relatedRequest(s)))
+}
+
+// TokenMethod is the request an instance of a server with sign_in (its
+// mcp-http-connector) sends the gateway when the server refused its access
+// token, with the refused token as params.refused; the answer is
+// {"access_token", "expires_at"}. It is never relayed to a client, and
+// the gateway never relays such a request from a client (unknown methods
+// are refused).
+const TokenMethod = "mcp-gateway/token"
+
+// tokenTimeout bounds answering TokenMethod (a refresh through the
+// helper).
+const tokenTimeout = 2 * time.Minute
+
+// answerToken answers m, a TokenMethod request. An instance without a
+// principal's sign-in gets "method not found"; one whose principal must
+// sign in again an error naming signin.RejectedMarker, so that its
+// connector exits as before.
+func (u *upstream) answerToken(m *jsonrpc.Message) *jsonrpc.Message {
+	if u.token == nil {
+		return jsonrpc.NewError(m.ID, jsonrpc.CodeMethodNotFound, "method not found")
+	}
+	var p struct {
+		Refused string `json:"refused"`
+	}
+	_ = json.Unmarshal(m.Params, &p)
+	ctx, cancel := context.WithTimeout(context.Background(), tokenTimeout)
+	defer cancel()
+	tok, exp, err := u.token(ctx, p.Refused)
+	if err != nil {
+		u.log.Info("no new access token for the instance", "err", err)
+		return jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, signin.RejectedMarker+": "+err.Error())
+	}
+	res := map[string]any{"access_token": tok}
+	if !exp.IsZero() {
+		res["expires_at"] = exp.UTC().Format(time.RFC3339)
+	}
+	r, err := jsonrpc.NewResult(m.ID, res)
+	if err != nil {
+		return jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, err.Error())
+	}
+	u.log.Info("new access token handed to the instance")
+	return r
 }
 
 // maxLoggedLine bounds what is logged of a backend line that is not

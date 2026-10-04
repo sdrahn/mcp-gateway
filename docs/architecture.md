@@ -834,13 +834,28 @@ for at least five more minutes (else it refreshes it), writes it to
 starts the unit with `LoadCredential=sign-in:` that file, removing the
 file once the unit runs; the connector sends `Authorization: Bearer
 ${CREDENTIAL:sign-in}`. The refresh token never leaves the gateway and
-the helper. The access token is fixed for the instance's life: the unit
-gets `RuntimeMaxSec=` up to the token's expiry, and a connector whose
-server answers `401` exits (status 77); either way the next call
-refreshes the token and starts a new instance (and a new session with
-the server, as after a `404`, §5.7.2). A refresh that the authorization
-server refuses (`invalid_grant`) deletes the tokens: the principal signs
-in again.
+the helper.
+
+**A running instance gets new tokens when asked** (step 22). The
+instance outlives its access token: when the server answers `401`, the
+connector writes a request `mcp-gateway/token` to its stdout, the pipe
+to the gateway, with the refused token (`{"refused": …}`), and waits
+(up to 150 s) for the answer on its stdin. The gateway takes the request
+out of the instance's stream (it never reaches a client) and, under the
+principal's refresh lock, refreshes the token if it is still the
+refused one, or expires within five minutes, else answers with the
+token another instance got meanwhile: `{"access_token", "expires_at"}`.
+The connector sends the request that met the `401` again, once, with
+the new token, also for its GET stream. If the gateway has none (the
+refresh was refused, the principal signed out), it answers with an
+error naming the refusal, and the connector exits (status 77) as before
+a second `401` would make it: the principal signs in again. Units get
+no `RuntimeMaxSec=` from the token's expiry, so the session with the
+server and its resumable streams survive token changes. A client cannot
+send `mcp-gateway/token` to an instance: the gateway answers unknown
+client requests with "method not found" and drops unknown
+notifications. A refresh that the authorization server refuses
+(`invalid_grant`) deletes the tokens: the principal signs in again.
 
 **Signing out and revoking.** `GET /v1/sign-ins` lists the caller's
 sign-ins (server, since, expiry, scopes; never tokens), and an
@@ -1678,22 +1693,25 @@ link to the gateway in the call's error, step 22), the callback comes to the gat
 tokens are kept encrypted in `state_dir`. Network steps (discovery,
 registration, code exchange, refresh, revocation) run in a confined,
 short-lived helper; the access token reaches the principal's connector
-instance as a systemd credential, fixed for the instance's life, which
-ends when the token expires or is refused.
+instance as a systemd credential at its start, and a new one when the
+connector asks after a `401` (amended in step 22: before, the token was
+fixed for the instance's life, which ended when the token expired or
+was refused).
 *Rationale:* the principal consents at the server's own authorization
 server and the agent never sees a token, as the MCP specification asks
 of servers that act for users. Keeping the gateway free of outbound
 connections (D15) contains a flaw in parsing an authorization server's
-answers like a flaw in a server. A token fixed per instance keeps tokens
-out of the stdio stream and off command lines, with no second channel
-into the instance; the cost is a new instance, and a new session with
-the server, when a token expires (typically hourly), which the gateway
-does transparently.
-*Considered:* passing refreshed tokens to a running connector over its
-stdio (a private notification): sessions with the server survive
-expiry, but every token crosses the gateway's message path and the
-connector needs a second protocol; it can follow if restarts prove too
-costly. The callback on the Cockpit page (which would tie the browser
+answers like a flaw in a server. Tokens stay off command lines. A
+token fixed per instance cost a new instance, and a new session with
+the server, every time a token expired (typically hourly); from step 22
+the connector asks for a new token over its stdio when the server
+refuses one (pull), a request only the gateway answers, so sessions
+survive expiry at the cost of tokens crossing the gateway's pipe to the
+instance, which the gateway reads anyway.
+*Considered:* the gateway pushing a new token shortly before expiry: no
+slow first request after expiry, but a timer per instance and messages
+the connector did not ask for; worth it only if servers drop streams at
+expiry instead of answering `401`. The callback on the Cockpit page (which would tie the browser
 to a local account): remote principals have no Cockpit login. Tokens
 in the kernel keyring or a TPM-sealed key: not available in containers
 and not on every host; a key sealed with `systemd-creds` may follow.
@@ -2090,18 +2108,16 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
 
 22. **Sign-in that lasts, for every client, and releases without
     stray files** (0.13):
-    - a signed-in principal's instance outlives its access token: the
-      gateway refreshes the token shortly before it expires and hands
-      the new one to the running connector over the connector's stdio,
-      as a message only the gateway and the connector speak (never
-      passed to the server, never on a command line); the connector
-      sends it from the next request on. A connector whose server
-      answers `401` asks the gateway for a fresh token over the same
-      channel instead of exiting, and exits (status 77) only when the
-      gateway has none (the principal must sign in again). Instances no
-      longer get `RuntimeMaxSec=` from the token's expiry, so the
-      principal's session with the server, and its resumable streams,
-      stay (§5.7.3, decision D16 amended with the design, §12);
+    - a signed-in principal's instance outlives its access token: a
+      connector whose server answers `401` asks the gateway for a new
+      token over its stdio (`mcp-gateway/token`, a request only the
+      gateway answers; never passed to a client, never on a command
+      line), sends the request again with it, and exits (status 77)
+      only when the gateway has none (the principal must sign in
+      again). Instances no longer get `RuntimeMaxSec=` from the token's
+      expiry, so the principal's session with the server, and its
+      resumable streams, stay (§5.7.3, decision D16 amended, §12)
+      (done);
     - signing in works with clients without URL elicitation: the call's
       error, and the `notifications/message`, carry a short link to the
       gateway's HTTP listener (`<origin>/oauth/start/<id>`, valid while
@@ -2153,10 +2169,11 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
   stay polled.
 - The kernel audit subsystem is optional (`audit.kernel: auto`); in
   containers without `CAP_AUDIT_WRITE` only the journal records remain.
-- Servers with `sign_in` (§5.7.3): an instance's access token is fixed
-  for its life, so an instance ends when its token expires (typically
-  hourly) and the next call starts a new one, with a new session at the
-  server; from step 22 the running instance gets the new token. Sign-in
+- Servers with `sign_in` (§5.7.3): from step 22 a running instance gets
+  a new access token when its server refuses one, so the first request
+  after a token expired waits for a refresh (about a second); a server
+  that drops its streams at expiry instead of answering `401` would cut
+  them. Sign-in
   needs the HTTP listener, reachable from the principals' browsers; a
   gateway serving local clients only cannot offer it. A client without
   URL elicitation gets the link in the call's error (step 22), which the

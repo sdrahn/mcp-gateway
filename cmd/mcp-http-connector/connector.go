@@ -31,9 +31,10 @@ const resumeAttempts = 5
 var errSessionGone = errors.New("the server ended the session (HTTP 404)")
 
 // errUnauthorized means the server refused the principal's access token
-// (HTTP 401, with -sign-in): the connector exits with exitUnauthorized,
-// and the gateway, seeing the error (signin.RejectedMarker), refreshes
-// the token for the next instance.
+// (HTTP 401, with -sign-in) and the gateway had no new one, or the server
+// refused that too: the connector exits with exitUnauthorized, and the
+// gateway, seeing the error (signin.RejectedMarker), has the principal
+// sign in again.
 var errUnauthorized = errors.New("the server refused the access token (HTTP 401)")
 
 // exitUnauthorized is the exit status for errUnauthorized.
@@ -57,10 +58,18 @@ type connector struct {
 	initID   string // the initialize request's id
 	getOnce  sync.Once
 
+	// The requests for a new access token (token.go).
+	tokMu    sync.Mutex
+	tokSeq   int
+	renewing *renewal
+	tokWait  map[string]chan tokenAnswer
+
 	fatal     chan error
 	fatalOnce sync.Once
 	stopped   chan struct{} // closed when the connector stops
 	stopOnce  sync.Once
+	// stdinDone is closed when stdin ended: no answer can come.
+	stdinDone chan struct{}
 }
 
 // options are the connector's flags besides -url.
@@ -110,13 +119,14 @@ func newConnector(endpoint string, o options) (*connector, error) {
 		return nil, err
 	}
 	return &connector{
-		signIn:   o.signIn,
-		endpoint: endpoint,
-		headers:  h,
-		client:   &http.Client{Transport: transport},
-		log:      slog.New(slog.DiscardHandler),
-		fatal:    make(chan error, 1),
-		stopped:  make(chan struct{}),
+		signIn:    o.signIn,
+		endpoint:  endpoint,
+		headers:   h,
+		client:    &http.Client{Transport: transport},
+		log:       slog.New(slog.DiscardHandler),
+		fatal:     make(chan error, 1),
+		stopped:   make(chan struct{}),
+		stdinDone: make(chan struct{}),
 	}, nil
 }
 
@@ -132,6 +142,11 @@ func (c *connector) serve(ctx context.Context, stdin io.Reader, stdout io.Writer
 		r := bufio.NewReaderSize(stdin, 64<<10)
 		for {
 			line, err := readLine(r)
+			// The gateway's answers about tokens go to the request
+			// waiting for them, also while initialize is being posted.
+			if c.signIn && c.tokenReply(line) {
+				continue
+			}
 			if len(bytes.TrimSpace(line)) > 0 {
 				select {
 				case lines <- line:
@@ -140,6 +155,7 @@ func (c *connector) serve(ctx context.Context, stdin io.Reader, stdout io.Writer
 				}
 			}
 			if err != nil {
+				close(c.stdinDone)
 				readErr <- err
 				return
 			}
@@ -227,6 +243,12 @@ func idKey(id json.RawMessage) string {
 // post sends one message from the gateway to the server and relays the
 // server's answer.
 func (c *connector) post(ctx context.Context, body []byte) {
+	c.postOnce(ctx, body, true)
+}
+
+// postOnce posts body; after a 401, with retry, it gets a new access
+// token from the gateway and posts it again.
+func (c *connector) postOnce(ctx context.Context, body []byte, retry bool) {
 	var m message
 	if err := json.Unmarshal(body, &m); err != nil {
 		c.log.Warn("not a JSON-RPC message from the gateway; dropped", "err", err)
@@ -249,12 +271,22 @@ func (c *connector) post(ctx context.Context, body []byte) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
-	c.setHeaders(req)
+	used := c.setHeaders(req)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		if ctx.Err() == nil {
 			c.answerError(m.ID, isRequest, err)
 		}
+		return
+	}
+	if resp.StatusCode == http.StatusUnauthorized && c.signIn && retry {
+		_ = resp.Body.Close()
+		if c.renew(ctx, used) {
+			c.postOnce(ctx, body, false)
+			return
+		}
+		c.answerError(m.ID, isRequest, errUnauthorized)
+		c.fail(errUnauthorized)
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -344,10 +376,13 @@ func (c *connector) listen(ctx context.Context) {
 		if lastID != "" {
 			req.Header.Set("Last-Event-ID", lastID)
 		}
-		c.setHeaders(req)
+		used := c.setHeaders(req)
 		resp, err := c.client.Do(req)
 		switch {
 		case err != nil:
+		case resp.StatusCode == http.StatusUnauthorized && c.signIn && c.renew(ctx, used):
+			_ = resp.Body.Close()
+			continue // at once, with the new token
 		case resp.StatusCode == http.StatusMethodNotAllowed:
 			_ = resp.Body.Close()
 			return
@@ -492,20 +527,23 @@ func (c *connector) answerError(id json.RawMessage, isRequest bool, err error) {
 	c.write(b)
 }
 
-func (c *connector) setHeaders(req *http.Request) {
+// setHeaders sets the request's headers and returns the access token it
+// carries (-sign-in).
+func (c *connector) setHeaders(req *http.Request) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for k, vs := range c.headers {
 		for _, v := range vs {
 			req.Header.Add(k, v)
 		}
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.session != "" {
 		req.Header.Set("Mcp-Session-Id", c.session)
 	}
 	if c.protocol != "" {
 		req.Header.Set("MCP-Protocol-Version", c.protocol)
 	}
+	return strings.TrimPrefix(c.headers.Get("Authorization"), "Bearer ")
 }
 
 func (c *connector) sessionID() string {

@@ -124,6 +124,16 @@ sign_in:
 	if text, isErr := toolResult(t, result); isErr || text != "signed in as alice" {
 		t.Fatalf("whoami: %q %v\n%s", text, isErr, e.gwLogs.String())
 	}
+	// The access token expires at the server: the running instance gets
+	// a refreshed one from the gateway and the call goes through, without
+	// a new instance.
+	as.ExpireAccessTokens()
+	if text, isErr := toolResult(t, whoami(150)); isErr || text != "signed in as alice" || as.Refreshes() != 1 {
+		t.Fatalf("after expiry: %q %v, refreshes %d\n%s", text, isErr, as.Refreshes(), e.gwLogs.String())
+	}
+	if n := strings.Count(e.gwLogs.String(), `msg="instance started" server=tickets`); n != 1 {
+		t.Errorf("instances started: %d", n)
+	}
 	c.request(101, "tools/list", map[string]any{})
 	if got := listNames(t, readResponse(t, c, 101), "tools", "name"); got != "whoami" {
 		t.Errorf("tools after signing in: %s", got)

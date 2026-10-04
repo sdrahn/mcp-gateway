@@ -310,10 +310,6 @@ type Backend struct {
 	// directory may define one, and only with run_as: root.
 	Privileged bool `yaml:"privileged"`
 
-	// RuntimeMax, if set, ends each instance after this long (the life of
-	// its access token, set by the gateway for a start; not in files).
-	RuntimeMax time.Duration `yaml:"-"`
-
 	// Warnings are the deprecated keys the file uses (see deprecation).
 	Warnings []string `yaml:"-"`
 }

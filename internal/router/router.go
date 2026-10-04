@@ -70,6 +70,9 @@ type SignIns interface {
 	Prepare(ctx context.Context, b *config.Backend, p principal.Principal) (*config.Backend, func(), error)
 	// Rejected records that the server refused p's access token.
 	Rejected(server string, p principal.Principal)
+	// Token gives a running instance a new access token after its
+	// server refused the token refused (mcp-gateway/token).
+	Token(ctx context.Context, b *config.Backend, p principal.Principal, refused string) (string, time.Time, error)
 	// DefinitionChanged is told that a server's definition old was
 	// replaced by next (nil: removed); tokens that no longer fit go.
 	DefinitionChanged(old, next *config.Backend)
@@ -228,6 +231,7 @@ func (r *Router) init() {
 		if r.SignIns != nil {
 			r.pool.prepare = r.SignIns.Prepare
 			r.pool.rejected = r.SignIns.Rejected
+			r.pool.token = r.SignIns.Token
 		}
 		r.limiter = pep.NewLimiter()
 	})

@@ -27,6 +27,20 @@ type fakeSignIns struct {
 	changed []string
 	// link makes Run answer as for a client without URL elicitation.
 	link bool
+	// tokens records the refused tokens of Token calls; noToken makes
+	// them fail as for a principal who must sign in again.
+	tokens  []string
+	noToken bool
+}
+
+func (f *fakeSignIns) Token(_ context.Context, b *config.Backend, p principal.Principal, refused string) (string, time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tokens = append(f.tokens, refused)
+	if f.noToken {
+		return "", time.Time{}, signin.ErrNotSignedIn
+	}
+	return "fresh", time.Now().Add(time.Hour), nil
 }
 
 func (f *fakeSignIns) DefinitionChanged(old, next *config.Backend) {
@@ -130,6 +144,38 @@ func TestSignIn(t *testing.T) {
 	si.mu.Unlock()
 	if text, _ := toolText(t, c.roundTrip(5, "tools/call", map[string]any{"name": "tickets__read_file"})); text != "tickets did read_file" || si.runs != 3 {
 		t.Fatalf("after refusal: %q, runs %d", text, si.runs)
+	}
+}
+
+// An instance of a server with sign_in gets a new access token when it
+// asks (mcp-gateway/token, after its server refused the token), as long
+// as the principal is signed in; other instances do not.
+func TestSignInTokenRenewal(t *testing.T) {
+	r, _ := testRouter(t, time.Minute)
+	si := &fakeSignIns{signed: map[string]bool{}}
+	r.SignIns = si
+	r.Backends["tickets"] = &config.Backend{Name: "tickets", Isolation: config.IsolationPrincipal,
+		Discovery: config.DiscoveryInstance, SignIn: &config.SignIn{}}
+	c := connect(t, r, alice(), "", nil)
+	if _, isErr := toolText(t, c.roundTrip(1, "tools/call", map[string]any{"name": "tickets__sign_in"})); isErr {
+		t.Fatal("sign in failed")
+	}
+	text, _ := toolText(t, c.roundTrip(2, "tools/call", map[string]any{"name": "tickets__read_renewed_token"}))
+	if !strings.Contains(text, `"access_token":"fresh"`) || !strings.Contains(text, `"expires_at"`) ||
+		len(si.tokens) != 1 || si.tokens[0] != "old" {
+		t.Errorf("renewal: %q, asked %v", text, si.tokens)
+	}
+	// No token (the refresh was refused): the connector is told the token
+	// was refused, and ends.
+	si.mu.Lock()
+	si.noToken = true
+	si.mu.Unlock()
+	if text, _ := toolText(t, c.roundTrip(3, "tools/call", map[string]any{"name": "tickets__read_renewed_token"})); !strings.Contains(text, "token error: "+signin.RejectedMarker) {
+		t.Errorf("signed out: %q", text)
+	}
+	// A server without sign_in does not know the method.
+	if text, _ := toolText(t, c.roundTrip(4, "tools/call", map[string]any{"name": "fs__read_renewed_token"})); !strings.Contains(text, "token error: method not found") {
+		t.Errorf("without sign_in: %q", text)
 	}
 }
 

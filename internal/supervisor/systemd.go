@@ -112,7 +112,7 @@ func (s *Systemd) Properties(b *config.Backend, p principal.Principal, fd int, m
 		prop("StandardOutput", "null"),
 		prop("StandardError", "journal"),
 		prop("CollectMode", "inactive-or-failed"),
-		prop("RuntimeMaxUSec", uint64(runtimeMax(b)/time.Microsecond)),
+		prop("RuntimeMaxUSec", uint64(instanceRuntimeMax/time.Microsecond)),
 	}
 	if b.Privileged {
 		props = append(props, privilegedProperties(b, prop)...)
@@ -163,15 +163,6 @@ func (s *Systemd) Properties(b *config.Backend, p principal.Principal, fd int, m
 		props = append(props, prop("LoadCredential", lc))
 	}
 	return props, nil
-}
-
-// runtimeMax is how long an instance of b may run: instanceRuntimeMax,
-// or less if the gateway says so (the life of its access token).
-func runtimeMax(b *config.Backend) time.Duration {
-	if b.RuntimeMax > 0 && b.RuntimeMax < instanceRuntimeMax {
-		return max(b.RuntimeMax, time.Second)
-	}
-	return instanceRuntimeMax
 }
 
 // privilegedProperties are those of a root system service that may

@@ -970,8 +970,8 @@ END
 	echo "  ${si_unit:-no unit}: $si_ctx; $(systemctl show -p IPAddressAllow -p RuntimeMaxUSec "${si_unit:-none}" 2>/dev/null | tr '\n' ' ')"
 	check "the instance runs in mcpsrv_http_t" has_type "$si_ctx" mcpsrv_http_t
 	check "the instance may reach the server's address only" sh -c "systemctl show -p IPAddressAllow --value '${si_unit:-none}' | grep -q 127.0.0.4"
-	si_runtime() { [ "$(systemctl show -p RuntimeMaxUSec --value "${si_unit:-none}")" != infinity ] && ! systemctl show -p RuntimeMaxUSec --value "${si_unit:-none}" | grep -q '^8h$'; }
-	check "the instance ends before its token expires" si_runtime
+	si_runtime() { systemctl show -p RuntimeMaxUSec --value "${si_unit:-none}" | grep -q '^8h$'; }
+	check "the instance does not end with its token (it asks for a new one)" si_runtime
 	si_no_token_file() { [ -z "$(ls -A /run/mcp-gateway/credentials 2>/dev/null)" ]; }
 	check "the token file is gone once the unit started" si_no_token_file
 	si_cmdline() { ! tr '\0' ' ' <"/proc/${si_pid:-1}/cmdline" | grep -qE 'Bearer [A-Za-z0-9]'; }

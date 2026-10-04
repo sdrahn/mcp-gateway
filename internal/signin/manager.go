@@ -553,8 +553,9 @@ func (m *Manager) Run(ctx context.Context, el broker.Elicitor, b *config.Backend
 
 // Prepare returns b as an instance of it for p is started: with the
 // principal's access token as the credential sign-in (refreshed first if
-// it expires within refreshBefore) and a runtime limit at its expiry.
-// cleanup removes the token file; call it once the unit started.
+// it expires within refreshBefore). The instance asks for a new token
+// when the server refuses it (Token). cleanup removes the token file;
+// call it once the unit started.
 func (m *Manager) Prepare(ctx context.Context, b *config.Backend, p principal.Principal) (*config.Backend, func(), error) {
 	k := KeyOf(p)
 	lock := m.refreshLock(b.Name, k)
@@ -584,10 +585,32 @@ func (m *Manager) Prepare(ctx context.Context, b *config.Backend, p principal.Pr
 	}
 	nb := *b
 	nb.Credentials = append(slices.Clone(b.Credentials), config.SignInCredential+":"+path)
-	if !e.Expiry.IsZero() {
-		nb.RuntimeMax = max(e.Expiry.Sub(m.now())-time.Minute, time.Minute)
-	}
 	return &nb, cleanup, nil
+}
+
+// Token returns p's access token for b and its expiry (zero if unknown),
+// for a running instance whose server refused the token refused (HTTP
+// 401): the token is refreshed if it is still refused, or expires within
+// refreshBefore; one another instance refreshed meanwhile is returned as
+// is. ErrNotSignedIn means p must sign in again.
+func (m *Manager) Token(ctx context.Context, b *config.Backend, p principal.Principal, refused string) (string, time.Time, error) {
+	k := KeyOf(p)
+	lock := m.refreshLock(b.Name, k)
+	lock.Lock()
+	defer lock.Unlock()
+	e, t, ok, err := m.Store.Get(b.Name, k)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	if !ok {
+		return "", time.Time{}, ErrNotSignedIn
+	}
+	if t.AccessToken == refused || !e.Expiry.IsZero() && e.Expiry.Sub(m.now()) < refreshBefore {
+		if e, t, err = m.refreshTokens(ctx, b, p, t); err != nil {
+			return "", time.Time{}, err
+		}
+	}
+	return t.AccessToken, e.Expiry, nil
 }
 
 func (m *Manager) refreshLock(server string, k Key) *sync.Mutex {

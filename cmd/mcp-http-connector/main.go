@@ -48,7 +48,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	fs.Var(&resolve, "resolve", `connect to host:port at address, "host:port:address" (repeatable): the addresses the gateway resolved and the instance may reach`)
 	proxy := fs.String("proxy", "", "tunnel to the server through this HTTP proxy (http://host:port or https://host:port; CONNECT, for an https:// -url); none is taken from the environment")
 	fs.Var(&proxyHeaders, "proxy-header", `a header sent to the proxy with CONNECT, "Name: value", with ${CREDENTIAL:name} as in -header (repeatable)`)
-	signIn := fs.Bool("sign-in", false, "the Authorization header is a principal's access token (sign_in): a 401 ends the connector with status 77, so that the gateway refreshes the token")
+	signIn := fs.Bool("sign-in", false, "the Authorization header is a principal's access token (sign_in): after a 401 the connector asks the gateway for a new one (mcp-gateway/token on stdout) and sends the request again; it ends with status 77 if the gateway has none")
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(stderr, "usage: %s -url URL [options]\n\nConnects an MCP server that speaks Streamable HTTP to stdin/stdout.\n\n", name)
@@ -79,7 +79,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	c.log = log
 	if err := c.serve(ctx, stdin, stdout); errors.Is(err, errUnauthorized) {
-		log.Info("the server refused the access token; ending for a refreshed one", "url", *url)
+		log.Info("the server refused the access token and the gateway has no new one; ending", "url", *url)
 		return exitUnauthorized
 	} else if err != nil {
 		log.Error("connection to the server failed", "url", *url, "err", err)
