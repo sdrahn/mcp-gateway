@@ -53,6 +53,12 @@ minor release (with a warning) and removed in the next.
   warning. The warnings about servers without tools, users without a
   role and missing snapper configs say what to do.
 
+## v0.10.1 — 2026-10-04
+
+A fix for MCP servers given secrets. Upgrading from 0.10.0 needs no
+changes; restart the gateway after the update (`systemctl restart
+mcp-gateway.service`) so that new instances get the changed sandbox.
+
 ### Fixed
 
 - MCP servers can read their secrets (`credentials:`) under SELinux: the
