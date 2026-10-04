@@ -60,8 +60,9 @@ Access must be governed. The gateway shall
 
 ### Non-goals (for now)
 
-- Proxying MCP servers that already speak HTTP (possible later, same
-  pipeline).
+- Signing in to MCP servers that speak HTTP for each principal (OAuth to
+  the upstream server); servers with a key or token per server are
+  planned for 0.11 (§11, step 20).
 - Being an identity provider. The gateway consumes identities from the
   kernel (local) or an external OIDC IdP (remote).
 - Content-level safety filtering of tool output (prompt-injection
@@ -1737,6 +1738,49 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       stream. A backend's request or log message belongs to a client
       request when the session has exactly one call in flight on that
       backend: JSON-RPC does not say which call a backend means (done).
+20. **Changes at once, a doctor that names what to do, and MCP servers
+    that speak HTTP** (0.11):
+    - changes to `gateway.yaml`, `servers.d`, the TLS certificate and
+      key and the SMTP password file are noticed when they are written
+      (inotify on the files and their directories, which also catches a
+      file replaced by rename, as certbot and editors do), not within
+      `policy.watch_interval`; a burst of writes is reloaded once, after
+      the last. Polling stays as the fallback (a file system without
+      inotify, a watch that could not be set) and keeps its interval;
+    - the doctor warns only about what an administrator can change, and
+      each warning names the change; a check that cannot tell whether
+      something is wrong (as `polkit` for a server that may not use
+      polkit at all) reports OK with a note, or nothing. Every WARN is
+      gone through against this rule and the cases are tested. Its
+      output is stable for monitoring: the exit status stays 1 for a
+      failure and 0 otherwise, `--strict` exits 3 when there are
+      warnings, and `--json` gives each result a stable `check` id and
+      `status`, documented in the reference; Cockpit's
+      Servers tab shows the doctor's summary with a link to the details;
+    - approval mail reaches the users whose primary group an approver
+      group is also where the user database does not enumerate (SSSD,
+      LDAP without `enumerate = true`, §12): besides `getent passwd`,
+      the gateway looks at the local principals it has seen (kept in
+      `state_dir`, name and primary group, read with `getpwnam`, which
+      needs no enumeration). The doctor warns about an approver group in
+      which neither finds anyone, naming `user:` approvers as the way
+      out;
+    - MCP servers that speak Streamable HTTP, on the host or elsewhere,
+      go through the same pipeline as stdio servers (policy, approvals,
+      obligations, audit, limits): a definition gives `url` instead of
+      `command`. The gateway's domain gets no outbound network: each
+      principal's instance of such a server is a connector
+      (`mcp-http-connector`, in its own domain `mcpsrv_http_t`), started
+      by systemd like other instances, which speaks stdio to the gateway
+      and HTTP to the server, with the instance's network limited to the
+      server's address (`IPAddressAllow`, resolved at start). Headers
+      (an API key, a bearer token) come from `credentials`, per server;
+      the server's notifications, requests (elicitation, sampling) and
+      its own session and stream resumption are relayed as for stdio
+      servers. `mcp-gateway-admin inspect`, `profile` and the doctor
+      handle such servers; a VM test runs one. Signing in to the server
+      for each principal (OAuth to the upstream) is not part of 0.11
+      (§12).
 
 ## 12. Open items
 
@@ -1748,13 +1792,17 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
   and lives in memory: a gateway restart ends all HTTP sessions anyway.
 - Approval mail finds the users whose primary group an approver group is
   by enumerating users (`getent passwd`); SSSD and LDAP often do not
-  enumerate, so name such approvers as `user:` there.
+  enumerate, so name such approvers as `user:` there (step 20 also uses
+  the principals the gateway has seen).
 - Exact JSON-RPC error codes for policy denials (align with any future
   MCP-spec guidance).
 - Policy changes are noticed by polling (up to `policy.watch_interval`
   late); OPA has no change notification over its REST API.
 - The kernel audit subsystem is optional (`audit.kernel: auto`); in
   containers without `CAP_AUDIT_WRITE` only the journal records remain.
+- MCP servers that speak HTTP get headers per server (`credentials`);
+  signing in for each principal (OAuth to the upstream server, with the
+  principal's consent) is not done (step 20).
 - MCS pairs of stopped containers (their files keep the pair) are not
   known to the gateway (container storage is readable by root only), so a
   container started again, or a new one, can take an instance's pair; the
