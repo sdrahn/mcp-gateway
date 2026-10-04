@@ -43,6 +43,13 @@ func TestHTTPTarget(t *testing.T) {
 		t.Errorf("unknown host: %v", err)
 	}
 
+	// With a proxy, the proxy is resolved and reached, not the server
+	// (the proxy resolves the server's name).
+	b.URL, b.Proxy = "https://unknown.example.com/", "http://mcp.example.com:3128"
+	if args, _, err := httpTarget(context.Background(), b, lookup); err != nil || !slices.Equal(args, []string{"-resolve", "mcp.example.com:3128:192.0.2.7", "-resolve", "mcp.example.com:3128:2001:db8::1"}) {
+		t.Errorf("proxy: %v %v", args, err)
+	}
+
 	props := httpProperties(allow)
 	if len(props) != 2 || props[0].Name != "IPAddressDeny" || props[1].Name != "IPAddressAllow" {
 		t.Errorf("props %+v", props)

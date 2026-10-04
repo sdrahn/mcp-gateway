@@ -13,7 +13,9 @@
 //	read_file   {path}   a file's content (what the sandbox lets it see)
 //
 // With -http ADDR it is instead an MCP server over Streamable HTTP
-// (http.go).
+// (http.go); with -https ADDR CERTFILE the same over TLS, with a
+// certificate for mcp.vmtest it makes and writes to CERTFILE; with
+// -proxy ADDR an HTTP proxy that only tunnels (CONNECT).
 package main
 
 import (
@@ -103,8 +105,19 @@ func call(name string, args map[string]string) map[string]any {
 }
 
 func main() {
-	if len(os.Args) == 3 && os.Args[1] == "-http" {
-		if err := serveHTTP(os.Args[2]); err != nil {
+	if len(os.Args) >= 3 && strings.HasPrefix(os.Args[1], "-") {
+		var err error
+		switch {
+		case len(os.Args) == 3 && os.Args[1] == "-http":
+			err = serveHTTP(os.Args[2])
+		case len(os.Args) == 4 && os.Args[1] == "-https":
+			err = serveHTTPS(os.Args[2], os.Args[3])
+		case len(os.Args) == 3 && os.Args[1] == "-proxy":
+			err = serveProxy(os.Args[2])
+		default:
+			err = fmt.Errorf("usage: %s [-http ADDR | -https ADDR CERTFILE | -proxy ADDR]", os.Args[0])
+		}
+		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

@@ -32,12 +32,17 @@ func ipEntry(ip net.IP, prefix int) ipAddress {
 	return ipAddress{Family: 10, Address: ip.To16(), PrefixLen: uint32(prefix)}
 }
 
-// httpTarget resolves the host of a server defined with url (b.URL),
-// with lookup (net.DefaultResolver.LookupIP outside tests). The connector
-// gets the addresses (-resolve host:port:address), since its domain
-// cannot resolve names, and the unit may reach those only.
+// httpTarget resolves the host of a server defined with url (b.URL), or
+// of its proxy (b.Proxy), which then resolves the server's name, with
+// lookup (net.DefaultResolver.LookupIP outside tests). The connector gets
+// the addresses (-resolve host:port:address), since its domain cannot
+// resolve names, and the unit may reach those only.
 func httpTarget(ctx context.Context, b *config.Backend, lookup func(ctx context.Context, network, host string) ([]net.IP, error)) (args []string, allow []ipAddress, err error) {
-	u, err := url.Parse(b.URL)
+	target := b.URL
+	if b.Proxy != "" {
+		target = b.Proxy
+	}
+	u, err := url.Parse(target)
 	if err != nil {
 		return nil, nil, err
 	}

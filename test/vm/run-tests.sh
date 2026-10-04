@@ -829,6 +829,59 @@ rm -f /etc/mcp-gateway/servers.d/httpecho.yaml /etc/mcp-gateway/credentials/http
 kill "$http_pid" 2>/dev/null
 wait "$http_pid" 2>/dev/null
 
+section "MCP server over HTTPS through a proxy"
+# proxy: the connector tunnels through the proxy (CONNECT, on a proxy
+# port, 3128) with the proxy credential, verifies the server's
+# certificate, and the instance may reach the proxy's address only. The
+# proxy (127.0.0.2) resolves the server's name (mcp.vmtest, 127.0.0.3);
+# the gateway never does.
+grep -q 'mcp\.vmtest' /etc/hosts || echo '127.0.0.3 mcp.vmtest' >>/etc/hosts
+/usr/libexec/mcpgw-privtest -https 127.0.0.3:8443 /root/vmtest-server.pem &
+https_pid=$!
+/usr/libexec/mcpgw-privtest -proxy 127.0.0.2:3128 2>/root/vmtest-proxy.log &
+proxy_pid=$!
+eventually 10 test -s /root/vmtest-server.pem
+install -m 0644 /root/vmtest-server.pem /etc/pki/trust/anchors/mcp-vmtest.pem && update-ca-certificates
+echo vmtest-token | install -m 0600 /dev/stdin /etc/mcp-gateway/credentials/httptoken
+printf %s vmtest:proxypass | base64 | install -m 0600 /dev/stdin /etc/mcp-gateway/credentials/proxyauth
+jq '.roles.tester.permissions += [{"server": "httpsproxied", "tool": "whoami"}]' \
+	/etc/mcp-gateway/policy/rbac/data.json >/root/http-data.json &&
+	cat /root/http-data.json >/etc/mcp-gateway/policy/rbac/data.json
+cat >/etc/mcp-gateway/servers.d/httpsproxied.yaml <<'END'
+name: httpsproxied
+url: https://mcp.vmtest:8443/mcp
+proxy: http://127.0.0.2:3128
+credentials: [httptoken, proxyauth]
+headers:
+  Authorization: "Bearer ${CREDENTIAL:httptoken}"
+proxy_headers:
+  Proxy-Authorization: "Basic ${CREDENTIAL:proxyauth}"
+END
+restorecon /etc/mcp-gateway/servers.d/httpsproxied.yaml /etc/mcp-gateway/credentials/httptoken /etc/mcp-gateway/credentials/proxyauth
+proxy_call() {
+	out=$(runuser -u alice -- /usr/local/bin/mcpcall --server httpsproxied --method tools/call \
+		--params '{"name":"whoami","arguments":{}}' 2>&1)
+	rc=$?
+}
+proxy_works() { proxy_call && grep -qF "authorization: Bearer vmtest-token; proxy-authorization: (none)" <<<"$out"; }
+check "a call reaches the server through the proxy, over TLS" eventually 40 proxy_works
+echo "  rc=$rc ${out:0:300}"
+check "the connector tunnelled through the proxy" grep -qF "CONNECT mcp.vmtest:8443" /root/vmtest-proxy.log
+p_unit=$(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-httpsproxied-*' | awk 'NR==1{print $1}')
+p_allow=$(systemctl show -p IPAddressAllow --value "${p_unit:-none}" 2>/dev/null)
+echo "  ${p_unit:-no unit}: IPAddressAllow=$p_allow"
+check "the instance may reach the proxy's address" grep -qF 127.0.0.2 <<<"$p_allow"
+proxy_only() { ! grep -qF 127.0.0.3 <<<"$p_allow"; }
+check "the instance may not reach the server's address" proxy_only
+p_pid=$(systemctl show -p MainPID --value "${p_unit:-none}" 2>/dev/null)
+proxy_secret_hidden() { ! tr '\0' ' ' <"/proc/${p_pid:-1}/cmdline" | grep -qE 'vmtest-token|proxypass|dm10ZXN0'; }
+check "the proxy credential is not on the instance's command line" proxy_secret_hidden
+rm -f /etc/mcp-gateway/servers.d/httpsproxied.yaml /etc/mcp-gateway/credentials/httptoken \
+	/etc/mcp-gateway/credentials/proxyauth /etc/pki/trust/anchors/mcp-vmtest.pem
+update-ca-certificates
+kill "$https_pid" "$proxy_pid" 2>/dev/null
+wait "$https_pid" "$proxy_pid" 2>/dev/null
+
 section "Live reload of server definitions"
 # A server added, broken, fixed and removed while the gateway runs: it
 # keeps running (same PID), and a broken definition changes nothing.

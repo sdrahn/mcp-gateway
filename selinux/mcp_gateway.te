@@ -126,6 +126,10 @@ fs_getattr_xattr_fs(mcpsrv_docs_t)
 mcp_gateway_backend_template(http)
 allow mcpsrv_http_t self:tcp_socket create_stream_socket_perms;
 corenet_tcp_connect_http_port(mcpsrv_http_t)
+# A proxy (proxy: in the definition) on a proxy port: 3128, 8080. The
+# instance then reaches the proxy only (IPAddressAllow=).
+corenet_tcp_connect_squid_port(mcpsrv_http_t)
+corenet_tcp_connect_http_cache_port(mcpsrv_http_t)
 miscfiles_read_generic_certs(mcpsrv_http_t)
 tunable_policy(`mcpsrv_http_connect_any',`
 	corenet_tcp_connect_all_ports(mcpsrv_http_t)

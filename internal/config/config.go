@@ -261,11 +261,19 @@ type Backend struct {
 	// Headers are sent with each request to URL; ${CREDENTIAL:name} in a
 	// value is the credential name (Credentials), which only the
 	// connector reads.
-	Headers     map[string]string `yaml:"headers"`
-	SELinuxType string            `yaml:"selinux_type"`
-	Isolation   Isolation         `yaml:"isolation"`
-	Network     bool              `yaml:"network"`
-	RunAs       string            `yaml:"run_as"`
+	Headers map[string]string `yaml:"headers"`
+	// Proxy is an HTTP proxy (http://host:port, or https://) for an
+	// https URL: the connector tunnels through it (CONNECT; TLS still
+	// ends at the server), and the instances may reach the proxy's
+	// addresses only. No proxy is taken from the environment.
+	Proxy string `yaml:"proxy"`
+	// ProxyHeaders are sent to Proxy with each CONNECT (for example
+	// Proxy-Authorization), with ${CREDENTIAL:name} as in Headers.
+	ProxyHeaders map[string]string `yaml:"proxy_headers"`
+	SELinuxType  string            `yaml:"selinux_type"`
+	Isolation    Isolation         `yaml:"isolation"`
+	Network      bool              `yaml:"network"`
+	RunAs        string            `yaml:"run_as"`
 	// Discovery is "shared" (tool, prompt and resource template lists
 	// come from a gateway-owned instance without any user's identity and
 	// are cached, so listing does not start instances for every user) or
@@ -828,6 +836,8 @@ func (b *Backend) Validate() error {
 		}
 	} else if len(b.Headers) > 0 {
 		return errors.New("headers: only with url")
+	} else if b.Proxy != "" || len(b.ProxyHeaders) > 0 {
+		return errors.New("proxy: only with url")
 	}
 	if len(b.Command) == 0 || !filepath.IsAbs(b.Command[0]) {
 		return errors.New("command: must be non-empty and start with an absolute path (or give url)")
@@ -943,12 +953,18 @@ var HTTPConnector = filepath.Join(version.LibexecDir, "mcp-gateway", "mcp-http-c
 
 var headerName = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+.^_|~-]+$`)
 
-// connectorCommand runs HTTPConnector for URL with the headers, in a
-// fixed order (the command identifies the definition).
+// connectorCommand runs HTTPConnector for URL with the headers and the
+// proxy, in a fixed order (the command identifies the definition).
 func (b *Backend) connectorCommand() []string {
 	cmd := []string{HTTPConnector, "-url", b.URL}
 	for _, k := range slices.Sorted(maps.Keys(b.Headers)) {
 		cmd = append(cmd, "-header", k+": "+b.Headers[k])
+	}
+	if b.Proxy != "" {
+		cmd = append(cmd, "-proxy", b.Proxy)
+		for _, k := range slices.Sorted(maps.Keys(b.ProxyHeaders)) {
+			cmd = append(cmd, "-proxy-header", k+": "+b.ProxyHeaders[k])
+		}
 	}
 	return cmd
 }
@@ -977,17 +993,50 @@ func (b *Backend) validateURL() error {
 	if b.Privileged {
 		return errors.New("privileged: not with url (the server runs elsewhere)")
 	}
+	if b.Proxy != "" {
+		if err := checkProxy(b.Proxy); err != nil {
+			return err
+		}
+		if u.Scheme != "https" {
+			return errors.New("proxy: only for an https:// url")
+		}
+	} else if len(b.ProxyHeaders) > 0 {
+		return errors.New("proxy_headers: only with proxy")
+	}
 	creds, _ := b.ParseCredentials()
-	for k, v := range b.Headers {
+	if err := checkHeaders("headers", b.Headers, creds); err != nil {
+		return err
+	}
+	return checkHeaders("proxy_headers", b.ProxyHeaders, creds)
+}
+
+// checkProxy accepts http:// and https:// proxies given as a host and a
+// port, without user information (credentials go into proxy_headers).
+func checkProxy(s string) error {
+	u, err := url.Parse(s)
+	if err != nil || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("proxy: %q is not a proxy URL (http://host:port, without user information; send credentials with proxy_headers)", s)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("proxy: scheme must be http or https, not %q", u.Scheme)
+	}
+	return nil
+}
+
+// checkHeaders checks the headers of key (headers, proxy_headers): names,
+// values without line breaks, and credentials that credentials lists.
+func checkHeaders(key string, headers map[string]string, creds []Credential) error {
+	for _, k := range slices.Sorted(maps.Keys(headers)) {
+		v := headers[k]
 		if !headerName.MatchString(k) {
-			return fmt.Errorf("headers: %q is not a header name", k)
+			return fmt.Errorf("%s: %q is not a header name", key, k)
 		}
 		if strings.ContainsAny(v, "\r\n") {
-			return fmt.Errorf("headers: %s: the value has a line break", k)
+			return fmt.Errorf("%s: %s: the value has a line break", key, k)
 		}
 		for _, m := range credentialRef.FindAllStringSubmatch(v, -1) {
 			if !slices.ContainsFunc(creds, func(c Credential) bool { return c.Name == m[1] }) {
-				return fmt.Errorf("headers: %s names the credential %s, which credentials does not list", k, m[1])
+				return fmt.Errorf("%s: %s names the credential %s, which credentials does not list", key, k, m[1])
 			}
 		}
 	}

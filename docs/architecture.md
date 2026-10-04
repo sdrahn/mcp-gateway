@@ -704,6 +704,14 @@ name credentials (`${CREDENTIAL:name}`), which the connector reads from
 `$CREDENTIALS_DIRECTORY`: they appear neither in the gateway nor on a
 command line.
 
+With `proxy` (an `https://` server only), the connector tunnels through
+an HTTP proxy (`CONNECT`, with `proxy_headers`, whose credentials it
+reads the same way); TLS still ends at the server, whose certificate it
+verifies. The gateway then resolves the proxy's name instead of the
+server's, and `IPAddressAllow=` holds the proxy's addresses; the domain
+may also connect to proxy ports (`squid_port_t`, `http_cache_port_t`).
+No proxy is taken from the environment.
+
 ### 5.8 SELinux policy module (`mcp_gateway`)
 
 Types:
@@ -1850,7 +1858,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       connector tunnels through it (`CONNECT`; TLS still ends at the
       server, whose certificate it verifies), and the instance may then
       reach the proxy's addresses only. No proxy is taken from the
-      environment;
+      environment (§5.7.2) (done);
     - signing in to a server defined with `url` for each principal
       (OAuth 2.1 with PKCE, as the MCP authorization specification
       describes): the server's protected resource metadata names its

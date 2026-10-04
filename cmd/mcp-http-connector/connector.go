@@ -57,7 +57,16 @@ type connector struct {
 
 var credentialRef = regexp.MustCompile(`\$\{CREDENTIAL:([A-Za-z0-9_][A-Za-z0-9_.-]{0,63})\}`)
 
-func newConnector(endpoint string, headers, resolve []string, credDir string) (*connector, error) {
+// options are the connector's flags besides -url.
+type options struct {
+	headers      []string // -header "Name: value"
+	resolve      []string // -resolve host:port:address
+	proxy        string   // -proxy URL
+	proxyHeaders []string // -proxy-header "Name: value", sent with CONNECT
+	credDir      string   // $CREDENTIALS_DIRECTORY
+}
+
+func newConnector(endpoint string, o options) (*connector, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Host == "" {
 		return nil, fmt.Errorf("-url: not an absolute URL: %q", endpoint)
@@ -71,37 +80,28 @@ func newConnector(endpoint string, headers, resolve []string, credDir string) (*
 	default:
 		return nil, fmt.Errorf("-url: scheme must be https or http, not %q", u.Scheme)
 	}
-	h := http.Header{}
-	for _, line := range headers {
-		k, v, ok := strings.Cut(line, ":")
-		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
-		if !ok || k == "" {
-			return nil, fmt.Errorf("-header: want \"Name: value\", got %q", line)
+	h, err := parseHeaders("-header", o.headers, o.credDir)
+	if err != nil {
+		return nil, err
+	}
+	var proxy *url.URL
+	var proxyHeader http.Header
+	if o.proxy != "" {
+		proxy, err = url.Parse(o.proxy)
+		if err != nil || proxy.Host == "" || proxy.User != nil || (proxy.Scheme != "http" && proxy.Scheme != "https") {
+			return nil, fmt.Errorf("-proxy: want http://host:port or https://host:port, got %q", o.proxy)
 		}
-		var credErr error
-		v = credentialRef.ReplaceAllStringFunc(v, func(ref string) string {
-			name := credentialRef.FindStringSubmatch(ref)[1]
-			if credDir == "" {
-				credErr = fmt.Errorf("-header %s: credential %s: no $CREDENTIALS_DIRECTORY", k, name)
-				return ""
-			}
-			b, err := os.ReadFile(filepath.Join(credDir, name))
-			if err != nil {
-				credErr = fmt.Errorf("-header %s: credential %s: %w", k, name, err)
-				return ""
-			}
-			return strings.TrimRight(string(b), "\r\n")
-		})
-		if credErr != nil {
-			return nil, credErr
+		if u.Scheme != "https" {
+			return nil, errors.New("-proxy: only for an https:// -url (the tunnel carries TLS to the server)")
 		}
-		if strings.ContainsAny(v, "\r\n") {
-			return nil, fmt.Errorf("-header %s: the value has a line break", k)
+		if proxyHeader, err = parseHeaders("-proxy-header", o.proxyHeaders, o.credDir); err != nil {
+			return nil, err
 		}
-		h.Add(k, v)
+	} else if len(o.proxyHeaders) > 0 {
+		return nil, errors.New("-proxy-header: only with -proxy")
 	}
 	dialTo := map[string]string{} // host:port to address:port
-	for _, r := range resolve {
+	for _, r := range o.resolve {
 		parts := strings.SplitN(r, ":", 3)
 		if len(parts) != 3 || parts[0] == "" || parts[1] == "" || net.ParseIP(strings.Trim(parts[2], "[]")) == nil {
 			return nil, fmt.Errorf("-resolve: want host:port:address, got %q", r)
@@ -110,7 +110,10 @@ func newConnector(endpoint string, headers, resolve []string, credDir string) (*
 	}
 	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
 	transport := &http.Transport{
-		Proxy: nil, // the instance reaches the server's addresses only
+		// The instance reaches the server's addresses only, or the
+		// proxy's, never one from the environment.
+		Proxy:              nil,
+		ProxyConnectHeader: proxyHeader,
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			if to, ok := dialTo[address]; ok {
 				address = to
@@ -122,6 +125,9 @@ func newConnector(endpoint string, headers, resolve []string, credDir string) (*
 		ForceAttemptHTTP2:     true,
 		MaxIdleConnsPerHost:   8,
 	}
+	if proxy != nil {
+		transport.Proxy = http.ProxyURL(proxy)
+	}
 	return &connector{
 		endpoint: endpoint,
 		headers:  h,
@@ -130,6 +136,41 @@ func newConnector(endpoint string, headers, resolve []string, credDir string) (*
 		fatal:    make(chan error, 1),
 		stopped:  make(chan struct{}),
 	}, nil
+}
+
+// parseHeaders parses "Name: value" lines of flag, replacing
+// ${CREDENTIAL:name} by the credential read from credDir.
+func parseHeaders(flag string, lines []string, credDir string) (http.Header, error) {
+	h := http.Header{}
+	for _, line := range lines {
+		k, v, ok := strings.Cut(line, ":")
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		if !ok || k == "" {
+			return nil, fmt.Errorf("%s: want \"Name: value\", got %q", flag, line)
+		}
+		var credErr error
+		v = credentialRef.ReplaceAllStringFunc(v, func(ref string) string {
+			name := credentialRef.FindStringSubmatch(ref)[1]
+			if credDir == "" {
+				credErr = fmt.Errorf("%s %s: credential %s: no $CREDENTIALS_DIRECTORY", flag, k, name)
+				return ""
+			}
+			b, err := os.ReadFile(filepath.Join(credDir, name))
+			if err != nil {
+				credErr = fmt.Errorf("%s %s: credential %s: %w", flag, k, name, err)
+				return ""
+			}
+			return strings.TrimRight(string(b), "\r\n")
+		})
+		if credErr != nil {
+			return nil, credErr
+		}
+		if strings.ContainsAny(v, "\r\n") {
+			return nil, fmt.Errorf("%s %s: the value has a line break", flag, k)
+		}
+		h.Add(k, v)
+	}
+	return h, nil
 }
 
 func loopback(host string) bool {

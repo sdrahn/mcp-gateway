@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -98,7 +99,7 @@ func (f *fakeServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // for its end.
 func pipe(t *testing.T, srv *httptest.Server, headers []string, credDir string) (io.WriteCloser, *bufio.Scanner, func() error) {
 	t.Helper()
-	c, err := newConnector(srv.URL, headers, nil, credDir)
+	c, err := newConnector(srv.URL, options{headers: headers, credDir: credDir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +241,10 @@ func TestNewConnector(t *testing.T) {
 		url     string
 		headers []string
 		resolve []string
-		err     string
+		proxy   string
+		// proxyHeaders are -proxy-header values.
+		proxyHeaders []string
+		err          string
 	}{
 		{url: "https://mcp.example.com/mcp"},
 		{url: "http://127.0.0.1:8080/mcp"},
@@ -252,8 +256,15 @@ func TestNewConnector(t *testing.T) {
 		{url: "https://x/", headers: []string{"X-Key: ${CREDENTIAL:k}"}, err: "no $CREDENTIALS_DIRECTORY"},
 		{url: "https://x/", resolve: []string{"x:443:192.0.2.1", "x:443:[2001:db8::1]"}},
 		{url: "https://x/", resolve: []string{"x:443:not-an-ip"}, err: "host:port:address"},
+		{url: "https://x/", proxy: "http://proxy:3128", proxyHeaders: []string{"Proxy-Authorization: Basic eDp5"}},
+		{url: "https://x/", proxy: "https://proxy:3128"},
+		{url: "http://127.0.0.1:8080/mcp", proxy: "http://proxy:3128", err: "only for an https:// -url"},
+		{url: "https://x/", proxy: "socks5://proxy:1080", err: "-proxy: want"},
+		{url: "https://x/", proxy: "http://u:p@proxy:3128", err: "-proxy: want"},
+		{url: "https://x/", proxyHeaders: []string{"A: b"}, err: "only with -proxy"},
+		{url: "https://x/", proxy: "http://proxy:3128", proxyHeaders: []string{"NoColon"}, err: "-proxy-header: want"},
 	} {
-		_, err := newConnector(c.url, c.headers, c.resolve, "")
+		_, err := newConnector(c.url, options{headers: c.headers, resolve: c.resolve, proxy: c.proxy, proxyHeaders: c.proxyHeaders})
 		if (err == nil) != (c.err == "") || (err != nil && !strings.Contains(err.Error(), c.err)) {
 			t.Errorf("%+v: %v", c, err)
 		}
@@ -269,7 +280,7 @@ func TestResolve(t *testing.T) {
 	}))
 	defer srv.Close()
 	port := srv.URL[strings.LastIndex(srv.URL, ":")+1:]
-	c, err := newConnector("http://localhost:"+port+"/mcp", nil, []string{"localhost:" + port + ":127.0.0.1"}, "")
+	c, err := newConnector("http://localhost:"+port+"/mcp", options{resolve: []string{"localhost:" + port + ":127.0.0.1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,6 +289,79 @@ func TestResolve(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = resp.Body.Close()
+}
+
+// -proxy tunnels to the server with CONNECT, sending -proxy-header (with
+// its credential) to the proxy only; -resolve applies to the proxy's
+// name, and TLS ends at the server.
+func TestProxy(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Proxy-Authorization") != "" {
+			t.Error("the server got Proxy-Authorization")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"result":{}}`)
+	}))
+	defer srv.Close()
+	var connects []string
+	var mu sync.Mutex
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodConnect {
+			http.Error(w, "CONNECT only", http.StatusMethodNotAllowed)
+			return
+		}
+		if r.Header.Get("Proxy-Authorization") != "Basic c2VjcmV0" {
+			http.Error(w, "no", http.StatusProxyAuthRequired)
+			return
+		}
+		mu.Lock()
+		connects = append(connects, r.Host)
+		mu.Unlock()
+		up, err := net.Dial("tcp", r.Host)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		conn, rw, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		go func() { _, _ = io.Copy(up, rw); _ = up.Close() }()
+		_, _ = io.Copy(conn, up)
+		_ = conn.Close()
+	}))
+	defer proxy.Close()
+
+	credDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(credDir, "proxy"), []byte("c2VjcmV0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	port := proxy.URL[strings.LastIndex(proxy.URL, ":")+1:]
+	c, err := newConnector(srv.URL+"/mcp", options{
+		proxy:        "http://proxy.invalid:" + port,
+		proxyHeaders: []string{"Proxy-Authorization: Basic ${CREDENTIAL:proxy}"},
+		resolve:      []string{"proxy.invalid:" + port + ":127.0.0.1"},
+		credDir:      credDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.client.Transport.(*http.Transport).TLSClientConfig = srv.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+	resp, err := c.client.Post(c.endpoint, "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status %d", resp.StatusCode)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(connects) != 1 || connects[0] != strings.TrimPrefix(srv.URL, "https://") {
+		t.Errorf("CONNECTs %v", connects)
+	}
 }
 
 func TestRunUsage(t *testing.T) {

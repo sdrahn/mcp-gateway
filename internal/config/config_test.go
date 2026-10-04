@@ -397,6 +397,13 @@ func TestBackendURL(t *testing.T) {
 		t.Errorf("defaults: %+v", b)
 	}
 	ok(Backend{Name: "local", URL: "http://127.0.0.1:8008/mcp", RunAs: "principal"})
+	b = ok(Backend{Name: "proxied", URL: "https://mcp.example.com/mcp", Proxy: "http://proxy.example.com:3128",
+		Credentials: []string{"proxy"}, ProxyHeaders: map[string]string{"Proxy-Authorization": "Basic ${CREDENTIAL:proxy}"}})
+	want = []string{HTTPConnector, "-url", "https://mcp.example.com/mcp",
+		"-proxy", "http://proxy.example.com:3128", "-proxy-header", "Proxy-Authorization: Basic ${CREDENTIAL:proxy}"}
+	if !slices.Equal(b.Command, want) {
+		t.Errorf("proxy command: %q", b.Command)
+	}
 
 	for _, c := range []struct {
 		b   Backend
@@ -411,6 +418,13 @@ func TestBackendURL(t *testing.T) {
 		{Backend{Name: "x", URL: "https://x/", Headers: map[string]string{"A": "a\nb"}}, "line break"},
 		{Backend{Name: "x", URL: "https://x/", Headers: map[string]string{"A": "${CREDENTIAL:k}"}}, "does not list"},
 		{Backend{Name: "x", Command: []string{"/bin/true"}, Headers: map[string]string{"A": "b"}}, "only with url"},
+		{Backend{Name: "x", Command: []string{"/bin/true"}, Proxy: "http://p:3128"}, "proxy: only with url"},
+		{Backend{Name: "x", URL: "http://127.0.0.1:8008/", Proxy: "http://p:3128"}, "only for an https:// url"},
+		{Backend{Name: "x", URL: "https://x/", Proxy: "socks5://p:1080"}, "scheme must be http or https"},
+		{Backend{Name: "x", URL: "https://x/", Proxy: "http://u:pw@p:3128"}, "without user information"},
+		{Backend{Name: "x", URL: "https://x/", Proxy: "p:3128"}, "not a proxy URL"},
+		{Backend{Name: "x", URL: "https://x/", ProxyHeaders: map[string]string{"A": "b"}}, "only with proxy"},
+		{Backend{Name: "x", URL: "https://x/", Proxy: "http://p:3128", ProxyHeaders: map[string]string{"A": "${CREDENTIAL:k}"}}, "proxy_headers: A names the credential k"},
 	} {
 		c.b.setDefaults()
 		if err := c.b.Validate(); err == nil || !strings.Contains(err.Error(), c.err) {

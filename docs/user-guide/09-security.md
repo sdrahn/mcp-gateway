@@ -123,7 +123,9 @@ warning. Use it for development only.
   systemd, never readable by the gateway (chapter 4). For a server
   defined with `url`, the connector puts them into headers
   (`${CREDENTIAL:name}`); they are sent to that server only, over TLS
-  unless it is on the local host.
+  unless it is on the local host. Through a proxy (`proxy`), the TLS
+  connection still ends at the server, and the proxy gets only
+  `proxy_headers`.
 - The OAuth tokens of remote agents are validated and not passed on to
   MCP servers.
 - TLS keys, the SMTP password and the audit key are readable by the
