@@ -7,12 +7,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/doctor"
 )
 
@@ -214,5 +216,28 @@ func TestDoctorExit(t *testing.T) {
 		if got := doctorExit(c.rs, c.strict); got != c.want {
 			t.Errorf("%+v strict=%v: %d, want %d", c.rs, c.strict, got, c.want)
 		}
+	}
+}
+
+// With approval mail on, each approver group is looked up as the mail
+// does it: a group that does not exist warns, one with members is OK.
+func TestDoctorApproverGroups(t *testing.T) {
+	if _, err := exec.LookPath("getent"); err != nil {
+		t.Skip("no getent")
+	}
+	d := &doctorRun{root: true, gw: &config.Gateway{StateDir: t.TempDir()},
+		rbac: []byte(`{"approvers": {"default": ["self", "group:root"], "fs": ["group:no-such-group-mcpgw", "user:alice"]}}`)}
+	if rs := d.approverGroups(); rs != nil {
+		t.Fatalf("mail off: %+v", rs)
+	}
+	d.gw.Notifications.Email.SMTP = "localhost:25"
+	rs := d.approverGroups()
+	if len(rs) != 2 || rs[0].Check != "approver group no-such-group-mcpgw" || rs[0].Status != doctor.Warn ||
+		rs[1].Check != "approver group root" || rs[1].Status != doctor.OK {
+		t.Fatalf("%+v", rs)
+	}
+	doctor.Identify(rs)
+	if rs[1].ID != "approver-group" || rs[1].Subject != "root" {
+		t.Errorf("%+v", rs[1])
 	}
 }

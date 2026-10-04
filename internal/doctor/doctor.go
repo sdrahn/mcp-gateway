@@ -68,6 +68,7 @@ var checkIDs = map[string]string{
 // longest prefix first.
 var checkPrefixes = []struct{ prefix, id string }{
 	{"SELinux type ", "selinux-type"},
+	{"approver group ", "approver-group"},
 	{"SELinux ", "selinux-denials"},
 	{"polkit ", "polkit"},
 	{"program ", "program"},

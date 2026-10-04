@@ -45,8 +45,13 @@ type Email struct {
 	// URL returns the approval page for an approval id ("" if none).
 	URL func(id string) string
 	Log *slog.Logger
-	// GroupMembers lists a group's members (default: getent group).
+	// GroupMembers lists a group's members (default: getent, see
+	// getentMembers, with the users Known returns).
 	GroupMembers func(ctx context.Context, group string) ([]string, error)
+	// Known, if set, returns local users the gateway has seen (Seen):
+	// those whose primary group an approver group is are found also
+	// where NSS does not enumerate users.
+	Known func() []string
 	// Send delivers a message (default: SMTP per cfg).
 	Send func(ctx context.Context, to []string, msg []byte) error
 	now  func() time.Time
@@ -63,7 +68,14 @@ type emailState struct {
 // NewEmail returns the notifier for cfg; it sends nothing while cfg.SMTP
 // is empty.
 func NewEmail(cfg config.Email, policy Policy, log *slog.Logger) (*Email, error) {
-	e := &Email{policy: policy, Log: log, now: time.Now, GroupMembers: getentMembers}
+	e := &Email{policy: policy, Log: log, now: time.Now}
+	e.GroupMembers = func(ctx context.Context, group string) ([]string, error) {
+		var known []string
+		if e.Known != nil {
+			known = e.Known()
+		}
+		return getentMembers(ctx, group, known)
+	}
 	if err := e.Configure(cfg); err != nil {
 		return nil, err
 	}
@@ -307,8 +319,8 @@ func (e *Email) smtpSend(ctx context.Context, to []string, msg []byte) error {
 // getentMembers lists a group's members through NSS (also SSSD, LDAP):
 // those its entry lists, and the users whose primary group it is, as far
 // as NSS enumerates users (SSSD and LDAP often do not, without
-// enumerate = true).
-func getentMembers(ctx context.Context, group string) ([]string, error) {
+// enumerate = true) and among the known users, looked up by name.
+func getentMembers(ctx context.Context, group string, known []string) ([]string, error) {
 	if !validName(group) {
 		return nil, fmt.Errorf("invalid group name %q", group)
 	}
@@ -326,7 +338,28 @@ func getentMembers(ctx context.Context, group string) ([]string, error) {
 	if passwd, err := exec.CommandContext(ctx, "getent", "passwd").Output(); err == nil {
 		members = appendNew(members, primaryMembers(string(passwd), gid)...)
 	}
-	return members, nil
+	return appendNew(members, knownMembers(ctx, gid, known)...), nil
+}
+
+// GroupMembers lists a group's members as approval mail finds them: the
+// members its entry lists, and the users whose primary group it is, as
+// far as NSS enumerates users and among known (the users the gateway has
+// seen, Seen).
+func GroupMembers(ctx context.Context, group string, known []string) ([]string, error) {
+	return getentMembers(ctx, group, known)
+}
+
+// knownMembers returns the users of known whose primary group is gid,
+// looked up by name (getent passwd NAME...), which works without
+// enumeration.
+func knownMembers(ctx context.Context, gid string, known []string) []string {
+	if len(known) == 0 {
+		return nil
+	}
+	// getent exits 2 if one of the names is unknown (a user since
+	// removed) and prints the others.
+	passwd, _ := exec.CommandContext(ctx, "getent", append([]string{"passwd", "--"}, known...)...).Output()
+	return primaryMembers(string(passwd), gid)
 }
 
 // parseGroup returns the gid and the listed members of a group entry

@@ -529,7 +529,9 @@ Approvers learn about pending approvals without watching the inbox:
   server's rules name, as local users and groups (`self` is the
   principal's account, `role:<r>` the users and groups bound to it).
   Groups are expanded through NSS (`getent group`, and `getent passwd`
-  for the users whose primary group it is), users become addresses by the `to` template
+  for the users whose primary group it is, enumerating and by name for
+  the local users the gateway has seen, `principals.json` in
+  `state_dir`), users become addresses by the `to` template
   (`{user}` for local delivery, `{user}@example.com` otherwise), and one
   mail goes to all of them (`To: undisclosed-recipients:;`). The mail
   names the call and links the approval page; arguments are left out
@@ -1763,10 +1765,10 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       group is also where the user database does not enumerate (SSSD,
       LDAP without `enumerate = true`, §12): besides `getent passwd`,
       the gateway looks at the local principals it has seen (kept in
-      `state_dir`, name and primary group, read with `getpwnam`, which
-      needs no enumeration). The doctor warns about an approver group in
+      `state_dir` by name, their primary group read with `getent passwd
+      NAME`, which needs no enumeration). The doctor warns about an approver group in
       which neither finds anyone, naming `user:` approvers as the way
-      out;
+      out (done);
     - MCP servers that speak Streamable HTTP, on the host or elsewhere,
       go through the same pipeline as stdio servers (policy, approvals,
       obligations, audit, limits): a definition gives `url` instead of
@@ -1793,9 +1795,11 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
   harmless, but not precise. Replay is bounded (256 events per stream)
   and lives in memory: a gateway restart ends all HTTP sessions anyway.
 - Approval mail finds the users whose primary group an approver group is
-  by enumerating users (`getent passwd`); SSSD and LDAP often do not
-  enumerate, so name such approvers as `user:` there (step 20 also uses
-  the principals the gateway has seen).
+  by enumerating users (`getent passwd`) and among the local users who
+  used the gateway or Cockpit's pages; with SSSD or LDAP that do not
+  enumerate, one who never did is not found until then (the doctor warns
+  about a group in which it finds nobody): name such approvers as
+  `user:`.
 - Exact JSON-RPC error codes for policy denials (align with any future
   MCP-spec guidance).
 - Policy changes are noticed by polling (up to `policy.watch_interval`

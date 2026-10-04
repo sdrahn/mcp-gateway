@@ -5,6 +5,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -184,11 +185,47 @@ func TestIncludeArgs(t *testing.T) {
 	}
 }
 
+// Known users are looked up by name; an unknown one (removed since) does
+// not hide the others.
+func TestKnownMembers(t *testing.T) {
+	if _, err := exec.LookPath("getent"); err != nil {
+		t.Skip("no getent")
+	}
+	got := knownMembers(context.Background(), "0", []string{"no-such-user-mcpgw", "root"})
+	if !slices.Equal(got, []string{"root"}) {
+		t.Errorf("got %v", got)
+	}
+	if got := knownMembers(context.Background(), "0", nil); got != nil {
+		t.Errorf("no known users: %v", got)
+	}
+}
+
+func TestSeen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "principals.json")
+	s, err := LoadSeen(path)
+	if err != nil || len(s.Names()) != 0 {
+		t.Fatalf("%v %v", err, s.Names())
+	}
+	for _, n := range []string{"bob", "alice", "bob", "bad name", "-rf"} {
+		if err := s.Add(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	again, err := LoadSeen(path)
+	if err != nil || !slices.Equal(again.Names(), []string{"alice", "bob"}) {
+		t.Fatalf("%v %v", err, again.Names())
+	}
+	var none *Seen
+	if none.Add("x") != nil || none.Names() != nil {
+		t.Error("nil Seen")
+	}
+}
+
 func TestGetentMembers(t *testing.T) {
-	if _, err := getentMembers(context.Background(), "bad name"); err == nil {
+	if _, err := getentMembers(context.Background(), "bad name", nil); err == nil {
 		t.Fatal("invalid group name accepted")
 	}
-	members, err := getentMembers(context.Background(), "root")
+	members, err := getentMembers(context.Background(), "root", nil)
 	if err != nil {
 		t.Skipf("getent: %v", err)
 	}

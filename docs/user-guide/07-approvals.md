@@ -177,8 +177,12 @@ systemctl reload mcp-gateway.service    # or wait 10 s: notifications are reload
   has a local account), `user:` rules, members of `group:` rules, and
   users and group members bound to `role:` rules. Groups are expanded
   through NSS: the members listed in the group entry (`getent group`),
-  and the users whose primary group it is (`getent passwd`; with SSSD or
-  LDAP only if they enumerate users, `enumerate = true`). Each name
+  and the users whose primary group it is (`getent passwd`). With SSSD
+  or LDAP, which often do not enumerate users (`enumerate = true`), the
+  latter are found among the local users who have used the gateway or
+  its Cockpit pages (remembered in `/var/lib/mcp-gateway/principals.json`);
+  name others as `user:` approvers. `mcp-gateway-admin doctor` warns
+  about an approver group in which it finds nobody. Each name
   becomes an address through `to`. All recipients get one mail (as
   undisclosed recipients).
 - A mail goes out once per new pending approval (not for retries taking

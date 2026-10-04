@@ -20,6 +20,12 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- Approval mail to an approver group also reaches the users whose
+  primary group it is where NSS does not enumerate users (SSSD, LDAP
+  without `enumerate = true`): the gateway remembers the local users
+  who connect or use Cockpit's pages (`principals.json` in `state_dir`)
+  and looks them up by name. With mail on, the doctor warns about an
+  approver group in which it finds nobody, or that does not exist.
 - Changes to `gateway.yaml`, the server definitions, the TLS certificate
   and key and the SMTP password file take effect when the file is
   written (inotify), not within `policy.watch_interval`; a file replaced

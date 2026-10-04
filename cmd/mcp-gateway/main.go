@@ -247,6 +247,18 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		return err
 	}
 	mail.URL = b.ApprovalURL
+	// Local users seen, for approval mail to primary-group members where
+	// NSS does not enumerate users.
+	seen, err := notify.LoadSeen(filepath.Join(gw.StateDir, "principals.json"))
+	if err != nil {
+		log.Warn("known principals not read; starting with none", "err", err)
+	}
+	mail.Known = seen.Names
+	remember := func(name string) {
+		if err := seen.Add(name); err != nil {
+			log.Warn("principal not remembered", "name", name, "err", err)
+		}
+	}
 	events, stopEvents := b.Subscribe()
 	defer stopEvents()
 	go mail.Run(ctx, events)
@@ -263,6 +275,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		log.Warn("approvals.url_template is set but the control socket is disabled; url approvals cannot be decided")
 	}
 	r := &router.Router{
+		Seen:     remember,
 		Backends: backends,
 		Launcher: launcher,
 		PDP:      opa,
@@ -318,7 +331,14 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 			return fmt.Errorf("listening on %s: %w", gw.Approvals.ControlSocket, err)
 		}
 		log.Info("listening", "control", gw.Approvals.ControlSocket)
-		cs := &controlapi.Server{Broker: b, Backends: r.CurrentBackends, ServersError: reloader.Err,
+		identify := func(p transport.PeerCred) (broker.Approver, error) {
+			a, err := controlapi.Identify(p)
+			if err == nil {
+				remember(a.Name)
+			}
+			return a, err
+		}
+		cs := &controlapi.Server{Broker: b, Identify: identify, Backends: r.CurrentBackends, ServersError: reloader.Err,
 			ConfigError: reloader.ConfigErr, RestartNeeded: reloader.RestartNeeded, Instances: r, Policy: opa,
 			Review: opa, Catalog: r, Log: log, RestartPending: restartPending, Metrics: metrics.Default}
 		go func() {

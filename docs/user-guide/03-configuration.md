@@ -109,7 +109,7 @@ socket_group: mcp-users     # default: empty (the gateway's own group)
 |---|---|---|
 | `vendor_servers_dir` | `/usr/share/mcp-gateway/servers.d` | definitions installed by packages |
 | `servers_dir` | `/etc/mcp-gateway/servers.d` | your definitions (override and mask vendor files by name) |
-| `state_dir` | `/var/lib/mcp-gateway` | `grants.json`, `pending.json`, `audit.key` |
+| `state_dir` | `/var/lib/mcp-gateway` | `grants.json`, `pending.json`, `audit.key`, `principals.json` |
 
 ### Policy engine
 
