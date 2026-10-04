@@ -250,12 +250,14 @@ Server names must be unique across all files.
 |---|---|---|
 | `version` | `1` | the version of the definition format (see chapter 3, [Format version](03-configuration.md#format-version)) |
 | `name` | — (required) | the server's name: lower case letters, digits and `-`, starting with a letter, at most 32 characters. It appears in endpoint paths (`--server git`, `/mcp/git`), in tool name prefixes (`git__commit`) and in policy (`"server": "git"`). |
-| `command` | — (required) | the command line; the first element must be an absolute path. `${HOME}` and `${USER}` are replaced by the principal's home directory and name; other `${…}` are left as they are. |
+| `command` | — (required, or `url`) | the command line; the first element must be an absolute path. `${HOME}` and `${USER}` are replaced by the principal's home directory and name; other `${…}` are left as they are. |
+| `url` | none | instead of `command`: the endpoint of a server that speaks Streamable HTTP, `https://…` (`http://` only to the local host). See [Servers that speak HTTP](#servers-that-speak-http) |
+| `headers` | none | with `url`: headers sent with each request (map); `${CREDENTIAL:name}` in a value is the secret `name` from `credentials` |
 | `env` | none | extra environment variables (map); `${HOME}` and `${USER}` are replaced as in `command` |
-| `selinux_type` | `mcpsrv_generic_t` | the SELinux domain instances run in; must be `mcpsrv_<name>_t` (see [SELinux domains](#selinux-domains-for-servers)) |
+| `selinux_type` | `mcpsrv_generic_t` (`mcpsrv_http_t` with `url`) | the SELinux domain instances run in; must be `mcpsrv_<name>_t` (see [SELinux domains](#selinux-domains-for-servers)) |
 | `isolation` | `principal` | `principal`: one instance per principal, shared by that principal's sessions. `session`: a new instance per session. |
 | `network` | `false` | allow network access. Without it, the instance has a private network namespace and only unix sockets. |
-| `run_as` | `principal` | whom the instance runs as: `principal` (the local user; remote users without a local account get a throwaway dynamic user), `dynamic` (always a throwaway dynamic user), or the name of a system account |
+| `run_as` | `principal` (`dynamic` with `url`) | whom the instance runs as: `principal` (the local user; remote users without a local account get a throwaway dynamic user), `dynamic` (always a throwaway dynamic user), or the name of a system account |
 | `discovery` | `shared` | where tool and prompt lists come from: `shared` (one gateway-owned instance per server, cached; listing starts no per-user instances), `instance` (each principal's own instance, for servers whose tools depend on the user) |
 | `credentials` | none | secrets handed to the server by systemd, see [Secrets](#secrets) |
 | `sandbox.protect_home` | `read-only` | access to home directories: `yes` (none), `read-only`, `read-write` |
@@ -430,6 +432,53 @@ mcp_gateway_backend_rpm(zypp)
 /usr/bin/mcp-server-zypp                     --  gen_context(system_u:object_r:mcpsrv_zypp_exec_t,s0)
 /usr/libexec/mcp-server-zypp/zypp-mcp-tool   --  gen_context(system_u:object_r:rpm_exec_t,s0)
 ```
+
+## Servers that speak HTTP
+
+A server that runs elsewhere, or on this host as a web service, and
+speaks MCP over Streamable HTTP, is defined with `url` instead of
+`command`. Its calls go through the same policy, approvals,
+obligations, audit records and limits as those of other servers.
+
+```yaml
+# /etc/mcp-gateway/servers.d/tickets.yaml
+name: tickets
+url: https://mcp.tickets.example.com/mcp
+credentials: [tickets-token]
+headers:
+  Authorization: "Bearer ${CREDENTIAL:tickets-token}"
+```
+
+```bash
+install -m 0600 /dev/stdin /etc/mcp-gateway/credentials/tickets-token <<<'…'
+mcp-gateway --check
+```
+
+- Each instance (one per principal, as for other servers) is
+  `mcp-http-connector`, started by systemd as a dynamic user in the
+  domain `mcpsrv_http_t`. It relays between the gateway and the server:
+  its requests, the server's answers, notifications and requests
+  (elicitation, sampling) on the request's event stream or the `GET`
+  stream, resuming a broken stream (`Last-Event-ID`); it ends the
+  server's session (`DELETE`) when the instance stops. The gateway
+  itself makes no outbound connection.
+- The gateway resolves the server's name when it starts an instance and
+  hands the addresses to it; the instance may reach those addresses
+  only (systemd `IPAddressAllow=`) and HTTP ports only (SELinux; for
+  other ports `setsebool -P mcpsrv_http_connect_any on`). A proxy is not
+  used. A name that resolves to other addresses later is resolved anew
+  for the next instance.
+- Secrets reach only the connector: `${CREDENTIAL:name}` in a header is
+  replaced by the instance from `$CREDENTIALS_DIRECTORY` ([Secrets](#secrets)),
+  not by the gateway, and is not on its command line. One secret serves
+  all principals: signing in to the server for each user (OAuth) is not
+  supported.
+- If the server ends the session (HTTP 404), the instance ends, and the
+  next call starts a new one. A call whose answer cannot be had (an
+  HTTP error, a broken stream that cannot be resumed) fails with the
+  reason, `MCP server over HTTP: …`.
+- `mcp-gateway-admin inspect --server tickets` and the doctor start such
+  a server as any other.
 
 ## Secrets
 
@@ -630,6 +679,9 @@ allow a shell or an interpreter with arguments from the caller
 confinement this is for.
 
 ### A server with network access and an API token
+
+For a server that speaks HTTP, see [Servers that speak HTTP](#servers-that-speak-http);
+for one that runs as a local program:
 
 ```yaml
 name: github

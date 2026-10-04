@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -376,5 +377,44 @@ func TestLoadBackendsDuplicateName(t *testing.T) {
 	write(vendor, "other.yaml")
 	if _, err := LoadBackends(vendor); err == nil || !strings.Contains(err.Error(), "remove or rename one") {
 		t.Errorf("same directory: %v", err)
+	}
+}
+
+func TestBackendURL(t *testing.T) {
+	ok := func(b Backend) *Backend {
+		t.Helper()
+		b.setDefaults()
+		if err := b.Validate(); err != nil {
+			t.Fatalf("%+v: %v", b, err)
+		}
+		return &b
+	}
+	b := ok(Backend{Name: "remote", URL: "https://mcp.example.com/mcp", Credentials: []string{"token"},
+		Headers: map[string]string{"X-B": "2", "Authorization": "Bearer ${CREDENTIAL:token}"}})
+	want := []string{HTTPConnector, "-url", "https://mcp.example.com/mcp",
+		"-header", "Authorization: Bearer ${CREDENTIAL:token}", "-header", "X-B: 2"}
+	if !slices.Equal(b.Command, want) || !b.Network || b.SELinuxType != HTTPSELinuxType || b.RunAs != HTTPRunAs {
+		t.Errorf("defaults: %+v", b)
+	}
+	ok(Backend{Name: "local", URL: "http://127.0.0.1:8008/mcp", RunAs: "principal"})
+
+	for _, c := range []struct {
+		b   Backend
+		err string
+	}{
+		{Backend{Name: "x", URL: "http://mcp.example.com/"}, "only to the local host"},
+		{Backend{Name: "x", URL: "ftp://x/"}, "scheme"},
+		{Backend{Name: "x", URL: "https://u:p@x/"}, "without user information"},
+		{Backend{Name: "x", URL: "https://x/", Command: []string{"/bin/true"}}, "give one of them"},
+		{Backend{Name: "x", URL: "https://x/", Privileged: true, RunAs: "root"}, "not with url"},
+		{Backend{Name: "x", URL: "https://x/", Headers: map[string]string{"Bad Name": "v"}}, "not a header name"},
+		{Backend{Name: "x", URL: "https://x/", Headers: map[string]string{"A": "a\nb"}}, "line break"},
+		{Backend{Name: "x", URL: "https://x/", Headers: map[string]string{"A": "${CREDENTIAL:k}"}}, "does not list"},
+		{Backend{Name: "x", Command: []string{"/bin/true"}, Headers: map[string]string{"A": "b"}}, "only with url"},
+	} {
+		c.b.setDefaults()
+		if err := c.b.Validate(); err == nil || !strings.Contains(err.Error(), c.err) {
+			t.Errorf("%+v: %v", c.b, err)
+		}
 	}
 }

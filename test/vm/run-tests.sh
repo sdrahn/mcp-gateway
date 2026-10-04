@@ -760,6 +760,47 @@ else
 	echo "  no servers given (test/vm/run-vm.sh <...> <servers dir>); skipped"
 fi
 
+section "MCP server over HTTP"
+# A server defined with url: each instance is mcp-http-connector in
+# mcpsrv_http_t, which reaches only the server's address and sends the
+# credential as a header. The server: privsrv -http on an HTTP port.
+/usr/libexec/mcpgw-privtest -http 127.0.0.1:8008 &
+http_pid=$!
+echo vmtest-token | install -m 0600 /dev/stdin /etc/mcp-gateway/credentials/httptoken
+jq '.roles.tester.permissions += [{"server": "httpecho", "tool": "whoami"}]' \
+	/etc/mcp-gateway/policy/rbac/data.json >/root/http-data.json &&
+	cat /root/http-data.json >/etc/mcp-gateway/policy/rbac/data.json
+cat >/etc/mcp-gateway/servers.d/httpecho.yaml <<'END'
+name: httpecho
+url: http://127.0.0.1:8008/mcp
+credentials: [httptoken]
+headers:
+  Authorization: "Bearer ${CREDENTIAL:httptoken}"
+END
+restorecon /etc/mcp-gateway/servers.d/httpecho.yaml /etc/mcp-gateway/credentials/httptoken
+check "the gateway accepts a definition with url" /usr/bin/mcp-gateway --check --policy-data=
+http_call() {
+	out=$(runuser -u alice -- /usr/local/bin/mcpcall --server httpecho --method tools/call \
+		--params '{"name":"whoami","arguments":{}}' 2>&1)
+	rc=$?
+}
+http_works() { http_call && grep -qF "authorization: Bearer vmtest-token" <<<"$out"; }
+check "a call reaches the server over HTTP, with the credential as a header" eventually 40 http_works
+echo "  rc=$rc ${out:0:300}"
+h_unit=$(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-httpecho-*' | awk 'NR==1{print $1}')
+h_pid=$(systemctl show -p MainPID --value "${h_unit:-none}" 2>/dev/null)
+h_ctx=$(label "${h_pid:-1}")
+echo "  ${h_unit:-no unit}: $h_ctx"
+systemctl show -p IPAddressAllow -p IPAddressDeny "${h_unit:-none}" 2>/dev/null | sed 's/^/  /'
+check "the instance runs in mcpsrv_http_t" has_type "$h_ctx" mcpsrv_http_t
+check "the instance may reach the server's address" sh -c "systemctl show -p IPAddressAllow --value '${h_unit:-none}' | grep -q 127.0.0.1"
+check "the instance may reach no other address" sh -c "systemctl show -p IPAddressDeny --value '${h_unit:-none}' | grep -qE 'any|0\.0\.0\.0/0'"
+http_secret_hidden() { ! tr '\0' ' ' <"/proc/${h_pid:-1}/cmdline" | grep -q vmtest-token; }
+check "the credential is not on the instance's command line" http_secret_hidden
+rm -f /etc/mcp-gateway/servers.d/httpecho.yaml /etc/mcp-gateway/credentials/httptoken
+kill "$http_pid" 2>/dev/null
+wait "$http_pid" 2>/dev/null
+
 section "Live reload of server definitions"
 # A server added, broken, fixed and removed while the gateway runs: it
 # keeps running (same PID), and a broken definition changes nothing.

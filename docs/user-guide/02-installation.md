@@ -158,6 +158,7 @@ Booleans (all off by default):
 |---|---|
 | `mcpopa_can_network` | OPA fetches policy bundles from a bundle server (chapter 6) |
 | `mcpgw_can_send_mail` | the gateway sends approval mail (chapter 7) |
+| `mcpsrv_http_connect_any` | a server defined with `url` listens on a port that is not an HTTP port (chapter 4) |
 
 ```bash
 setsebool -P mcpgw_can_send_mail on

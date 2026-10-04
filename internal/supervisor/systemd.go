@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +47,9 @@ type Systemd struct {
 	live map[[2]int]*unitInstance // by MCS pair
 	// stop stops an instance (tests replace it).
 	stop func(*unitInstance)
+	// LookupIP resolves the host of a server defined with url (default:
+	// net.DefaultResolver.LookupIP).
+	LookupIP func(ctx context.Context, network, host string) ([]net.IP, error)
 }
 
 // SELinuxEnabled reports whether SELinux is enabled on this host: whether
@@ -255,9 +259,26 @@ func (s *Systemd) Start(ctx context.Context, b *config.Backend, p principal.Prin
 		return nil, err
 	}
 
+	var allow []ipAddress
+	if b.URL != "" {
+		lookup := s.LookupIP
+		if lookup == nil {
+			lookup = net.DefaultResolver.LookupIP
+		}
+		var args []string
+		if args, allow, err = httpTarget(ctx, b, lookup); err != nil {
+			return fail(err)
+		}
+		withArgs := *b
+		withArgs.Command = append(slices.Clone(b.Command), args...)
+		b = &withArgs
+	}
 	props, err := s.Properties(b, p, childFD, mcs)
 	if err != nil {
 		return fail(err)
+	}
+	if allow != nil {
+		props = append(props, httpProperties(allow)...)
 	}
 	name := unitName(b, id)
 	done := make(chan string, 1)

@@ -676,6 +676,34 @@ privileged: true
   page mark privileged servers; the control API refuses to stop a busy
   privileged instance (`409`).
 
+#### 5.7.2 Servers that speak HTTP
+
+A definition with `url` (an `https://` endpoint, `http://` only to the
+local host) instead of `command` stands for an MCP server that speaks
+Streamable HTTP (decision D15). It is a backend like the others: the
+same policy, approvals, obligations, audit, limits and instance pool.
+Its `command` is the connector, `mcp-http-connector -url … -header …`,
+which relays between the gateway's stdio and the server: each message
+from the gateway is a `POST`; an answer comes as JSON or on an event
+stream, which also carries the server's notifications and requests
+about it; what the server sends outside a request comes on the `GET`
+stream; a stream that breaks is resumed with `Last-Event-ID`; the
+session ends with `DELETE` when the instance stops, and a session the
+server ended (404) ends the instance. `initialize` is posted before
+anything else, since its answer brings the session id.
+
+When the supervisor starts such an instance, it resolves the URL's host
+(in the gateway, which may resolve names) and passes the addresses
+(`-resolve host:port:address`); the unit gets `IPAddressDeny=any` and
+`IPAddressAllow=` those addresses, and its domain `mcpsrv_http_t` may
+connect to HTTP ports only (`mcpsrv_http_connect_any` for any port),
+cannot resolve names and reads only the CA certificates besides what
+every server domain may. Defaults for such a definition: `network:
+true`, `selinux_type: mcpsrv_http_t`, `run_as: dynamic`. Headers may
+name credentials (`${CREDENTIAL:name}`), which the connector reads from
+`$CREDENTIALS_DIRECTORY`: they appear neither in the gateway nor on a
+command line.
+
 ### 5.8 SELinux policy module (`mcp_gateway`)
 
 Types:
@@ -1439,6 +1467,21 @@ servers are bounded by the number of servers anyway; the instance limit
 matters for `isolation: session`, where each session starts one.
 Refusing beats queueing: the agent sees a clear error at once.
 
+**D15 — Servers that speak HTTP run as a connector instance.**
+*Decision (accepted 2026-10-04, roadmap step 20):* a server defined with
+`url` is reached through an instance of `mcp-http-connector` per
+principal, started by systemd like any server instance, in its own
+domain and with its network limited to the server's addresses; the
+gateway's domain gets no outbound network for it. Headers carry a
+secret per server (`credentials`); signing in for each principal is not
+done.
+*Rationale:* the gateway stays a process that makes no outbound
+connections to servers, so a flaw in relaying HTTP is contained like a
+flaw in any server, in a domain that reaches one address; the instance
+pool, limits, isolation per principal and the audit trail apply without
+a second code path. The cost is a process per principal and server, as
+for stdio servers.
+
 ## 10. Repository layout
 
 ```
@@ -1447,6 +1490,7 @@ cmd/
   mcp-gateway-admin/      # doctor, the server gateway-admin; runs mcp-gateway-tools
   mcp-gateway-tools/      # inspect, profile, review (package mcp-gateway-tools)
   mcp-connect/            # stdio ↔ unix-socket shim
+  mcp-http-connector/     # instances of servers defined with url (D15)
 internal/
   transport/              # unix, http (streamable), shim protocol
   authn/                  # peercred/peersec, OAuth resource server
@@ -1784,7 +1828,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       servers. `mcp-gateway-admin inspect`, `profile` and the doctor
       handle such servers; a VM test runs one. Signing in to the server
       for each principal (OAuth to the upstream) is not part of 0.11
-      (§12).
+      (§12) (done);
 
 ## 12. Open items
 

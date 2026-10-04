@@ -339,6 +339,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcpgw_t`, `mcpgw_exec_t` | gateway |
 | `mcpopa_t`, `mcpopa_exec_t` | OPA |
 | `mcpsrv_generic_t`, `mcpsrv_fs_t`, `mcpsrv_docs_t`, `mcpsrv_exec_t`, `mcpsrv_<name>_t` | MCP server instances (chapter 9, "SELinux") |
+| `mcpsrv_http_t`, `mcpsrv_http_exec_t` | `mcp-http-connector`, the instances of servers defined with `url` |
 | `mcpsrv_admin_t`, `mcpsrv_admin_exec_t` | `mcp-gateway-admin` and the server `gateway-admin` |
 | `mcpsrv_systemd_t`, `mcpsrv_firewalld_t`, `mcpsrv_zypp_t`, `mcpsrv_suseconnect_t`, `mcpsrv_snapper_t` | the system management servers (chapter 13) |
 | `mcpgw_etc_t` | `/etc/mcp-gateway`, `/usr/etc/mcp-gateway` |
@@ -353,6 +354,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 |---|---|---|
 | `mcpopa_can_network` | off | OPA to fetch bundles over HTTPS |
 | `mcpgw_can_send_mail` | off | the gateway to connect to SMTP ports |
+| `mcpsrv_http_connect_any` | off | servers defined with `url` to connect to any port of their server, not only HTTP ports |
 
 | Interface | For |
 |---|---|

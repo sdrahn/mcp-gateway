@@ -404,6 +404,8 @@ var TypedPrograms = []string{
 	"/usr/bin/systemd-mcp",
 	"/usr/lib/mcp-gateway/opa",
 	"/usr/libexec/mcp-gateway/opa",
+	"/usr/lib/mcp-gateway/mcp-http-connector",
+	"/usr/libexec/mcp-gateway/mcp-http-connector",
 	"/usr/lib/mcp-servers/mcp-server-exec",
 	"/usr/libexec/mcp-servers/mcp-server-exec",
 	"/usr/lib/mcp-servers/mcp-server-fs",

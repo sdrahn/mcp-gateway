@@ -26,6 +26,15 @@ gen_tunable(mcpopa_can_network, false)
 ## </desc>
 gen_tunable(mcpgw_can_send_mail, false)
 
+## <desc>
+## <p>
+## Allow the instances of MCP servers defined with url (the connector,
+## mcpsrv_http_t) to connect to any TCP port, not only HTTP ports. Each
+## instance still reaches only its server's addresses (IPAddressAllow=).
+## </p>
+## </desc>
+gen_tunable(mcpsrv_http_connect_any, false)
+
 # All backend MCP server domains.
 attribute mcpsrv_domain;
 
@@ -107,6 +116,28 @@ mcp_gateway_backend_template(docs)
 domain_entry_file(mcpsrv_docs_t, mcpsrv_fs_exec_t)
 files_read_usr_files(mcpsrv_docs_t)
 fs_getattr_xattr_fs(mcpsrv_docs_t)
+
+# MCP servers that speak Streamable HTTP (definitions with url): each
+# instance is the connector (cmd/mcp-http-connector), which relays stdio
+# to the server over TCP. The gateway resolves the server's name and
+# passes the addresses (-resolve); the unit reaches those only
+# (IPAddressAllow=). HTTP ports, others with mcpsrv_http_connect_any;
+# the CA certificates to verify the server.
+mcp_gateway_backend_template(http)
+allow mcpsrv_http_t self:tcp_socket create_stream_socket_perms;
+corenet_tcp_connect_http_port(mcpsrv_http_t)
+miscfiles_read_generic_certs(mcpsrv_http_t)
+tunable_policy(`mcpsrv_http_connect_any',`
+	corenet_tcp_connect_all_ports(mcpsrv_http_t)
+')
+# Headers with ${CREDENTIAL:name}: the connector reads the secret from
+# $CREDENTIALS_DIRECTORY (/run/credentials/<unit>), which systemd labels
+# init_var_run_t on the supported distributions.
+gen_require(`
+	type init_var_run_t;
+')
+search_dirs_pattern(mcpsrv_http_t, init_var_run_t, init_var_run_t)
+read_files_pattern(mcpsrv_http_t, init_var_run_t, init_var_run_t)
 
 # Commands an administrator allows (the server exec, cmd/mcp-server-exec,
 # package mcp-gateway-exec-server): it reads its command files below

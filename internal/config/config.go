@@ -7,16 +7,20 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/sdrahn/mcp-gateway/internal/version"
 )
 
 // Default paths. Vendor files live below /usr (read-only, owned by
@@ -246,13 +250,22 @@ type Policy struct {
 // Backend is one MCP server definition from the registry.
 type Backend struct {
 	// Version of the file's format (Version).
-	Version     int       `yaml:"version"`
-	Name        string    `yaml:"name"`
-	Command     []string  `yaml:"command"`
-	SELinuxType string    `yaml:"selinux_type"`
-	Isolation   Isolation `yaml:"isolation"`
-	Network     bool      `yaml:"network"`
-	RunAs       string    `yaml:"run_as"`
+	Version int      `yaml:"version"`
+	Name    string   `yaml:"name"`
+	Command []string `yaml:"command"`
+	// URL is the endpoint of a server that speaks Streamable HTTP,
+	// instead of Command: its instances run HTTPConnector, which the
+	// defaults put in Command, with the server's address the only one
+	// they may reach.
+	URL string `yaml:"url"`
+	// Headers are sent with each request to URL; ${CREDENTIAL:name} in a
+	// value is the credential name (Credentials), which only the
+	// connector reads.
+	Headers     map[string]string `yaml:"headers"`
+	SELinuxType string            `yaml:"selinux_type"`
+	Isolation   Isolation         `yaml:"isolation"`
+	Network     bool              `yaml:"network"`
+	RunAs       string            `yaml:"run_as"`
 	// Discovery is "shared" (tool, prompt and resource template lists
 	// come from a gateway-owned instance without any user's identity and
 	// are cached, so listing does not start instances for every user) or
@@ -399,8 +412,13 @@ const (
 	DefaultHTTPSessionIdle = 30 * time.Minute
 	DefaultGroupsClaim     = "groups"
 	DefaultSELinuxType     = "mcpsrv_generic_t"
-	DefaultRunAs           = "principal"
-	DefaultProtectHome     = "read-only"
+	// HTTPSELinuxType and HTTPRunAs are the defaults of a server defined
+	// with url: the connector's domain, and a throwaway user (it needs
+	// nobody's files).
+	HTTPSELinuxType    = "mcpsrv_http_t"
+	HTTPRunAs          = "dynamic"
+	DefaultRunAs       = "principal"
+	DefaultProtectHome = "read-only"
 )
 
 var (
@@ -769,6 +787,16 @@ func (b *Backend) setDefaults() {
 	if b.Version == 0 {
 		b.Version = Version
 	}
+	if b.URL != "" && len(b.Command) == 0 {
+		b.Command = b.connectorCommand()
+		b.Network = true
+		if b.SELinuxType == "" {
+			b.SELinuxType = HTTPSELinuxType
+		}
+		if b.RunAs == "" {
+			b.RunAs = HTTPRunAs
+		}
+	}
 	if b.SELinuxType == "" {
 		b.SELinuxType = DefaultSELinuxType
 	}
@@ -794,8 +822,15 @@ func (b *Backend) Validate() error {
 	if !backendName.MatchString(b.Name) {
 		return fmt.Errorf("name: %q must match %s", b.Name, backendName)
 	}
+	if b.URL != "" {
+		if err := b.validateURL(); err != nil {
+			return err
+		}
+	} else if len(b.Headers) > 0 {
+		return errors.New("headers: only with url")
+	}
 	if len(b.Command) == 0 || !filepath.IsAbs(b.Command[0]) {
-		return errors.New("command: must be non-empty and start with an absolute path")
+		return errors.New("command: must be non-empty and start with an absolute path (or give url)")
 	}
 	if !selinuxType.MatchString(b.SELinuxType) {
 		return fmt.Errorf("selinux_type: %q must match %s", b.SELinuxType, selinuxType)
@@ -901,3 +936,62 @@ func hasKey(n *yaml.Node, path []string) bool {
 	}
 	return false
 }
+
+// HTTPConnector is the program that runs each instance of a server
+// defined with url (cmd/mcp-http-connector).
+var HTTPConnector = filepath.Join(version.LibexecDir, "mcp-gateway", "mcp-http-connector")
+
+var headerName = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+.^_|~-]+$`)
+
+// connectorCommand runs HTTPConnector for URL with the headers, in a
+// fixed order (the command identifies the definition).
+func (b *Backend) connectorCommand() []string {
+	cmd := []string{HTTPConnector, "-url", b.URL}
+	for _, k := range slices.Sorted(maps.Keys(b.Headers)) {
+		cmd = append(cmd, "-header", k+": "+b.Headers[k])
+	}
+	return cmd
+}
+
+// validateURL checks a definition with url: an https endpoint (http only
+// to the local host), headers that make a request, no command of its own
+// and no privileges.
+func (b *Backend) validateURL() error {
+	u, err := url.Parse(b.URL)
+	if err != nil || u.Host == "" || u.User != nil {
+		return fmt.Errorf("url: %q is not an absolute URL without user information", b.URL)
+	}
+	switch u.Scheme {
+	case "https":
+	case "http":
+		host := u.Hostname()
+		if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return fmt.Errorf("url: http:// only to the local host (localhost, 127.0.0.1, ::1); use https:// for %s", host)
+		}
+	default:
+		return fmt.Errorf("url: scheme must be https (or http to the local host), not %q", u.Scheme)
+	}
+	if len(b.Command) > 0 && !slices.Equal(b.Command, b.connectorCommand()) {
+		return errors.New("url and command: give one of them")
+	}
+	if b.Privileged {
+		return errors.New("privileged: not with url (the server runs elsewhere)")
+	}
+	creds, _ := b.ParseCredentials()
+	for k, v := range b.Headers {
+		if !headerName.MatchString(k) {
+			return fmt.Errorf("headers: %q is not a header name", k)
+		}
+		if strings.ContainsAny(v, "\r\n") {
+			return fmt.Errorf("headers: %s: the value has a line break", k)
+		}
+		for _, m := range credentialRef.FindAllStringSubmatch(v, -1) {
+			if !slices.ContainsFunc(creds, func(c Credential) bool { return c.Name == m[1] }) {
+				return fmt.Errorf("headers: %s names the credential %s, which credentials does not list", k, m[1])
+			}
+		}
+	}
+	return nil
+}
+
+var credentialRef = regexp.MustCompile(`\$\{CREDENTIAL:([A-Za-z0-9_][A-Za-z0-9_.-]{0,63})\}`)

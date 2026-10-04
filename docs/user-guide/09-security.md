@@ -38,6 +38,7 @@ their own domains:
 | `mcpsrv_fs_t` | the file server (`mcp-server-fs`) | additionally user home content (read/write) |
 | `mcpsrv_docs_t` | the documentation server `gateway-docs` | read `/usr`, nothing of the users' |
 | `mcpsrv_exec_t` | the command server `exec` | run the allowed commands; read system state |
+| `mcpsrv_http_t` | servers defined with `url` (`mcp-http-connector`) | connect to HTTP ports (any port with `mcpsrv_http_connect_any`), of the server's addresses only (`IPAddressAllow=`); read the CA certificates |
 | `mcpsrv_admin_t` | the diagnostics server `gateway-admin` | read the configuration, state, journal, audit log and file labels; change nothing |
 | `mcpsrv_systemd_t`, `mcpsrv_firewalld_t`, `mcpsrv_zypp_t`, `mcpsrv_suseconnect_t`, `mcpsrv_snapper_t` | the system management servers (chapter 13) | talk to their system service over D-Bus |
 | `mcpsrv_<name>_t` | your servers (chapter 4) | what the module grants |
@@ -119,7 +120,10 @@ warning. Use it for development only.
 ## Secrets
 
 - MCP server credentials: `credentials:` in the definition, delivered by
-  systemd, never readable by the gateway (chapter 4).
+  systemd, never readable by the gateway (chapter 4). For a server
+  defined with `url`, the connector puts them into headers
+  (`${CREDENTIAL:name}`); they are sent to that server only, over TLS
+  unless it is on the local host.
 - The OAuth tokens of remote agents are validated and not passed on to
   MCP servers.
 - TLS keys, the SMTP password and the audit key are readable by the
