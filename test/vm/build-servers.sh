@@ -36,6 +36,10 @@ fetch() { # fetch <owner/repo> <dir> <revision>
 fetch openSUSE/systemd-mcp systemd-mcp "$SYSTEMD_MCP"
 # cgo: the journal is read through libsystemd (sd-journal.h).
 (cd "$src/systemd-mcp" && go build -trimpath -o "$out/usr/bin/systemd-mcp" .)
+# Its polkit action (com.suse.gatekeeper.readlog, which 0.3.4 checks reads
+# with), as its package installs it.
+install -Dm0644 "$src/systemd-mcp/configs/com.suse.gatekeeper.policy" \
+	"$out/usr/share/polkit-1/actions/com.suse.gatekeeper.policy"
 
 fetch janvhs/firewalld-mcp firewalld-mcp "$FIREWALLD_MCP"
 (cd "$src/firewalld-mcp" && CGO_ENABLED=0 go build -trimpath -o "$out/usr/bin/firewalld-mcp" ./cmd/firewalld-mcp)
