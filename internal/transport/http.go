@@ -413,10 +413,12 @@ func writeJSONError(w http.ResponseWriter, status, code int, msg string) {
 
 // httpSession adapts one MCP session to a jsonrpc.MessageConn. Client
 // messages arrive in POST bodies. Server messages go out on SSE streams: a
-// response on the stream of the POST that carried its request; other
-// messages on the most recently opened request stream with a connection,
-// else the GET stream if connected, else a bounded queue that the next
-// stream drains.
+// response on the stream of the POST that carried its request; a message
+// that belongs to a client request (WriteRelated: progress, log messages
+// during a call, a server's requests during it) on that request's stream
+// while it is open; other messages on the GET stream if connected, else
+// on the most recently opened request stream with a connection, else a
+// bounded queue that the next stream drains.
 //
 // Resumability: every SSE event carries an id "<stream>-<seq>", and each
 // stream keeps its last events, also while no connection is attached. A
@@ -589,21 +591,51 @@ func (s *httpSession) Write(m *jsonrpc.Message) error {
 		// The client left before a plain JSON response: drop it.
 		return nil
 	}
+	s.writeUnrelated(m)
+	return nil
+}
+
+// WriteRelated implements jsonrpc.RelatedWriter: m goes on the stream of
+// the client request id while that stream can still carry it (an SSE
+// stream before its response), else like a message of no request.
+func (s *httpSession) WriteRelated(m *jsonrpc.Message, id json.RawMessage) error {
+	if m.IsResponse() {
+		return s.Write(m)
+	}
+	select {
+	case <-s.closed:
+		return io.ErrClosedPipe
+	default:
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if st := s.pending[string(id)]; st != nil && st.sse && !st.done {
+		st.add(m)
+		return nil
+	}
+	s.writeUnrelated(m)
+	return nil
+}
+
+// writeUnrelated sends m, which belongs to no client request that can
+// carry it: on the GET stream if connected, else on the most recently
+// opened request stream (clients that open no GET stream still get it),
+// else into the queue. Caller holds s.mu.
+func (s *httpSession) writeUnrelated(m *jsonrpc.Message) {
+	if get := s.streams[0]; get != nil && get.attached {
+		get.add(m)
+		return
+	}
 	for i := len(s.order) - 1; i >= 0; i-- {
 		if st := s.order[i]; !st.done {
 			st.add(m)
-			return nil
+			return
 		}
-	}
-	if get := s.streams[0]; get != nil && get.attached {
-		get.add(m)
-		return nil
 	}
 	if len(s.queue) >= maxQueued {
 		s.queue = s.queue[1:]
 	}
 	s.queue = append(s.queue, m)
-	return nil
 }
 
 // Close implements jsonrpc.MessageConn and ends the session.

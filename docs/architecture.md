@@ -1734,16 +1734,18 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       a client request (progress, logging during the call, elicitation,
       sampling) goes to that request's stream, not to the most recently
       opened one (§12); what belongs to no request goes to the GET
-      stream.
+      stream. A backend's request or log message belongs to a client
+      request when the session has exactly one call in flight on that
+      backend: JSON-RPC does not say which call a backend means (done).
 
 ## 12. Open items
 
-- HTTP streams: with several requests in flight on one session, a server
-  notification or request goes to the most recently opened request stream,
-  which may belong to another of the client's requests. Clients treat all
-  streams as one session, so this is harmless, but not precise. Replay is
-  bounded (256 events per stream) and lives in memory: a gateway restart
-  ends all HTTP sessions anyway.
+- HTTP streams: a backend's request or log message while a session has
+  several calls in flight on that backend cannot be told apart and goes
+  where messages of no request go (the GET stream, else the most recent
+  request stream). Clients treat all streams as one session, so this is
+  harmless, but not precise. Replay is bounded (256 events per stream)
+  and lives in memory: a gateway restart ends all HTTP sessions anyway.
 - Approval mail finds the users whose primary group an approver group is
   by enumerating users (`getent passwd`); SSSD and LDAP often do not
   enumerate, so name such approvers as `user:` there.

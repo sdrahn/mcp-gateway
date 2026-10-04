@@ -217,6 +217,14 @@ token subject) and groups by name.
   what it missed (the last 256 events per stream, kept for 5 minutes),
   including approval requests that were pending. A resumption takes over
   from a connection that is still considered open.
+- What the gateway sends that belongs to a request goes on that
+  request's stream while it is open: progress, the approval dialog, and
+  a server's log messages, elicitations and sampling requests made while
+  that one call of the session runs on it. What belongs to no request
+  (list changes, resource updates, a server's messages while several
+  calls run on it) goes on the `GET` stream if the client opened one,
+  else on its most recently opened request stream, else it waits for
+  the next stream.
 - A stream ends when the token of the request that opened it expires
   (one minute of leeway after its `exp`), a comment `: token expired`
   being the last thing on it. Nothing is lost: the client resumes with a

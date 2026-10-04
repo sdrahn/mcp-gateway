@@ -160,6 +160,6 @@ func (r *Router) listChanged(u *upstream, m *jsonrpc.Message) {
 	}
 	r.mu.Unlock()
 	for _, s := range tell {
-		s.upstreamNotification(u, m)
+		s.upstreamNotification(u, m, nil)
 	}
 }

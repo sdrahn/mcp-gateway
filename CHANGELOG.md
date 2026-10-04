@@ -31,6 +31,16 @@ minor release (with a warning) and removed in the next.
   `servers_error`) and the keys that need a restart, and its **Reload
   configuration** button runs `systemctl reload mcp-gateway.service`.
 
+### Changed
+
+- HTTP: what the gateway sends that belongs to a request goes on that
+  request's stream while it is open: progress, the approval dialog, and
+  a server's log messages, elicitations and sampling requests made while
+  the session has that one call in flight on it. Before, such messages
+  went to the most recently opened request stream, which could belong to
+  another request. What belongs to no request (list changes, resource
+  updates) goes on the GET stream if the client opened one.
+
 ## v0.9.0 — 2026-10-03
 
 Server definitions that change while the gateway runs. The gateway

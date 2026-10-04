@@ -65,6 +65,14 @@ type client struct {
 // connect starts a session. server "" means no hello (aggregated).
 func connect(t *testing.T, r *Router, p principal.Principal, server string, caps map[string]any) *client {
 	t.Helper()
+	return connectWrapped(t, r, p, server, caps, nil)
+}
+
+// connectWrapped is connect with the gateway's end of the connection
+// wrapped (nil: not).
+func connectWrapped(t *testing.T, r *Router, p principal.Principal, server string, caps map[string]any,
+	wrap func(jsonrpc.MessageConn) jsonrpc.MessageConn) *client {
+	t.Helper()
 	cTest, cGw := net.Pipe()
 	c := &client{t: t, conn: jsonrpc.NewConn(cTest), msgs: make(chan *jsonrpc.Message, 32), done: make(chan struct{})}
 	go func() {
@@ -77,7 +85,10 @@ func connect(t *testing.T, r *Router, p principal.Principal, server string, caps
 			c.msgs <- m
 		}
 	}()
-	gwConn := jsonrpc.NewConn(cGw)
+	var gwConn jsonrpc.MessageConn = jsonrpc.NewConn(cGw)
+	if wrap != nil {
+		gwConn = wrap(gwConn)
+	}
 	var first *jsonrpc.Message
 	init, _ := jsonrpc.NewRequest(json.RawMessage(`0`), "initialize", map[string]any{
 		"protocolVersion": "2025-06-18", "capabilities": caps, "clientInfo": map[string]any{"name": "test"},
@@ -918,5 +929,73 @@ func TestAggregatedInstructionsPointToGatewayAdmin(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("no %q in %s", want, got)
 		}
+	}
+}
+
+// relatedConn records which client request each message the gateway sends
+// belongs to (as an HTTP session would put it on that request's stream).
+type relatedConn struct {
+	jsonrpc.MessageConn
+	mu      sync.Mutex
+	related map[string]string // method → client request id
+}
+
+func (c *relatedConn) WriteRelated(m *jsonrpc.Message, id json.RawMessage) error {
+	c.mu.Lock()
+	c.related[m.Method] = string(id)
+	c.mu.Unlock()
+	return c.Write(m)
+}
+
+func (c *relatedConn) of(method string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.related[method]
+}
+
+// What a call makes the gateway send (the backend's progress, its
+// elicitation) belongs to that call's request.
+func TestMessagesRelatedToTheirRequest(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	rc := &relatedConn{related: map[string]string{}}
+	c := connectWrapped(t, r, alice(), "fs", map[string]any{"elicitation": map[string]any{}},
+		func(mc jsonrpc.MessageConn) jsonrpc.MessageConn { rc.MessageConn = mc; return rc })
+
+	c.send(7, "tools/call", map[string]any{"name": "progress", "_meta": map[string]any{"progressToken": "tok-1"}})
+	if n := c.read(); n.Method != "notifications/progress" {
+		t.Fatalf("got %+v", n)
+	}
+	c.read()
+	if got := rc.of("notifications/progress"); got != "7" {
+		t.Fatalf("progress related to %q", got)
+	}
+
+	c.send(8, "tools/call", map[string]any{"name": "ask_color"})
+	req := c.read()
+	if req.Method != "elicitation/create" {
+		t.Fatalf("got %+v", req)
+	}
+	c.write(result(t, req.ID, map[string]any{"action": "accept", "content": map[string]any{"color": "blue"}}))
+	c.read()
+	if got := rc.of("elicitation/create"); got != "8" {
+		t.Fatalf("elicitation related to %q", got)
+	}
+}
+
+// The gateway's own approval dialog belongs to the call that waits for it.
+func TestApprovalElicitationRelatedToItsRequest(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	rc := &relatedConn{related: map[string]string{}}
+	c := connectWrapped(t, r, alice(), "fs", map[string]any{"elicitation": map[string]any{}},
+		func(mc jsonrpc.MessageConn) jsonrpc.MessageConn { rc.MessageConn = mc; return rc })
+	c.send(9, "tools/call", map[string]any{"name": "write_file"})
+	el := c.read()
+	if el.Method != "elicitation/create" {
+		t.Fatalf("got %+v", el)
+	}
+	c.write(result(t, el.ID, map[string]any{"action": "accept", "content": map[string]any{"scope": "once"}}))
+	c.read()
+	if got := rc.of("elicitation/create"); got != "9" {
+		t.Fatalf("approval related to %q", got)
 	}
 }

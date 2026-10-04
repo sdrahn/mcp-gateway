@@ -69,6 +69,29 @@ func echoServe(_ context.Context, c jsonrpc.MessageConn, p principal.Principal, 
 			_ = c.Write(n)
 			r, _ := jsonrpc.NewResult(m.ID, map[string]any{})
 			_ = c.Write(r)
+		case m.Method == "hold": // answered at "release"
+			waiting["hold"+m.Key()] = m
+		case m.Method == "poke": // a notification for the held request params.id, and one for none
+			var p struct {
+				ID json.RawMessage `json:"id"`
+			}
+			_ = json.Unmarshal(m.Params, &p)
+			n, _ := jsonrpc.NewNotification("notifications/progress", map[string]any{"for": json.RawMessage(p.ID)})
+			_ = jsonrpc.WriteRelated(c, n, p.ID)
+			u, _ := jsonrpc.NewNotification("notifications/tools/list_changed", nil)
+			_ = jsonrpc.WriteRelated(c, u, nil)
+			r, _ := jsonrpc.NewResult(m.ID, map[string]any{})
+			_ = c.Write(r)
+		case m.Method == "release":
+			for k, held := range waiting {
+				if strings.HasPrefix(k, "hold") {
+					r, _ := jsonrpc.NewResult(held.ID, map[string]any{})
+					_ = c.Write(r)
+					delete(waiting, k)
+				}
+			}
+			r, _ := jsonrpc.NewResult(m.ID, map[string]any{})
+			_ = c.Write(r)
 		case m.Method == "later":
 			r, _ := jsonrpc.NewResult(m.ID, map[string]any{})
 			_ = c.Write(r)
@@ -346,6 +369,55 @@ func TestGETStreamAndQueue(t *testing.T) {
 	second := do(t, srv, req{method: http.MethodGet, token: "alice", session: sid, accept: "text/event-stream"})
 	if _ = readBody(t, second); second.StatusCode != 409 {
 		t.Fatalf("second GET: %d", second.StatusCode)
+	}
+}
+
+// A message that belongs to a client request goes on that request's
+// stream, not on the most recently opened one; a message of no request
+// goes on the GET stream when it is open.
+func TestRelatedMessagesOnTheirStream(t *testing.T) {
+	srv, _ := newTestServer(t, nil)
+	sid := initialize(t, srv, "/mcp", "alice")
+	open := func(body string) chan *jsonrpc.Message {
+		resp := do(t, srv, req{token: "alice", session: sid, accept: "application/json, text/event-stream", body: body})
+		ch := make(chan *jsonrpc.Message, 8)
+		go sseEvents(t, resp, ch)
+		return ch
+	}
+	a := open(`{"jsonrpc":"2.0","id":"a","method":"hold"}`)
+	time.Sleep(50 * time.Millisecond) // a before b: b is the most recent stream
+	b := open(`{"jsonrpc":"2.0","id":"b","method":"hold"}`)
+	time.Sleep(50 * time.Millisecond)
+	get := do(t, srv, req{method: http.MethodGet, token: "alice", session: sid, accept: "text/event-stream"})
+	g := make(chan *jsonrpc.Message, 8)
+	go sseEvents(t, get, g)
+	time.Sleep(50 * time.Millisecond)
+
+	_ = readBody(t, do(t, srv, req{token: "alice", session: sid, body: `{"jsonrpc":"2.0","id":3,"method":"poke","params":{"id":"a"}}`}))
+	if m := next(t, a); m.Method != "notifications/progress" || !strings.Contains(string(m.Params), `"for":"a"`) {
+		t.Fatalf("stream a got %+v", m)
+	}
+	if m := next(t, g); m.Method != "notifications/tools/list_changed" {
+		t.Fatalf("GET stream got %+v", m)
+	}
+	select {
+	case m := <-b:
+		t.Fatalf("stream b got %+v", m)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// A request whose stream is gone: its message goes where unrelated
+	// ones go.
+	_ = readBody(t, do(t, srv, req{token: "alice", session: sid, body: `{"jsonrpc":"2.0","id":4,"method":"poke","params":{"id":"gone"}}`}))
+	if m := next(t, g); m.Method != "notifications/progress" {
+		t.Fatalf("GET stream got %+v", m)
+	}
+	_ = readBody(t, do(t, srv, req{token: "alice", session: sid, body: `{"jsonrpc":"2.0","id":5,"method":"release"}`}))
+	if m := next(t, a); m.Key() != `"a"` {
+		t.Fatalf("stream a got %+v", m)
+	}
+	if m := next(t, b); m.Key() != `"b"` {
+		t.Fatalf("stream b got %+v", m)
 	}
 }
 

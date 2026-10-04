@@ -127,6 +127,23 @@ type MessageConn interface {
 
 var _ MessageConn = (*Conn)(nil)
 
+// RelatedWriter is implemented by connections that can send a message
+// with the client request it belongs to (MCP Streamable HTTP: on that
+// request's stream).
+type RelatedWriter interface {
+	// WriteRelated writes m, which belongs to the client's request id.
+	WriteRelated(m *Message, id json.RawMessage) error
+}
+
+// WriteRelated writes m on c as belonging to the client's request id
+// (nil: to none), if c can tell; otherwise like c.Write.
+func WriteRelated(c MessageConn, m *Message, id json.RawMessage) error {
+	if rw, ok := c.(RelatedWriter); ok && len(id) > 0 {
+		return rw.WriteRelated(m, id)
+	}
+	return c.Write(m)
+}
+
 // Conn reads and writes newline-delimited messages. Write is safe for
 // concurrent use; Read must be called from a single goroutine.
 type Conn struct {
