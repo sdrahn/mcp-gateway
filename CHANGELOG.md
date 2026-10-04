@@ -5,7 +5,45 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.12.0 — 2026-10-04
+
+Each user signs in to MCP servers with their own account, servers are
+reached through a proxy, and policy changes reach agents at once. A
+server defined with `url` may have each user sign in to it (OAuth 2.1
+with PKCE): the gateway keeps their tokens, encrypted, and hands each
+instance its user's access token, while every request to the
+authorization server is made by a confined helper that reaches only
+that host; the agent never sees a token. Such servers may also be
+reached through an HTTP proxy. Local policy is watched, so agents see a
+role change when it is saved. Releases check themselves before anything
+is published.
+
+Upgrading from 0.11.x needs no changes to `gateway.yaml`, server
+definitions or role data. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. Things
+to know:
+
+- Saving role data or custom policy reaches agents within a second
+  (they are told to list their tools again), not after
+  `policy.watch_interval`; policy from a bundle server is still polled.
+  Where a directory cannot be watched, the journal says "policy changes
+  in a directory are noticed by polling only".
+- `sign_in` needs the HTTP listener (`http.listen`, `http.audience`),
+  reachable from the users' browsers: authorization servers send users
+  back to `<origin of http.audience>/oauth/callback`. Without it, the
+  gateway refuses such a definition.
+- Policy that replaces the shipped logic (chapter 12) decides the tool
+  `sign_in`, which the input marks `"resource": {"sign_in": true}`, and
+  answers `data.mcp.approvals.manage_sign_in` for who may see and end
+  sign-ins; without that rule only root may. The shipped policy covers
+  `sign_in` wherever a permission names any tool of the server.
+- New state: `/var/lib/mcp-gateway/tokens` (users' tokens and their key,
+  made on the first sign-in; back it up with the rest, and keep the key
+  with the tokens) and `/run/mcp-gateway/credentials` (tmpfiles). The
+  SELinux module adds `mcpsrv_oauth_t`, `mcpgw_token_t` and
+  `mcpgw_cred_run_t`, and lets servers defined with `url` connect to
+  proxy ports (3128, 8080); each instance still reaches only its
+  server's, or its proxy's, addresses.
 
 ### Added
 
