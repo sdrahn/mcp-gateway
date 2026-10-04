@@ -33,22 +33,25 @@ checkout.
 | Path | Contents |
 |---|---|
 | `cmd/mcp-gateway` | gateway daemon |
-| `cmd/mcp-gateway-admin` | commands for administrators: doctor, the server `gateway-admin` |
+| `cmd/mcp-gateway-admin` | commands for administrators: doctor, the server `gateway-admin` (diagnostics for agents: doctor, configuration, policy explanations, audit records) |
 | `cmd/mcp-gateway-tools` | inspect, profile and review, run by `mcp-gateway-admin` (package `mcp-gateway-tools`) |
 | `cmd/mcp-connect` | stdio ↔ unix-socket shim for local clients |
 | `cmd/mcp-gateway-notify` | desktop notifications for approvals (per-user agent) |
-| `internal/` | `transport` (unix socket, peer credentials, hello; Streamable HTTP), `authn` (peer credentials; OAuth/JWT), `router` (MCP proxy core), `pep` (OPA client, fail-closed evaluation), `broker` (approvals via form/URL/out-of-band, grants), `control` (approvals, grants, servers and policy status API on a unix socket), `supervisor` (systemd / exec launchers, MCS allocation), `notify` (approval mail), `notifyagent` (desktop notifications), `jsonrpc`, `audit`, `config`, `principal` |
+| `cmd/mcp-http-connector` | each instance of a server defined with `url`: relays between the gateway (stdio) and an MCP server that speaks Streamable HTTP, directly or through a proxy, in its own domain (`mcpsrv_http_t`) |
+| `internal/` | `transport` (unix socket, peer credentials, hello; Streamable HTTP), `authn` (peer credentials; OAuth/JWT), `router` (MCP proxy core, live reload), `pep` (OPA client, fail-closed evaluation), `broker` (approvals via form/URL/out-of-band, grants), `control` (approvals, grants, servers and policy status API on a unix socket), `supervisor` (systemd / exec launchers, MCS allocation, network limits of HTTP servers), `fswatch` (inotify for configuration and policy), `notify` (approval mail), `notifyagent` (desktop notifications), `pseudo` (pseudonymization), `doctor`, `inspect`, `profile` and `review` (the administrator's commands), `policydata` (role data checks), `contract` (fixed fields of the interfaces), `metrics`, `mcpserver` (protocol core of the shipped servers), `jsonrpc`, `audit`, `config`, `principal`, `statedir`, `version` |
 | `cockpit/` | Cockpit page (approvals and grants, servers and instances, role bindings, audit records) and its smoke test |
 | `cmd/mcp-server-fs/` | the file server (package `mcp-gateway-fs-server`) |
 | `cmd/mcp-server-exec/` | the command server for commands an administrator allows (package `mcp-gateway-exec-server`) |
 | `examples/` | running the gateway from a checkout (`examples/dev`) |
 | `e2e/` | end-to-end tests: OPA + gateway + mcp-connect or an HTTPS client with a test IdP + the file server |
+| `test/` | reference-client compatibility suite (`clients/`: Go, Python, TypeScript), compatibility with earlier releases' files (`compat/`), VM tests on Leap 16 and Tumbleweed (`vm/`) |
 | `policy/` | default OPA policy bundle (`data.mcp.authz.decision`, `data.mcp.filter.visible`), RBAC data and tests |
-| `selinux/` | `mcp_gateway` SELinux policy module (domains, types, isolation invariants) |
+| `selinux/` | `mcp_gateway` SELinux policy module (domains, types, isolation invariants) and the modules of the server setups |
+| `profiles/` | server setups for system management (zypp, systemd, firewalld, snapper, SUSEConnect): definitions and roles, packaged as `mcp-gateway-profile-<name>` |
 | `systemd/` | `mcp-gateway.service`, `mcp-opa.service` |
-| `tools/` | `mcp-policy-bundle`: builds and signs a policy bundle |
+| `tools/` | `mcp-policy-bundle`: builds and signs a policy bundle; `check-release`: checks a commit is ready to be tagged (run by the Release workflow) |
 | `config/` | example `gateway.yaml` and backend definitions (`servers.d/`) |
-| `packaging/` | OBS package for openSUSE/SLES (`suse/`), `mcp-opa.service` drop-ins for signed bundles (`opa/`), sysusers.d, polkit rule, file server definition |
+| `packaging/` | OBS package for openSUSE/SLES (`suse/`), `mcp-opa.service` drop-ins for signed bundles (`opa/`), sysusers.d, tmpfiles.d, polkit rule, the shipped servers' definitions and roles (`fs-server/`, with the server of the gateway's own docs; `exec-server/`; `admin/`), MCS settings for libvirt (`mcs/`), the notification agent's autostart (`desktop/`) |
 | `docs/` | [user guide](docs/user-guide/README.md), [architecture](docs/architecture.md) |
 
 ## Development
