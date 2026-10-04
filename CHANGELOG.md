@@ -84,6 +84,13 @@ to know:
   every 30 s, so a container that takes an instance's pair shares it for
   at most about 2 s before the instance is replaced.
 
+### Fixed
+
+- `mcp-gateway-admin doctor` no longer warns `polkit dynamic` about
+  servers with `run_as: dynamic`, such as `gateway-docs`: a dynamic
+  user gets a new name for each instance, so no polkit rule could name
+  it, and servers that act through polkit run as a fixed account.
+
 ## v0.9.0 — 2026-10-03
 
 Server definitions that change while the gateway runs. The gateway
