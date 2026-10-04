@@ -24,6 +24,7 @@ servers cannot read the gateway's files.
 | Which packages, first start, transactional systems (MicroOS, SLE Micro) | [2. Installation](user-guide/02-installation.md) |
 | Every key of `gateway.yaml`, which file is in force (`/etc` or `/usr/etc`), which keys apply without a restart | [3. Configuration](user-guide/03-configuration.md) |
 | Adding an MCP server: definition keys, sandbox, secrets, SELinux domain; `inspect`, `profile`, `review`; the file server `fs` and the command server `exec` | [4. MCP servers](user-guide/04-mcp-servers.md) |
+| Servers that speak HTTP (`url`), through a proxy, or that each user signs in to (`sign_in`, OAuth) | [4. MCP servers, "Servers that speak HTTP"](user-guide/04-mcp-servers.md#servers-that-speak-http), ["Signing in for each user"](user-guide/04-mcp-servers.md#signing-in-for-each-user) |
 | Changing server definitions while the gateway runs | [4. MCP servers, "Changing definitions while the gateway runs"](user-guide/04-mcp-servers.md#changing-definitions-while-the-gateway-runs) |
 | Connecting an agent: `mcp-connect`, the aggregated endpoint and `server__tool` names, remote access with OAuth, Claude Code, Kit | [5. Connecting clients](user-guide/05-connecting-clients.md) |
 | Roles, permissions, bindings, approver rules, obligations, pseudonymization, the shipped roles | [6. Policy](user-guide/06-policy.md) |
@@ -58,6 +59,7 @@ with placeholders.
 | `Interactive authentication required`, `NOT_AUTHORIZED` | polkit refused the server's account | [13, "Service permissions"](user-guide/13-system-management-servers.md#service-permissions) |
 | `read-only file system (on a transactional system, …)` | `/usr` cannot be changed on a transactional system | [2, "Transactional systems"](user-guide/02-installation.md#transactional-systems) |
 | `401 invalid token`, `403 insufficient scope`, `404 unknown session` | remote access over HTTPS | [5, "Errors"](user-guide/05-connecting-clients.md#errors) |
+| `signing in to … failed: …`, `sign_in needs the HTTP listener`, `… neither supports client ID metadata documents nor registration` | a server each user signs in to | [4, "Signing in for each user"](user-guide/04-mcp-servers.md#signing-in-for-each-user) |
 | `status=229/SELINUX_CONTEXT`, `Failed to change SELinux context` | the server's SELinux module is not loaded | [4, "SELinux domains for servers"](user-guide/04-mcp-servers.md#selinux-domains-for-servers) |
 | `selinux_type is not in the loaded SELinux policy` | the same, as the gateway warns at start | [4, "SELinux domains for servers"](user-guide/04-mcp-servers.md#selinux-domains-for-servers) |
 | `invalid message from backend … parse error` | the server writes something other than MCP to stdout | [10, "Instances do not start"](user-guide/10-operations.md#instances-do-not-start) |

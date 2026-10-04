@@ -46,3 +46,4 @@ resource.kind
 resource.name
 resource.privileged
 resource.server
+resource.sign_in

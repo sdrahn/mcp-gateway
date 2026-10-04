@@ -126,6 +126,14 @@ warning. Use it for development only.
   unless it is on the local host. Through a proxy (`proxy`), the TLS
   connection still ends at the server, and the proxy gets only
   `proxy_headers`.
+- Users' tokens for servers with `sign_in` (chapter 4): kept by the
+  gateway in `/var/lib/mcp-gateway/tokens` (`mcpgw_token_t`), encrypted
+  with a key only the gateway reads, each bound to its user and server;
+  an instance gets its user's access token for its own server from
+  systemd, never the refresh token; the agent never sees a token. The
+  sign-in link goes only to the user's client or their own Cockpit
+  view, and is valid once, for `sign_in.timeout`: a user who forwards it
+  lets someone else bind their account at the server to the user.
 - The OAuth tokens of remote agents are validated and not passed on to
   MCP servers.
 - TLS keys, the SMTP password and the audit key are readable by the

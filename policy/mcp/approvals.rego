@@ -1,6 +1,7 @@
 # Who may decide on a pending approval (data.mcp.approvals.allow), see or
-# revoke a grant (data.mcp.approvals.manage_grant) and see or stop a
-# backend instance (data.mcp.approvals.manage_instance). The gateway queries
+# revoke a grant (data.mcp.approvals.manage_grant), see or stop a backend
+# instance (data.mcp.approvals.manage_instance) and see or end a
+# principal's sign-in to a server (data.mcp.approvals.manage_sign_in). The gateway queries
 # these from its control API; the approver is identified by the kernel
 # (uid, user and group names), never by the agent.
 #
@@ -42,6 +43,16 @@ default manage_instance := false
 manage_instance if {
 	some rule in rules_for(input.instance.server)
 	grants(rule, input.instance)
+}
+
+# METADATA
+# description: May the caller see and end the principal's sign-in to the server?
+# entrypoint: true
+default manage_sign_in := false
+
+manage_sign_in if {
+	some rule in rules_for(input.sign_in.server)
+	grants(rule, input.sign_in)
 }
 
 # METADATA
@@ -106,7 +117,8 @@ approver_roles contains r if {
 	some r in data.mcp.rbac.bindings.groups[g]
 }
 
-# subject is the pending request's principal, the grant or the instance;
+# subject is the pending request's principal, the grant, the instance or
+# the sign-in;
 # all carry the principal's local uid if it has one.
 grants("self", subject) if subject.uid == input.approver.uid
 

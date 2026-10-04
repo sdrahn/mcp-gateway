@@ -292,6 +292,7 @@ fi
 %{_bindir}/mcp-connect
 %dir %{_libexecdir}/mcp-gateway
 %{_libexecdir}/mcp-gateway/mcp-http-connector
+%{_libexecdir}/mcp-gateway/mcp-oauth-helper
 %{_sbindir}/mcp-policy-bundle
 %dir %{_sysconfdir}/mcp-gateway
 %dir %{_sysconfdir}/mcp-gateway/servers.d

@@ -34,10 +34,10 @@ func opaBinary(t *testing.T) string {
 	return p
 }
 
-func build(t *testing.T, dir, pkg string) string {
+func build(t *testing.T, dir, pkg string, flags ...string) string {
 	t.Helper()
 	out := filepath.Join(dir, filepath.Base(pkg))
-	cmd := exec.Command("go", "build", "-o", out, pkg)
+	cmd := exec.Command("go", append(append([]string{"build"}, flags...), "-o", out, pkg)...)
 	cmd.Dir = ".."
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("building %s: %v\n%s", pkg, err, b)
@@ -249,7 +249,11 @@ func setupWith(t *testing.T, rbac string, roots map[string]string, extra string,
 	t.Cleanup(func() { _ = os.RemoveAll(tmp) })
 
 	bin := filepath.Join(tmp, "bin")
-	gateway := build(t, bin, "./cmd/mcp-gateway")
+	// Helper programs (mcp-http-connector, mcp-oauth-helper) are looked
+	// for below tmp/libexec/mcp-gateway; tests that need them build them
+	// there.
+	gateway := build(t, bin, "./cmd/mcp-gateway",
+		"-ldflags", "-X github.com/sdrahn/mcp-gateway/internal/version.LibexecDir="+filepath.Join(tmp, "libexec"))
 	connect := build(t, bin, "./cmd/mcp-connect")
 	demo := build(t, bin, "./cmd/mcp-server-fs")
 

@@ -23,6 +23,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/pseudo"
+	"github.com/sdrahn/mcp-gateway/internal/signin"
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
 
@@ -394,7 +395,23 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 		v = p.ProtocolVersion
 	}
 	if !s.endpoint().aggregated {
-		init, err := s.backendInit(ctx, s.endpoint().order[0])
+		server := s.endpoint().order[0]
+		b := s.endpoint().backends[server]
+		var init initResult
+		var err error
+		if b == nil || !s.mustSignIn(b) {
+			init, err = s.backendInit(ctx, server)
+		}
+		if (b != nil && s.mustSignIn(b)) || errors.Is(err, signin.ErrNotSignedIn) {
+			// Until the principal signed in, the gateway answers for
+			// the server: it offers sign_in, and lists change after.
+			return map[string]any{"protocolVersion": v, "serverInfo": map[string]any{"name": server},
+				"capabilities": map[string]any{
+					"tools":     map[string]any{"listChanged": true},
+					"prompts":   map[string]any{"listChanged": true},
+					"resources": map[string]any{"listChanged": true},
+				}}, nil
+		}
 		if err != nil {
 			return nil, unavailable(err)
 		}
@@ -482,6 +499,9 @@ type listItem struct {
 	server string
 	name   string
 	raw    map[string]json.RawMessage
+	// signIn marks the tool sign_in of a server the principal must sign
+	// in to.
+	signIn bool
 }
 
 func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error) {
@@ -502,7 +522,7 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	s.rememberArgs(spec.kind, items)
 	resources := make([]pep.Resource, len(items))
 	for i, it := range items {
-		resources[i] = pep.Resource{Server: it.server, Kind: spec.kind, Name: it.name, Privileged: s.r.privileged(it.server)}
+		resources[i] = pep.Resource{Server: it.server, Kind: spec.kind, Name: it.name, Privileged: s.r.privileged(it.server), SignIn: it.signIn}
 	}
 	type key struct{ server, kind, name string }
 	visible := map[key]bool{}
@@ -545,6 +565,14 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 
 // fetchList returns all items of one backend's list, following cursors.
 func (s *Session) fetchList(ctx context.Context, server, method string, spec listSpec) ([]listItem, error) {
+	if b := s.endpoint().backends[server]; b != nil && s.mustSignIn(b) {
+		// Until the principal signed in, the server offers one tool:
+		// signing in.
+		if method == "tools/list" {
+			return []listItem{signInItem(server)}, nil
+		}
+		return nil, nil
+	}
 	if b := s.endpoint().backends[server]; b != nil && b.Discovery == config.DiscoveryShared && sharedMethods[method] {
 		items, err := s.r.sharedList(ctx, b, method, spec)
 		if err == nil {
@@ -650,6 +678,9 @@ func (s *Session) target(method string, params map[string]json.RawMessage) (*cal
 			ann := s.annotations[exposed]
 			s.mu.Unlock()
 			t.action, t.resource = "tools.call", pep.Resource{Server: server, Kind: "tool", Name: name, Annotations: ann}
+			if b := s.endpoint().backends[server]; name == signInTool && b != nil && s.mustSignIn(b) {
+				t.resource.Annotations, t.resource.SignIn = nil, true
+			}
 		} else {
 			t.action, t.resource = "prompts.get", pep.Resource{Server: server, Kind: "prompt", Name: name}
 		}
@@ -756,7 +787,27 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		}
 	}
 
+	b := s.endpoint().backends[t.server]
+	if b != nil && s.mustSignIn(b) {
+		if err := s.signIn(ctx, b); err != nil {
+			return s.signInFailed(m.Method, t.server, err)
+		}
+		if m.Method == "tools/call" && t.resource.Name == signInTool {
+			return textResult("Signed in to " + t.server + ". List the tools again to see its tools."), nil
+		}
+	}
 	u, err := s.upstream(ctx, t.server)
+	if errors.Is(err, signin.ErrTokenRejected) {
+		// The server refused the token at once: start with a refreshed one.
+		u, err = s.upstream(ctx, t.server)
+	}
+	if errors.Is(err, signin.ErrNotSignedIn) && b != nil && b.SignIn != nil && s.r.SignIns != nil {
+		// The tokens were refused at refresh: sign in again.
+		if err := s.signIn(ctx, b); err != nil {
+			return s.signInFailed(m.Method, t.server, err)
+		}
+		u, err = s.upstream(ctx, t.server)
+	}
 	if err != nil {
 		return nil, unavailable(err)
 	}
@@ -777,6 +828,11 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		return nil, rpcError(jsonrpc.CodeInternalError, "backend unavailable")
 	}
 	if resp.Error != nil {
+		if b != nil && b.SignIn != nil && s.r.SignIns != nil && strings.Contains(resp.Error.Message, signin.RejectedMarker) {
+			// The instance ends; the next call starts one with a
+			// refreshed token.
+			s.r.SignIns.Rejected(t.server, s.snapshotPrincipal())
+		}
 		return nil, resp.Error
 	}
 	result, stats, err := ob.ApplyOutput(resp.Result, s.vault)
@@ -930,6 +986,46 @@ func unavailable(err error) *jsonrpc.Error {
 		return rpcError(jsonrpc.CodeInternalError, fmt.Sprintf("backend unavailable; retry in %s", b.RetryIn.Round(time.Second)))
 	}
 	return rpcError(jsonrpc.CodeInternalError, "backend unavailable")
+}
+
+// signInTool is the tool a server with sign_in offers a principal who has
+// not signed in to it.
+const signInTool = "sign_in"
+
+// mustSignIn reports whether the session's principal must sign in to b
+// before using it.
+func (s *Session) mustSignIn(b *config.Backend) bool {
+	return b.SignIn != nil && s.r.SignIns != nil && !s.r.SignIns.Signed(s.snapshotPrincipal(), b.Name)
+}
+
+// signIn signs the session's principal in to b through the client.
+func (s *Session) signIn(ctx context.Context, b *config.Backend) error {
+	return s.r.SignIns.Run(ctx, requestElicitor{s, requestOf(ctx)}, b, s.snapshotPrincipal())
+}
+
+func signInItem(server string) listItem {
+	raw := map[string]json.RawMessage{}
+	raw["name"], _ = json.Marshal(signInTool)
+	raw["title"], _ = json.Marshal("Sign in to " + server)
+	raw["description"], _ = json.Marshal("Sign in to " + server + " with your account there to use its tools. " +
+		"You are asked to open a sign-in page; the gateway keeps the token.")
+	raw["inputSchema"] = json.RawMessage(`{"type":"object","properties":{}}`)
+	return listItem{server: server, name: signInTool, raw: raw, signIn: true}
+}
+
+func textResult(text string) map[string]any {
+	return map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
+}
+
+func (s *Session) signInFailed(method, server string, err error) (any, *jsonrpc.Error) {
+	msg := "signing in to " + server + " failed: " + err.Error()
+	if method == "tools/call" {
+		return map[string]any{
+			"content": []map[string]any{{"type": "text", "text": "mcp-gateway: " + msg}},
+			"isError": true,
+		}, nil
+	}
+	return nil, rpcError(jsonrpc.CodeInternalError, "mcp-gateway: "+msg)
 }
 
 func (s *Session) denial(method, reason string) (any, *jsonrpc.Error) {

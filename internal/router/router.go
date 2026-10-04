@@ -17,6 +17,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/signin"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
 )
@@ -46,6 +47,8 @@ type Router struct {
 	ProgressInterval time.Duration
 	// Seen, if set, is told the name of each local user who connects.
 	Seen func(name string)
+	// SignIns, if set, signs principals in to servers with sign_in.
+	SignIns SignIns
 
 	once      sync.Once
 	registry  atomic.Pointer[map[string]*config.Backend] // the definitions in force (SetBackends)
@@ -57,6 +60,39 @@ type Router struct {
 
 	mu       sync.Mutex
 	sessions map[*Session]struct{}
+}
+
+// SignIns signs principals in to servers with sign_in and gives their
+// instances the tokens (signin.Manager).
+type SignIns interface {
+	Signed(p principal.Principal, server string) bool
+	Run(ctx context.Context, el broker.Elicitor, b *config.Backend, p principal.Principal) error
+	Prepare(ctx context.Context, b *config.Backend, p principal.Principal) (*config.Backend, func(), error)
+	// Rejected records that the server refused p's access token.
+	Rejected(server string, p principal.Principal)
+}
+
+// SignInChanged tells the principal k's sessions that what server offers
+// them changed (they signed in or out); on sign-out it also stops k's
+// instances of server, which hold the token.
+func (r *Router) SignInChanged(k signin.Key, server string, signedIn bool) {
+	r.init()
+	if !signedIn {
+		if n := r.pool.stopFor(server, func(p principal.Principal) bool { return k.Same(signin.KeyOf(p)) }); n > 0 {
+			r.Log.Info("instances stopped on sign-out", "server", server, "sub", k.Sub, "instances", n)
+		}
+	}
+	r.mu.Lock()
+	var sessions []*Session
+	for s := range r.sessions {
+		if k.Same(signin.KeyOf(s.snapshotPrincipal())) {
+			sessions = append(sessions, s)
+		}
+	}
+	r.mu.Unlock()
+	for _, s := range sessions {
+		s.listChanged()
+	}
 }
 
 func (r *Router) unregister(s *Session) {
@@ -186,6 +222,10 @@ func (r *Router) init() {
 			MaxInstances: r.MaxInstances})
 		r.pool.onListChanged = r.listChanged
 		r.pool.current = func(server string) *config.Backend { return (*r.registry.Load())[server] }
+		if r.SignIns != nil {
+			r.pool.prepare = r.SignIns.Prepare
+			r.pool.rejected = r.SignIns.Rejected
+		}
 		r.limiter = pep.NewLimiter()
 	})
 }

@@ -23,6 +23,22 @@ minor release (with a warning) and removed in the next.
   proxy ports (3128, 8080). No proxy is taken from the environment
   (user guide, chapter 4, Through a proxy).
 
+- Each user signs in to a server with their own account there: with
+  `sign_in` in a definition with `url`, a user who has not signed in
+  sees one tool, `sign_in`; calling it (or any of the server's tools)
+  sends them to the server's authorization server (OAuth 2.1 with PKCE)
+  through a URL elicitation, or the Cockpit page, and back to the
+  gateway's callback on its HTTP listener. The gateway keeps the
+  tokens, encrypted, in `/var/lib/mcp-gateway/tokens`, renews them, and
+  hands each instance its user's access token as a systemd credential;
+  the agent never sees a token. Every request to the authorization
+  server is made by the new `mcp-oauth-helper` in its own domain
+  (`mcpsrv_oauth_t`), which reaches only that host. Users sign out, and
+  administrators revoke sign-ins, in Cockpit or through the control API
+  (`GET /v1/sign-ins`, `DELETE /v1/sign-ins/{server}`); sign-ins,
+  refreshes and sign-outs are audited (user guide, chapter 4, Signing in
+  for each user; architecture, decision D16).
+
 ### Changed
 
 - Policy changes reach agents at once: the gateway watches the local

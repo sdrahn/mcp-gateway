@@ -395,3 +395,20 @@ test_admin_role_replaces_shipped_role if {
 		with data.mcp.rbac.bindings as {"users": {"alice": ["systemd-reader"]}}
 	d.effect == "deny"
 }
+
+# The tool sign_in of a server the principal has not signed in to follows
+# the server's tools; a server's own tool of that name does not.
+test_sign_in_follows_server_tools if {
+	rbac := {
+		"bindings": {"users": {"alice": ["tickets-user"]}},
+		"roles": {"tickets-user": {"permissions": [{"server": "tickets", "tool": "whoami"}]}},
+	}
+	signin := {
+		"principal": alice, "action": "tools.call", "args": {}, "grants": [],
+		"resource": {"server": "tickets", "kind": "tool", "name": "sign_in", "sign_in": true},
+	}
+	authz.decision.effect == "allow" with input as signin with data.mcp.rbac as rbac
+	authz.decision.effect == "deny" with input as call(alice, "tickets", "sign_in", {}) with data.mcp.rbac as rbac
+	other := object.union(signin, {"resource": {"server": "fs", "kind": "tool", "name": "sign_in", "sign_in": true}})
+	authz.decision.effect == "deny" with input as other with data.mcp.rbac as rbac
+}

@@ -72,6 +72,22 @@ function site() {
     await page.waitForFunction(() => !document.querySelector("#servers").textContent.includes("mcp-fs-i1.service"));
     check((await page.evaluate(() => __calls)).some(c => c[0] === "DELETE" && c[1] === "/v1/instances/i1"), "stop instance");
 
+    // Sign-ins: the user's own with Sign out, a waiting one with its link,
+    // and others' with Revoke.
+    const signInText = await page.textContent("#servers");
+    check(signInText.includes("each user signs in") && signInText.includes("Sign-in waiting for you") &&
+          signInText.includes("You (carol) via unix") && signInText.includes("token expires") &&
+          signInText.includes("scope mcp.read"), "sign-ins shown");
+    check(await page.getAttribute("#servers a:has-text('Sign in')", "href") === "https://as.example.com/authorize?state=s1" &&
+          await page.getAttribute("#servers a:has-text('Sign in')", "rel") === "noopener noreferrer", "sign-in link");
+    await page.click("#servers button:has-text('Revoke')");
+    await page.waitForFunction(() => !document.querySelector("#servers").textContent.includes("signed in 2 h ago"));
+    check((await page.evaluate(() => __calls)).some(c => c[0] === "DELETE" && c[1] === "/v1/sign-ins/tickets?principal=alice&transport=unix"),
+          "revoke another principal's sign-in");
+    await page.click("#servers button:has-text('Sign out')");
+    await page.waitForFunction(() => document.querySelector("#servers").textContent.includes("You are not signed in to tickets"));
+    check((await page.evaluate(() => __calls)).some(c => c[0] === "DELETE" && c[1] === "/v1/sign-ins/tickets"), "sign out");
+
     // A failed reload and keys that need a restart are shown; a reload
     // that fails says so.
     await page.goto(url.replace("index.html", "index.html?reload") + "#/servers");

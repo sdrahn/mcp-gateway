@@ -18,6 +18,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/sdrahn/mcp-gateway/internal/oauth/oauthtest"
 )
 
 // serveHTTP is privsrv's other mode (privsrv -http ADDR): an MCP server
@@ -28,17 +30,41 @@ func serveHTTP(addr string) error {
 }
 
 // serveHTTPS is serveHTTP over TLS (privsrv -https ADDR CERTFILE), with
-// a self-signed certificate for mcp.vmtest written to certFile, which
-// the test adds to the system's trusted certificates.
+// a self-signed certificate for mcp.vmtest.
 func serveHTTPS(addr, certFile string) error {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	cert, err := selfSigned("mcp.vmtest", certFile)
 	if err != nil {
 		return err
 	}
+	srv := &http.Server{Addr: addr, Handler: mcpHandler(), TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}}}
+	return srv.ListenAndServeTLS("", "")
+}
+
+// serveOAuth is an MCP server that needs each user to sign in, with its
+// authorization server (internal/oauth/oauthtest), over TLS for
+// https://auth.vmtest (privsrv -oauth ADDR CERTFILE): the authorization
+// endpoint signs in the account its "login" parameter names at once.
+func serveOAuth(addr, certFile string) error {
+	cert, err := selfSigned("auth.vmtest", certFile)
+	if err != nil {
+		return err
+	}
+	as := &oauthtest.Server{Base: "https://auth.vmtest", AccountParam: "login"}
+	srv := &http.Server{Addr: addr, Handler: as, TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}}}
+	return srv.ListenAndServeTLS("", "")
+}
+
+// selfSigned makes a certificate for name and writes it to certFile,
+// which the test adds to the system's trusted certificates.
+func selfSigned(name, certFile string) (tls.Certificate, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "mcp.vmtest"},
-		DNSNames:              []string{"mcp.vmtest"},
+		Subject:               pkix.Name{CommonName: name},
+		DNSNames:              []string{name},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(24 * time.Hour),
 		IsCA:                  true,
@@ -48,15 +74,12 @@ func serveHTTPS(addr, certFile string) error {
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
-		return err
+		return tls.Certificate{}, err
 	}
 	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
-		return err
+		return tls.Certificate{}, err
 	}
-	srv := &http.Server{Addr: addr, Handler: mcpHandler(), TLSConfig: &tls.Config{
-		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}},
-	}}
-	return srv.ListenAndServeTLS("", "")
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, nil
 }
 
 // serveProxy is an HTTP proxy that only tunnels (privsrv -proxy ADDR),

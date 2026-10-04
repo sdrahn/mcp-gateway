@@ -44,6 +44,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/policydata"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/router"
+	"github.com/sdrahn/mcp-gateway/internal/signin"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
 	"github.com/sdrahn/mcp-gateway/internal/version"
@@ -184,6 +185,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 			log.Warn("privileged server: runs as root without sandbox; every call is decided by policy and approval", "server", name)
 		}
 	}
+	if err := config.CheckSignIn(gw, backends); err != nil {
+		return err
+	}
 	if checkOnly {
 		if err := checkPolicyData(log, policyData, false); err != nil {
 			return fmt.Errorf("role data: %w", err)
@@ -274,6 +278,10 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if !control && gw.Approvals.URLTemplate != "" {
 		log.Warn("approvals.url_template is set but the control socket is disabled; url approvals cannot be decided")
 	}
+	signIns, err := newSignIns(log, gw, launcher, auditLog)
+	if err != nil {
+		return err
+	}
 	r := &router.Router{
 		Seen:     remember,
 		Backends: backends,
@@ -290,10 +298,20 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		MaxInstancesPerPrincipal: gw.Limits.InstancesPerPrincipal,
 		MaxInstances:             gw.Limits.Instances,
 	}
+	if signIns != nil {
+		r.SignIns = signIns
+		signIns.OnChange = r.SignInChanged
+	}
 
 	reloader := &serverReloader{
 		log: log, audit: auditLog, dirs: []string{gw.VendorServersDir, gw.ServersDir},
-		load: config.LoadBackends, set: r.SetBackends,
+		load: func(dirs ...string) (map[string]*config.Backend, error) {
+			next, err := config.LoadBackends(dirs...)
+			if err == nil {
+				err = config.CheckSignIn(gw, next)
+			}
+			return next, err
+		}, set: r.SetBackends,
 		loadConfig: func() (*config.Gateway, error) {
 			next, _, err := config.Resolve(configPath)
 			return next, err
@@ -341,6 +359,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		cs := &controlapi.Server{Broker: b, Identify: identify, Backends: r.CurrentBackends, ServersError: reloader.Err,
 			ConfigError: reloader.ConfigErr, RestartNeeded: reloader.RestartNeeded, Instances: r, Policy: opa,
 			Review: opa, Catalog: r, Log: log, RestartPending: restartPending, Metrics: metrics.Default}
+		if signIns != nil {
+			cs.SignIns = signIns
+		}
 		go func() {
 			if err := cs.Serve(ctx, cl); err != nil {
 				log.Error("control API failed", "err", err)
@@ -377,7 +398,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	stopHTTP := func() {}
 	if gw.HTTP.Listen != "" {
 		httpErrs = make(chan error, 1)
-		if stopHTTP, err = serveHTTP(log, gw.HTTP, certs, r, httpErrs); err != nil {
+		if stopHTTP, err = serveHTTP(log, gw.HTTP, certs, r, signIns, httpErrs); err != nil {
 			stop()
 			<-served
 			return err
@@ -405,10 +426,38 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	return errors.Join(httpErr, <-served)
 }
 
+// newSignIns sets up signing principals in to servers with sign_in: with
+// the HTTP listener, which receives the callback (nil without).
+func newSignIns(log *slog.Logger, gw *config.Gateway, launcher supervisor.Launcher, auditLog *audit.Logger) (*signin.Manager, error) {
+	if gw.HTTP.Listen == "" || gw.RedirectURI() == "" {
+		return nil, nil
+	}
+	dir := filepath.Join(gw.StateDir, "tokens")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("sign-in tokens: %w", err)
+	}
+	store, err := signin.OpenStore(dir)
+	if err != nil {
+		return nil, fmt.Errorf("sign-in tokens: %w", err)
+	}
+	// The access tokens handed to instances, until their units started:
+	// next to the socket, /run/mcp-gateway/credentials.
+	runDir := filepath.Join(filepath.Dir(gw.Socket), "credentials")
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
+		log.Warn("sign-in: no runtime directory for tokens", "dir", runDir, "err", err)
+	}
+	m := &signin.Manager{Store: store, Launcher: launcher, Log: log, Audit: auditLog,
+		RedirectURI: gw.RedirectURI(), RunDir: runDir, Timeout: gw.SignIn.Timeout}
+	if strings.HasPrefix(gw.RedirectURI(), "https://") {
+		m.ClientMetadataURL = strings.TrimSuffix(gw.RedirectURI(), "/callback") + "/client.json"
+	}
+	return m, nil
+}
+
 // serveHTTP starts the remote transport (MCP Streamable HTTP, OAuth
 // resource server). The returned function ends all HTTP sessions and
 // shuts the server down.
-func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Router, errc chan<- error) (func(), error) {
+func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Router, signIns *signin.Manager, errc chan<- error) (func(), error) {
 	h, err := transport.NewHTTPHandler(transport.HTTPConfig{
 		Resource:             cfg.Audience,
 		AuthorizationServers: []string{cfg.Issuer},
@@ -434,9 +483,17 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Ro
 		return nil, err
 	}
 	tlsConfig.GetCertificate = certs.getCertificate
+	var handler http.Handler = h
+	if signIns != nil {
+		// The sign-in callback and client metadata, beside MCP.
+		mux := http.NewServeMux()
+		mux.Handle("/oauth/", signIns.Handler())
+		mux.Handle("/", h)
+		handler = mux
+	}
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           h,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		TLSConfig:         tlsConfig,
 	}

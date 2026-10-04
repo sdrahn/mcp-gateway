@@ -882,6 +882,102 @@ update-ca-certificates
 kill "$https_pid" "$proxy_pid" 2>/dev/null
 wait "$https_pid" "$proxy_pid" 2>/dev/null
 
+section "Signing in to a server for each user"
+# A server with sign_in (OAuth with PKCE): alice signs in at its
+# authorization server (the fake signs in the account its login parameter
+# names at once) and is sent back to the gateway's callback on its HTTP
+# listener; the gateway keeps the tokens, encrypted, the instance gets the
+# access token as a credential, and every request to the authorization
+# server is made by mcp-oauth-helper in its own domain.
+zypper -n in --no-recommends policycoreutils-python-utils >/dev/null 2>&1 || true
+if command -v semanage >/dev/null && command -v openssl >/dev/null; then
+	si_since=$(date +%s)
+	semanage port -a -t mcp_port_t -p tcp 9443 2>/dev/null || semanage port -m -t mcp_port_t -p tcp 9443
+	grep -q 'auth\.vmtest' /etc/hosts || echo '127.0.0.4 auth.vmtest' >>/etc/hosts
+	/usr/libexec/mcpgw-privtest -oauth 127.0.0.4:443 /root/vmtest-auth.pem &
+	oauth_pid=$!
+	eventually 10 test -s /root/vmtest-auth.pem
+	install -m 0644 /root/vmtest-auth.pem /etc/pki/trust/anchors/mcp-vmtest-auth.pem && update-ca-certificates
+	install -d -m 0750 -g mcp-gateway /etc/mcp-gateway/tls
+	openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 -subj /CN=gw.vmtest \
+		-addext subjectAltName=DNS:gw.vmtest -keyout /etc/mcp-gateway/tls/key.pem -out /etc/mcp-gateway/tls/cert.pem 2>/dev/null
+	chgrp mcp-gateway /etc/mcp-gateway/tls/key.pem && chmod 0640 /etc/mcp-gateway/tls/key.pem
+	{
+		cat /usr/etc/mcp-gateway/gateway.yaml
+		printf 'http:\n  listen: 127.0.0.1:9443\n  cert_file: /etc/mcp-gateway/tls/cert.pem\n  key_file: /etc/mcp-gateway/tls/key.pem\n'
+		printf '  issuer: https://idp.vmtest\n  audience: https://gw.vmtest:9443/mcp\n'
+	} >/etc/mcp-gateway/gateway.yaml
+	jq '.roles.tester.permissions += [{"server": "tickets", "tool": "whoami"}]' \
+		/etc/mcp-gateway/policy/rbac/data.json >/root/si-data.json &&
+		cat /root/si-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	cat >/etc/mcp-gateway/servers.d/tickets.yaml <<'END'
+name: tickets
+url: https://auth.vmtest/mcp
+sign_in: {}
+END
+	restorecon -R /etc/mcp-gateway/tls /etc/mcp-gateway/gateway.yaml /etc/mcp-gateway/servers.d/tickets.yaml
+	check "the gateway accepts a definition with sign_in" /usr/bin/mcp-gateway --check --policy-data=
+	systemctl restart mcp-gateway.service
+	tickets() { runuser -u alice -- /usr/local/bin/mcpcall --server tickets --method "$1" --params "$2" 2>&1; }
+	si_offers() { out=$(tickets tools/list '{}') && grep -q '"sign_in"' <<<"$out" && ! grep -q '"whoami"' <<<"$out"; }
+	check "before signing in, the server offers only sign_in" eventually 30 si_offers
+	echo "  ${out:0:300}"
+
+	tickets tools/call '{"name":"whoami","arguments":{}}' >/root/si-call.out &
+	call_pid=$!
+	si_link() { link=$(control alice GET /v1/sign-ins | jq -r '.pending[0].url // empty') && [ -n "$link" ]; }
+	check "the call waits; the sign-in link is shown to alice (control API)" eventually 30 si_link
+	si_not_bob() { [ "$(control bob GET /v1/sign-ins | jq '.pending | length')" = 0 ]; }
+	check "the link is not shown to bob" si_not_bob
+	# alice opens the link; the authorization server sends her browser
+	# back to the gateway's callback.
+	back=$(curl -s --noproxy '*' -o /dev/null -w '%{redirect_url}' "$link&login=alice")
+	echo "  callback: ${back%%\?*}"
+	cb=$(curl -s --noproxy '*' -o /root/si-callback.html -w '%{http_code}' --cacert /etc/mcp-gateway/tls/cert.pem \
+		--resolve gw.vmtest:9443:127.0.0.1 "$back")
+	si_callback() { [ "$cb" = 200 ] && grep -q 'signed in to tickets' /root/si-callback.html; }
+	check "the callback signs alice in" si_callback
+	wait "$call_pid"
+	check "the waiting call goes on, as alice's account at the server" grep -qF "signed in as alice" /root/si-call.out
+	echo "  $(head -c 300 /root/si-call.out)"
+	si_audit() { journalctl -u mcp-gateway.service -o cat --since "@$si_since" | grep -F "\"event\":\"$1\"" | grep -qF "$2"; }
+	check "the sign-in is audited" si_audit mcp-sign-in '"step":"completed"'
+	si_helpers() { journalctl --since "@$si_since" -o short | grep -q 'mcp-tickets-sign-in-'; }
+	check "the sign-in's requests ran in helper units" si_helpers
+	ls -Z /var/lib/mcp-gateway/tokens/ | sed 's/^/  /'
+	check "the tokens are kept in mcpgw_token_t" sh -c "ls -Z /var/lib/mcp-gateway/tokens/tokens.json | grep -q mcpgw_token_t"
+	check "the token store holds no token in the clear" sh -c "! grep -qE 'access_token|refresh_token' /var/lib/mcp-gateway/tokens/tokens.json"
+	si_unit=$(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-tickets-*' | awk '$1 !~ /sign-in/ {print $1; exit}')
+	si_pid=$(systemctl show -p MainPID --value "${si_unit:-none}" 2>/dev/null)
+	si_ctx=$(label "${si_pid:-1}")
+	echo "  ${si_unit:-no unit}: $si_ctx; $(systemctl show -p IPAddressAllow -p RuntimeMaxUSec "${si_unit:-none}" 2>/dev/null | tr '\n' ' ')"
+	check "the instance runs in mcpsrv_http_t" has_type "$si_ctx" mcpsrv_http_t
+	check "the instance may reach the server's address only" sh -c "systemctl show -p IPAddressAllow --value '${si_unit:-none}' | grep -q 127.0.0.4"
+	si_runtime() { [ "$(systemctl show -p RuntimeMaxUSec --value "${si_unit:-none}")" != infinity ] && ! systemctl show -p RuntimeMaxUSec --value "${si_unit:-none}" | grep -q '^8h$'; }
+	check "the instance ends before its token expires" si_runtime
+	si_no_token_file() { [ -z "$(ls -A /run/mcp-gateway/credentials 2>/dev/null)" ]; }
+	check "the token file is gone once the unit started" si_no_token_file
+	si_cmdline() { ! tr '\0' ' ' <"/proc/${si_pid:-1}/cmdline" | grep -qE 'Bearer [A-Za-z0-9]'; }
+	check "no token is on the instance's command line" si_cmdline
+	si_listed() { si_list=$(control alice GET /v1/sign-ins) && jq -e '.sign_ins[0].principal.sub == "alice"' >/dev/null <<<"$si_list" &&
+		! grep -q token <<<"$si_list"; }
+	check "alice sees her sign-in, without tokens" si_listed
+	si_out=$(control alice DELETE /v1/sign-ins/tickets)
+	check "alice signs out" grep -q '"signed_out":1' <<<"$si_out"
+	si_stopped() { ! systemctl is-active -q "${si_unit:-none}"; }
+	check "signing out stops her instance" eventually 10 si_stopped
+	check "signing out revokes the tokens and is audited" si_audit mcp-sign-out '"revoked":"yes"'
+	check "after signing out, the server offers only sign_in again" si_offers
+
+	rm -f /etc/mcp-gateway/servers.d/tickets.yaml /etc/mcp-gateway/gateway.yaml /etc/pki/trust/anchors/mcp-vmtest-auth.pem
+	update-ca-certificates
+	systemctl restart mcp-gateway.service
+	kill "$oauth_pid" 2>/dev/null
+	wait "$oauth_pid" 2>/dev/null
+else
+	echo "  semanage or openssl not available; signing in not tested"
+fi
+
 section "Live reload of server definitions"
 # A server added, broken, fixed and removed while the gateway runs: it
 # keeps running (same PID), and a broken definition changes nothing.

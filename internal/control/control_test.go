@@ -20,6 +20,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/router"
+	"github.com/sdrahn/mcp-gateway/internal/signin"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
 )
 
@@ -509,5 +510,64 @@ func TestMetrics(t *testing.T) {
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code != 200 || rec.Header().Get("Content-Type") != metrics.ContentType || !strings.Contains(rec.Body.String(), "test_gauge 3\n") {
 		t.Fatalf("root: %d %q %s", rec.Code, rec.Header().Get("Content-Type"), rec.Body)
+	}
+}
+
+// fakeSignIns holds sign-ins for the control API's tests.
+type fakeSignIns struct {
+	entries []signin.Entry
+	out     []string
+}
+
+func (f *fakeSignIns) List() []signin.Entry { return f.entries }
+func (f *fakeSignIns) PendingFor(uid uint32) []signin.PendingInfo {
+	if uid == 1001 {
+		return []signin.PendingInfo{{Server: "tickets", URL: "https://as/authorize?state=x"}}
+	}
+	return nil
+}
+func (f *fakeSignIns) SignOut(_ context.Context, b *config.Backend, k signin.Key, by string) (bool, error) {
+	f.out = append(f.out, b.Name+"/"+k.Sub+" by "+by)
+	return true, nil
+}
+
+func TestSignIns(t *testing.T) {
+	s, _, _ := setup(t) // no policy: each principal their own
+	alice, bob := uint32(1001), uint32(1002)
+	si := &fakeSignIns{entries: []signin.Entry{
+		{Server: "tickets", Principal: signin.Key{Transport: "unix", Sub: "alice", UID: &alice}},
+		{Server: "tickets", Principal: signin.Key{Transport: "unix", Sub: "bob", UID: &bob}},
+	}}
+	s.SignIns = si
+	s.Backends = func() map[string]*config.Backend {
+		return map[string]*config.Backend{"tickets": {Name: "tickets", SignIn: &config.SignIn{}}}
+	}
+	rec := call(t, s, 1001, "GET", "/v1/sign-ins", "")
+	var got signInsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if len(got.SignIns) != 1 || got.SignIns[0].Principal.Sub != "alice" || len(got.Pending) != 1 {
+		t.Errorf("alice sees %+v", got)
+	}
+	if strings.Contains(rec.Body.String(), "sealed") || strings.Contains(rec.Body.String(), "token") {
+		t.Errorf("body shows tokens: %s", rec.Body)
+	}
+	// Bob cannot sign alice out, alice can.
+	if rec := call(t, s, 1002, "DELETE", "/v1/sign-ins/tickets?principal=alice", ""); rec.Code != 404 {
+		t.Errorf("bob signs alice out: %d", rec.Code)
+	}
+	if rec := call(t, s, 1001, "DELETE", "/v1/sign-ins/tickets", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"signed_out":1`) {
+		t.Errorf("alice signs out: %d %s", rec.Code, rec.Body)
+	}
+	if len(si.out) != 1 || si.out[0] != "tickets/alice by alice" {
+		t.Errorf("signed out %v", si.out)
+	}
+	if rec := call(t, s, 1001, "DELETE", "/v1/sign-ins/nope", ""); rec.Code != 404 {
+		t.Errorf("unknown server: %d", rec.Code)
+	}
+	// The servers list marks servers with sign_in.
+	if rec := call(t, s, 1001, "GET", "/v1/servers", ""); !strings.Contains(rec.Body.String(), `"sign_in":true`) {
+		t.Errorf("servers: %s", rec.Body)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
 	"github.com/sdrahn/mcp-gateway/internal/metrics"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/signin"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 )
 
@@ -48,6 +50,12 @@ type pool struct {
 	// current, if set, returns the definition of a server in force: an
 	// acquire with another one fails with errDefinitionChanged.
 	current func(server string) *config.Backend
+	// prepare, if set, readies a server with sign_in for a start: the
+	// principal's access token as a credential (SignIns.Prepare).
+	prepare func(context.Context, *config.Backend, principal.Principal) (*config.Backend, func(), error)
+	// rejected is told when a server with sign_in refused the token an
+	// instance started with (SignIns.Rejected).
+	rejected func(server string, p principal.Principal)
 
 	backoffBase, backoffMax, stableAfter time.Duration
 	// drainTimeout bounds how long closeAll waits for privileged calls.
@@ -253,8 +261,9 @@ func (p *pool) acquire(ctx context.Context, b *config.Backend, pr principal.Prin
 				if p.entries[key] == e {
 					delete(p.entries, key)
 				}
-				// A start cancelled by the client is not the backend's fault.
-				if ctx.Err() == nil {
+				// A start cancelled by the client, or a principal who must
+				// sign in first, is not the backend's fault.
+				if ctx.Err() == nil && !errors.Is(e.err, signin.ErrNotSignedIn) && !errors.Is(e.err, signin.ErrTokenRejected) {
 					p.failed(key, b.Name, 0)
 				}
 				p.mu.Unlock()
@@ -325,7 +334,17 @@ func (p *pool) acquire(ctx context.Context, b *config.Backend, pr principal.Prin
 
 func (p *pool) start(ctx context.Context, b *config.Backend, pr principal.Principal) (*upstream, error) {
 	id := authn.NewSessionID()
-	inst, err := p.launcher.Start(ctx, b, pr, id)
+	unit := b
+	if b.SignIn != nil && p.prepare != nil && pr.Transport != principal.TransportInternal {
+		nb, cleanup, err := p.prepare(ctx, b, pr)
+		if err != nil {
+			return nil, err
+		}
+		// systemd has read the token once the unit runs.
+		defer cleanup()
+		unit = nb
+	}
+	inst, err := p.launcher.Start(ctx, unit, pr, id)
 	if err != nil {
 		metrics.InstanceFailures.Inc(b.Name, "start")
 		return nil, err
@@ -334,6 +353,12 @@ func (p *pool) start(ctx context.Context, b *config.Backend, pr principal.Princi
 		internal:      pr.Transport == principal.TransportInternal,
 		onListChanged: p.onListChanged,
 	})
+	if err != nil && b.SignIn != nil && p.rejected != nil && strings.Contains(err.Error(), signin.RejectedMarker) {
+		// A token the server refused although it had not expired: the
+		// next start refreshes it.
+		p.rejected(b.Name, pr)
+		return nil, fmt.Errorf("%w: %v", signin.ErrTokenRejected, err)
+	}
 	if err != nil {
 		metrics.InstanceFailures.Inc(b.Name, "start")
 		return nil, err
@@ -618,6 +643,36 @@ func (p *pool) stop(id string) bool {
 	p.log.Info("instance stopped on request", "server", found.up.backend.Name, "instance", found.up.id)
 	found.up.close()
 	return true
+}
+
+// stopFor stops the instances of server that match (a principal signed
+// out of it); sessions using them get a new instance on their next call.
+func (p *pool) stopFor(server string, match func(principal.Principal) bool) int {
+	p.mu.Lock()
+	var found []*poolEntry
+	p.each(func(e *poolEntry) {
+		select {
+		case <-e.ready:
+			if e.err == nil && e.server == server && match(e.principal) && !mustKeep(e) {
+				found = append(found, e)
+			}
+		default:
+		}
+	})
+	for _, e := range found {
+		if p.entries[e.key] == e {
+			delete(p.entries, e.key)
+		}
+		e.stopping = true
+		if e.timer != nil {
+			e.timer.Stop()
+		}
+	}
+	p.mu.Unlock()
+	for _, e := range found {
+		e.up.close()
+	}
+	return len(found)
 }
 
 // closeAll stops every instance. Privileged instances first refuse new

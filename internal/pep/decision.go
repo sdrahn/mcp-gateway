@@ -45,6 +45,10 @@ type Resource struct {
 	// Annotations are the backend's tool annotations. They are untrusted
 	// hints and must never grant access on their own.
 	Annotations map[string]any `json:"annotations,omitempty"`
+	// SignIn marks the tool sign_in the gateway offers in place of a
+	// server's tools until the principal signed in to it
+	// (docs/architecture.md, section 5.7.3).
+	SignIn bool `json:"sign_in,omitempty"`
 }
 
 // Grant is a recorded human approval, as passed to policy.

@@ -59,6 +59,11 @@ files_type(mcpgw_signing_key_t)
 type mcpgw_var_lib_t;
 files_type(mcpgw_var_lib_t)
 
+# Principals' tokens for servers with sign_in, and the key they are
+# encrypted with (state_dir/tokens): the gateway only.
+type mcpgw_token_t;
+files_type(mcpgw_token_t)
+
 type mcpgw_log_t;
 logging_log_file(mcpgw_log_t)
 
@@ -84,6 +89,16 @@ optional_policy(`
 
 type mcpgw_sock_t;
 mcp_gateway_runtime_file(mcpgw_sock_t)
+
+# An instance's access token (/run/mcp-gateway/credentials), written by
+# the gateway and read by systemd for LoadCredential= when the unit
+# starts; no server domain may read it.
+type mcpgw_cred_run_t;
+mcp_gateway_runtime_file(mcpgw_cred_run_t)
+optional_policy(`
+	gen_require(`type systemd_tmpfiles_t;')
+	allow systemd_tmpfiles_t mcpgw_cred_run_t:dir { manage_dir_perms relabel_dir_perms };
+')
 
 # Control socket (Cockpit <-> gateway), administrators only.
 type mcpgw_ctl_sock_t;
@@ -136,6 +151,22 @@ tunable_policy(`mcpsrv_http_connect_any',`
 ')
 # Headers with ${CREDENTIAL:name}: the connector reads the secret from
 # $CREDENTIALS_DIRECTORY, as every server domain may (the template).
+
+# The sign-in helper (mcp-oauth-helper): each step of a principal's
+# sign-in to a server with sign_in (discovery, registration, the code
+# exchange, refreshes, revocation) runs in a unit that may reach only the
+# one host the step talks to (IPAddressAllow=). As the connector: HTTP
+# and proxy ports (any port with mcpsrv_http_connect_any), the CA
+# certificates; the client secret is a credential.
+mcp_gateway_backend_template(oauth)
+allow mcpsrv_oauth_t self:tcp_socket create_stream_socket_perms;
+corenet_tcp_connect_http_port(mcpsrv_oauth_t)
+corenet_tcp_connect_squid_port(mcpsrv_oauth_t)
+corenet_tcp_connect_http_cache_port(mcpsrv_oauth_t)
+miscfiles_read_generic_certs(mcpsrv_oauth_t)
+tunable_policy(`mcpsrv_http_connect_any',`
+	corenet_tcp_connect_all_ports(mcpsrv_oauth_t)
+')
 
 # Commands an administrator allows (the server exec, cmd/mcp-server-exec,
 # package mcp-gateway-exec-server): it reads its command files below
@@ -271,6 +302,9 @@ neverallow mcpsrv_domain mcpgw_exec_t:file entrypoint;
 # Backend secrets reach backends only through systemd's credentials
 # directory; neither the gateway nor the backends read the source files.
 neverallow { mcpgw_t mcpsrv_domain } mcpgw_cred_t:file { read open map };
+# Principals' tokens (sign_in) are the gateway's; an instance gets its
+# access token from systemd, never from these files.
+neverallow mcpsrv_domain { mcpgw_token_t mcpgw_cred_run_t }:file { read open map };
 
 # The bundle signing key is for the administrator only: a compromised
 # gateway, policy engine or backend must not be able to sign policy.
@@ -305,6 +339,20 @@ gen_require(`
 allow mcpgw_t { mcpgw_etc_t usr_t cert_t }:dir watch;
 manage_files_pattern(mcpgw_t, mcpgw_var_lib_t, mcpgw_var_lib_t)
 append_files_pattern(mcpgw_t, mcpgw_log_t, mcpgw_log_t)
+# Sign-in tokens: state_dir/tokens, made by the gateway on first use.
+manage_dirs_pattern(mcpgw_t, mcpgw_var_lib_t, mcpgw_var_lib_t)
+manage_dirs_pattern(mcpgw_t, mcpgw_token_t, mcpgw_token_t)
+manage_files_pattern(mcpgw_t, mcpgw_token_t, mcpgw_token_t)
+filetrans_pattern(mcpgw_t, mcpgw_var_lib_t, mcpgw_token_t, dir, "tokens")
+# Instances' access tokens until their units started; systemd reads them.
+manage_dirs_pattern(mcpgw_t, mcpgw_cred_run_t, mcpgw_cred_run_t)
+manage_files_pattern(mcpgw_t, mcpgw_cred_run_t, mcpgw_cred_run_t)
+filetrans_pattern(mcpgw_t, mcpgw_runtime_t, mcpgw_cred_run_t, dir, "credentials")
+gen_require(`
+	type init_t;
+')
+search_dirs_pattern(init_t, mcpgw_runtime_t, mcpgw_cred_run_t)
+read_files_pattern(init_t, mcpgw_cred_run_t, mcpgw_cred_run_t)
 
 # Policy decisions.
 stream_connect_pattern(mcpgw_t, mcpgw_runtime_t, mcpopa_sock_t, mcpopa_t)

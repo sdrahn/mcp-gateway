@@ -281,6 +281,22 @@ http:
 | `http.client_auth` | `none` (`optional` with a CA file) | `none`, `optional` (verify a certificate if presented), `required` |
 | `http.require_bound_tokens` | `false` | accept only tokens bound to the client certificate (RFC 8705) |
 
+### Signing in to servers
+
+```yaml
+sign_in:
+  timeout: 10m
+```
+
+Servers defined with `sign_in` (chapter 4, "Signing in for each user")
+send users to their authorization server and back to
+`<origin of http.audience>/oauth/callback`, so they need the HTTP
+listener above, reachable from the users' browsers.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `sign_in.timeout` | `10m` | how long a sign-in may take, from the link to the callback; the call that started it waits as long |
+
 ## Validating
 
 ```bash

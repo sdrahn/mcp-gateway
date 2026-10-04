@@ -28,3 +28,4 @@ resources[].kind
 resources[].name
 resources[].privileged
 resources[].server
+resources[].sign_in

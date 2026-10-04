@@ -237,8 +237,10 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `POST /v1/approvals/{id}` | `{"decision": "approve"\|"deny", "scope": "once"\|"session"\|<duration>}`; returns the grant (`200`) or nothing (`204`, denied); `400 scope not offered` |
 | `GET /v1/grants` | grants the caller may manage (list of grants, below) |
 | `DELETE /v1/grants/{id}` | revoke; `204` |
-| `GET /v1/servers` | registered servers `{"name", "selinux_type", "isolation", "network", "run_as", "privileged", "instances"}` with the instances the caller may manage `{"id", "server", "unit", "sub", "iss", "uid", "transport", "session_id", "isolation", "started", "sessions", "privileged", "busy", "definition"}`; `definition` is `current`, `previous` (started from a definition changed since) or `removed`; a server removed from the configuration whose instances still run is listed with `"removed": true` |
+| `GET /v1/servers` | registered servers `{"name", "selinux_type", "isolation", "network", "run_as", "privileged", "sign_in", "instances"}` with the instances the caller may manage `{"id", "server", "unit", "sub", "iss", "uid", "transport", "session_id", "isolation", "started", "sessions", "privileged", "busy", "definition"}`; `definition` is `current`, `previous` (started from a definition changed since) or `removed`; a server removed from the configuration whose instances still run is listed with `"removed": true` |
 | `DELETE /v1/instances/{id}` | stop an instance; `204`; `409` for a privileged instance with a call running |
+| `GET /v1/sign-ins` | `{"sign_ins": [{"server", "principal": {"sub", "iss", "uid", "transport"}, "since", "expiry", "scope", "refreshable"}], "pending": [{"server", "url", "expires"}]}`: the sign-ins to servers with `sign_in` the caller may see and end (`data.mcp.approvals.manage_sign_in`), never tokens; and the caller's own sign-ins waiting for them to open `url` (chapter 4, "Signing in for each user") |
+| `DELETE /v1/sign-ins/{server}` | sign the caller out of the server, or with `?principal=<sub>` (and `transport`, `iss`) another principal the approver rules allow; deletes the tokens, revokes them at the authorization server if it offers that, stops the principal's instances; `200 {"signed_out": n}`; `404` if there is none |
 | `GET /v1/policy` | `{"mode": "directories"\|"bundle", "bundles": {name: revision}, "shipped_roles": {role: {"setup", "description", "permissions"}}}`; `502` if OPA is unavailable |
 | `POST /v1/policy/whatif` | body: proposed role data (as `data.json`); returns `{"changes": [{"principal", "server", "kind", "name", "before", "after"}], "principals", "resources", "unchecked": {server: reason}}`: the decisions that would change, for the users (`user:<name>`) and groups (`group:<name>`) either role data binds; `403` unless `data.mcp.approvals.review_policy` allows the caller |
 | `GET /v1/metrics` | metrics in the Prometheus text format (chapter 10); `403` unless the caller is root |
@@ -299,6 +301,9 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcp-mcs-collision` | an instance's MCS pair was taken by another workload | `instance`, `pair`, `foreign_pid`, `foreign_context` |
 | `mcp-limit` | a session or instance was refused at a limit (`res=failed`) | `principal`, `transport`, `session`, `limit`, `max` |
 | `mcp-token-expired` | an HTTP stream ended because the token that opened it expired | `principal`, `transport`, `session` |
+| `mcp-sign-in` | a principal's sign-in to a server with `sign_in` started, completed (`res=success`) or failed (`res=failed`) | `server`, `principal`, `step` (`started`, `completed`, `failed`), `reason` |
+| `mcp-sign-in-refresh` | a principal's token was refreshed (`res=success`), or could not be (`res=failed`; `tokens=deleted` when the authorization server refused it and the principal must sign in again) | `server`, `principal`, `reason`, `tokens` |
+| `mcp-sign-out` | a principal was signed out of a server | `server`, `principal`, `by`, `revoked` (`yes`, `no`) |
 
 ## Files and directories
 
@@ -320,10 +325,13 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/etc/mcp-gateway/bundle/` | `policy.tar.gz`, `verify.pem`, `signing.pem` |
 | `/usr/share/mcp-gateway/opa/` | OPA drop-ins: `signed-bundle.conf`, `bundle-server.conf`, `decision-logs.conf`; examples `opa-config.yaml.example`, `decision-logs.yaml.example` |
 | `/usr/share/mcp-gateway/mcs/` | libvirt drop-ins: `virtqemud.conf`, `libvirtd.conf` |
-| `/var/lib/mcp-gateway/` | `grants.json`, `pending.json`, `audit.key` |
+| `/var/lib/mcp-gateway/` | `grants.json`, `pending.json`, `audit.key`, `principals.json` |
+| `/var/lib/mcp-gateway/tokens/` | principals' tokens for servers with `sign_in` (`tokens.json`, encrypted) and their key (`tokens.key`); 0700, `mcpgw_token_t` |
 | `/run/mcp-gateway/mcp.sock` | MCP socket |
 | `/run/mcp-gateway/control.sock` | control API |
 | `/run/mcp-gateway/opa.sock` | OPA (gateway only) |
+| `/run/mcp-gateway/credentials/` | an instance's access token (`sign_in`) until systemd has read it (0700, `mcpgw_cred_run_t`) |
+| `/usr/libexec/mcp-gateway/mcp-http-connector`, `mcp-oauth-helper` | the instances of servers defined with `url`; the requests of sign-ins |
 | `/usr/lib/systemd/system/mcp-gateway.service`, `mcp-opa.service` | units |
 | `/usr/lib/sysusers.d/mcp-gateway.conf` | accounts |
 | `/usr/share/polkit-1/rules.d/50-mcp-gateway.rules` | lets the gateway manage `mcp-*.service` |
@@ -340,12 +348,15 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcpopa_t`, `mcpopa_exec_t` | OPA |
 | `mcpsrv_generic_t`, `mcpsrv_fs_t`, `mcpsrv_docs_t`, `mcpsrv_exec_t`, `mcpsrv_<name>_t` | MCP server instances (chapter 9, "SELinux") |
 | `mcpsrv_http_t`, `mcpsrv_http_exec_t` | `mcp-http-connector`, the instances of servers defined with `url` |
+| `mcpsrv_oauth_t`, `mcpsrv_oauth_exec_t` | `mcp-oauth-helper`, the requests of principals' sign-ins to servers with `sign_in` |
 | `mcpsrv_admin_t`, `mcpsrv_admin_exec_t` | `mcp-gateway-admin` and the server `gateway-admin` |
 | `mcpsrv_systemd_t`, `mcpsrv_firewalld_t`, `mcpsrv_zypp_t`, `mcpsrv_suseconnect_t`, `mcpsrv_snapper_t` | the system management servers (chapter 13) |
 | `mcpgw_etc_t` | `/etc/mcp-gateway`, `/usr/etc/mcp-gateway` |
 | `mcpgw_cred_t` | `/etc/mcp-gateway/credentials` |
 | `mcpgw_signing_key_t` | `/etc/mcp-gateway/bundle/signing.pem` |
 | `mcpgw_var_lib_t` | `/var/lib/mcp-gateway` |
+| `mcpgw_token_t` | `/var/lib/mcp-gateway/tokens` (the gateway only) |
+| `mcpgw_cred_run_t` | `/run/mcp-gateway/credentials` (the gateway writes, systemd reads) |
 | `mcpgw_runtime_t`, `mcpgw_sock_t`, `mcpgw_ctl_sock_t`, `mcpopa_sock_t` | `/run/mcp-gateway` and its sockets |
 | `mcp_port_t` | the HTTPS port (`semanage port -a -t mcp_port_t -p tcp 8443`) |
 | `mcp_metrics_port_t` | the metrics port (`semanage port -a -t mcp_metrics_port_t -p tcp 9464`) |
@@ -354,7 +365,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 |---|---|---|
 | `mcpopa_can_network` | off | OPA to fetch bundles over HTTPS |
 | `mcpgw_can_send_mail` | off | the gateway to connect to SMTP ports |
-| `mcpsrv_http_connect_any` | off | servers defined with `url` to connect to any port of their server, not only HTTP ports |
+| `mcpsrv_http_connect_any` | off | servers defined with `url`, and their sign-in helper, to connect to any port of their server, not only HTTP and proxy ports |
 
 | Interface | For |
 |---|---|
@@ -381,3 +392,5 @@ Kernel audit (`TRUSTED_APP`) operations:
 | "session" grant | session end, at most 8 h | no |
 | duration grant | at most 30 days | `approval_scopes` (role data) |
 | SSE replay buffer | 256 events per stream, 5 min | no |
+| sign-in, from the link to the callback | 10 min | `sign_in.timeout` |
+| sign-in token refresh | when an instance starts and the access token expires within 5 min; the instance ends 1 min before it expires | no |
