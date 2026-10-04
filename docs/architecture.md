@@ -2065,6 +2065,49 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       revoke a principal's tokens; the audit trail records sign-ins,
       refreshes and revocations, never tokens (done).
 
+22. **Sign-in that lasts, for every client, and releases without
+    stray files** (0.13):
+    - a signed-in principal's instance outlives its access token: the
+      gateway refreshes the token shortly before it expires and hands
+      the new one to the running connector over the connector's stdio,
+      as a message only the gateway and the connector speak (never
+      passed to the server, never on a command line); the connector
+      sends it from the next request on. A connector whose server
+      answers `401` asks the gateway for a fresh token over the same
+      channel instead of exiting, and exits (status 77) only when the
+      gateway has none (the principal must sign in again). Instances no
+      longer get `RuntimeMaxSec=` from the token's expiry, so the
+      principal's session with the server, and its resumable streams,
+      stay (§5.7.3, decision D16 amended with the design, §12);
+    - signing in works with clients without URL elicitation: the call's
+      error, and the `notifications/message`, carry a short link to the
+      gateway's HTTP listener (`<origin>/oauth/start/<id>`, single use,
+      valid for `sign_in.timeout`) that leads to the authorization
+      server, so the agent can show it and any principal, remote ones
+      without a local account included, can sign in without the Cockpit
+      page. The page after the callback names the principal and server
+      it signed in for (§12);
+    - tokens do not outlive their server's definition: when a definition
+      with `sign_in` is removed, loses `sign_in`, or changes its `url`
+      (tokens are bound to it, RFC 8707), the gateway revokes the
+      tokens at the authorization server where it offers revocation
+      (through the helper, with the previous definition) and deletes
+      them, auditing each as a sign-out by the gateway. Today they stay
+      in the token store. `DELETE /v1/sign-ins/{server}` and Cockpit
+      report whether the tokens were revoked at the authorization
+      server or only deleted;
+    - nothing but sources reaches a release: CI, `tools/check-release`
+      and the Release workflow refuse a tree holding a program (an ELF
+      file or any file with NUL bytes) or a file of more than 1 MiB,
+      naming each (0.12.0 and 0.12.1 shipped two programs built in the
+      top directory, 27 MB);
+    - the doctor tells systemd-mcp versions apart: it warns about a
+      missing `com.suse.gatekeeper.readlog` rule only when the server
+      reports a version before 0.3.5 (or none) at the doctor's probe,
+      and with 0.3.5 or later notes that the rule is no longer needed,
+      so that the systemd setup can drop it once its package requires
+      systemd-mcp 0.3.5.
+
 ## 12. Open items
 
 - HTTP streams: a backend's request or log message while a session has
@@ -2090,11 +2133,12 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
 - Servers with `sign_in` (§5.7.3): an instance's access token is fixed
   for its life, so an instance ends when its token expires (typically
   hourly) and the next call starts a new one, with a new session at the
-  server. Sign-in needs the HTTP listener, reachable from the
-  principals' browsers; a gateway serving local clients only cannot
-  offer it. A client without URL elicitation leaves the principal to
-  open the link on the Cockpit page, which remote principals without a
-  local account do not have.
+  server; from step 22 the running instance gets the new token. Sign-in
+  needs the HTTP listener, reachable from the principals' browsers; a
+  gateway serving local clients only cannot offer it. A client without
+  URL elicitation leaves the principal to open the link on the Cockpit
+  page, which remote principals without a local account do not have;
+  step 22 gives them a link in the call's error.
 - MCS pairs of stopped containers (their files keep the pair) are not
   known to the gateway (container storage is readable by root only), so a
   container started again, or a new one, can take an instance's pair; the
