@@ -130,6 +130,14 @@ miscfiles_read_generic_certs(mcpsrv_http_t)
 tunable_policy(`mcpsrv_http_connect_any',`
 	corenet_tcp_connect_all_ports(mcpsrv_http_t)
 ')
+# Headers with ${CREDENTIAL:name}: the connector reads the secret from
+# $CREDENTIALS_DIRECTORY (/run/credentials/<unit>), which systemd labels
+# init_var_run_t on the supported distributions.
+gen_require(`
+	type init_var_run_t;
+')
+search_dirs_pattern(mcpsrv_http_t, init_var_run_t, init_var_run_t)
+read_files_pattern(mcpsrv_http_t, init_var_run_t, init_var_run_t)
 
 # Commands an administrator allows (the server exec, cmd/mcp-server-exec,
 # package mcp-gateway-exec-server): it reads its command files below
