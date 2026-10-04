@@ -60,6 +60,23 @@ principal, unit name, sessions, start time. For each instance:
 - **Stop** ends it (calls in flight fail; the next call starts a new
   instance).
 
+After the configuration changed while the gateway runs (chapter 3,
+"Changing the configuration while the gateway runs"; chapter 4,
+"Changing definitions while the gateway runs"):
+
+- an instance started from a server's previous definition is marked
+  "previous definition: runs until no session uses it"; sessions move to
+  an instance of the new definition at their next call;
+- a server removed from the configuration is listed as long as
+  instances of it run, marked "server removed: stops once its calls end";
+- a note above the servers says when `gateway.yaml` or a server
+  definition did not load (with the error; the gateway runs with what
+  it had) and which keys of `gateway.yaml` take effect only at the next
+  start;
+- **Reload configuration** runs `systemctl reload mcp-gateway.service`
+  (administrative access): the gateway checks the configuration first
+  and keeps what it has if a file does not load; the page says so.
+
 ## Policy
 
 - **Policy status**: whether OPA loads the policy directories or a

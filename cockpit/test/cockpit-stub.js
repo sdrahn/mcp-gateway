@@ -1,6 +1,7 @@
 // Stub of the parts of cockpit.js the pages use, with fixtures. The query
 // string selects variants: ?source=server (bundle from a bundle server),
-// ?nokey (no signing key on the host).
+// ?nokey (no signing key on the host), ?reload (a failed reload and keys
+// that need a restart; systemctl reload fails).
 (function () {
     const query = new URLSearchParams(window.location.search);
     const log = window.__calls = [];
@@ -14,10 +15,15 @@
     let instances = [
         { id: "i1", server: "fs", unit: "mcp-fs-i1.service", sub: "alice", uid: 1001, transport: "unix", isolation: "principal",
           started: new Date(Date.now() - 300000).toISOString(), sessions: 1 },
+        { id: "i0", server: "fs", unit: "mcp-fs-i0.service", sub: "bob", uid: 1002, transport: "unix", isolation: "principal",
+          started: new Date(Date.now() - 900000).toISOString(), sessions: 1, definition: "previous" },
     ];
     const routes = {
         "/v1/whoami": () => ({ name: "carol", uid: 1003 }),
-        "/v1/status": () => ({ restart_pending: query.has("restart") }),
+        "/v1/status": () => query.has("reload")
+            ? { restart_pending: false, config_error: "/etc/mcp-gateway/gateway.yaml: yaml: line 3: did not find expected key",
+                restart_needed: ["socket_group"] }
+            : { restart_pending: query.has("restart") },
         "/v1/approvals": () => [{ id: "a1", channel: "oob", principal: { sub: "alice", transport: "unix", client: { name: "kit" } },
             action: "tools.call", server: "fs", name: "write_file", args: { path: "/home/alice/x" }, prompt: "Write?",
             scopes: ["once", "session"], expires: new Date(Date.now() + 60000).toISOString(), waiting: true },
@@ -28,7 +34,10 @@
                               { name: "git", selinux_type: "", isolation: "principal", network: true, run_as: "principal", instances: [] },
                               { name: "zypp", selinux_type: "mcpsrv_zypp_t", isolation: "principal", network: true, run_as: "root", privileged: true,
                                 instances: [{ id: "i2", server: "zypp", unit: "mcp-zypp-i2.service", sub: "alice", uid: 1001, transport: "unix",
-                                              isolation: "principal", started: new Date().toISOString(), sessions: 0, privileged: true, busy: true }] }],
+                                              isolation: "principal", started: new Date().toISOString(), sessions: 0, privileged: true, busy: true }] },
+                              { name: "web", removed: true, instances: [{ id: "i3", server: "web", unit: "mcp-web-i3.service", sub: "alice", uid: 1001,
+                                  transport: "unix", isolation: "principal", started: new Date().toISOString(), sessions: 0, busy: true,
+                                  definition: "removed" }] }],
         "/v1/policy": () => ({ mode: "bundle",
             bundles: query.get("source") === "server" ? { mcp: "r42" } : { "/etc/mcp-gateway/bundle/policy.tar.gz": "r42" },
             shipped_roles: { "systemd-reader": { setup: "systemd", description: "read the system state",
@@ -68,13 +77,20 @@
                 },
                 request(opts) {
                     log.push([opts.method, opts.path]);
-                    if (opts.method === "DELETE" && opts.path.startsWith("/v1/instances/")) instances = [];
+                    if (opts.method === "DELETE" && opts.path.startsWith("/v1/instances/")) {
+                        instances = instances.filter(i => opts.path !== "/v1/instances/" + i.id);
+                    }
                     return Promise.resolve("");
                 },
             };
         },
         spawn(args, opts) {
             log.push(["spawn", args.join(" "), opts.superuser]);
+            if (args[0] === "systemctl") {
+                return query.has("reload")
+                    ? Promise.reject(new Error("Job for mcp-gateway.service failed because the control process exited with error code."))
+                    : Promise.resolve("");
+            }
             if (args[0] === "mcp-gateway") {
                 // --check-policy-data: a misspelt field is the one problem it knows.
                 const result = data => data.includes("require_aproval")

@@ -271,13 +271,16 @@ func (s *Server) metrics(w http.ResponseWriter, _ *http.Request, a broker.Approv
 // serverInfo is a registry entry as the API shows it (without command
 // and environment, which may carry secrets).
 type serverInfo struct {
-	Name        string                `json:"name"`
-	SELinuxType string                `json:"selinux_type"`
-	Isolation   config.Isolation      `json:"isolation"`
-	Network     bool                  `json:"network"`
-	RunAs       string                `json:"run_as"`
-	Privileged  bool                  `json:"privileged,omitempty"`
-	Instances   []router.InstanceInfo `json:"instances"`
+	Name        string           `json:"name"`
+	SELinuxType string           `json:"selinux_type"`
+	Isolation   config.Isolation `json:"isolation"`
+	Network     bool             `json:"network"`
+	RunAs       string           `json:"run_as"`
+	Privileged  bool             `json:"privileged,omitempty"`
+	// Removed marks a server whose definition went away while instances
+	// of it still run (they stop once their calls are answered).
+	Removed   bool                  `json:"removed,omitempty"`
+	Instances []router.InstanceInfo `json:"instances"`
 }
 
 func (s *Server) servers(w http.ResponseWriter, r *http.Request, a broker.Approver) {
@@ -301,6 +304,11 @@ func (s *Server) servers(w http.ResponseWriter, r *http.Request, a broker.Approv
 		}
 		out = append(out, serverInfo{Name: name, SELinuxType: b.SELinuxType, Isolation: b.Isolation,
 			Network: b.Network, RunAs: b.RunAs, Privileged: b.Privileged, Instances: insts})
+	}
+	for name, insts := range byServer {
+		if _, ok := backends[name]; !ok {
+			out = append(out, serverInfo{Name: name, Removed: true, Instances: insts})
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	writeJSON(w, http.StatusOK, out)

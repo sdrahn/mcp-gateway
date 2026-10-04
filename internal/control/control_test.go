@@ -274,6 +274,25 @@ func TestServersAndInstances(t *testing.T) {
 	}
 }
 
+// Instances of a server whose definition went away are listed under it.
+func TestServersRemovedWithInstances(t *testing.T) {
+	s, _, _ := setup(t)
+	alice := uint32(1001)
+	s.Instances = &fakeInstances{list: []router.InstanceInfo{
+		{ID: "i-old", Server: "web", Sub: "alice", UID: &alice, Definition: "removed"},
+	}}
+	s.Backends = func() map[string]*config.Backend { return map[string]*config.Backend{"fs": {Name: "fs"}} }
+	rec := call(t, s, 1001, "GET", "/v1/servers", "")
+	var got []serverInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[1].Name != "web" || !got[1].Removed || len(got[1].Instances) != 1 ||
+		got[1].Instances[0].Definition != "removed" || got[0].Removed {
+		t.Fatalf("servers %+v", got)
+	}
+}
+
 func TestStatus(t *testing.T) {
 	s, _, _ := setup(t)
 	if rec := call(t, s, 1001, "GET", "/v1/status", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"restart_pending":false`) ||

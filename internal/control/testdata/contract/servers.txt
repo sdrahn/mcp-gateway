@@ -2,6 +2,7 @@
 # Fields may be added, never renamed or removed (docs/architecture.md, D10).
 [].instances
 [].instances[].busy
+[].instances[].definition
 [].instances[].id
 [].instances[].isolation
 [].instances[].iss
@@ -18,5 +19,6 @@
 [].name
 [].network
 [].privileged
+[].removed
 [].run_as
 [].selinux_type

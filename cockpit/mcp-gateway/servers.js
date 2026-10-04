@@ -1,5 +1,6 @@
 /* Servers tab: the registry and the backend instances the user may see,
- * with stop and the instance's journal.
+ * with stop and the instance's journal; the state of the last reload of
+ * the configuration (gateway.yaml, servers.d) and a button to reload it.
  */
 "use strict";
 
@@ -58,6 +59,10 @@ function instanceRow(inst) {
         }
     });
     if (!log.hidden) instanceLog(inst, log);
+    const definition = {
+        previous: "previous definition: runs until no session uses it",
+        removed: "server removed: stops once its calls end",
+    }[inst.definition];
     const who = inst.sub + (inst.iss ? " (" + inst.iss + ")" : "") + " via " + inst.transport +
         (inst.session_id ? ", session " + inst.session_id.slice(0, 8) : "");
     let use = inst.sessions > 0 ? inst.sessions + (inst.sessions === 1 ? " session" : " sessions") : "idle";
@@ -67,6 +72,7 @@ function instanceRow(inst) {
                  el("span", null, who),
                  el("span", { class: "muted" }, inst.unit),
                  el("span", { class: "muted" }, "started " + relative(inst.started) + ", " + use),
+                 definition ? el("span", { class: "tag" }, definition) : null,
                  el("span", { class: "actions" }, logButton, stop)),
               log);
 }
@@ -79,9 +85,10 @@ function renderServers(servers) {
         return;
     }
     for (const s of servers) {
-        const facts = [s.selinux_type || "mcpsrv_generic_t", "isolation: " + s.isolation,
+        let facts = [s.selinux_type || "mcpsrv_generic_t", "isolation: " + s.isolation,
             s.network ? "network" : "no network", "runs as " + s.run_as];
         if (s.privileged) facts.push("privileged: no sandbox, every call by policy and approval");
+        if (s.removed) facts = ["removed from the configuration; its instances stop once their calls end"];
         const card = el("div", { class: "card" },
                         el("h3", null, s.name),
                         el("div", { class: "muted" }, facts.join(" · ")));
@@ -93,9 +100,57 @@ function renderServers(servers) {
     }
 }
 
+/* renderReloadStatus shows what the last reload of the configuration
+ * left: a file that did not load, keys that need a restart. */
+function renderReloadStatus(status) {
+    const box = document.getElementById("reload-status");
+    const lines = [];
+    if (status.config_error) {
+        lines.push(el("div", null, el("strong", null, "gateway.yaml was not reloaded; "),
+                      "the gateway runs with the configuration it had: ", el("code", null, status.config_error)));
+    }
+    if (status.servers_error) {
+        lines.push(el("div", null, el("strong", null, "The server definitions were not reloaded; "),
+                      "the gateway serves the previous ones: ", el("code", null, status.servers_error)));
+    }
+    if (status.restart_needed && status.restart_needed.length > 0) {
+        lines.push(el("div", null, el("strong", null, "Restart needed: "),
+                      "gateway.yaml changes keys that take effect at the next start (" +
+                      status.restart_needed.join(", ") + "). ", el("code", null, "systemctl restart mcp-gateway.service"),
+                      " ends all sessions."));
+    }
+    box.replaceChildren(...lines);
+    box.hidden = lines.length === 0;
+}
+
+/* reload runs systemctl reload (administrative access): it checks the
+ * configuration first and fails on a file that does not load. */
+async function reload(button) {
+    const result = document.getElementById("reload-result");
+    button.disabled = true;
+    result.textContent = "Reloading…";
+    try {
+        await cockpit.spawn(["systemctl", "reload", "mcp-gateway.service"], { superuser: "require", err: "message" });
+        result.textContent = "Reloaded.";
+    } catch (ex) {
+        result.textContent = "";
+        showError("Reloading failed: " + (ex.message || ex.problem || ex) +
+                  " (mcp-gateway --check shows the problem; reloading needs administrative access).");
+    } finally {
+        button.disabled = false;
+    }
+    tabs.servers.refresh();
+}
+
 tabs.servers = {
     intervalMs: 5000,
+    init() {
+        const button = document.getElementById("reload");
+        button.addEventListener("click", () => reload(button));
+    },
     async refresh() {
-        renderServers(await getJSON("/v1/servers"));
+        const [servers, status] = await Promise.all([getJSON("/v1/servers"), getJSON("/v1/status")]);
+        renderServers(servers);
+        renderReloadStatus(status);
     },
 };

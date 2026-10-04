@@ -127,3 +127,4 @@ ul.permissions { margin: 0.25rem 0; padding-left: 1.25rem; }
 .badge-deny { border-color: var(--danger); color: var(--danger); }
 .badge-event { border-color: var(--accent); color: var(--accent); }
 td.details { overflow-wrap: anywhere; color: var(--muted); }
+.tag { font-size: 0.85em; padding: 0 0.4rem; border: 1px solid var(--accent); border-radius: 3px; color: var(--accent); }

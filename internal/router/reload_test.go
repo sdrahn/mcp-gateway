@@ -72,6 +72,13 @@ func TestSetBackends(t *testing.T) {
 	if isClosed(git.closed, 50*time.Millisecond) {
 		t.Fatal("instance of the changed server stopped before the session's next call")
 	}
+	defs := map[string]string{} // server: definitions of its instances
+	for _, in := range r.Instances() {
+		defs[in.Server] += in.Definition + " "
+	}
+	if !strings.Contains(defs["git"], "previous") || strings.Contains(defs["fs"], "previous") {
+		t.Fatalf("definitions %v", defs)
+	}
 	if text, _ := toolText(t, single.roundTrip(4, "tools/call", map[string]any{"name": "read_file"})); text != "git did read_file" {
 		t.Fatalf("got %q", text)
 	}

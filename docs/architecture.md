@@ -1728,7 +1728,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       "previous"`), Cockpit's Servers tab shows them apart and
       shows a failed reload or a pending restart, with the error, and
       offers to reload the configuration (administrative access,
-      `systemctl reload`);
+      `systemctl reload`); a removed server is listed while instances of
+      it run (`removed`) (done);
     - HTTP streams: a server's notification or request that belongs to
       a client request (progress, logging during the call, elicitation,
       sampling) goes to that request's stream, not to the most recently
