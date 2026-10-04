@@ -7,6 +7,48 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v0.11.0 — 2026-10-04
+
+MCP servers that speak HTTP, and a gateway that reacts at once and says
+what to do. A server definition may give `url` instead of `command`:
+its calls go through the same policy, approvals and audit, each
+principal's instance is a confined connector that reaches only the
+server's addresses, and the gateway itself makes no outbound
+connection. Changes to the configuration take effect when the files are
+written. The doctor warns only about what an administrator can change,
+names the change, has a stable output for monitoring, and shows its
+summary in Cockpit. Approval mail finds primary-group members of
+approver groups also where the user database does not enumerate users.
+It also carries the fix of 0.10.1 (servers read their credentials).
+
+Upgrading from 0.10.x needs no changes to `gateway.yaml`, server
+definitions or role data. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. Things
+to know:
+
+- Saving `gateway.yaml` or a server definition takes effect within a
+  fraction of a second, not after `policy.watch_interval`. Check a file
+  with `mcp-gateway --check` before putting it in place, or write it
+  under another name and rename it; a file that does not load still
+  changes nothing and is reported. Where a directory cannot be watched,
+  the journal says "changes in a directory are noticed by polling only"
+  and the old interval applies.
+- `mcp-gateway-admin doctor` reports some former warnings as `OK` with
+  a note: polkit for servers that do not act through polkit, a
+  privileged server on a transactional system; missing role data
+  (policy from a bundle) is skipped. Monitoring that counts `WARN`
+  lines sees fewer. The exit status is unchanged; `--strict` adds 3 for
+  warnings, and `--json` results get `id` and `subject` (user guide,
+  chapter 11), which are the fields to match on from now on.
+- The state directory has a new file, `principals.json` (the local users
+  who used the gateway, for approval mail); back it up with the rest.
+- A server defined with `url` needs `https://` (`http://` only to the
+  local host), reaches its server on HTTP ports unless
+  `setsebool -P mcpsrv_http_connect_any on`, and does not use a proxy.
+  Secrets for its headers come from `credentials` (user guide, chapter
+  4, "Servers that speak HTTP").
+
+
 ### Added
 
 - MCP servers that speak Streamable HTTP: a definition gives `url`
