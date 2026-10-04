@@ -1,0 +1,59 @@
+#!/bin/sh
+# check-release: check that a commit is ready to be tagged vX.Y.Z, or that
+# a tag matches what it releases (the Release workflow runs it before
+# publishing anything). Run it from the repository, before tagging:
+#
+#   tools/check-release v0.12.0 [<commit>]
+#
+# It checks the files as they are in <commit> (default: the tag if it
+# exists, else HEAD):
+#   - packaging/suse/mcp-gateway.spec has Version: X.Y.Z;
+#   - the first "## " heading of CHANGELOG.md is "## vX.Y.Z — <date>";
+#   - packaging/suse/_service builds from release-X.Y with the version
+#     of its latest tag (a release branch, not main).
+# Each mismatch is printed with the file to fix; the exit status is 1 if
+# there is one.
+set -eu
+
+tag=${1:?usage: check-release vX.Y.Z [commit]}
+case "$tag" in
+v[0-9]*.[0-9]*.[0-9]*) ;;
+*) echo "check-release: $tag is not a tag vX.Y.Z" >&2; exit 2 ;;
+esac
+version=${tag#v}
+base=${version%%-*} # v1.2.0-rc1: the files name 1.2.0
+series=$(echo "$base" | cut -d. -f1,2)
+if [ $# -ge 2 ]; then
+	rev=$2
+elif git rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null; then
+	rev=$tag
+else
+	rev=HEAD
+fi
+
+failed=0
+fail() {
+	echo "check-release: $1" >&2
+	failed=1
+}
+
+spec=$(git show "$rev:packaging/suse/mcp-gateway.spec" | sed -n 's/^Version:[[:space:]]*//p' | head -1)
+[ "$spec" = "$base" ] ||
+	fail "packaging/suse/mcp-gateway.spec says Version: $spec, not $base"
+
+heading=$(git show "$rev:CHANGELOG.md" | grep -m1 '^## ' || true)
+case "$heading" in
+"## $tag "*) ;;
+*) fail "the first section of CHANGELOG.md is \"$heading\", not \"## $tag — <date>\"" ;;
+esac
+
+service=$(git show "$rev:packaging/suse/_service")
+echo "$service" | grep -q "<param name=\"revision\">release-$series</param>" ||
+	fail "packaging/suse/_service does not build from release-$series"
+echo "$service" | grep -q '<param name="versionformat">@PARENT_TAG@</param>' ||
+	fail "packaging/suse/_service does not take the version from the tag (versionformat @PARENT_TAG@)"
+
+if [ "$failed" = 0 ]; then
+	echo "check-release: $(git rev-parse --short "$rev") is ready for $tag"
+fi
+exit "$failed"

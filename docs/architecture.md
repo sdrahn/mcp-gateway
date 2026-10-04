@@ -1833,7 +1833,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       must name the tag's version, and the tarball must equal `git
       archive` of the tag; a mismatch fails the run before anything is
       published, naming the file to fix (0.10.1 shipped a spec saying
-      0.10.0);
+      0.10.0); `tools/check-release` runs the same check before tagging,
+      and the published files are downloaded again and verified (done);
     - policy changes are noticed when written: with local policy (the
       directories OPA runs with `--watch`, and the role data), the
       gateway watches them with inotify as it does its configuration

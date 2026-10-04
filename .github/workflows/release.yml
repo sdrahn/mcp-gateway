@@ -16,6 +16,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      # Before anything is built or published: the spec, the CHANGELOG
+      # and _service must name this tag (0.10.1 shipped a spec saying
+      # 0.10.0).
+      - name: Tag matches the files
+        run: tools/check-release "$GITHUB_REF_NAME" HEAD
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -61,3 +66,15 @@ jobs:
             gh release create "$GITHUB_REF_NAME" dist/* \
               --title "$title" --notes-file notes.md --verify-tag $prerelease
           fi
+      # What was published is what was built: the files download, match
+      # SHA256SUMS, and the tarball is git archive of the tag.
+      - name: Verify the published files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          version=${GITHUB_REF_NAME#v}
+          mkdir verify
+          gh release download "$GITHUB_REF_NAME" --dir verify
+          (cd verify && sha256sum -c SHA256SUMS)
+          git archive --prefix="mcp-gateway-$version/" HEAD | cmp - <(gzip -dc "verify/mcp-gateway-$version.tar.gz")

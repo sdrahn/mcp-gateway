@@ -7,6 +7,14 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Releases check themselves: `tools/check-release vX.Y.Z` tells whether
+  a release branch is ready to be tagged (the spec's `Version`, the first
+  CHANGELOG.md section, `_service`); the Release workflow refuses a tag
+  that fails it before building anything, and verifies the published
+  files against `SHA256SUMS` and `git archive` of the tag.
+
 ## v0.11.0 — 2026-10-04
 
 MCP servers that speak HTTP, and a gateway that reacts at once and says

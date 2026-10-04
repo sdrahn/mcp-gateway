@@ -35,6 +35,13 @@ version is `X.Y.Z`. For an OBS project that follows a release, use the
 `osc vc -m "Update to X.Y.Z"` with the release's CHANGELOG.md section, and
 commit.
 
+Before tagging, check the release branch: `tools/check-release vX.Y.Z`
+(the spec's `Version`, the first CHANGELOG.md section and `_service` must
+name the release). The Release workflow runs the same check before it
+builds anything and refuses a tag that fails it, and after publishing it
+downloads the files again and checks them against `SHA256SUMS` and `git
+archive` of the tag.
+
 Build targets: SLES 16 and Leap 16 (supported), openSUSE Tumbleweed
 (development). SLES 15 and Leap 15 are not supported.
 
