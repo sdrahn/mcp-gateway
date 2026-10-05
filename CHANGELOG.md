@@ -5,6 +5,23 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## v0.12.3 — 2026-10-05
+
+Two checks for the HTTPS listener in `mcp-gateway-admin doctor`.
+Upgrading from 0.12.x needs no changes.
+
+### Added
+
+- `mcp-gateway-admin doctor` checks the HTTP listener's certificate and
+  key (`tls`: they load, the gateway's account and SELinux domain can
+  read them, the certificate names the host of `http.audience` and has
+  not expired) and whether firewalld lets its port in (`firewall`). A
+  key the gateway cannot read keeps it from starting although
+  `mcp-gateway --check` passes; a closed port makes remote clients see
+  "connection refused" while the gateway works on the host. The user
+  guide's `semanage port` lines fall back to `-m` where the policy
+  already labels the port.
+
 ## v0.12.2 — 2026-10-04
 
 A fix for servers with `sign_in`. Upgrading from 0.12.x needs no
