@@ -287,7 +287,7 @@ func (u *upstream) request(ctx context.Context, s *Session, method string, param
 			// The level travels with each request (meta).
 			return &jsonrpc.Message{JSONRPC: jsonrpc.Version, Result: json.RawMessage(`{}`)}, nil
 		}
-		p, err := withMeta(params, u.meta(s))
+		p, err := withMeta(params, u.meta(s, method))
 		if err != nil {
 			return nil, err
 		}
@@ -528,7 +528,7 @@ func (u *upstream) backendRequest(m *jsonrpc.Message) {
 		_ = u.conn.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeForbidden, "no client request in progress"))
 		return
 	}
-	_ = u.conn.Write(s.relayBackendRequest(u, m, u.relatedRequest(s)))
+	_ = u.conn.Write(s.relayBackendRequest(s.ctx, u, m, u.relatedRequest(s)))
 }
 
 // TokenMethod is the request an instance of a server with sign_in (its

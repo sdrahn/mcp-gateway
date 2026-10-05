@@ -117,13 +117,97 @@ func TestModernServerLevelAndSubscriptions(t *testing.T) {
 	}
 }
 
-// An interim result asking the client for input is not passed on yet.
+// A modern server asks for input with a result: the gateway asks the
+// client over its session, each request decided by policy and labelled
+// as a server's request is, calls again with the answers and the
+// server's state, and the client sees one call. What the client put in
+// inputResponses or requestState does not reach the server.
 func TestModernServerInputRequired(t *testing.T) {
+	r, l := modernRouter(t)
+	c := connect(t, r, alice(), "modern", map[string]any{
+		"elicitation": map[string]any{}, "roots": map[string]any{}, "sampling": map[string]any{}, "experimental": map[string]any{"x": map[string]any{}}})
+	c.send(1, "tools/call", map[string]any{"name": "ask_input", "inputResponses": map[string]any{"name": map[string]any{"action": "accept"}}, "requestState": "s1"})
+	ask := c.read()
+	if ask.Method != "elicitation/create" || !strings.Contains(string(ask.Params), `"message":"[modern] Your name?"`) {
+		t.Fatalf("want the elicitation first, got %+v", ask)
+	}
+	c.write(result(t, ask.ID, map[string]any{"action": "accept", "content": map[string]any{"name": "Alice"}}))
+	ask = c.read()
+	if ask.Method != "roots/list" {
+		t.Fatalf("want roots/list, got %+v", ask)
+	}
+	c.write(result(t, ask.ID, map[string]any{"roots": []any{map[string]any{"uri": "file:///ok"}}}))
+	text, isErr := toolText(t, c.read())
+	if isErr || text != `answers {"name":{"action":"accept","content":{"name":"Alice"}},"roots":{"roots":[{"uri":"file:///ok"}]}}` {
+		t.Fatalf("call: %q %v", text, isErr)
+	}
+	methods, metas, _ := l.started("modern")[0].seen()
+	calls := 0
+	for i, m := range methods {
+		if m != "tools/call" {
+			continue
+		}
+		calls++
+		if got := string(metas[i][metaClientCapabilities]); got != `{"elicitation":{"form":{}},"roots":{},"sampling":{}}` {
+			t.Errorf("call %d: clientCapabilities %s", calls, got)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("%d calls reached the server", calls)
+	}
+}
+
+// An elicitation policy refuses is declined without asking the client;
+// the server gets the decline and decides.
+func TestModernServerInputDeclined(t *testing.T) {
 	r, _ := modernRouter(t)
-	c := connect(t, r, alice(), "modern", nil)
-	m := c.roundTrip(1, "tools/call", map[string]any{"name": "ask_input"})
-	if m.Error == nil || !strings.Contains(m.Error.Message, "does not pass on yet") {
+	c := connect(t, r, alice(), "modern", map[string]any{"elicitation": map[string]any{}})
+	text, isErr := toolText(t, c.roundTrip(1, "tools/call", map[string]any{"name": "ask_secret"}))
+	if isErr || text != `answers {"pw":{"action":"decline"}}` {
+		t.Fatalf("call: %q %v", text, isErr)
+	}
+}
+
+// What policy does not let a server ask for is not declared to it; a
+// refused sampling request ends the call (answers have no error form).
+func TestModernServerInputRefused(t *testing.T) {
+	r, l := modernRouter(t)
+	r.Backends["moderndeny"] = &config.Backend{Name: "moderndeny", Isolation: config.IsolationPrincipal}
+	c := connect(t, r, alice(), "moderndeny", map[string]any{"elicitation": map[string]any{"form": map[string]any{}, "url": map[string]any{}}, "roots": map[string]any{}, "sampling": map[string]any{}})
+	m := c.roundTrip(1, "tools/call", map[string]any{"name": "ask_sample"})
+	if m.Error == nil || !strings.Contains(m.Error.Message, "moderndeny asked the client (sampling/createMessage): denied by mcp-gateway policy") {
 		t.Fatalf("got %+v", m)
+	}
+	methods, metas, _ := l.started("moderndeny")[0].seen()
+	for i, method := range methods {
+		if method == "tools/call" {
+			if got := string(metas[i][metaClientCapabilities]); got != `{"roots":{}}` {
+				t.Errorf("clientCapabilities %s", got)
+			}
+		}
+	}
+}
+
+// The rounds of one call are bounded.
+func TestModernServerInputRounds(t *testing.T) {
+	r, l := modernRouter(t)
+	c := connect(t, r, alice(), "modern", nil)
+	m := c.roundTrip(1, "tools/call", map[string]any{"name": "ask_forever"})
+	if m.Error == nil || !strings.Contains(m.Error.Message, "more than 8 times") {
+		t.Fatalf("got %+v", m)
+	}
+	methods, metas, _ := l.started("modern")[0].seen()
+	calls := 0
+	for i, method := range methods {
+		if method == "tools/call" {
+			calls++
+			if string(metas[i][metaClientCapabilities]) != `{}` {
+				t.Errorf("clientCapabilities %s", metas[i][metaClientCapabilities])
+			}
+		}
+	}
+	if calls != maxInputRounds+1 {
+		t.Fatalf("%d calls", calls)
 	}
 }
 

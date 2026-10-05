@@ -826,29 +826,47 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	// not route; it runs synchronously instead. The gateway does not offer
 	// tasks, but some clients ask regardless.
 	delete(params, "task")
+	// The answers to a modern server's input requests are the gateway's
+	// to give, after policy (answerInput): a client cannot supply them.
+	delete(params, "inputResponses")
+	delete(params, "requestState")
 	if gw := s.rewriteProgressToken(u, params, t.progress.offset(), requestOf(ctx)); gw != nil {
 		defer u.unregisterProgress(gw)
 	}
-	resp, err := u.request(ctx, s, m.Method, params)
-	if errors.Is(err, errShuttingDown) {
-		return nil, rpcError(jsonrpc.CodeInternalError, err.Error())
-	}
-	if err != nil {
-		return nil, rpcError(jsonrpc.CodeInternalError, "backend unavailable")
-	}
-	if resp.Error != nil {
-		if b != nil && b.SignIn != nil && s.r.SignIns != nil && strings.Contains(resp.Error.Message, signin.RejectedMarker) {
-			// The instance ends; the next call starts one with a
-			// refreshed token.
-			s.r.SignIns.Rejected(t.server, s.snapshotPrincipal())
+	send := func() (json.RawMessage, bool, *jsonrpc.Error) {
+		resp, err := u.request(ctx, s, m.Method, params)
+		if errors.Is(err, errShuttingDown) {
+			return nil, false, rpcError(jsonrpc.CodeInternalError, err.Error())
 		}
-		return nil, resp.Error
+		if err != nil {
+			return nil, false, rpcError(jsonrpc.CodeInternalError, "backend unavailable")
+		}
+		if resp.Error != nil {
+			if b != nil && b.SignIn != nil && s.r.SignIns != nil && strings.Contains(resp.Error.Message, signin.RejectedMarker) {
+				// The instance ends; the next call starts one with a
+				// refreshed token.
+				s.r.SignIns.Rejected(t.server, s.snapshotPrincipal())
+			}
+			return nil, false, resp.Error
+		}
+		raw, inputRequired := completeResult(resp.Result)
+		return raw, inputRequired, nil
 	}
-	raw, inputRequired := completeResult(resp.Result)
-	if inputRequired {
-		// A modern server asks the client for input (multi round-trip
-		// request); relaying it comes later in roadmap step 24.
-		return nil, rpcError(jsonrpc.CodeInternalError, t.server+" asks the client for input in a way the gateway does not pass on yet (MCP 2026-07-28)")
+	raw, inputRequired, rerr := send()
+	// A modern server asks the client for input with a result instead of
+	// requests (multi round-trip): the gateway asks the client over its
+	// session, each request decided as a server's request is, and calls
+	// again with the answers; the client sees one call.
+	for round := 0; inputRequired && rerr == nil; round++ {
+		if round == maxInputRounds {
+			return nil, rpcError(jsonrpc.CodeInternalError, fmt.Sprintf("%s asked the client for input more than %d times in one call", t.server, maxInputRounds))
+		}
+		if rerr = s.answerInput(ctx, u, raw, params); rerr == nil {
+			raw, inputRequired, rerr = send()
+		}
+	}
+	if rerr != nil {
+		return nil, rerr
 	}
 	result, stats, err := ob.ApplyOutput(raw, s.vault)
 	if len(stats) > 0 {
@@ -1226,7 +1244,7 @@ func (s *Session) stillAllowed(server, action string, r pep.Resource) bool {
 
 // relayBackendRequest decides and relays a request from backend u to this
 // session's client, and returns the response for the backend.
-func (s *Session) relayBackendRequest(u *upstream, m *jsonrpc.Message, req json.RawMessage) *jsonrpc.Message {
+func (s *Session) relayBackendRequest(ctx context.Context, u *upstream, m *jsonrpc.Message, req json.RawMessage) *jsonrpc.Message {
 	p := s.snapshotPrincipal()
 	action, known := backendRequests[m.Method]
 	dec := pep.Decision{Effect: pep.Deny, Reason: "method not permitted"}
@@ -1264,7 +1282,7 @@ func (s *Session) relayBackendRequest(u *upstream, m *jsonrpc.Message, req json.
 	if m.Method == "elicitation/create" {
 		params = labelElicitation(params, u.backend.Name)
 	}
-	resp, err := s.requestClient(s.ctx, m.Method, params, req)
+	resp, err := s.requestClient(ctx, m.Method, params, req)
 	if err != nil {
 		var rpcErr *jsonrpc.Error
 		if errors.As(err, &rpcErr) {
