@@ -245,9 +245,13 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 		_ = json.Unmarshal(m.Params, &p)
 		switch m.Method {
 		case "initialize":
+			caps := map[string]any{"tools": map[string]any{}, "prompts": map[string]any{}, "resources": map[string]any{}}
+			if strings.HasPrefix(f.name, "toolsonly") {
+				caps = map[string]any{"tools": map[string]any{}}
+			}
 			respond(m, map[string]any{
 				"protocolVersion": "2025-06-18",
-				"capabilities":    map[string]any{"tools": map[string]any{}, "prompts": map[string]any{}, "resources": map[string]any{}},
+				"capabilities":    caps,
 				"serverInfo":      map[string]any{"name": "fake-" + f.name},
 			})
 		case "tools/list":

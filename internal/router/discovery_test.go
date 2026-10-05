@@ -130,3 +130,37 @@ func TestSetLevelStartsNoInstances(t *testing.T) {
 		}
 	}
 }
+
+// resources/list comes from the principal's own instances, but only of
+// servers that offer resources, as shared discovery tells: a client that
+// lists resources when it connects does not start every server for its
+// user.
+func TestResourcesListStartsOnlyServersWithResources(t *testing.T) {
+	r, l := testRouter(t, time.Hour)
+	for _, b := range r.Backends {
+		b.Discovery = config.DiscoveryShared
+	}
+	r.Backends["toolsonly"] = &config.Backend{Name: "toolsonly", Isolation: config.IsolationPrincipal, Discovery: config.DiscoveryShared}
+	c := connect(t, r, alice(), "", nil)
+	if m := c.roundTrip(1, "resources/list", map[string]any{}); m.Error != nil {
+		t.Fatalf("resources/list: %+v", m.Error)
+	}
+	for _, fi := range l.started("toolsonly") {
+		if fi.p.Sub != "mcp-discovery" {
+			t.Errorf("an instance of a server without resources started for %s", fi.p.Sub)
+		}
+	}
+	var forAlice int
+	for _, fi := range l.started("fs") {
+		if fi.p.Sub == "alice" {
+			forAlice++
+		}
+	}
+	if forAlice != 1 {
+		t.Errorf("fs (with resources) instances for alice: %d", forAlice)
+	}
+	// Its tools are still listed, and a call starts alice's instance.
+	if got := toolNames(t, c, 2); !strings.Contains(got, "toolsonly__read_file") {
+		t.Errorf("tools: %s", got)
+	}
+}
