@@ -167,3 +167,41 @@ func TestAuthParam(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestCheckIssuer(t *testing.T) {
+	m := &ServerMetadata{Issuer: "https://as.example/tenant"}
+	s := func(v string) *string { return &v }
+	for _, tc := range []struct {
+		announce bool
+		iss      *string
+		ok       bool
+	}{
+		{false, nil, true},
+		{true, nil, false},
+		{false, s("https://as.example/tenant"), true},
+		{true, s("https://as.example/tenant"), true},
+		{false, s("https://as.example/other"), false},
+		{true, s("https://AS.example/tenant"), false},
+		{true, s("https://as.example/tenant/"), false},
+		{false, s(""), false},
+	} {
+		m.AuthorizationResponseIssParameterSupported = tc.announce
+		if err := m.CheckIssuer(tc.iss); (err == nil) != tc.ok {
+			t.Errorf("announce %v, iss %v: %v", tc.announce, tc.iss, err)
+		}
+	}
+}
+
+func TestApplicationType(t *testing.T) {
+	for uri, want := range map[string]string{
+		"https://gw.example.com:8443/oauth/callback": "web",
+		"http://localhost:8080/oauth/callback":       "native",
+		"http://127.0.0.1:8080/oauth/callback":       "native",
+		"http://[::1]:8080/oauth/callback":           "native",
+		"https://localhost.example/oauth/callback":   "web",
+	} {
+		if got := ApplicationType(uri); got != want {
+			t.Errorf("%s: %s, want %s", uri, got, want)
+		}
+	}
+}

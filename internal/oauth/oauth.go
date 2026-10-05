@@ -133,6 +133,24 @@ type ServerMetadata struct {
 	CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported,omitempty"`
 	ScopesSupported                   []string `json:"scopes_supported,omitempty"`
 	ClientIDMetadataDocumentSupported bool     `json:"client_id_metadata_document_supported,omitempty"`
+	// The server puts iss into its authorization responses (RFC 9207).
+	AuthorizationResponseIssParameterSupported bool `json:"authorization_response_iss_parameter_supported,omitempty"`
+}
+
+// CheckIssuer validates the iss parameter of an authorization response
+// (RFC 9207, as MCP 2026-07-28 asks) against the issuer of the server's
+// metadata, before the code or an error in the response is used: iss,
+// when present (nil: absent), must be the issuer exactly, and a server
+// that announces iss must send it. It defends against mix-up attacks, an
+// authorization server answering for another.
+func (m *ServerMetadata) CheckIssuer(iss *string) error {
+	switch {
+	case iss != nil && *iss != m.Issuer:
+		return fmt.Errorf("the authorization response names the issuer %q, not %q, the one signed in with", *iss, m.Issuer)
+	case iss == nil && m.AuthorizationResponseIssParameterSupported:
+		return fmt.Errorf("the authorization response has no iss, which %s announces", m.Issuer)
+	}
+	return nil
 }
 
 // Check verifies what the gateway relies on: the endpoints are URLs it
@@ -190,6 +208,20 @@ func CheckURL(s string) error {
 		}
 	}
 	return fmt.Errorf("%q must be an https URL (http only on the local host)", s)
+}
+
+// ApplicationType is the client's application_type for dynamic
+// registration (OpenID Connect, as MCP 2026-07-28 asks): "native" for a
+// redirect URI on the local host, "web" otherwise.
+func ApplicationType(redirectURI string) string {
+	u, err := url.Parse(redirectURI)
+	if err == nil {
+		host := u.Hostname()
+		if ip := net.ParseIP(host); host == "localhost" || (ip != nil && ip.IsLoopback()) {
+			return "native"
+		}
+	}
+	return "web"
 }
 
 // SameOrigin reports whether a and b have the same scheme, host and port.

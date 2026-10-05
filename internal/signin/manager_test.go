@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"html"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -457,5 +458,61 @@ func TestClientChoice(t *testing.T) {
 	_ = resp.Body.Close()
 	if doc["client_id"] != f.m.ClientMetadataURL || doc["token_endpoint_auth_method"] != "none" {
 		t.Errorf("client.json %v", doc)
+	}
+}
+
+// The authorization response's iss is checked against the issuer signed
+// in with before its code is used (RFC 9207): a response naming another
+// issuer, or without iss from a server that announces it, fails.
+func TestIssuer(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		announce bool
+		iss      func(f *fixture) string
+		want     string // in the callback page; "" for success
+	}{
+		{"matching", true, func(f *fixture) string { return f.as.Issuer() }, ""},
+		{"absent, not announced", false, func(*fixture) string { return "" }, ""},
+		{"absent, announced", true, func(*fixture) string { return "" }, "has no iss"},
+		{"another issuer", false, func(*fixture) string { return "https://evil.example/as" }, `names the issuer "https://evil.example/as"`},
+		{"not normalized", true, func(f *fixture) string { return f.as.Issuer() + "/" }, "names the issuer"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.as.AnnounceIss, f.as.Iss = tc.announce, tc.iss(f)
+			el := &fakeElicitor{url: true, accept: true, opened: make(chan string, 1)}
+			done := make(chan error, 1)
+			go func() { done <- f.m.Run(context.Background(), el, f.b, alice) }()
+			var status int
+			var body string
+			select {
+			case u := <-el.opened:
+				status, body = browse(t, u)
+			case err := <-done:
+				t.Fatalf("Run ended early: %v", err)
+			}
+			err := <-done
+			if tc.want == "" {
+				if status != 200 || err != nil || !f.m.Signed(alice, "tickets") {
+					t.Fatalf("%d %s: %v", status, body, err)
+				}
+				return
+			}
+			if status != 400 || !strings.Contains(html.UnescapeString(body), tc.want) || err == nil || f.m.Signed(alice, "tickets") {
+				t.Fatalf("%d %s: %v", status, body, err)
+			}
+		})
+	}
+}
+
+// Dynamic registration names the application type: "native" for a
+// callback on the local host, as here.
+func TestRegistrationApplicationType(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.m.Begin(context.Background(), f.b, alice); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.as.Registrations) != 1 || f.as.Registrations[0]["application_type"] != "native" {
+		t.Fatalf("registrations %v", f.as.Registrations)
 	}
 }
