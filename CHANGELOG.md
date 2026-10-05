@@ -40,6 +40,14 @@ minor release (with a warning) and removed in the next.
   (`tools/check-tree`): 0.12.0 and 0.12.1 shipped two programs built in
   the top directory, which are gone.
 
+### Fixed
+
+- Listing resources (`resources/list`, which clients such as Kit send
+  when they connect) starts the principal's instance only of servers
+  with `discovery: shared` that offer resources, as their discovery
+  instance tells; before, connecting started the principal's instance of
+  every server.
+
 ## v0.12.3 — 2026-10-05
 
 Two checks for the HTTPS listener in `mcp-gateway-admin doctor`.
