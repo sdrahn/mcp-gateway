@@ -14,10 +14,11 @@ Target distributions: SLES 16 and openSUSE Leap 16 (openSUSE Tumbleweed
 for development), packaged with the Open Build Service; see
 [packaging/suse](packaging/suse/README.md).
 
-Status: released (0.10.1), ready to be used; working towards 1.0 for
+Status: released (0.13.0), ready to be used; working towards 1.0 for
 SLES 16 and Leap 16 (roadmap in [docs/architecture.md](docs/architecture.md),
-section 11). Releases marked as pre-releases on GitHub (such as 0.11.0)
-bring new features ahead of the next release recommended for use.
+section 11). Releases marked as pre-releases on GitHub (tags such as
+v1.0.0-rc1) bring new features ahead of the next release recommended for
+use.
 Packages are built and tested in VMs on Leap 16 and Tumbleweed for every
 change; from 0.4 on, configuration, role data and APIs change compatibly
 ([CHANGELOG](CHANGELOG.md)). Local clients connect over a unix socket,

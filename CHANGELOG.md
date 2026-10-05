@@ -7,6 +7,37 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v0.13.0 — 2026-10-05
+
+Signing in to servers lasts and works with every client, and remote
+access is set up in one command. An instance of a server with `sign_in`
+now outlives its access token: the gateway hands the running connector a
+renewed one when the server refuses it, so calls go on in the same
+session instead of the instance ending every hour. Clients without URL
+elicitation get a short sign-in link the agent can show, so remote users
+without a local account can sign in too. `mcp-gateway-admin setup http`
+writes the `http` block from the public URL and the issuer and checks
+the whole chain, the identity provider and a token included; the doctor
+checks the listener's certificate and firewall. Connecting no longer
+starts every server, and a release holds nothing but sources.
+
+Upgrading from 0.12.x needs no changes to `gateway.yaml`, server
+definitions or role data. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. Things
+to know:
+
+- Instances of servers with `sign_in` no longer get `RuntimeMaxSec=`
+  from the token's expiry; they end when idle, like any other instance.
+- The SELinux policy lets the gateway fetch the identity provider's
+  keys on port 8080 (`http_cache_port_t`). A `semanage port -m -t
+  http_port_t -p tcp 8080` made as a workaround can be undone with
+  `semanage port -d -p tcp 8080` if nothing else needs it.
+- `mcp-gateway-admin doctor` has two new checks, `tls` and `firewall`,
+  and warns about a polkit `readlog` rule only for systemd-mcp before
+  0.3.5.
+- From 0.13.0 on, releases are published as full releases; only tags
+  such as `v1.0.0-rc1` are pre-releases.
+
 ### Added
 
 - `mcp-gateway-admin doctor` checks the HTTP listener's certificate and
@@ -27,7 +58,6 @@ minor release (with a warning) and removed in the next.
   up to `sign_in.timeout` while the user looked for the link in Cockpit.
   Remote users without a local account can now sign in with such
   clients. The page after signing in names the server and the user.
-
 - `mcp-gateway-admin setup http` sets up remote access and checks it
   end to end: from the public URL and the identity provider's issuer it
   fills in the `http` block of `gateway.yaml` (with `-write`; it keeps
