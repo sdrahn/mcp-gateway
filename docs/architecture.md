@@ -1072,6 +1072,211 @@ installed to `/usr/share/cockpit/mcp-gateway`), with four tabs:
 of `cockpit.js` (CI job `cockpit`). Policy tests (`opa test`) are not run
 from the page: the Rego tests are not installed.
 
+### 5.11 Protocol revision 2026-07-28 (proposed)
+
+*Proposed for roadmap steps 24 and 25, decision D18. Not implemented.
+Sources: the specification of 2026-07-28 (changelog, versioning,
+Streamable HTTP, stdio, MRTR, subscriptions, discovery, caching) and
+SEP-2575 (stateless MCP), SEP-2567 (sessionless MCP), SEP-2322 (MRTR),
+SEP-2549 (TTLs), SEP-2243 (request headers).*
+
+MCP 2026-07-28 removes the `initialize` handshake and protocol
+sessions. Every request carries its protocol version and the client's
+capabilities in `_meta` (`io.modelcontextprotocol/protocolVersion`,
+`…/clientCapabilities`, optionally `…/clientInfo` and `…/logLevel`);
+`server/discover` advertises versions and capabilities; servers no
+longer send requests to clients, they answer a call with an
+`InputRequiredResult` (`resultType: "input_required"`, `inputRequests`,
+an opaque `requestState`) and the client retries the call with
+`inputResponses` (multi round-trip requests, MRTR); change
+notifications come on a `subscriptions/listen` stream; Streamable HTTP
+loses the GET stream, `Mcp-Session-Id` and resumability, and gains
+required `Mcp-Method`/`Mcp-Name` headers that must match the body. The
+specification calls revisions with the handshake *legacy* (2025-11-25
+and earlier) and the new ones *modern*; an implementation that speaks
+both is *dual-era*.
+
+Two facts decide the plan. A legacy client cannot use a modern-only
+server (the specification's compatibility matrix: it fails), and the
+gateway is a legacy client to its servers (it initializes them with
+2025-06-18): as servers drop the handshake, the gateway loses
+them. And agents keep speaking legacy for a while (Claude Code does
+today) while others go modern (the Python SDK 2 and mcp-go 1.1 probe
+`server/discover` first and fall back, roadmap step 15). So the
+gateway becomes **dual-era on both sides**, and translates between the
+eras where agent and server differ.
+
+**Era per request.** Toward agents, a request whose `_meta` names a
+modern version is served statelessly; an `initialize` opens a legacy
+session as today, on the same endpoint (HTTP) or connection (unix
+socket, where the stdio framing applies unchanged). Toward servers, the
+gateway learns each definition's era when it starts an instance: on
+stdio by probing `server/discover` and falling back to `initialize` on
+any error that is not a modern one (the specification's rule), over
+HTTP (the connector, §5.7.2) from a modern request's `400` body. The era
+is kept per definition and probed again when the definition changes or
+a probe assumption fails.
+
+#### 5.11.1 Agents (modern)
+
+- **HTTP.** Each request is a POST; the response is JSON or an SSE
+  stream scoped to it (progress and log messages of that request only).
+  The gateway checks, before anything else, the required headers
+  against the body: `MCP-Protocol-Version` against `_meta`,
+  `Mcp-Method` against `method`, `Mcp-Name` against `params.name` or
+  `params.uri` (Base64 sentinel values decoded), and the
+  `Mcp-Param-*` headers of tools whose schema marks parameters with
+  `x-mcp-header` (the gateway knows the schemas from discovery). A
+  mismatch or a missing header is `400` with `HeaderMismatch` (`-32020`):
+  policy decides on the body, and a proxy in front must not be able to
+  route or rate-limit by a header that says otherwise. A missing
+  required `_meta` field is `-32602`; an unsupported version is `400`
+  with `UnsupportedProtocolVersionError` (`-32022`) listing the versions
+  the gateway speaks (modern and legacy). An unknown method is `404`
+  with `-32601`. Closing a response stream cancels that request (no
+  `notifications/cancelled`). `Mcp-Session-Id`, GET, DELETE and
+  `Last-Event-ID` keep their meaning for legacy sessions only; on a
+  modern request they are ignored. SSE responses carry
+  `X-Accel-Buffering: no`; long-lived streams send comment keep-alives.
+- **Unix socket** (`mcp-connect`, local agents): the same messages,
+  newline-delimited; cancellation by `notifications/cancelled`.
+- **Identity and policy input.** The principal comes from the token or
+  the peer credentials of each request, as today. `input.context`
+  gains `protocol_version`; `client_capabilities` and `client` come from
+  the request's `_meta` (self-asserted, as `clientInfo` is today:
+  convenience, never a boundary); `session_id` is absent.
+- **`server/discover`** answers with the versions the gateway speaks,
+  the capabilities the principal may use (as the `initialize` result
+  does today: tools, prompts, resources, completions; logging while it
+  is not removed), the gateway's `serverInfo`, and on a single-server
+  endpoint the server's `instructions`; `cacheScope: "private"`.
+- **Lists** are a function of the deployment and the principal, never
+  of a connection (SEP-2567), which is what the gateway's filtering
+  already does. Every list and `resources/read` result carries
+  `cacheScope: "private"` (it is filtered per principal; a shared cache
+  must not serve it to another) and `ttlMs`: for lists
+  `http.list_ttl` (proposed default 60 s), shortened to 0 for the next
+  answer after a policy or definition change; for reads the server's
+  own `ttlMs` (0 if it gives none). Aggregated lists are sorted by name
+  (deterministic order, as the specification asks).
+- **Subscriptions.** `subscriptions/listen` opens a stream for the kinds
+  the client opts in to; the acknowledgement names the subset the
+  gateway honours. Policy and definition changes go out as
+  `toolsListChanged`, `promptsListChanged`, `resourcesListChanged` to
+  the principal's open streams (the change events of §5.3, today sent
+  to sessions). `resourceSubscriptions` are admitted only for URIs the
+  principal may read, and an update is delivered only while that still
+  holds; the gateway subscribes at the server on the principal's
+  instance (`subscriptions/listen` toward a modern server,
+  `resources/subscribe` on a legacy one). Streams count against a
+  per-principal limit (below).
+- **Logging.** The level is per request (`…/logLevel`); log messages go
+  only on that request's stream, and only if the request asked.
+  `logging/setLevel` and its replay to new instances (§5.3) remain for
+  legacy sessions.
+
+#### 5.11.2 Approvals and sign-in as multi round-trip requests
+
+Today a call that needs an approval waits, open, until someone decides
+(§5.6.1), with progress to keep the client from giving up; clients give
+up anyway (the TypeScript SDK after 60 s unless progress extends it).
+MRTR removes the wait:
+
+1. The first call is decided `ask`. The gateway answers at once with an
+   `InputRequiredResult`: for the channels `form` and `url`, an
+   `inputRequests` entry `approval` (`elicitation/create`, form or URL
+   mode, as the dialog is built today), provided the request's
+   capabilities declare that mode; otherwise the decision's `fallback`
+   applies (`oob`, or deny). For `oob` it carries no `inputRequests`.
+   Always with a `requestState` (below).
+2. The client retries with `inputResponses.approval` (form: the choice
+   and scope; URL: `accept` after the page). The gateway records the
+   decision, as an answer on the approval page or in Cockpit is recorded
+   today, decides again with the grant, and forwards the call.
+3. A retry before anyone decided (URL, `oob`) waits up to
+   `approvals.retry_wait` (proposed 25 s, below the clients' timeouts,
+   with progress) and then answers another `InputRequiredResult` with
+   only a `requestState`, which the client may retry at once. Each round
+   trip stays shorter than any client timeout; the approval keeps its
+   own expiry (`approvals.timeout`), after which the call is denied.
+
+Approvals in the inbox, push notices and approval pages are keyed by
+the approval's id, carried in the `requestState`, not by a session.
+Grant scopes are `once` (bound to this call's digest) and durations;
+`session` is not offered to modern clients (there is no session), as it
+is not offered today where the client cannot keep one. Signing in to a
+server (§5.7.3) follows the same pattern: the sign-in link is a URL-mode
+input request; the retry finds the token or asks again.
+
+**The gateway's `requestState`.** The client must echo it unchanged;
+the specification makes it attacker-controlled input and asks for
+integrity, principal binding, expiry and request binding. The gateway's
+is sealed with AEAD (a key held in memory, new at each start, so a
+restart turns outstanding retries into an error the client answers by
+calling again) and holds: the principal (transport, issuer, subject),
+the endpoint, the method and a digest of the call's parameters
+(without `_meta`, `inputResponses` and `requestState`), the approval
+or pending sign-in id, the server's own `requestState` if any
+(§5.11.4), and an expiry. A state that fails to open, belongs to
+another principal or call, or has expired is refused (`-32602`); it is
+never logged. Single use is enforced where it matters: an approval
+answer is recorded once.
+
+#### 5.11.3 State that belonged to the session
+
+| Today (legacy session) | Modern requests |
+|---|---|
+| Pseudonym vault per session (§6.3.1) | per principal and endpoint, with the same bound and an idle expiry (`pseudonymize.vault_idle`, proposed 1 h). Pseudonyms stay consistent across calls, which the model needs; the vault cannot live in `requestState`, which spans the round trips of one call only. |
+| Grants `session` | not offered (above) |
+| `isolation: session` instances | one instance per principal, as `isolation: principal` (an open question below); such servers keep state per session, which the specification replaces with handles in tool arguments |
+| Sessions per principal (D14) | in-flight requests and open subscription streams per principal: `limits.requests_per_principal`, `limits.streams_per_principal` |
+| `logging/setLevel` | per-request `logLevel` |
+| Replay of 256 events per stream | none: a broken stream loses its request, and the client issues it again |
+
+#### 5.11.4 Translating between the eras
+
+| Agent | Server | What the gateway does |
+|---|---|---|
+| modern | modern | Passes a server's `InputRequiredResult` on after policy has decided each input request as a request from the server is decided today (`client` permissions, `allow_sensitive`, pseudonymization of sampling messages). The server's `requestState` travels inside the gateway's; the retry goes to the principal's instance with the server's state restored. |
+| modern | legacy | A legacy server sends `elicitation/create`, `sampling/createMessage` or `roots/list` while it runs a call. The gateway parks that request (the call keeps running at the server), answers the agent with an `InputRequiredResult` whose `requestState` names the parked request, and on the retry answers the server and continues the call. Parked calls are bounded (count per principal, `approvals.timeout`) and lost at a restart (the agent calls again). |
+| legacy | modern | The server answers `InputRequiredResult`. The gateway asks the agent over its session (the requests the server wants, decided by policy as above), retries the call at the server with `inputResponses` and the server's `requestState`, and the agent sees one call. |
+| legacy | legacy | as today |
+
+#### 5.11.5 Servers (modern)
+
+The gateway sends each request with `_meta`: the modern version, its
+`clientInfo`, and as `clientCapabilities` what the agent of this request
+declared and policy lets the server use (elicitation, sampling, roots),
+so a server asks only for what the agent can give; to a legacy server it
+keeps declaring a fixed set at `initialize`. It opens
+`subscriptions/listen` on an instance for the changes it relays, and
+answers `UnsupportedProtocolVersionError` by choosing from the server's
+list. The connector (§5.7.2) sends the required headers, computed from
+the body as forwarded (after re-identification), including
+`Mcp-Param-*` for the tool's `x-mcp-header` parameters. Instances stay
+per principal; discovery instances (`discovery: shared`) fit the model
+better than before, since lists may no longer depend on a connection.
+Extensions are not passed through unless the gateway implements them:
+it declares none to servers and strips unknown ones from what agents
+declare (the reason tasks are not relayed today, roadmap step 15). The tasks
+extension (`io.modelcontextprotocol/tasks`: polling with `tasks/get`,
+input with `tasks/update`) can be supported later with policy and
+obligations applied to task results.
+
+**Errors and audit.** Error codes follow the request's era (a missing
+resource is `-32602` for modern requests, `-32002` for legacy ones).
+Decision records carry the protocol version; the round trips of one call
+share the approval or decision id.
+
+**Authorization.** As a resource server nothing changes: each request
+carries its token, as today. As an OAuth client (the sign-in helper,
+§5.7.3) the gateway validates `iss` in the authorization response
+(RFC 9207) before redeeming the code, sends `application_type: "web"`
+when it registers dynamically, and keeps registrations keyed by the
+authorization server's issuer; client ID metadata documents, which the
+specification now prefers to dynamic registration, the gateway already
+serves.
+
 ## 6. Policy model
 
 ### 6.1 Packages
@@ -1836,6 +2041,49 @@ but an agent sees what it cannot call); whether `default` should become
 narrowing in a later release; scope names to recommend (`mcp:read`,
 `mcp:write`, `mcp:admin`, `mcp:<server>`).
 
+**D18 — The gateway speaks both eras of MCP, on both sides.**
+*Proposed (2026-10-05, for roadmap steps 24 and 25; not decided):* the
+gateway serves modern (2026-07-28, stateless) and legacy
+(handshake-based) agents on the same endpoints, chosen per request, and
+starts each server in the era it speaks, translating between them
+(§5.11). Approvals and sign-ins become multi round-trip requests, whose
+`requestState` the gateway seals with AEAD and binds to the principal,
+the call and an expiry. State that was the session's is re-scoped: the
+pseudonym vault to the principal and endpoint, `session` grants are not
+offered, `isolation: session` instances become per principal. The
+server side comes first (step 24): a legacy client cannot use a
+modern-only server, so servers that drop the handshake would become
+unreachable through the gateway, while modern agents fall back to legacy
+today.
+*Rationale:* the specification removes sessions on purpose (SEP-2567:
+their scope differed between clients), so the gateway should not invent
+one for modern agents; its state is per principal already (instances,
+grants, limits), and only the vault and `session` grants were tied to a
+session. MRTR fits the gateway better than the open waiting call: each
+round trip ends before the client's timeout, which progress
+notifications only partly worked around. Sealing `requestState` in the
+gateway, with the server's state inside, keeps a client from replaying
+or altering an approval or a server's state, and from presenting
+another principal's. Translating between eras keeps every combination
+of agent and server working during the specification's deprecation
+window, which a gateway that spoke one era would break for either the
+agents or the servers.
+*Considered:* staying legacy-only (modern agents fall back today; but
+modern-only servers would be lost); the pseudonym vault in
+`requestState` (it spans one call, pseudonyms must stay consistent
+across calls); holding approval calls open for modern clients as today
+(the timeouts remain); a sealing key kept in `state_dir` so retries
+survive a restart (outstanding approvals would survive too, but a key on
+disk is one more secret; a restart only costs a repeated call);
+refusing legacy servers' requests to modern agents instead of parking
+them (simpler, but such servers would lose elicitation and sampling with
+modern agents).
+*Open for the discussion:* what `isolation: session` means for modern
+agents (per principal, as proposed, or a handle-like scope); the
+defaults of `http.list_ttl` and `approvals.retry_wait`; whether the MCP
+Apps extension (server-rendered HTML) should ever pass the gateway;
+whether parked legacy requests are worth their state.
+
 ## 10. Repository layout
 
 ```
@@ -2294,6 +2542,35 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       Keycloak client scopes, and with roles assigned in the identity
       provider through `http.groups_claim`.
 
+24. **Modern MCP servers** (proposed, §5.11, D18):
+    - the server side dual-era: era probed per definition
+      (`server/discover`, fallback to `initialize`; the connector by a
+      modern request's `400`), requests with `_meta` and the agent's
+      capabilities as policy allows, the connector's required headers
+      (`Mcp-Method`, `Mcp-Name`, `Mcp-Param-*`), `subscriptions/listen`
+      toward servers, `UnsupportedProtocolVersionError` handled; legacy
+      servers moved to 2025-11-25;
+    - servers' `InputRequiredResult` passed to legacy agents as requests
+      over their session and retried at the server (§5.11.4), with policy
+      on each input request;
+    - the sign-in helper: `iss` validated (RFC 9207), `application_type`
+      in dynamic registration;
+    - tests against modern servers built with the SDKs that speak
+      2026-07-28, stdio and HTTP.
+
+25. **Modern MCP agents** (proposed, §5.11, D18):
+    - requests served statelessly beside legacy sessions: headers checked
+      against the body, `server/discover`, per-request capabilities and
+      log level, `subscriptions/listen`, `ttlMs` and `cacheScope` on
+      lists and reads, error codes per era;
+    - approvals and sign-ins as multi round-trip requests with a sealed
+      `requestState`; waiting rounds bounded by `approvals.retry_wait`;
+    - session state re-scoped (pseudonym vault per principal and
+      endpoint, limits on requests and streams per principal);
+    - legacy servers' requests parked for modern agents (§5.11.4);
+    - the client suite with the modern SDKs (Python SDK 2, mcp-go 1.1,
+      the TypeScript SDK's modern transport) over the socket and HTTPS.
+
 ## 12. Open items
 
 - HTTP streams: a backend's request or log message while a session has
@@ -2302,6 +2579,9 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
   request stream). Clients treat all streams as one session, so this is
   harmless, but not precise. Replay is bounded (256 events per stream)
   and lives in memory: a gateway restart ends all HTTP sessions anyway.
+  With modern agents (§5.11) this goes away: what a server needs from
+  the client travels with its call (MRTR); it remains for legacy
+  sessions.
 - Approval mail finds the users whose primary group an approver group is
   by enumerating users (`getent passwd`) and among the local users who
   used the gateway or Cockpit's pages; with SSSD or LDAP that do not
