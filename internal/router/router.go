@@ -49,6 +49,13 @@ type Router struct {
 	Seen func(name string)
 	// SignIns, if set, signs principals in to servers with sign_in.
 	SignIns SignIns
+	// ListTTL is ttlMs of lists for modern agents (http.list_ttl;
+	// default 60 s).
+	ListTTL time.Duration
+	// ModernAgents serves agents' requests of MCP 2026-07-28 (agents.go).
+	// Off, such requests are served as before (a server/discover probe
+	// is unknown, and the agent falls back to initialize).
+	ModernAgents bool
 
 	once      sync.Once
 	registry  atomic.Pointer[map[string]*config.Backend] // the definitions in force (SetBackends)
@@ -57,6 +64,8 @@ type Router struct {
 	pool      *pool
 	limiter   *pep.Limiter
 	discovery discoveryCache
+	// lastChange is when policy or the definitions last changed.
+	lastChange atomic.Value // time.Time
 
 	mu       sync.Mutex
 	sessions map[*Session]struct{}
@@ -118,6 +127,7 @@ func (r *Router) PolicyChanged() {
 		sessions = append(sessions, s)
 	}
 	r.mu.Unlock()
+	r.lastChange.Store(time.Now())
 	r.Log.Info("policy changed; notifying sessions", "sessions", len(sessions))
 	for _, s := range sessions {
 		s.listChanged()
@@ -225,7 +235,7 @@ func (r *Router) init() {
 		r.pool = newPool(r.Launcher, r.IdleTimeout, r.Log)
 		r.applySettings(Settings{IdleTimeout: r.IdleTimeout, ProgressInterval: r.ProgressInterval,
 			MaxSessionsPerPrincipal: r.MaxSessionsPerPrincipal, MaxInstancesPerPrincipal: r.MaxInstancesPerPrincipal,
-			MaxInstances: r.MaxInstances})
+			MaxInstances: r.MaxInstances, ListTTL: r.ListTTL})
 		r.pool.onListChanged = r.listChanged
 		r.pool.current = func(server string) *config.Backend { return (*r.registry.Load())[server] }
 		if r.SignIns != nil {
@@ -242,7 +252,11 @@ func (r *Router) init() {
 type Settings struct {
 	IdleTimeout, ProgressInterval                                   time.Duration
 	MaxSessionsPerPrincipal, MaxInstancesPerPrincipal, MaxInstances int
+	ListTTL                                                         time.Duration
 }
+
+// defaultListTTL is ListTTL when it is not set.
+const defaultListTTL = 60 * time.Second
 
 // SetSettings changes the settings (a reload of the configuration):
 // limits apply to the next session or instance, the idle timeout to
@@ -254,6 +268,9 @@ func (r *Router) SetSettings(s Settings) {
 }
 
 func (r *Router) applySettings(s Settings) {
+	if s.ListTTL <= 0 {
+		s.ListTTL = defaultListTTL
+	}
 	r.live.Store(&s)
 	perPrincipal := s.MaxInstancesPerPrincipal
 	if perPrincipal <= 0 {

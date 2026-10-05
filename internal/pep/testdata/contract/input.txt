@@ -5,6 +5,7 @@ args
 context
 context.client_capabilities
 context.decision_id
+context.protocol_version
 context.request_id
 context.time
 context.transport

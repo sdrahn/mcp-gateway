@@ -135,7 +135,7 @@ not enforce.
 | `principal.transport` | `unix` or `http` |
 | `principal.selinux` | the local client's SELinux context; empty for remote clients |
 | `principal.client` | **self-reported** by the agent; never base a decision on it |
-| `principal.session_id` | the MCP session |
+| `principal.session_id` | the MCP session; absent for a request of an agent of MCP 2026-07-28, which has none |
 | `principal.cert` | the verified client certificate (mTLS); absent without one |
 | `action` | `tools.call`, `prompts.get`, `resources.read`, `resources.subscribe`, `resources.unsubscribe`, `completion.complete`; for requests from MCP servers: `sampling.create`, `elicitation.create`, `roots.list` |
 | `resource.server` | the MCP server |
@@ -145,7 +145,8 @@ not enforce.
 | `args` | tool or prompt arguments; for `elicitation.create`: `mode`, `fields`, `sensitive` (the gateway's guess whether secrets are asked for), `url` |
 | `grants` | the principal's unexpired grants for this server and tool (for calls only) |
 | `context.time` | the time of the request (RFC 3339, UTC) |
-| `context.client_capabilities` | the capabilities the agent announced (self-reported) |
+| `context.client_capabilities` | the capabilities the agent announced (self-reported): at `initialize`, or in the request itself (MCP 2026-07-28) |
+| `context.protocol_version` | `2026-07-28` for a request of an agent of that version, which has no session; absent for sessions |
 | `discovery` | `true` when the decision is asked on behalf of the filter (below) |
 
 Not every field is present in every query: the filter's inner decisions

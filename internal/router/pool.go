@@ -224,10 +224,20 @@ func (p *pool) idleEntry(e *poolEntry) bool {
 }
 
 func instanceKey(b *config.Backend, p principal.Principal) string {
-	if b.Isolation == config.IsolationSession {
+	if isolation(b, p) == config.IsolationSession {
 		return "session:" + p.SessionID + ":" + b.Name
 	}
 	return "principal:" + string(p.Transport) + ":" + p.Sub + ":" + b.Name
+}
+
+// isolation is how instances of b are shared for p: per principal for a
+// principal without a session (a modern agent's request, SEP-2567's
+// "route by authenticated principal"), also for isolation: session.
+func isolation(b *config.Backend, p principal.Principal) config.Isolation {
+	if b.Isolation == config.IsolationSession && p.SessionID == "" {
+		return config.IsolationPrincipal
+	}
+	return b.Isolation
 }
 
 // acquire returns a running instance of b for p and a function that must
@@ -249,7 +259,7 @@ func (p *pool) acquire(ctx context.Context, b *config.Backend, pr principal.Prin
 			}
 			victims, err := p.makeRoom(pr)
 			if err == nil {
-				e = &poolEntry{key: key, server: b.Name, backend: b, principal: pr, isolation: b.Isolation, ready: make(chan struct{}), refs: 1}
+				e = &poolEntry{key: key, server: b.Name, backend: b, principal: pr, isolation: isolation(b, pr), ready: make(chan struct{}), refs: 1}
 				p.entries[key] = e
 			}
 			p.mu.Unlock()

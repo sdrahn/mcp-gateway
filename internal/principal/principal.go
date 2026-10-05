@@ -59,7 +59,7 @@ type Principal struct {
 	// remote clients.
 	SELinux   string `json:"selinux,omitempty"`
 	Client    Client `json:"client"`
-	SessionID string `json:"session_id"`
+	SessionID string `json:"session_id,omitempty"`
 	// Cert is the verified TLS client certificate of a remote client that
 	// presented one (mTLS).
 	Cert *Cert `json:"cert,omitempty"`

@@ -59,7 +59,12 @@ type HTTPConfig struct {
 	// TokenExpired, if set, is called when a stream ends because the
 	// token of the request that opened it is no longer accepted.
 	TokenExpired func(p principal.Principal)
-	Log          *slog.Logger
+	// Request serves the requests of agents of MCP 2026-07-28, which
+	// need no session (modern.go); nil: such requests are served as
+	// before (without a session, a probe is refused and the agent falls
+	// back to initialize).
+	Request RequestFunc
+	Log     *slog.Logger
 }
 
 const (
@@ -164,7 +169,7 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if v := r.Header.Get(versionHeader); v != "" && !supportedVersions[v] {
+	if v := r.Header.Get(versionHeader); v != "" && !supportedVersions[v] && r.Method != http.MethodPost {
 		http.Error(w, "unsupported MCP protocol version", http.StatusBadRequest)
 		return
 	}
@@ -291,6 +296,14 @@ func (h *HTTPHandler) post(w http.ResponseWriter, r *http.Request, p principal.P
 	}
 	if m.JSONRPC != jsonrpc.Version || (m.Method == "" && len(m.ID) == 0) {
 		writeJSONError(w, http.StatusBadRequest, jsonrpc.CodeInvalidRequest, "invalid request")
+		return
+	}
+	if version, caps, ok := modernMeta(m); ok && h.cfg.Request != nil {
+		h.postModern(w, r, p, server, m, version, caps)
+		return
+	}
+	if v := r.Header.Get(versionHeader); v != "" && !supportedVersions[v] {
+		http.Error(w, "unsupported MCP protocol version", http.StatusBadRequest)
 		return
 	}
 

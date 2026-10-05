@@ -32,6 +32,8 @@ func testRouter(t *testing.T, idle time.Duration) (*Router, *fakeLauncher) {
 		PDP:         fakePDP{},
 		Broker:      mustBroker(t, broker.Options{Timeout: time.Second}),
 		IdleTimeout: idle,
+		// Agents of MCP 2026-07-28 are served (agents_test.go).
+		ModernAgents: true,
 	}
 	t.Cleanup(func() { r.init(); r.pool.closeAll() })
 	return r, l
@@ -177,12 +179,13 @@ func toolText(t *testing.T, m *jsonrpc.Message) (string, bool) {
 
 func names(t *testing.T, m *jsonrpc.Message, field, key string) []string {
 	t.Helper()
-	var res map[string][]map[string]any
-	if err := json.Unmarshal(m.Result, &res); err != nil {
+	var res map[string]json.RawMessage
+	var items []map[string]any
+	if err := json.Unmarshal(m.Result, &res); err != nil || json.Unmarshal(res[field], &items) != nil {
 		t.Fatalf("%s: %v (%+v)", field, err, m)
 	}
 	var out []string
-	for _, it := range res[field] {
+	for _, it := range items {
 		out = append(out, it[key].(string))
 	}
 	return out

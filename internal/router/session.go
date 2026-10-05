@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -81,6 +82,11 @@ type Session struct {
 	// vault holds the session's pseudonyms (obligation "pseudonymize");
 	// they end with the session.
 	vault *pseudo.Vault
+
+	// modern marks the session of one modern agent's request (agents.go):
+	// clientCaps are the request's, agentLevel its log level.
+	modern     bool
+	agentLevel string
 }
 
 func newSession(r *Router, ep endpoint, client jsonrpc.MessageConn, p principal.Principal) *Session {
@@ -112,16 +118,7 @@ func (s *Session) Run(ctx context.Context, first *jsonrpc.Message) error {
 		s.r.unregister(s)
 		cancel()
 		_ = s.client.Close()
-		s.mu.Lock()
-		ups, releases := s.upstreams, s.releases
-		s.upstreams, s.releases = map[string]*upstream{}, map[string]func(){}
-		s.mu.Unlock()
-		for _, u := range ups {
-			u.detach(s)
-		}
-		for _, release := range releases {
-			release()
-		}
+		s.release()
 		s.r.Broker.EndSession(s.principal.SessionID)
 	}()
 	go func() {
@@ -146,6 +143,20 @@ func (s *Session) Run(ctx context.Context, first *jsonrpc.Message) error {
 	}
 }
 
+// release lets go of the session's instances.
+func (s *Session) release() {
+	s.mu.Lock()
+	ups, releases := s.upstreams, s.releases
+	s.upstreams, s.releases = map[string]*upstream{}, map[string]func(){}
+	s.mu.Unlock()
+	for _, u := range ups {
+		u.detach(s)
+	}
+	for _, release := range releases {
+		release()
+	}
+}
+
 func (s *Session) snapshotPrincipal() principal.Principal {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -164,9 +175,31 @@ func (s *Session) dispatch(m *jsonrpc.Message) {
 		}
 	case m.IsNotification():
 		s.clientNotification(m)
+	case s.r.ModernAgents && isModern(m):
+		s.agentRequestOnConn(m)
 	case m.IsRequest():
 		s.clientRequest(m)
 	}
+}
+
+// agentRequestOnConn serves a modern agent's request that came on this
+// connection (unix socket) in a request session of its own; the
+// client's notifications/cancelled for it cancels it.
+func (s *Session) agentRequestOnConn(m *jsonrpc.Message) {
+	ctx, cancel := context.WithCancel(s.ctx)
+	s.mu.Lock()
+	s.inflight[m.Key()] = cancel
+	p := s.principal
+	s.mu.Unlock()
+	go func() {
+		defer func() {
+			cancel()
+			s.mu.Lock()
+			delete(s.inflight, m.Key())
+			s.mu.Unlock()
+		}()
+		s.r.serveAgentRequest(ctx, s.endpoint(), s.client, p, m, nil)
+	}()
 }
 
 func (s *Session) clientNotification(m *jsonrpc.Message) {
@@ -753,6 +786,11 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	if err := checkParamKeys(params); err != nil {
 		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params: "+err.Error())
 	}
+	if s.modern && m.Method == "tools/call" {
+		var name string
+		_ = json.Unmarshal(params["name"], &name)
+		s.learnTools(ctx, name)
+	}
 	t, rpcErr := s.target(m.Method, params)
 	if rpcErr != nil {
 		return nil, rpcErr
@@ -857,6 +895,11 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	// requests (multi round-trip): the gateway asks the client over its
 	// session, each request decided as a server's request is, and calls
 	// again with the answers; the client sees one call.
+	if inputRequired && rerr == nil && s.modern {
+		// Passing a modern server's input requests on to a modern agent
+		// needs the gateway's own requestState (roadmap step 25).
+		return nil, rpcError(jsonrpc.CodeInternalError, t.server+" asks the client for input in a way the gateway does not pass on to MCP 2026-07-28 clients yet")
+	}
 	for round := 0; inputRequired && rerr == nil; round++ {
 		if round == maxInputRounds {
 			return nil, rpcError(jsonrpc.CodeInternalError, fmt.Sprintf("%s asked the client for input more than %d times in one call", t.server, maxInputRounds))
@@ -924,8 +967,14 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 	if dec.Effect != pep.Ask {
 		return dec, "", in
 	}
+	ask := *dec.Ask
+	if p.SessionID == "" {
+		// No session (a modern agent's request): no grant for the
+		// session, which would hold for all of them.
+		ask.Scopes = slices.DeleteFunc(slices.Clone(ask.Scopes), func(sc string) bool { return sc == "session" })
+	}
 	stop := s.reportWaiting(t)
-	g, err := s.r.Broker.Approve(ctx, requestElicitor{s, requestOf(ctx)}, in, *dec.Ask)
+	g, err := s.r.Broker.Approve(ctx, requestElicitor{s, requestOf(ctx)}, in, ask)
 	stop()
 	switch {
 	case errors.Is(err, broker.ErrNoChannel):
@@ -1177,12 +1226,16 @@ func (s *Session) policyContext(decisionID string) pep.Context {
 			caps[k] = x
 		}
 	}
-	return pep.Context{
+	pc := pep.Context{
 		Time:               time.Now().UTC().Format(time.RFC3339),
 		Transport:          s.principal.Transport,
 		DecisionID:         decisionID,
 		ClientCapabilities: caps,
 	}
+	if s.modern {
+		pc.ProtocolVersion = modernVersion
+	}
+	return pc
 }
 
 // --- notifications and requests from backends ---------------------------
@@ -1190,6 +1243,13 @@ func (s *Session) policyContext(decisionID string) pep.Context {
 // upstreamNotification passes on a notification of u; req is the client
 // request it belongs to, if known (nil: none).
 func (s *Session) upstreamNotification(u *upstream, m *jsonrpc.Message, req json.RawMessage) {
+	if s.modern {
+		// A modern request gets the log messages it asked for; changes of
+		// lists and resources come on subscriptions/listen.
+		if m.Method != "notifications/message" || !s.agentLogs(m.Params) {
+			return
+		}
+	}
 	switch m.Method {
 	case "notifications/resources/updated":
 		var p map[string]json.RawMessage
@@ -1246,6 +1306,18 @@ func (s *Session) stillAllowed(server, action string, r pep.Resource) bool {
 // session's client, and returns the response for the backend.
 func (s *Session) relayBackendRequest(ctx context.Context, u *upstream, m *jsonrpc.Message, req json.RawMessage) *jsonrpc.Message {
 	p := s.snapshotPrincipal()
+	if s.modern {
+		// A legacy server asks a modern agent: there is no way to ask it
+		// (docs/architecture.md, section 5.11.4). An elicitation is
+		// declined, the others refused.
+		s.r.Audit.Log(audit.Record{Sub: p.Sub, Action: m.Method, Server: u.backend.Name,
+			Effect: string(pep.Deny), Reason: errNoClientRequests.Error(), Instance: u.id})
+		if m.Method == "elicitation/create" {
+			r, _ := jsonrpc.NewResult(m.ID, map[string]any{"action": "decline"})
+			return r
+		}
+		return jsonrpc.NewError(m.ID, jsonrpc.CodeForbidden, errNoClientRequests.Error())
+	}
 	action, known := backendRequests[m.Method]
 	dec := pep.Decision{Effect: pep.Deny, Reason: "method not permitted"}
 	var args map[string]any
@@ -1372,6 +1444,12 @@ func labelElicitation(params json.RawMessage, server string) json.RawMessage {
 // (nil without the capability). A capability without modes means form
 // mode (MCP before 2025-11-25).
 func (s *Session) elicitationModes() map[string]json.RawMessage {
+	if s.modern {
+		// The gateway cannot send a modern agent requests: approvals and
+		// sign-ins take their other ways (multi round-trip requests
+		// follow in roadmap step 25).
+		return nil
+	}
 	s.mu.Lock()
 	raw, ok := s.clientCaps["elicitation"]
 	s.mu.Unlock()

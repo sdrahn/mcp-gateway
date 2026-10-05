@@ -78,6 +78,9 @@ type Context struct {
 	// record for the same enforcement.
 	DecisionID         string         `json:"decision_id,omitempty"`
 	ClientCapabilities map[string]any `json:"client_capabilities,omitempty"`
+	// ProtocolVersion is the MCP version of a modern agent's request
+	// (2026-07-28); absent for legacy sessions.
+	ProtocolVersion string `json:"protocol_version,omitempty"`
 }
 
 // InputVersion is the version of the policy input documents. The OPA

@@ -58,6 +58,7 @@ within `policy.watch_interval` (10 s).
 | `supervisor.idle_timeout` | applies to instances that become idle from then on |
 | `policy.timeout`, `policy.watch_interval` | apply to the next decision and check |
 | `http.cert_file`, `http.key_file` | the certificate and key are read again; new connections get them. Renewing the files is a change too, so a renewed certificate needs no restart |
+| `http.list_ttl` | applies to the next list |
 | all others (sockets, `socket_group`, `http.listen` and the identity provider, `metrics`, `audit`, `state_dir`, the other `supervisor` keys, `policy.opa_socket`, the servers directories) | take effect at the next start (`systemctl restart mcp-gateway.service`, which ends all sessions). Until then the gateway logs them, `GET /v1/status` lists them (`restart_needed`) and `mcp-gateway-admin doctor` warns |
 
 A reload reads and validates the whole file before it changes anything.
@@ -277,6 +278,7 @@ http:
 | `http.scopes` | `[]` | scopes every token must carry |
 | `http.allowed_origins` | `[]` | `Origin` values accepted from browser clients; requests with another `Origin` are refused, requests without are accepted |
 | `http.session_idle_timeout` | `30m` | close MCP sessions without traffic |
+| `http.list_ttl` | `1m` | how long agents of MCP 2026-07-28 may use a list before asking again (`ttlMs`, on every transport); for a while after a policy or definition change, lists say 0 |
 | `http.client_ca_file` | empty | CAs client certificates must chain to (mTLS) |
 | `http.client_auth` | `none` (`optional` with a CA file) | `none`, `optional` (verify a certificate if presented), `required` |
 | `http.require_bound_tokens` | `false` | accept only tokens bound to the client certificate (RFC 8705) |
