@@ -5,6 +5,22 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## v0.12.4 — 2026-10-05
+
+A fix for clients that list resources when they connect. Upgrading from
+0.12.x needs no changes.
+
+### Fixed
+
+- Listing resources (`resources/list`, which clients such as Kit send
+  when they connect) starts the principal's instance only of servers
+  with `discovery: shared` that offer resources, as their discovery
+  instance tells; before, connecting started the principal's instance of
+  every server.
+- The source tarball no longer holds two programs (`mcp-gateway`,
+  `mcp-http-connector`) built in the top directory and committed by
+  mistake in 0.12.0; the package never used them.
+
 ## v0.12.3 — 2026-10-05
 
 Two checks for the HTTPS listener in `mcp-gateway-admin doctor`.
