@@ -1072,9 +1072,9 @@ installed to `/usr/share/cockpit/mcp-gateway`), with four tabs:
 of `cockpit.js` (CI job `cockpit`). Policy tests (`opa test`) are not run
 from the page: the Rego tests are not installed.
 
-### 5.11 Protocol revision 2026-07-28 (proposed)
+### 5.11 Protocol revision 2026-07-28
 
-*Proposed for roadmap steps 24 and 25, decision D18. Not implemented.
+*Roadmap steps 24 and 25, decision D18 (accepted). Not implemented yet.
 Sources: the specification of 2026-07-28 (changelog, versioning,
 Streamable HTTP, stdio, MRTR, subscriptions, discovery, caching) and
 SEP-2575 (stateless MCP), SEP-2567 (sessionless MCP), SEP-2322 (MRTR),
@@ -1226,9 +1226,9 @@ answer is recorded once.
 
 | Today (legacy session) | Modern requests |
 |---|---|
-| Pseudonym vault per session (§6.3.1) | per principal and endpoint, with the same bound and an idle expiry (`pseudonymize.vault_idle`, proposed 1 h). Pseudonyms stay consistent across calls, which the model needs; the vault cannot live in `requestState`, which spans the round trips of one call only. |
+| Pseudonym vault per session (§6.3.1) | per principal and endpoint, with the same bound and an idle expiry (`pseudonymize.vault_idle`, default 1 h). Pseudonyms stay consistent across calls, which the model needs; the vault cannot live in `requestState`, which spans the round trips of one call only. |
 | Grants `session` | not offered (above) |
-| `isolation: session` instances | one instance per principal, as `isolation: principal` (an open question below); such servers keep state per session, which the specification replaces with handles in tool arguments |
+| `isolation: session` instances | one instance per principal, as `isolation: principal`, which SEP-2567 names for gateways that bridged sessions to stdio processes ("route by authenticated principal"). Legacy sessions keep their own instances. The specification asks such servers to move their state to handles in tool arguments; the doctor and the reference say that modern agents get per-principal instances. |
 | Sessions per principal (D14) | in-flight requests and open subscription streams per principal: `limits.requests_per_principal`, `limits.streams_per_principal` |
 | `logging/setLevel` | per-request `logLevel` |
 | Replay of 256 events per stream | none: a broken stream loses its request, and the client issues it again |
@@ -2045,7 +2045,7 @@ narrowing in a later release; scope names to recommend (`mcp:read`,
 `mcp:write`, `mcp:admin`, `mcp:<server>`).
 
 **D18 — The gateway speaks both eras of MCP, on both sides.**
-*Proposed (2026-10-05, for roadmap steps 24 and 25; not decided):* the
+*Decision (accepted 2026-10-05, roadmap steps 24 and 25):* the
 gateway serves modern (2026-07-28, stateless) and legacy
 (handshake-based) agents on the same endpoints, chosen per request, and
 starts each server in the era it speaks, translating between them
@@ -2082,11 +2082,20 @@ parking a legacy server's requests during a modern agent's call to turn
 them into an `InputRequiredResult` (rejected 2026-10-05: not worth the
 state; such servers lose elicitation and sampling with modern agents
 until they speak 2026-07-28).
-*Settled 2026-10-05:* the defaults `http.list_ttl` 60 s and
+*Settled with it:* the defaults `http.list_ttl` 60 s and
 `approvals.retry_wait` 25 s; the MCP Apps extension does not pass the
-gateway for now; legacy servers' requests are not parked.
-*Open for the discussion:* what `isolation: session` means for modern
-agents (per principal, as proposed, or a scope the gateway issues).
+gateway for now; legacy servers' requests are not parked;
+`isolation: session` gives modern agents one instance per principal.
+Also considered for `isolation: session`: an instance per request
+(isolated, but state is lost between calls, the reason for the
+setting); a header or cookie the gateway issues (named in SEP-2567, but
+no standard client sends it back); separate instances per `clientInfo`
+(self-asserted, and it does not separate two conversations of one
+client); handles the gateway makes on a server's behalf (a
+`<server>__new_context` tool returning an id that later calls carry,
+each id an instance of its own): the only per-conversation isolation for
+modern agents, kept for later (§12), since it means the gateway changes
+servers' tool schemas.
 
 ## 10. Repository layout
 
@@ -2546,7 +2555,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       Keycloak client scopes, and with roles assigned in the identity
       provider through `http.groups_claim`.
 
-24. **Modern MCP servers** (proposed, §5.11, D18):
+24. **Modern MCP servers** (§5.11, D18):
     - the server side dual-era: era probed per definition
       (`server/discover`, fallback to `initialize`; the connector by a
       modern request's `400`), requests with `_meta` and the agent's
@@ -2562,7 +2571,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     - tests against modern servers built with the SDKs that speak
       2026-07-28, stdio and HTTP.
 
-25. **Modern MCP agents** (proposed, §5.11, D18):
+25. **Modern MCP agents** (§5.11, D18):
     - requests served statelessly beside legacy sessions: headers checked
       against the body, `server/discover`, per-request capabilities and
       log level, `subscriptions/listen`, `ttlMs` and `cacheScope` on
@@ -2577,6 +2586,15 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       the TypeScript SDK's modern transport) over the socket and HTTPS.
 
 ## 12. Open items
+
+- Per-conversation state for modern agents (D18): servers marked
+  `isolation: session` get one instance per principal from modern
+  agents. If stateful servers that do not move to handles matter in
+  practice (a browser server, for example), the gateway could make the
+  handles itself: a `<server>__new_context` tool returning an id bound to
+  the principal and expiring when idle, an optional `context` argument on
+  the server's tools, each id an instance of its own, with policy over
+  both.
 
 - HTTP streams: a backend's request or log message while a session has
   several calls in flight on that backend cannot be told apart and goes
