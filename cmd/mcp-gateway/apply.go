@@ -38,6 +38,9 @@ func applyConfig(log *slog.Logger, next, running *config.Gateway, certs *certSto
 		MaxInstances:             next.Limits.Instances,
 		ListTTL:                  next.HTTP.ListTTL,
 		RetryWait:                next.Approvals.RetryWait,
+		MaxRequestsPerPrincipal:  next.Limits.RequestsPerPrincipal,
+		MaxStreamsPerPrincipal:   next.Limits.StreamsPerPrincipal,
+		VaultIdle:                next.Pseudonymize.VaultIdle,
 	})
 	if running.Approvals.ControlSocket == "-" && next.Approvals.URLTemplate != "" {
 		log.Warn("approvals.url_template is set but the control socket is disabled; url approvals cannot be decided")

@@ -1094,7 +1094,7 @@ from the page: the Rego tests are not installed.
 *Roadmap steps 24 and 25, decision D18 (accepted). Servers (step 24):
 done. Agents (step 25): in progress; serving them is switched off
 (`serveModernAgents` in `cmd/mcp-gateway`) until the session's state is
-re-scoped for them and the client suite tests the modern SDKs, since
+re-scoped for them (done) and the client suite tests the modern SDKs, since
 agents that speak 2026-07-28 fall back to legacy sessions meanwhile.
 Approvals, sign-ins and subscriptions reach them (§5.11.1, §5.11.2).
 Sources: the specification of 2026-07-28 (changelog, versioning,
@@ -2644,7 +2644,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       a modern server's input requests passed on to modern agents
       (done, switched off with the items above);
     - session state re-scoped (pseudonym vault per principal and
-      endpoint, limits on requests and streams per principal);
+      endpoint, limits on requests and streams per principal) (done,
+      switched off with the items above);
     - legacy servers' requests during a modern agent's call refused and
       audited (§5.11.4) (done);
     - the client suite with the modern SDKs (Python `mcp` 2.3, mcp-go

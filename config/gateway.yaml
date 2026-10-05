@@ -144,3 +144,13 @@ limits:
   sessions_per_principal: 64
   instances_per_principal: 32
   instances: 0
+  # Agents of MCP 2026-07-28 have no session: their requests in flight and
+  # subscription streams are limited per principal instead.
+  requests_per_principal: 64
+  streams_per_principal: 16
+
+# Pseudonyms (policy obligation "pseudonymize") of agents of MCP
+# 2026-07-28, which have no session, belong to the user and endpoint and
+# are dropped this long after the user's last request there.
+pseudonymize:
+  vault_idle: 1h

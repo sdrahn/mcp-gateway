@@ -119,10 +119,17 @@ func (r *Router) serveAgentRequest(ctx context.Context, ep endpoint, out jsonrpc
 	}
 	p.SessionID = ""
 	p.Client = am.client
+	release, limitErr := r.admitAgentRequest(p, m.Method == "subscriptions/listen")
+	if limitErr != nil {
+		_ = out.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Error: limitError(limitErr)})
+		return
+	}
+	defer release()
 	s := newSession(r, ep, out, p)
 	s.modern = true
 	s.clientCaps = am.caps
 	s.agentLevel = am.logLevel
+	s.vault = r.agentVault(s)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	s.ctx = ctx

@@ -22,6 +22,7 @@ var Reloadable = []string{
 	"http.cert_file",
 	"http.key_file",
 	"http.list_ttl",
+	"pseudonymize.vault_idle",
 }
 
 // RestartNeeded returns the keys whose value in next differs from
