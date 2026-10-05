@@ -1155,7 +1155,7 @@ a probe assumption fails.
   already does. Every list and `resources/read` result carries
   `cacheScope: "private"` (it is filtered per principal; a shared cache
   must not serve it to another) and `ttlMs`: for lists
-  `http.list_ttl` (proposed default 60 s), shortened to 0 for the next
+  `http.list_ttl` (default 60 s), shortened to 0 for the next
   answer after a policy or definition change; for reads the server's
   own `ttlMs` (0 if it gives none). Aggregated lists are sorted by name
   (deterministic order, as the specification asks).
@@ -1194,7 +1194,7 @@ MRTR removes the wait:
    decision, as an answer on the approval page or in Cockpit is recorded
    today, decides again with the grant, and forwards the call.
 3. A retry before anyone decided (URL, `oob`) waits up to
-   `approvals.retry_wait` (proposed 25 s, below the clients' timeouts,
+   `approvals.retry_wait` (default 25 s, below the clients' timeouts,
    with progress) and then answers another `InputRequiredResult` with
    only a `requestState`, which the client may retry at once. Each round
    trip stays shorter than any client timeout; the approval keeps its
@@ -1238,7 +1238,7 @@ answer is recorded once.
 | Agent | Server | What the gateway does |
 |---|---|---|
 | modern | modern | Passes a server's `InputRequiredResult` on after policy has decided each input request as a request from the server is decided today (`client` permissions, `allow_sensitive`, pseudonymization of sampling messages). The server's `requestState` travels inside the gateway's; the retry goes to the principal's instance with the server's state restored. |
-| modern | legacy | A legacy server sends `elicitation/create`, `sampling/createMessage` or `roots/list` while it runs a call. The gateway parks that request (the call keeps running at the server), answers the agent with an `InputRequiredResult` whose `requestState` names the parked request, and on the retry answers the server and continues the call. Parked calls are bounded (count per principal, `approvals.timeout`) and lost at a restart (the agent calls again). |
+| modern | legacy | Calls pass as today. A request the legacy server sends while it runs a modern agent's call (`elicitation/create`, `sampling/createMessage`, `roots/list`) is refused: an elicitation is declined, the others get an error, each audited. The gateway does not park the server's request to turn it into an `InputRequiredResult` (decided: not worth the state it needs); such servers keep elicitation and sampling with legacy agents, and get them with modern agents once they speak 2026-07-28. |
 | legacy | modern | The server answers `InputRequiredResult`. The gateway asks the agent over its session (the requests the server wants, decided by policy as above), retries the call at the server with `inputResponses` and the server's `requestState`, and the agent sees one call. |
 | legacy | legacy | as today |
 
@@ -1258,7 +1258,10 @@ per principal; discovery instances (`discovery: shared`) fit the model
 better than before, since lists may no longer depend on a connection.
 Extensions are not passed through unless the gateway implements them:
 it declares none to servers and strips unknown ones from what agents
-declare (the reason tasks are not relayed today, roadmap step 15). The tasks
+declare (the reason tasks are not relayed today, roadmap step 15). The
+MCP Apps extension (`io.modelcontextprotocol/ui`, server-rendered HTML
+shown by the agent) does not pass the gateway (decided for now: its
+content is not something policy and obligations can judge). The tasks
 extension (`io.modelcontextprotocol/tasks`: polling with `tasks/get`,
 input with `tasks/update`) can be supported later with policy and
 obligations applied to task results.
@@ -2075,14 +2078,15 @@ across calls); holding approval calls open for modern clients as today
 (the timeouts remain); a sealing key kept in `state_dir` so retries
 survive a restart (outstanding approvals would survive too, but a key on
 disk is one more secret; a restart only costs a repeated call);
-refusing legacy servers' requests to modern agents instead of parking
-them (simpler, but such servers would lose elicitation and sampling with
-modern agents).
+parking a legacy server's requests during a modern agent's call to turn
+them into an `InputRequiredResult` (rejected 2026-10-05: not worth the
+state; such servers lose elicitation and sampling with modern agents
+until they speak 2026-07-28).
+*Settled 2026-10-05:* the defaults `http.list_ttl` 60 s and
+`approvals.retry_wait` 25 s; the MCP Apps extension does not pass the
+gateway for now; legacy servers' requests are not parked.
 *Open for the discussion:* what `isolation: session` means for modern
-agents (per principal, as proposed, or a handle-like scope); the
-defaults of `http.list_ttl` and `approvals.retry_wait`; whether the MCP
-Apps extension (server-rendered HTML) should ever pass the gateway;
-whether parked legacy requests are worth their state.
+agents (per principal, as proposed, or a scope the gateway issues).
 
 ## 10. Repository layout
 
@@ -2567,7 +2571,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       `requestState`; waiting rounds bounded by `approvals.retry_wait`;
     - session state re-scoped (pseudonym vault per principal and
       endpoint, limits on requests and streams per principal);
-    - legacy servers' requests parked for modern agents (§5.11.4);
+    - legacy servers' requests during a modern agent's call refused and
+      audited (§5.11.4);
     - the client suite with the modern SDKs (Python SDK 2, mcp-go 1.1,
       the TypeScript SDK's modern transport) over the socket and HTTPS.
 
