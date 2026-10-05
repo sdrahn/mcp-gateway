@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -68,6 +69,7 @@ func FuzzHTTPHandler(f *testing.F) {
 	f.Add(uint8(2), "/mcp", "bob", uint8(1), "", uint8(0), "", "", []byte{})
 	f.Add(uint8(0), "/mcp", "alice", uint8(1), "", uint8(0), "https://evil.example", "application/json", []byte(`{"jsonrpc":"2.0","method":"notifications/x"}`))
 	f.Add(uint8(0), "/mcp", "alice", uint8(3), "x", uint8(0), "", "application/json", []byte(`[{"jsonrpc":"2.0","id":1,"method":"a"}]`))
+	f.Add(uint8(0), "/mcp", " bob", uint8(2), "", uint8(0), "", "application/json", []byte(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`))
 	f.Add(uint8(0), "/.well-known/oauth-protected-resource/mcp", "", uint8(0), "", uint8(0), "", "", []byte{})
 
 	f.Fuzz(func(t *testing.T, method uint8, path, token string, sessionChoice uint8, sessionID string, accept uint8, origin, contentType string, body []byte) {
@@ -143,16 +145,17 @@ func FuzzHTTPHandler(f *testing.F) {
 		}
 		time.Sleep(time.Millisecond) // let a pushed message arrive
 		n, got := rs.snapshot()
-		valid := token == "alice" || token == "bob"
+		who := strings.TrimSpace(token) // as the handler takes it
+		valid := who == "alice" || who == "bob"
 		if !valid {
 			if n != 2 || got["alice"] != 1 || got["bob"] != 1 {
 				t.Errorf("token %q reached a session: %d sessions, %v", token, n, got)
 			}
 			return
 		}
-		other := map[string]string{"alice": "bob", "bob": "alice"}[token]
+		other := map[string]string{"alice": "bob", "bob": "alice"}[who]
 		if got[other] != 1 {
-			t.Errorf("%s reached %s's session: %v", token, other, got)
+			t.Errorf("%s reached %s's session: %v", who, other, got)
 		}
 	})
 }
