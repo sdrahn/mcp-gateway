@@ -552,6 +552,15 @@ func (s *Session) fetchList(ctx context.Context, server, method string, spec lis
 		}
 		s.log.Warn("shared discovery failed; listing from the session's instance", "server", server, "method", method, "err", err)
 	}
+	if b := s.endpoint().backends[server]; b != nil && b.Discovery == config.DiscoveryShared && !sharedMethods[method] {
+		// A list only the principal's instance gives (resources/list):
+		// ask only servers that offer it, as the shared discovery
+		// instance tells, so that listing does not start the principal's
+		// instance of every server.
+		if init, err := s.r.sharedInit(ctx, b); err == nil && !init.has(spec.capability) {
+			return nil, nil
+		}
+	}
 	u, err := s.upstream(ctx, server)
 	if err != nil {
 		return nil, err

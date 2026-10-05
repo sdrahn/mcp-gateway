@@ -1174,7 +1174,10 @@ Client        mcp-connect   Gateway/Router   PEP      OPA     Broker    Cockpit 
    returned: visibility stays per principal.
 
 `resources/list` is user data (e.g. the files in the user's home) and
-always comes from the principal's own instance, as do calls. Servers
+always comes from the principal's own instance, as do calls; with
+`discovery: shared` it is asked only of servers whose discovery instance
+declares the `resources` capability, so that listing does not start the
+principal's instance of every server. Servers
 whose tool or prompt lists depend on the user set `discovery: instance`.
 `logging/setLevel` reaches running instances and is replayed to
 instances started later, without starting any.

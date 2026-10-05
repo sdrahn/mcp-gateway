@@ -372,7 +372,8 @@ from one instance per server that the gateway runs for its own principal
 requests. The lists are cached until the server reports a change or the
 instance stops. Connecting and listing therefore start no per-user
 instances; calls and `resources/list` (which lists user data, such as a
-user's files) always run on the principal's own instance.
+user's files) run on the principal's own instance, and `resources/list`
+only of servers that offer resources, as the discovery instance tells.
 
 Use `discovery: instance` for servers whose tool list depends on the user
 (for example on files in the home directory or the user's configuration).
