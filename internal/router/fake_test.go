@@ -410,7 +410,9 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 // modernRequest serves what differs for backends named "modern…" (MCP
 // 2026-07-28: server/discover, no initialize, subscriptions/listen) and
 // "fragile…" (a legacy server that ends on a request before initialize,
-// the first time); it reports whether it answered m.
+// the first time), "silent…" (never answers server/discover), "refused…"
+// and "unavailable…" (failing as the connector reports a refused token
+// or an HTTP 503); it reports whether it answered m.
 func (f *fakeInstance) modernRequest(c *jsonrpc.Conn, m *jsonrpc.Message, name string, meta map[string]json.RawMessage) bool {
 	if strings.HasPrefix(f.name, "fragile") && m.Method == "server/discover" {
 		_ = f.Close()
@@ -418,6 +420,18 @@ func (f *fakeInstance) modernRequest(c *jsonrpc.Conn, m *jsonrpc.Message, name s
 	}
 	if strings.HasPrefix(f.name, "silent") && m.Method == "server/discover" {
 		return true // never answers
+	}
+	if m.Method == "server/discover" || m.Method == "initialize" {
+		// What the connector answers when the HTTP server refuses the
+		// token, or is not available.
+		switch {
+		case strings.HasPrefix(f.name, "refused"):
+			_ = c.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "MCP server over HTTP: the server refused the access token (HTTP 401)"))
+			return true
+		case strings.HasPrefix(f.name, "unavailable"):
+			_ = c.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "MCP server over HTTP: HTTP 503 Service Unavailable: busy"))
+			return true
+		}
 	}
 	if !strings.HasPrefix(f.name, "modern") {
 		return false

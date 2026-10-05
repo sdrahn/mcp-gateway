@@ -139,9 +139,7 @@ func newUpstream(ctx context.Context, b *config.Backend, id string, inst supervi
 
 	ctx, cancel := context.WithTimeout(ctx, initTimeout)
 	defer cancel()
-	// Servers that speak HTTP are reached through the connector, which
-	// speaks the legacy transport (roadmap step 24 brings the modern one).
-	if hooks.era != eraLegacy && b.URL == "" {
+	if hooks.era != eraLegacy {
 		init, modern, err := u.discover(ctx)
 		if err != nil {
 			u.close()
@@ -150,10 +148,10 @@ func newUpstream(ctx context.Context, b *config.Backend, id string, inst supervi
 			}
 			return nil, fmt.Errorf("probing %s: %w", b.Name, err)
 		}
-		if hooks.learnEra != nil {
-			hooks.learnEra(map[bool]era{true: eraModern, false: eraLegacy}[modern])
-		}
 		if modern {
+			if hooks.learnEra != nil {
+				hooks.learnEra(eraModern)
+			}
 			u.modern, u.init = true, init
 			u.listen()
 			return u, nil
@@ -182,6 +180,11 @@ func newUpstream(ctx context.Context, b *config.Backend, id string, inst supervi
 	if err := u.notify("notifications/initialized", nil); err != nil {
 		u.close()
 		return nil, err
+	}
+	// Legacy is remembered only once initialize worked: a probe can also
+	// fail for a while (an HTTP server's 503).
+	if hooks.era != eraLegacy && hooks.learnEra != nil {
+		hooks.learnEra(eraLegacy)
 	}
 	return u, nil
 }

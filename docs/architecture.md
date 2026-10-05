@@ -697,6 +697,23 @@ session ends with `DELETE` when the instance stops, and a session the
 server ended (404) ends the instance. `initialize` is posted before
 anything else, since its answer brings the session id.
 
+A modern server (MCP 2026-07-28, §5.11) has none of this: no session,
+no `GET` stream, no resumption. The connector tells a modern request by
+the protocol version in its `_meta` and posts it with the headers that
+version requires, computed from the body: `MCP-Protocol-Version`,
+`Mcp-Method`, `Mcp-Name` (the tool or prompt name, the resource URI)
+and `Mcp-Param-*` for the parameters a tool's schema marks with
+`x-mcp-header`, values outside plain ASCII in the Base64 sentinel form.
+It learns the schemas from the `tools/list` answers it relays, or lists
+the tools itself before calling one it does not know, and after a
+`HeaderMismatch` lists them again and retries once; tools whose
+annotations are invalid are left out of `tools/list`, as the
+specification asks. A modern server's HTTP error carries a JSON-RPC
+error, which the connector relays as the answer (the gateway's probe
+tells the versions from it); otherwise an HTTP error is answered as
+before. The gateway's `notifications/cancelled` for a modern request
+closes its stream, which is the cancellation over HTTP.
+
 When the supervisor starts such an instance, it resolves the URL's host
 (in the gateway, which may resolve names) and passes the addresses
 (`-resolve host:port:address`); the unit gets `IPAddressDeny=any` and
@@ -1115,7 +1132,10 @@ stdio by probing `server/discover` and falling back to `initialize` on
 any error that is not a modern one (the specification's rule), over
 HTTP (the connector, §5.7.2) from a modern request's `400` body. The era
 is kept per definition and probed again when the definition changes or
-a probe assumption fails.
+a probe assumption fails; legacy is kept only once `initialize`
+worked, since a probe over HTTP also fails while a server is
+unavailable, and a refused access token is the sign-in's error, not an
+answer about the era.
 
 #### 5.11.1 Agents (modern)
 
@@ -2566,7 +2586,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       legacy agents; legacy servers moved to 2025-11-25; `inspect` and
       the doctor probe the same way (done);
     - the connector modern: era by a modern request's `400`, the required
-      headers (`Mcp-Method`, `Mcp-Name`, `Mcp-Param-*`), no session;
+      headers (`Mcp-Method`, `Mcp-Name`, `Mcp-Param-*`), no session
+      (done);
     - the agent's capabilities in requests as policy allows;
     - servers' `InputRequiredResult` passed to legacy agents as requests
       over their session and retried at the server (§5.11.4), with policy

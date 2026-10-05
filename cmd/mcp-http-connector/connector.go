@@ -58,6 +58,13 @@ type connector struct {
 	initID   string // the initialize request's id
 	getOnce  sync.Once
 
+	// Modern servers (modern.go).
+	inflight map[string]context.CancelFunc // requests, by id
+	lists    map[string]bool               // tools/list requests, by id
+	schemas  map[string][]paramHeader      // x-mcp-header parameters, by tool
+	listSeq  int
+	listMu   sync.Mutex // one listing of the tools at a time
+
 	// The requests for a new access token (token.go).
 	tokMu    sync.Mutex
 	tokSeq   int
@@ -227,6 +234,7 @@ func (c *connector) fail(err error) {
 type message struct {
 	ID     json.RawMessage `json:"id"`
 	Method string          `json:"method"`
+	Params json.RawMessage `json:"params"`
 	Result *struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	} `json:"result"`
@@ -243,17 +251,38 @@ func idKey(id json.RawMessage) string {
 // post sends one message from the gateway to the server and relays the
 // server's answer.
 func (c *connector) post(ctx context.Context, body []byte) {
-	c.postOnce(ctx, body, true)
-}
-
-// postOnce posts body; after a 401, with retry, it gets a new access
-// token from the gateway and posts it again.
-func (c *connector) postOnce(ctx context.Context, body []byte, retry bool) {
 	var m message
 	if err := json.Unmarshal(body, &m); err != nil {
 		c.log.Warn("not a JSON-RPC message from the gateway; dropped", "err", err)
 		return
 	}
+	var p params
+	_ = json.Unmarshal(m.Params, &p)
+	isRequest := len(m.ID) > 0 && m.Method != ""
+	if v := p.modernVersion(); v != "" && isRequest {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		defer c.track(idKey(m.ID), cancel)()
+		c.postOnce(ctx, body, m, newModernRequest(m.Method, p, v))
+		return
+	}
+	c.mu.Lock()
+	modern := c.initID == ""
+	c.mu.Unlock()
+	if modern && !isRequest && m.Method != "" {
+		// A modern server takes no notifications over HTTP; a request is
+		// cancelled by closing its stream.
+		if m.Method == "notifications/cancelled" {
+			c.cancelled(p)
+		}
+		return
+	}
+	c.postOnce(ctx, body, m, nil)
+}
+
+// postOnce posts the message m (body) and relays the answer; mod is set
+// for a request to a modern server.
+func (c *connector) postOnce(ctx context.Context, body []byte, m message, mod *modernRequest) {
 	isRequest := len(m.ID) > 0 && m.Method != ""
 	id := ""
 	if isRequest {
@@ -264,29 +293,34 @@ func (c *connector) postOnce(ctx context.Context, body []byte, retry bool) {
 			c.mu.Unlock()
 		}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
-	if err != nil {
-		c.answerError(m.ID, isRequest, err)
-		return
+	var header http.Header
+	if mod != nil {
+		header = mod.header
+		switch m.Method {
+		case "tools/call":
+			paramHeaders(header, c.toolHeadersFor(ctx, mod), mod.params.Arguments)
+		case "tools/list":
+			c.mu.Lock()
+			if c.lists == nil {
+				c.lists = map[string]bool{}
+			}
+			c.lists[id] = true
+			c.mu.Unlock()
+			defer func() {
+				c.mu.Lock()
+				delete(c.lists, id)
+				c.mu.Unlock()
+			}()
+		}
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	used := c.setHeaders(req)
-	resp, err := c.client.Do(req)
+	resp, err := c.do(ctx, body, header)
 	if err != nil {
-		if ctx.Err() == nil {
+		if errors.Is(err, errUnauthorized) {
+			c.answerError(m.ID, isRequest, err)
+			c.fail(err)
+		} else if ctx.Err() == nil {
 			c.answerError(m.ID, isRequest, err)
 		}
-		return
-	}
-	if resp.StatusCode == http.StatusUnauthorized && c.signIn && retry {
-		_ = resp.Body.Close()
-		if c.renew(ctx, used) {
-			c.postOnce(ctx, body, false)
-			return
-		}
-		c.answerError(m.ID, isRequest, errUnauthorized)
-		c.fail(errUnauthorized)
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -298,7 +332,7 @@ func (c *connector) postOnce(ctx context.Context, body []byte, retry bool) {
 	switch {
 	case resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent:
 		return
-	case resp.StatusCode == http.StatusNotFound && c.sessionID() != "":
+	case resp.StatusCode == http.StatusNotFound && mod == nil && c.sessionID() != "":
 		c.answerError(m.ID, isRequest, errSessionGone)
 		c.fail(errSessionGone)
 		return
@@ -307,7 +341,31 @@ func (c *connector) postOnce(ctx context.Context, body []byte, retry bool) {
 		c.fail(errUnauthorized)
 		return
 	case resp.StatusCode/100 != 2:
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, maxLine+1))
+		if mod != nil && isRequest {
+			// A modern server says what is wrong in a JSON-RPC error (an
+			// unsupported version, an unknown method, headers that do
+			// not match): the gateway's to see.
+			if answer, code := errorAnswer(data, m.ID); answer != nil {
+				if code == codeHeaderMismatch && m.Method == "tools/call" && !mod.retried {
+					// The tool's parameters may have changed: list the
+					// tools again and retry once.
+					_ = resp.Body.Close()
+					c.listMu.Lock()
+					if err := c.listTools(ctx, mod); err != nil {
+						c.log.Warn("listing the server's tools for their x-mcp-header parameters", "err", err)
+					}
+					c.listMu.Unlock()
+					retry := newModernRequest(m.Method, mod.params, mod.version)
+					retry.retried = true
+					c.postOnce(ctx, body, m, retry)
+					return
+				}
+				c.write(answer)
+				return
+			}
+		}
+		snippet := data[:min(len(data), 512)]
 		c.answerError(m.ID, isRequest, fmt.Errorf("HTTP %s: %s", resp.Status, strings.TrimSpace(string(snippet))))
 		return
 	}
@@ -315,7 +373,9 @@ func (c *connector) postOnce(ctx context.Context, body []byte, retry bool) {
 	switch {
 	case strings.HasPrefix(ct, "text/event-stream"):
 		answered, lastID := c.relayEvents(resp.Body, id)
-		for attempt := 0; isRequest && !answered && lastID != "" && attempt < resumeAttempts && ctx.Err() == nil; attempt++ {
+		// A modern server's streams are not resumed: closing one cancels
+		// the request.
+		for attempt := 0; mod == nil && isRequest && !answered && lastID != "" && attempt < resumeAttempts && ctx.Err() == nil; attempt++ {
 			answered, lastID = c.resume(ctx, id, lastID)
 		}
 		if isRequest && !answered && ctx.Err() == nil {
@@ -327,11 +387,39 @@ func (c *connector) postOnce(ctx context.Context, body []byte, retry bool) {
 			c.answerError(m.ID, isRequest, fmt.Errorf("reading the answer: %v", err))
 			return
 		}
-		c.relay(data, "")
+		c.relay(data, id)
 	default:
 		if isRequest {
 			c.answerError(m.ID, true, fmt.Errorf("unexpected Content-Type %q", ct))
 		}
+	}
+}
+
+// do posts body with the headers of a modern request (header), or of the
+// legacy session (nil); after a 401, it gets a new access token from the
+// gateway (-sign-in) and posts once more, and when there is none it
+// returns errUnauthorized.
+func (c *connector) do(ctx context.Context, body []byte, header http.Header) (*http.Response, error) {
+	for retry := true; ; retry = false {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		used := c.setHeaders(req, header)
+		resp, err := c.client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode == http.StatusUnauthorized && c.signIn && retry {
+			_ = resp.Body.Close()
+			if c.renew(ctx, used) {
+				continue
+			}
+			return nil, errUnauthorized
+		}
+		return resp, nil
 	}
 }
 
@@ -345,7 +433,7 @@ func (c *connector) resume(ctx context.Context, id, lastID string) (bool, string
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Last-Event-ID", lastID)
-	c.setHeaders(req)
+	c.setHeaders(req, nil)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return false, lastID
@@ -376,7 +464,7 @@ func (c *connector) listen(ctx context.Context) {
 		if lastID != "" {
 			req.Header.Set("Last-Event-ID", lastID)
 		}
-		used := c.setHeaders(req)
+		used := c.setHeaders(req, nil)
 		resp, err := c.client.Do(req)
 		switch {
 		case err != nil:
@@ -416,6 +504,12 @@ func (c *connector) listen(ctx context.Context) {
 // reports whether the answer to id came (then it stops reading: the
 // server closes the stream), and the last event id.
 func (c *connector) relayEvents(body io.Reader, id string) (bool, string) {
+	return readEvents(body, func(data []byte) bool { return c.relay(data, id) })
+}
+
+// readEvents passes the messages of an event stream to message until it
+// reports true (then readEvents does too); it returns the last event id.
+func readEvents(body io.Reader, message func(data []byte) bool) (bool, string) {
 	r := bufio.NewReaderSize(body, 64<<10)
 	var data bytes.Buffer
 	event, lastID := "", ""
@@ -425,7 +519,7 @@ func (c *connector) relayEvents(body io.Reader, id string) (bool, string) {
 		switch {
 		case len(line) == 0 && err == nil:
 			if data.Len() > 0 && (event == "" || event == "message") {
-				if c.relay(bytes.TrimSuffix(data.Bytes(), []byte("\n")), id) {
+				if message(bytes.TrimSuffix(data.Bytes(), []byte("\n"))) {
 					return true, lastID
 				}
 			}
@@ -479,7 +573,11 @@ func (c *connector) relay(data []byte, id string) bool {
 			if isInit && m.Result != nil {
 				c.protocol = m.Result.ProtocolVersion
 			}
+			isList := c.lists[key]
 			c.mu.Unlock()
+			if isList {
+				raw = c.toolsAnswer(raw)
+			}
 			if isInit && m.Result != nil {
 				c.getOnce.Do(func() { go c.listen(c.listenCtx()) })
 			}
@@ -527,15 +625,22 @@ func (c *connector) answerError(id json.RawMessage, isRequest bool, err error) {
 	c.write(b)
 }
 
-// setHeaders sets the request's headers and returns the access token it
-// carries (-sign-in).
-func (c *connector) setHeaders(req *http.Request) string {
+// setHeaders sets the request's headers, those of a modern request
+// (header) or of the legacy session (nil), and returns the access token
+// it carries (-sign-in).
+func (c *connector) setHeaders(req *http.Request, header http.Header) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for k, vs := range c.headers {
 		for _, v := range vs {
 			req.Header.Add(k, v)
 		}
+	}
+	if header != nil {
+		for k, vs := range header {
+			req.Header[k] = vs
+		}
+		return strings.TrimPrefix(c.headers.Get("Authorization"), "Bearer ")
 	}
 	if c.session != "" {
 		req.Header.Set("Mcp-Session-Id", c.session)
@@ -565,7 +670,7 @@ func (c *connector) closeSession() {
 	if err != nil {
 		return
 	}
-	c.setHeaders(req)
+	c.setHeaders(req, nil)
 	if resp, err := c.client.Do(req); err == nil {
 		_ = resp.Body.Close()
 	}
