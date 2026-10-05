@@ -112,6 +112,26 @@ Remote access uses MCP Streamable HTTP. The gateway is an OAuth 2.1
 **resource server**: it validates access tokens issued by your identity
 provider (IdP); it does not issue tokens and has no login page.
 
+`mcp-gateway-admin setup http` writes step 3 and checks steps 1 and 2
+and the whole chain, as root:
+
+```bash
+mcp-gateway-admin setup http --url https://gw.example.com:8443/mcp \
+    --issuer https://idp.example.com/realms/mcp \
+    --cert /etc/mcp-gateway/tls/cert.pem --key /etc/mcp-gateway/tls/key.pem \
+    --local-user-claim preferred_username --write
+systemctl restart mcp-gateway.service           # http.listen takes effect at start
+mcp-gateway-admin setup http --token token.jwt  # a token from the IdP, end to end
+```
+
+It writes the `http` block (without `--write` it shows what it would
+change) and checks that the IdP's metadata and keys come as the gateway
+fetches them, the certificate and key, the SELinux labels of the port and
+of the IdP's port, the firewall, the listener as a client reaches it, and
+with `--token` whom a token makes the principal, with which groups, or
+why the gateway refuses it. Each failed check says what to do (chapter
+11 lists them).
+
 ### 1. Identity provider
 
 Register the gateway as a resource (an API / audience) in the IdP
@@ -129,6 +149,26 @@ Register the gateway as a resource (an API / audience) in the IdP
 
 Register the agents as OAuth clients (authorization code with PKCE for
 interactive agents; client credentials for services).
+
+With **Keycloak**, on the realm the issuer names
+(`https://<host>/realms/<realm>`), in the client's dedicated scope
+(Clients → the client → Client scopes → *client*-dedicated):
+
+- an **Audience** mapper with *Included Custom Audience* the gateway's
+  URL and *Add to access token* on; without it Keycloak issues tokens for
+  `account`, which the gateway refuses (`401 invalid token`);
+- a **Group Membership** mapper with *Token Claim Name* `groups`, *Full
+  group path* off and *Add to access token* on, if roles are bound to
+  groups. Keycloak's `sub` is a UUID: bind roles to groups, or set
+  `http.local_user_claim` (e.g. `preferred_username`) to act as local
+  accounts.
+
+The gateway fetches the keys from the IdP itself: its SELinux domain
+reaches HTTP ports (`http_port_t`: 443, 8443, …) and proxy ports
+(`http_cache_port_t`: 8080, Keycloak's default); for another port, label
+it (`semanage port -a -t http_port_t -p tcp PORT`). An IdP certificate
+from a private CA must be trusted by the system (`cp ca.pem
+/etc/pki/trust/anchors/ && update-ca-certificates`).
 
 ### 2. Certificate and port
 
@@ -274,7 +314,7 @@ http:
 |---|---|
 | connection refused (no HTTP status) | nothing listens there, or the firewall rejects the port: from the host itself, `curl -k https://localhost:8443/.well-known/oauth-protected-resource/mcp` answers when the gateway listens (the journal says `msg=listening http=:8443`); if it does and remote clients are refused, open the port (`mcp-gateway-admin doctor`, `firewall`) |
 | `401 authentication required` | no token; see the `WWW-Authenticate` header |
-| `401 invalid token` | wrong issuer or audience, expired, bad signature, or not bound to the presented certificate; the gateway's journal says why (`token rejected`) |
+| `401 invalid token` | wrong issuer or audience, expired, bad signature, or not bound to the presented certificate; the gateway's journal says why (`token rejected`), and `mcp-gateway-admin setup http --token FILE` explains it from the token |
 | `403 insufficient scope` | the token lacks a scope from `http.scopes` |
 | `403 origin not allowed` | `Origin` not in `http.allowed_origins` |
 | `404 unknown session` / `session ended` | the session expired or belongs to someone else; initialize again |

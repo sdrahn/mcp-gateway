@@ -18,7 +18,7 @@ func TestUsageListsCommands(t *testing.T) {
 			t.Errorf("usage does not list %s:\n%s", c.name, out.String())
 		}
 	}
-	for _, name := range []string{"doctor", "serve"} {
+	for _, name := range []string{"doctor", "serve", "setup"} {
 		var stdout, stderr bytes.Buffer
 		run([]string{"help", name}, &stdout, &stderr)
 		if got := stdout.String() + stderr.String(); !strings.Contains(got, "usage: mcp-gateway-admin "+name) {

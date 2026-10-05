@@ -28,6 +28,17 @@ minor release (with a warning) and removed in the next.
   Remote users without a local account can now sign in with such
   clients. The page after signing in names the server and the user.
 
+- `mcp-gateway-admin setup http` sets up remote access and checks it
+  end to end: from the public URL and the identity provider's issuer it
+  fills in the `http` block of `gateway.yaml` (with `-write`; it keeps
+  the other keys and the comments), then checks the identity provider's
+  metadata and keys as the gateway fetches them, the certificate, the
+  SELinux labels of the listener's and the identity provider's ports,
+  firewalld and the listener as a client reaches it. With `-token`, it
+  shows whom a token makes the principal and with which groups, or why
+  the gateway refuses it (for Keycloak: the Audience and Group
+  Membership mappers).
+
 ### Changed
 
 - `mcp-gateway-admin doctor` warns about a polkit rule without
@@ -42,6 +53,9 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
+- The gateway's SELinux domain may fetch the identity provider's keys
+  from a port labeled `http_cache_port_t` (8080, Keycloak's default):
+  with an issuer on such a port, the gateway refused every token.
 - Listing resources (`resources/list`, which clients such as Kit send
   when they connect) starts the principal's instance only of servers
   with `discovery: shared` that offer resources, as their discovery

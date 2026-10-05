@@ -330,20 +330,9 @@ func (d *doctorRun) tls() []doctor.Result {
 		return []doctor.Result{{Check: "TLS", Status: doctor.Skip,
 			Summary: "the key is the gateway's alone: mcp-gateway-admin doctor as root checks it"}}
 	}
-	u, err := user.Lookup(statedir.User)
+	acct, err := gatewayAccount()
 	if err != nil {
-		return []doctor.Result{{Check: "TLS", Status: doctor.Skip, Summary: "no " + statedir.User + " account"}}
-	}
-	acct := doctor.Account{Name: u.Username}
-	uid, _ := strconv.ParseUint(u.Uid, 10, 32)
-	gid, _ := strconv.ParseUint(u.Gid, 10, 32)
-	acct.UID, acct.GID = uint32(uid), uint32(gid)
-	if ids, err := u.GroupIds(); err == nil {
-		for _, id := range ids {
-			if g, err := strconv.ParseUint(id, 10, 32); err == nil {
-				acct.Groups = append(acct.Groups, uint32(g))
-			}
-		}
+		return []doctor.Result{{Check: "TLS", Status: doctor.Skip, Summary: err.Error()}}
 	}
 	var types func(string) (string, error)
 	if supervisor.SELinuxEnabled() {
