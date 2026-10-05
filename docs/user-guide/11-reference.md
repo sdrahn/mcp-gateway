@@ -35,12 +35,12 @@ Any argument is an error (status 2).
 ### mcp-gateway-admin
 
 ```
-mcp-gateway-admin doctor|inspect|profile|review|serve [options]
+mcp-gateway-admin doctor|setup|inspect|profile|review|serve [options]
 mcp-gateway-admin help [COMMAND]
 mcp-gateway-admin --version
 ```
 
-The commands for administrators: `doctor` and `serve` come with the
+The commands for administrators: `doctor`, `setup` and `serve` come with the
 package `mcp-gateway`; `inspect`, `profile` and `review`, which help to
 add MCP servers, with `mcp-gateway-tools` (`zypper install
 mcp-gateway-tools`, which brings the SELinux policy development files
@@ -168,6 +168,47 @@ the same across releases; the texts may change.
 | `polkit` | account | polkit *account* |
 | `principals` | | principals |
 | `approver-group` | group name | approver group *group* |
+
+### mcp-gateway-admin setup http
+
+```
+mcp-gateway-admin setup http [options]
+```
+
+Sets up the HTTP listener for remote agents and checks it end to end
+(chapter 5, "Remote agents"). From `--url` and `--issuer` it fills in the
+`http` block of `gateway.yaml` (with `--write`; without, it shows what it
+would change), keeping the keys it does not ask about and the rest of the
+file, comments included; the new file must load before it replaces the
+old one. Options left out keep what the block has, so `setup http
+--token FILE` alone checks a running setup. Run it as root. Exit status 1
+if a check failed, 2 on usage errors, 0 otherwise.
+
+| Flag | Meaning |
+|---|---|
+| `--config FILE` | the configuration to set up (default: `/etc/mcp-gateway/gateway.yaml`; a missing one starts from the package default) |
+| `--url URL` | the gateway's public MCP URL, as clients use it (`http.audience`); `http.listen` takes its port (443 if none) |
+| `--issuer URL` | the identity provider's issuer (`http.issuer`) |
+| `--cert FILE`, `--key FILE` | certificate (PEM, with the chain) and private key (`http.cert_file`, `http.key_file`) |
+| `--groups-claim NAME` | token claim with the groups (`http.groups_claim`, default `groups`) |
+| `--local-user-claim NAME` | token claim naming a local account (`http.local_user_claim`) |
+| `--scopes LIST` | comma-separated scopes every token must carry (`http.scopes`; `""` for none) |
+| `--token FILE` | an access token to check as the gateway takes it (`-`: standard input); it is never printed |
+| `--write` | write the `http` block |
+| `--timeout DURATION` | how long to wait for the identity provider and the listener (default `10s`) |
+| `--json` | print the results as JSON, as the doctor does |
+
+The checks, with their `id`s:
+
+| `id` | What |
+|---|---|
+| `http-block` | what `--write` wrote, or would write |
+| `identity-provider` | `<issuer>/.well-known/openid-configuration` answers (with the system's CA certificates, as the gateway fetches it), names the issuer exactly as configured, and its key set has signing keys; notes PKCE (`S256`) and dynamic client registration |
+| `tls` | the certificate and key, as `doctor` checks them |
+| `selinux-port` | the listener's port is labeled `mcp_port_t`, and the identity provider's port `http_port_t` or `http_cache_port_t` (the gateway's SELinux domain reaches no other) |
+| `firewall` | firewalld lets the port in, as `doctor` checks it |
+| `token` | with `--token`: accepted, and as which principal with which groups; or refused, and why (issuer, audience, expiry, scope), from the token's claims |
+| `listener` | `https://<host of --url>/.well-known/oauth-protected-resource/mcp` answers with this issuer and audience, with the certificate verified as clients verify it; with `--token`, an `initialize` is accepted |
 
 ### mcp-gateway-admin serve
 

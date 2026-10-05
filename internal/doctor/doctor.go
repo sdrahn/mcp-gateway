@@ -65,6 +65,12 @@ var checkIDs = map[string]string{
 	"SELinux transitions": "selinux-transitions",
 	"TLS":                 "tls",
 	"firewall":            "firewall",
+	// mcp-gateway-admin setup http
+	"http block":        "http-block",
+	"identity provider": "identity-provider",
+	"SELinux port":      "selinux-port",
+	"token":             "token",
+	"listener":          "listener",
 }
 
 // checkPrefixes are the IDs of the checks labeled "<prefix><subject>",

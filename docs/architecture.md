@@ -175,7 +175,9 @@ own backends.
   signature. The gateway never issues tokens itself.
   - Keys come from the issuer's JWKS (found by OIDC discovery, or
     configured), cached for an hour and refreshed on an unknown key id at
-    most every 30 s. Only asymmetric algorithms are accepted (no `none`,
+    most every 30 s. The gateway's domain fetches them on HTTP ports
+    (`http_port_t`) and proxy ports (`http_cache_port_t`: 8080, where
+    Keycloak listens by default). Only asymmetric algorithms are accepted (no `none`,
     no HMAC key confusion); RSA keys below 2048 bits are ignored.
     Required scopes are configurable.
   - Every request carries the token and is validated; the metadata lives
@@ -2148,7 +2150,22 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       reports a version before 0.3.5 (or none) at the doctor's probe,
       and with 0.3.5 or later notes that the rule is no longer needed,
       so that the systemd setup can drop it once its package requires
-      systemd-mcp 0.3.5 (done).
+      systemd-mcp 0.3.5 (done);
+    - remote access is set up and checked in one command:
+      `mcp-gateway-admin setup http` fills in the `http` block of
+      `gateway.yaml` from the public URL and the issuer (keeping the
+      other keys and the comments; the new file must load before it
+      replaces the old one), and checks the chain end to end, each
+      failure saying what to do: the identity provider's discovery
+      document and keys as the gateway fetches them (the issuer exactly
+      as tokens carry it, a CA the system trusts, PKCE S256), the
+      certificate and the firewall as the doctor checks them, the SELinux
+      labels of the listener's port and of the identity provider's port,
+      the listener as a client reaches it, and an access token as the
+      gateway takes it: the principal and groups it makes, or why it is
+      refused (audience, issuer, expiry, scope). The gateway's domain
+      also reaches the identity provider on `http_cache_port_t` (8080,
+      Keycloak's default), where it could not fetch the keys before.
 
 ## 12. Open items
 
