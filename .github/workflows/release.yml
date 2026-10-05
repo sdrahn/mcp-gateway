@@ -54,8 +54,8 @@ jobs:
         run: |
           set -eu
           prerelease=""
-          # Pre-releases: everything before 1.0, and tags like v1.2.0-rc1.
-          case "$GITHUB_REF_NAME" in v0.*|*-*) prerelease="--prerelease" ;; esac
+          # Pre-releases: tags like v1.2.0-rc1.
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
           title="mcp-gateway ${GITHUB_REF_NAME}"
           # A release published in the web interface creates the tag and
           # exists already: attach the sources and set title and notes.
