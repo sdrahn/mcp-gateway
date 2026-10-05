@@ -317,7 +317,7 @@ selinux_type: mcpsrv_zypp_t
   tools the unprivileged server lacks; that is expected.
 - The worker asks the user, by elicitation, whether to trust a new GPG
   key of a repository. The gateway passes such a request to the agent's
-  client only with a `client` permission for `elicitation.create`
+  client only with a `client` permission for `elicitation/create`
   (chapter 6), and only a client that supports elicitation can show it.
 - Licenses are accepted with the `accepted_licenses` argument of
   `confirm_install`, which the agent fills in; the approval of that call

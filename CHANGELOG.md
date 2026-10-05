@@ -41,6 +41,16 @@ minor release (with a warning) and removed in the next.
   gateway URL on the local host); the client ID metadata document names
   it too.
 
+### Fixed
+
+- The user guide (chapters 6 and 13) and the role data schema named
+  `client` permission patterns by the policy action
+  (`sampling.create`, `elicitation.create`, `roots.list`); they match
+  the request's method (`sampling/createMessage`, `elicitation/create`,
+  `roots/list`), so a permission written as documented matched nothing
+  and the server's request was refused. Permissions written that way
+  need the method names.
+
 ## v0.13.0 — 2026-10-05
 
 Signing in to servers lasts and works with every client, and remote

@@ -98,7 +98,7 @@ A permission is an object with a `server` glob and exactly one target:
 | `tool` | tool name | `tools/call` |
 | `prompt` | prompt name | `prompts/get` (and completions of its arguments) |
 | `resource` | resource URI | `resources/read`, `subscribe`, `unsubscribe` |
-| `client` | request method | requests an MCP server sends to the agent: `sampling.create`, `elicitation.create`, `roots.list` |
+| `client` | request method | requests an MCP server sends to the agent: `sampling/createMessage`, `elicitation/create`, `roots/list` (the method, not the policy action `sampling.create`, `elicitation.create`, `roots.list`) |
 
 Names are the server's own names, never the aggregated endpoint's
 prefixed ones.
@@ -321,9 +321,9 @@ input from the user (elicitation), the agent's root directories. These
 are decided like tool calls, with `client` permissions:
 
 ```json
-{"server": "research", "client": "sampling.create"},
-{"server": "*",        "client": "roots.list"},
-{"server": "setup",    "client": "elicitation.create", "allow_sensitive": true}
+{"server": "research", "client": "sampling/createMessage"},
+{"server": "*",        "client": "roots/list"},
+{"server": "setup",    "client": "elicitation/create", "allow_sensitive": true}
 ```
 
 Without such permissions, servers cannot make these requests (only
