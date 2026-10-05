@@ -121,6 +121,44 @@ Pending approvals are written to `/var/lib/mcp-gateway/pending.json`.
 Remote agents that support stream resumption usually do not lose the
 call at all (chapter 5).
 
+## Agents of MCP 2026-07-28
+
+Agents of MCP 2026-07-28 have no session for a call to wait in. For
+them an approval is a *multi round-trip request*: the call is answered
+at once with what is needed (an `InputRequiredResult`), and the agent's
+SDK calls again with the answer. The agent sees one call.
+
+| Channel | First answer | The agent's retry |
+|---|---|---|
+| `form` | the approval form as an input request (`approval`) | carries the choice; the call runs, or is denied ("declined by user") |
+| `url` | the approval page as a URL-mode input request | waits up to `approvals.retry_wait` (25 s, with progress) for the decision; otherwise it is answered to retry again, and the next retry waits again |
+| `oob` | no input request, only the state; the request is in the inbox (and the agent gets the log message if it asked for log messages) | as for `url` |
+
+Each round trip ends before the agents' request timeouts, so the
+approval may take until `approval_timeout` (120 s) whatever the agent's
+timeout. A decision made while no retry waits is kept as for a call
+that went away (above): the next retry finds it. The scope "session" is
+not offered: there is no session.
+
+Signing in to a server (chapter 4) works the same way: the sign-in link
+is a URL-mode input request, and retries wait for the sign-in to
+complete. An agent that cannot open links gets the link in the tool
+error to show, as before.
+
+A server of MCP 2026-07-28 that asks for input (a form, sampling,
+roots) has its requests passed on to the agent the same way, each
+decided by policy first (`client` permissions, `allow_sensitive`,
+pseudonymization of what goes to the model); what policy refuses the
+gateway answers itself (a form declined; a refused sampling or roots
+request ends the call). At most 8 rounds per call.
+
+What the agent sends back with its retry (the `requestState`) is sealed
+by the gateway: the agent can neither read nor change it, it holds only
+for the same user, endpoint, tool and arguments, and for 30 minutes. A
+restart of the gateway invalidates it; the agent gets "requestState is
+not valid for this request" and calls again, which takes over the
+pending approval.
+
 ## Notifications
 
 Approvers learn about pending approvals from:

@@ -49,6 +49,10 @@ approvals:
   # How often a call waiting for approval reports progress to an agent
   # that asked for progress, so that it does not give up on the call.
   progress_interval: 15s
+  # How long a retry of an agent of MCP 2026-07-28 waits for an approval
+  # or a sign-in before it is answered to retry again (keep it below the
+  # agents' request timeouts).
+  retry_wait: 25s
   # Who may decide on approvals and revoke grants is policy: "approvers"
   # in /etc/mcp-gateway/policy/rbac/data.json (default: the principal
   # themself and the admin role).

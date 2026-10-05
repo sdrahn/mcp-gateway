@@ -804,6 +804,15 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	if err := checkParamKeys(params); err != nil {
 		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params: "+err.Error())
 	}
+	// A modern agent's call that may ask for input is a round of a multi
+	// round-trip request (mrtr.go).
+	var round *agentRound
+	if s.modern && inputMethods[m.Method] {
+		var rpcErr *jsonrpc.Error
+		if round, rpcErr = s.agentRoundOf(m.Method, params); rpcErr != nil {
+			return nil, rpcErr
+		}
+	}
 	if s.modern && m.Method == "tools/call" {
 		var name string
 		_ = json.Unmarshal(params["name"], &name)
@@ -819,7 +828,17 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	t.progress = s.progressOf(ctx, params)
 
 	decisionID := newDecisionID()
-	dec, grantID, in := s.decide(ctx, t, decisionID)
+	var dec pep.Decision
+	var grantID string
+	var in pep.Input
+	if s.modern {
+		var ask any
+		if dec, grantID, in, ask = s.decideModern(ctx, t, decisionID, round); ask != nil {
+			return ask, nil
+		}
+	} else {
+		dec, grantID, in = s.decide(ctx, t, decisionID)
+	}
 	p := s.snapshotPrincipal()
 	// Obligations were validated by pep.Evaluate; a compile error here
 	// cannot happen, but would deny.
@@ -835,7 +854,8 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	if dec.Effect == pep.Allow {
 		if err := ob.CheckArgs(t.args); err != nil {
 			dec = pep.Decision{Effect: pep.Deny, Reason: err.Error()}
-		} else if !s.r.limiter.Allow(rateKey(p, t), ob.Rates) {
+		} else if !round.laterServerRound() && !s.r.limiter.Allow(rateKey(p, t), ob.Rates) {
+			// (A server's input rounds are one call.)
 			dec = pep.Decision{Effect: pep.Deny, Reason: "rate limit exceeded"}
 		}
 	}
@@ -854,7 +874,11 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 
 	b := s.endpoint().backends[t.server]
 	if b != nil && s.mustSignIn(b) {
-		if err := s.signIn(ctx, b); err != nil {
+		if s.modern {
+			if ok, res, rerr := s.signInModern(ctx, m.Method, b, round); !ok {
+				return res, rerr
+			}
+		} else if err := s.signIn(ctx, b); err != nil {
 			return s.signInFailed(m.Method, t.server, err)
 		}
 		if m.Method == "tools/call" && t.resource.Name == signInTool {
@@ -868,7 +892,11 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	}
 	if errors.Is(err, signin.ErrNotSignedIn) && b != nil && b.SignIn != nil && s.r.SignIns != nil {
 		// The tokens were refused at refresh: sign in again.
-		if err := s.signIn(ctx, b); err != nil {
+		if s.modern {
+			if ok, res, rerr := s.signInModern(ctx, m.Method, b, round); !ok {
+				return res, rerr
+			}
+		} else if err := s.signIn(ctx, b); err != nil {
 			return s.signInFailed(m.Method, t.server, err)
 		}
 		u, err = s.upstream(ctx, t.server)
@@ -908,21 +936,32 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		raw, inputRequired := completeResult(resp.Result)
 		return raw, inputRequired, nil
 	}
+	// A retry of a modern agent's call that answers a modern server's
+	// input requests: the answers and the server's state go back to it.
+	inputRound := round.serverRound(t.server, params)
 	raw, inputRequired, rerr := send()
 	// A modern server asks the client for input with a result instead of
-	// requests (multi round-trip): the gateway asks the client over its
-	// session, each request decided as a server's request is, and calls
-	// again with the answers; the client sees one call.
-	if inputRequired && rerr == nil && s.modern {
-		// Passing a modern server's input requests on to a modern agent
-		// needs the gateway's own requestState (roadmap step 25).
-		return nil, rpcError(jsonrpc.CodeInternalError, t.server+" asks the client for input in a way the gateway does not pass on to MCP 2026-07-28 clients yet")
-	}
-	for round := 0; inputRequired && rerr == nil; round++ {
-		if round == maxInputRounds {
+	// requests (multi round-trip). A legacy client is asked over its
+	// session, each request decided as a server's request is, and the
+	// call is made again with the answers: the client sees one call. A
+	// modern agent gets the requests policy allows with the gateway's
+	// state and calls again itself.
+	for ; inputRequired && rerr == nil; inputRound++ {
+		if inputRound == maxInputRounds {
 			return nil, rpcError(jsonrpc.CodeInternalError, fmt.Sprintf("%s asked the client for input more than %d times in one call", t.server, maxInputRounds))
 		}
-		if rerr = s.answerInput(ctx, u, raw, params); rerr == nil {
+		if round != nil {
+			var ask any
+			var again bool
+			if ask, again, rerr = s.forwardInput(round, u, raw, inputRound+1, params); rerr == nil && !again {
+				return ask, nil
+			}
+		} else if s.modern {
+			return nil, rpcError(jsonrpc.CodeInternalError, t.server+" asks for input, which a "+m.Method+" request of MCP 2026-07-28 cannot pass on")
+		} else {
+			rerr = s.answerInput(ctx, u, raw, params)
+		}
+		if rerr == nil {
 			raw, inputRequired, rerr = send()
 		}
 	}
@@ -1341,41 +1380,9 @@ func (s *Session) relayBackendRequest(ctx context.Context, u *upstream, m *jsonr
 		}
 		return jsonrpc.NewError(m.ID, jsonrpc.CodeForbidden, errNoClientRequests.Error())
 	}
-	action, known := backendRequests[m.Method]
-	dec := pep.Decision{Effect: pep.Deny, Reason: "method not permitted"}
-	var args map[string]any
-	if m.Method == "elicitation/create" {
-		args = elicitationArgs(m.Params)
-	}
-	decisionID := newDecisionID()
-	if known {
-		dec = pep.Evaluate(s.ctx, s.r.PDP, pep.Input{
-			Principal: p,
-			Action:    action,
-			Resource:  pep.Resource{Server: u.backend.Name, Kind: "client", Name: m.Method, Privileged: u.backend.Privileged},
-			Args:      args,
-			Context:   s.policyContext(decisionID),
-		})
-	}
-	s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: m.Method, Server: u.backend.Name,
-		Effect: string(dec.Effect), Reason: dec.Reason, Instance: u.id, DecisionID: decisionID, Args: args})
-	params := m.Params
-	if dec.Effect == pep.Allow && m.Method == "sampling/createMessage" {
-		// What a backend sends for sampling goes to the client's model:
-		// redaction, pseudonymization and the size limit apply to it as to
-		// results.
-		var err error
-		if params, err = s.releaseToModel(p, u.backend.Name, decisionID, dec, params); err != nil {
-			s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: m.Method, Server: u.backend.Name,
-				Effect: string(pep.Deny), Reason: "request withheld: " + err.Error(), Instance: u.id, DecisionID: decisionID})
-			dec = pep.Decision{Effect: pep.Deny}
-		}
-	}
-	if dec.Effect != pep.Allow {
+	params, ok := s.admitBackendRequest(u, m.Method, m.Params)
+	if !ok {
 		return jsonrpc.NewError(m.ID, jsonrpc.CodeForbidden, "denied by mcp-gateway policy")
-	}
-	if m.Method == "elicitation/create" {
-		params = labelElicitation(params, u.backend.Name)
 	}
 	resp, err := s.requestClient(ctx, m.Method, params, req)
 	if err != nil {
@@ -1386,6 +1393,50 @@ func (s *Session) relayBackendRequest(ctx context.Context, u *upstream, m *jsonr
 		return jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "client unavailable")
 	}
 	return &jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Result: resp.Result}
+}
+
+// admitBackendRequest decides a server's request to the client (method,
+// params) and audits it. If policy allows it, it returns the params to
+// send the client: an elicitation labelled with the server's name, what
+// goes to the model for sampling released as results are.
+func (s *Session) admitBackendRequest(u *upstream, method string, params json.RawMessage) (json.RawMessage, bool) {
+	p := s.snapshotPrincipal()
+	action, known := backendRequests[method]
+	dec := pep.Decision{Effect: pep.Deny, Reason: "method not permitted"}
+	var args map[string]any
+	if method == "elicitation/create" {
+		args = elicitationArgs(params)
+	}
+	decisionID := newDecisionID()
+	if known {
+		dec = pep.Evaluate(s.ctx, s.r.PDP, pep.Input{
+			Principal: p,
+			Action:    action,
+			Resource:  pep.Resource{Server: u.backend.Name, Kind: "client", Name: method, Privileged: u.backend.Privileged},
+			Args:      args,
+			Context:   s.policyContext(decisionID),
+		})
+	}
+	s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: method, Server: u.backend.Name,
+		Effect: string(dec.Effect), Reason: dec.Reason, Instance: u.id, DecisionID: decisionID, Args: args})
+	if dec.Effect == pep.Allow && method == "sampling/createMessage" {
+		// What a backend sends for sampling goes to the client's model:
+		// redaction, pseudonymization and the size limit apply to it as to
+		// results.
+		var err error
+		if params, err = s.releaseToModel(p, u.backend.Name, decisionID, dec, params); err != nil {
+			s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: method, Server: u.backend.Name,
+				Effect: string(pep.Deny), Reason: "request withheld: " + err.Error(), Instance: u.id, DecisionID: decisionID})
+			dec = pep.Decision{Effect: pep.Deny}
+		}
+	}
+	if dec.Effect != pep.Allow {
+		return nil, false
+	}
+	if method == "elicitation/create" {
+		params = labelElicitation(params, u.backend.Name)
+	}
+	return params, true
 }
 
 // sensitiveField matches schema fields that look like they ask for
@@ -1467,12 +1518,6 @@ func labelElicitation(params json.RawMessage, server string) json.RawMessage {
 // (nil without the capability). A capability without modes means form
 // mode (MCP before 2025-11-25).
 func (s *Session) elicitationModes() map[string]json.RawMessage {
-	if s.modern {
-		// The gateway cannot send a modern agent requests: approvals and
-		// sign-ins take their other ways (multi round-trip requests
-		// follow in roadmap step 25).
-		return nil
-	}
 	s.mu.Lock()
 	raw, ok := s.clientCaps["elicitation"]
 	s.mu.Unlock()
@@ -1508,6 +1553,9 @@ func (s *Session) Notify(method string, params any) {
 
 func (s *Session) notifyRelated(method string, params any, req json.RawMessage) {
 	if n, err := jsonrpc.NewNotification(method, params); err == nil {
+		if s.modern && method == "notifications/message" && !s.agentLogs(n.Params) {
+			return // the request did not ask for log messages
+		}
 		_ = jsonrpc.WriteRelated(s.client, n, req)
 	}
 }

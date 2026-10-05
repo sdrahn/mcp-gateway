@@ -31,6 +31,36 @@ type fakeSignIns struct {
 	// them fail as for a principal who must sign in again.
 	tokens  []string
 	noToken bool
+	// links and abandoned count Link and Abandon (modern agents).
+	links, abandoned int
+}
+
+func (f *fakeSignIns) Link(_ context.Context, b *config.Backend, p principal.Principal) (string, broker.URLElicitParams, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.links++
+	return "s1", broker.URLElicitParams{Mode: "url", ElicitationID: "s1", URL: "https://idp.example.com/authorize?state=s1",
+		Message: "Sign in to " + b.Name}, nil
+}
+
+func (f *fakeSignIns) LinkError(_ context.Context, b *config.Backend, _ principal.Principal) error {
+	return &signin.LinkError{Server: b.Name, URL: "https://gw.example.com/oauth/start/s1", Expires: time.Now().Add(10 * time.Minute)}
+}
+
+func (f *fakeSignIns) Await(_ context.Context, server, id string, p principal.Principal, _ time.Duration) error {
+	if id != "s1" {
+		return signin.ErrTimeout
+	}
+	if f.Signed(p, server) {
+		return nil
+	}
+	return signin.ErrStillWaiting
+}
+
+func (f *fakeSignIns) Abandon(string, principal.Principal) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.abandoned++
 }
 
 func (f *fakeSignIns) Token(_ context.Context, b *config.Backend, p principal.Principal, refused string) (string, time.Time, error) {

@@ -361,28 +361,53 @@ func (b *Broker) EndSession(sessionID string) { b.store.EndSession(sessionID) }
 // nil if the request was declined. A "once" grant is returned but not
 // stored, so it is consumed by the single re-evaluation that uses it.
 func (b *Broker) Approve(ctx context.Context, el Elicitor, in pep.Input, ask pep.AskSpec) (*pep.Grant, error) {
-	if len(ask.Scopes) == 0 {
-		ask.Scopes = []string{"once"}
+	ask = withScopes(ask)
+	c, err := b.Channel(el, ask)
+	if err != nil {
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, b.timeout())
 	defer cancel()
-	for _, c := range []string{string(ask.Channel), ask.Fallback} {
-		switch pep.Channel(c) {
+	switch c {
+	case pep.ChannelForm:
+		return b.viaForm(ctx, el, in, ask)
+	case pep.ChannelURL:
+		return b.viaURL(ctx, el, in, ask)
+	default:
+		return b.viaOOB(ctx, el, in, ask)
+	}
+}
+
+// Channel returns the channel an approval asked with ask takes for the
+// client el: the policy's channel, else its fallback, whichever the
+// client and the gateway's configuration make usable; ErrNoChannel if
+// neither is.
+func (b *Broker) Channel(el Elicitor, ask pep.AskSpec) (pep.Channel, error) {
+	for _, c := range []pep.Channel{ask.Channel, pep.Channel(ask.Fallback)} {
+		switch c {
 		case pep.ChannelForm:
 			if el.SupportsForm() {
-				return b.viaForm(ctx, el, in, ask)
+				return c, nil
 			}
 		case pep.ChannelURL:
 			if b.urlTemplate() != "" && el.SupportsURL() {
-				return b.viaURL(ctx, el, in, ask)
+				return c, nil
 			}
 		case pep.ChannelOOB:
 			if b.opts.OOB {
-				return b.viaOOB(ctx, el, in, ask)
+				return c, nil
 			}
 		}
 	}
-	return nil, ErrNoChannel
+	return "", ErrNoChannel
+}
+
+// withScopes returns ask with its scopes, "once" if policy named none.
+func withScopes(ask pep.AskSpec) pep.AskSpec {
+	if len(ask.Scopes) == 0 {
+		ask.Scopes = []string{"once"}
+	}
+	return ask
 }
 
 // --- form ---------------------------------------------------------------
@@ -392,6 +417,12 @@ func (b *Broker) viaForm(ctx context.Context, el Elicitor, in pep.Input, ask pep
 	if err != nil {
 		return nil, fmt.Errorf("broker: elicitation failed: %w", err)
 	}
+	return b.formAnswer(in, ask, res)
+}
+
+// formAnswer records the client's answer res to an approval form: the
+// grant, nil if declined.
+func (b *Broker) formAnswer(in pep.Input, ask pep.AskSpec, res ElicitResult) (*pep.Grant, error) {
 	if res.Action != "accept" {
 		b.auditApproval("", false, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, "", pep.ChannelForm)
 		return nil, nil
@@ -457,7 +488,7 @@ func (b *Broker) approvalURL(id string) string {
 }
 
 func (b *Broker) viaURL(ctx context.Context, el Elicitor, in pep.Input, ask pep.AskSpec) (g *pep.Grant, err error) {
-	p := b.addPending(in, ask, pep.ChannelURL)
+	p := b.addPending(in, ask, pep.ChannelURL, true)
 	defer func() {
 		b.endWait(p, err)
 		if errors.Is(err, errDeclinedToOpen) {
@@ -472,12 +503,7 @@ func (b *Broker) viaURL(ctx context.Context, el Elicitor, in pep.Input, ask pep.
 	}
 	opened := make(chan elicited, 1)
 	go func() {
-		res, err := el.Elicit(ctx, URLElicitParams{
-			Mode:          "url",
-			Message:       describe(in, ask.Prompt) + "\n\nOpen the approval page to decide.",
-			URL:           b.approvalURL(p.ID),
-			ElicitationID: p.ID,
-		})
+		res, err := el.Elicit(ctx, b.urlParams(in, ask, p.ID))
 		opened <- elicited{res, err}
 	}()
 	for {
@@ -499,17 +525,9 @@ func (b *Broker) viaURL(ctx context.Context, el Elicitor, in pep.Input, ask pep.
 }
 
 func (b *Broker) viaOOB(ctx context.Context, el Elicitor, in pep.Input, ask pep.AskSpec) (g *pep.Grant, err error) {
-	p := b.addPending(in, ask, pep.ChannelOOB)
+	p := b.addPending(in, ask, pep.ChannelOOB, true)
 	defer func() { b.endWait(p, err) }()
-	where := "on the mcp-gateway approvals page"
-	if b.urlTemplate() != "" {
-		where = "at " + b.approvalURL(p.ID)
-	}
-	el.Notify("notifications/message", map[string]any{
-		"level":  "notice",
-		"logger": "mcp-gateway",
-		"data":   fmt.Sprintf("Waiting for approval of %s/%s %s (id %s).", in.Resource.Server, in.Resource.Name, where, p.ID),
-	})
+	b.notifyOOB(el, in, p.ID)
 	select {
 	case g := <-p.result:
 		return g, nil
@@ -518,20 +536,48 @@ func (b *Broker) viaOOB(ctx context.Context, el Elicitor, in pep.Input, ask pep.
 	}
 }
 
-// addPending registers a pending approval for in with a waiting call. An
-// approval of the same request left without a waiting call (by an earlier
-// attempt, possibly before a restart) is taken over instead, keeping its
-// id, so an approval page opened for it stays valid.
-func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel) *Pending {
+// urlParams is the URL elicitation of approval id.
+func (b *Broker) urlParams(in pep.Input, ask pep.AskSpec, id string) URLElicitParams {
+	return URLElicitParams{
+		Mode:          "url",
+		Message:       describe(in, ask.Prompt) + "\n\nOpen the approval page to decide.",
+		URL:           b.approvalURL(id),
+		ElicitationID: id,
+	}
+}
+
+// notifyOOB tells the client where approval id is decided.
+func (b *Broker) notifyOOB(el Elicitor, in pep.Input, id string) {
+	where := "on the mcp-gateway approvals page"
+	if b.urlTemplate() != "" {
+		where = "at " + b.approvalURL(id)
+	}
+	el.Notify("notifications/message", map[string]any{
+		"level":  "notice",
+		"logger": "mcp-gateway",
+		"data":   fmt.Sprintf("Waiting for approval of %s/%s %s (id %s).", in.Resource.Server, in.Resource.Name, where, id),
+	})
+}
+
+// addPending registers a pending approval for in, with a waiting call
+// if waiting. An approval of the same request left without a waiting
+// call (by an earlier attempt, possibly before a restart) is taken over
+// instead, keeping its id, so an approval page opened for it stays
+// valid.
+func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel, waiting bool) *Pending {
 	now := b.now()
+	var result chan *pep.Grant
+	if waiting {
+		result = make(chan *pep.Grant, 1)
+	}
 	b.mu.Lock()
 	b.pruneExpired()
 	for _, p := range b.pending {
 		if p.result == nil && sameRequest(p, in) {
 			p.Principal, p.Scopes, p.Channel, p.Prompt = in.Principal, ask.Scopes, c, ask.Prompt
 			p.Expires = now.Add(b.timeout())
-			p.result = make(chan *pep.Grant, 1)
-			p.Waiting = true
+			p.result = result
+			p.Waiting = waiting
 			b.persistPending()
 			b.publishPending(p, false)
 			b.mu.Unlock()
@@ -552,8 +598,8 @@ func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel) *Pendi
 		Scopes:    ask.Scopes,
 		Created:   now,
 		Expires:   now.Add(b.timeout()),
-		Waiting:   true,
-		result:    make(chan *pep.Grant, 1),
+		Waiting:   waiting,
+		result:    result,
 	}
 	b.mu.Lock()
 	b.pending[p.ID] = p
