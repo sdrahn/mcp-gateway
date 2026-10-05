@@ -82,6 +82,8 @@ type Gateway struct {
 	Limits Limits `yaml:"limits"`
 	// SignIn configures signing principals in to servers (sign_in).
 	SignIn SignInSettings `yaml:"sign_in"`
+	// Pseudonymize configures the pseudonym vaults.
+	Pseudonymize Pseudonymize `yaml:"pseudonymize"`
 
 	// Warnings are the deprecated keys the file uses (see deprecation).
 	Warnings []string `yaml:"-"`
@@ -112,6 +114,22 @@ type Limits struct {
 	// Instances limits the running instances of all principals; 0 (the
 	// default) means no limit. Discovery instances do not count.
 	Instances int `yaml:"instances"`
+	// RequestsPerPrincipal limits the requests of agents of MCP
+	// 2026-07-28 one principal has in flight (subscription streams
+	// aside); more are refused.
+	RequestsPerPrincipal int `yaml:"requests_per_principal"`
+	// StreamsPerPrincipal limits the subscription streams
+	// (subscriptions/listen) one principal has open; more are refused.
+	StreamsPerPrincipal int `yaml:"streams_per_principal"`
+}
+
+// Pseudonymize configures the pseudonym vaults (obligation
+// "pseudonymize").
+type Pseudonymize struct {
+	// VaultIdle drops the vault of a principal and endpoint (agents of
+	// MCP 2026-07-28, which have no session) this long after its last
+	// request: its pseudonyms no longer resolve.
+	VaultIdle time.Duration `yaml:"vault_idle"`
 }
 
 // Metrics configures where the metrics (Prometheus text format) can be
@@ -453,6 +471,9 @@ const (
 	DefaultIdleTimeout           = 15 * time.Minute
 	DefaultSessionsPerPrincipal  = 64
 	DefaultInstancesPerPrincipal = 32
+	DefaultRequestsPerPrincipal  = 64
+	DefaultStreamsPerPrincipal   = 16
+	DefaultVaultIdle             = time.Hour
 	// DefaultMCSRange is the upper quarter of the targeted policy's
 	// categories; libvirt is confined to the rest by the shipped drop-ins.
 	DefaultMCSRange        = "c768.c1023"
@@ -572,6 +593,15 @@ func (g *Gateway) setDefaults() {
 	if g.Limits.InstancesPerPrincipal == 0 {
 		g.Limits.InstancesPerPrincipal = DefaultInstancesPerPrincipal
 	}
+	if g.Limits.RequestsPerPrincipal == 0 {
+		g.Limits.RequestsPerPrincipal = DefaultRequestsPerPrincipal
+	}
+	if g.Limits.StreamsPerPrincipal == 0 {
+		g.Limits.StreamsPerPrincipal = DefaultStreamsPerPrincipal
+	}
+	if g.Pseudonymize.VaultIdle == 0 {
+		g.Pseudonymize.VaultIdle = DefaultVaultIdle
+	}
 	if g.Approvals.ControlSocket == "" {
 		g.Approvals.ControlSocket = DefaultControl
 	}
@@ -677,8 +707,12 @@ func (g *Gateway) Validate() error {
 			return errors.New("notifications.email: username and password_file go together")
 		}
 	}
-	if g.Limits.SessionsPerPrincipal < 0 || g.Limits.InstancesPerPrincipal < 0 || g.Limits.Instances < 0 {
+	if g.Limits.SessionsPerPrincipal < 0 || g.Limits.InstancesPerPrincipal < 0 || g.Limits.Instances < 0 ||
+		g.Limits.RequestsPerPrincipal < 0 || g.Limits.StreamsPerPrincipal < 0 {
 		return errors.New("limits: must not be negative")
+	}
+	if g.Pseudonymize.VaultIdle < time.Minute {
+		return errors.New("pseudonymize.vault_idle: must be at least 1m")
 	}
 	if l := g.Metrics.Listen; l != "" {
 		if _, port, err := net.SplitHostPort(l); err != nil || port == "" {

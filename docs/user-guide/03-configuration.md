@@ -54,7 +54,8 @@ within `policy.watch_interval` (10 s).
 |---|---|
 | `approval_timeout`, `approvals.url_template`, `approvals.progress_interval`, `approvals.retry_wait` | apply to approvals asked from then on (`retry_wait`: to the next retry) |
 | `notifications.email` (all keys) | apply to the next mail; the password file is read again |
-| `limits` | apply to the next session or instance |
+| `limits` | apply to the next session, instance or request |
+| `pseudonymize.vault_idle` | applies to the next request |
 | `supervisor.idle_timeout` | applies to instances that become idle from then on |
 | `policy.timeout`, `policy.watch_interval` | apply to the next decision and check |
 | `http.cert_file`, `http.key_file` | the certificate and key are read again; new connections get them. Renewing the files is a change too, so a renewed certificate needs no restart |
@@ -231,6 +232,8 @@ limits:
   sessions_per_principal: 64
   instances_per_principal: 32
   instances: 0
+  requests_per_principal: 64
+  streams_per_principal: 16
 ```
 
 | Key | Default | Meaning |
@@ -238,6 +241,8 @@ limits:
 | `limits.sessions_per_principal` | `64` | open sessions of one principal (local and HTTP together). At the limit, the principal's longest-idle HTTP session (no request in flight, no stream attached) is ended to make room; otherwise the new session's `initialize` fails ("session limit reached (64)") |
 | `limits.instances_per_principal` | `32` | running instances of one principal. At the limit, its longest-idle instance that no session uses is stopped; otherwise the request that needs a new instance fails ("instance limit reached (32)") |
 | `limits.instances` | `0` (none) | running instances of all principals together, handled the same way ("gateway instance limit reached"); size it to the host's memory |
+| `limits.requests_per_principal` | `64` | requests of agents of MCP 2026-07-28, which have no session, one principal has in flight (subscription streams aside); more are refused ("request limit reached (64)") |
+| `limits.streams_per_principal` | `16` | subscription streams (`subscriptions/listen`) of agents of MCP 2026-07-28 one principal has open; more are refused ("subscription stream limit reached (16)") |
 
 A principal is a local user, or a remote token's issuer and subject.
 Discovery instances do not count. Clients that never end their HTTP
@@ -245,6 +250,17 @@ sessions (Kit, chapter 5) leave them open until
 `http.session_idle_timeout`; the session limit ends the idle ones
 first, so such clients keep working. Refusals are audited (`mcp-limit`)
 and counted (`mcp_gateway_limit_refusals_total`).
+
+### Pseudonyms
+
+```yaml
+pseudonymize:
+  vault_idle: 1h
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `pseudonymize.vault_idle` | `1h` | agents of MCP 2026-07-28 have no session: their pseudonyms (obligation `pseudonymize`, chapter 6) belong to the user and endpoint and are dropped this long after the user's last request there; at least `1m`. Legacy sessions keep theirs until they end |
 
 ### Remote access (HTTPS)
 

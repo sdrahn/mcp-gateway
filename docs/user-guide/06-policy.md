@@ -266,8 +266,12 @@ by field rules and patterns; there is no statistical name recognition.
   so the model can still relate records and refer to them. The mapping
   exists only in the gateway's memory and ends with the session; another
   session cannot resolve it.
-- A session holds at most 10,000 pseudonyms; further values are replaced
-  irreversibly (`[EMAIL_REDACTED]`).
+- Agents of MCP 2026-07-28 have no session: their pseudonyms belong to
+  the user and endpoint, across requests and connections, and go when
+  the user sent no request there for `pseudonymize.vault_idle` (1 h,
+  chapter 3).
+- A session (or a user's endpoint) holds at most 10,000 pseudonyms;
+  further values are replaced irreversibly (`[EMAIL_REDACTED]`).
 - Pseudonymization applies to results of tool calls, prompts, resource
   reads and completions, and to sampling requests MCP servers send to the
   agent's model (decided with `client` permissions, see below; redaction
@@ -277,7 +281,8 @@ by field rules and patterns; there is no statistical name recognition.
   notifications are not pseudonymized.
 
 **Re-identification.** For the arguments named by `reidentify`, the
-gateway replaces pseudonyms of this session by the original values: an
+gateway replaces pseudonyms of this session (or, for agents of MCP
+2026-07-28, of the user and endpoint) by the original values: an
 argument that is exactly one pseudonym gets the original value with its
 type (a number stays a number), pseudonyms inside longer text are
 replaced by the value's text. Then it asks the policy **again**, with the

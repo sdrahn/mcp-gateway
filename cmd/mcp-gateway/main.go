@@ -299,6 +299,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		MaxInstances:             gw.Limits.Instances,
 		ListTTL:                  gw.HTTP.ListTTL,
 		RetryWait:                gw.Approvals.RetryWait,
+		MaxRequestsPerPrincipal:  gw.Limits.RequestsPerPrincipal,
+		MaxStreamsPerPrincipal:   gw.Limits.StreamsPerPrincipal,
+		VaultIdle:                gw.Pseudonymize.VaultIdle,
 		ModernAgents:             serveModernAgents,
 	}
 	if signIns != nil {

@@ -55,6 +55,13 @@ type Router struct {
 	// RetryWait is how long a modern agent's retry waits for an
 	// approval or a sign-in (approvals.retry_wait; default 25 s).
 	RetryWait time.Duration
+	// MaxRequestsPerPrincipal and MaxStreamsPerPrincipal limit a
+	// principal's modern requests in flight and subscription streams
+	// (0: the default).
+	MaxRequestsPerPrincipal, MaxStreamsPerPrincipal int
+	// VaultIdle drops a modern agent's pseudonym vault this long after
+	// its last request (pseudonymize.vault_idle; default 1 h).
+	VaultIdle time.Duration
 	// ModernAgents serves agents' requests of MCP 2026-07-28 (agents.go).
 	// Off, such requests are served as before (a server/discover probe
 	// is unknown, and the agent falls back to initialize).
@@ -62,6 +69,8 @@ type Router struct {
 
 	once      sync.Once
 	sealer    *sealer
+	agentMu   sync.Mutex
+	agents    agentRegistry
 	registry  atomic.Pointer[map[string]*config.Backend] // the definitions in force (SetBackends)
 	reloadMu  sync.Mutex
 	live      atomic.Pointer[Settings] // the settings in force (SetSettings)
@@ -250,7 +259,8 @@ func (r *Router) init() {
 		r.pool = newPool(r.Launcher, r.IdleTimeout, r.Log)
 		r.applySettings(Settings{IdleTimeout: r.IdleTimeout, ProgressInterval: r.ProgressInterval,
 			MaxSessionsPerPrincipal: r.MaxSessionsPerPrincipal, MaxInstancesPerPrincipal: r.MaxInstancesPerPrincipal,
-			MaxInstances: r.MaxInstances, ListTTL: r.ListTTL, RetryWait: r.RetryWait})
+			MaxInstances: r.MaxInstances, ListTTL: r.ListTTL, RetryWait: r.RetryWait,
+			MaxRequestsPerPrincipal: r.MaxRequestsPerPrincipal, MaxStreamsPerPrincipal: r.MaxStreamsPerPrincipal, VaultIdle: r.VaultIdle})
 		r.pool.onListChanged = r.listChanged
 		r.pool.current = func(server string) *config.Backend { return (*r.registry.Load())[server] }
 		if r.SignIns != nil {
@@ -268,6 +278,8 @@ type Settings struct {
 	IdleTimeout, ProgressInterval                                   time.Duration
 	MaxSessionsPerPrincipal, MaxInstancesPerPrincipal, MaxInstances int
 	ListTTL, RetryWait                                              time.Duration
+	MaxRequestsPerPrincipal, MaxStreamsPerPrincipal                 int
+	VaultIdle                                                       time.Duration
 }
 
 // defaultListTTL and defaultRetryWait are ListTTL and RetryWait when
@@ -292,6 +304,15 @@ func (r *Router) applySettings(s Settings) {
 	}
 	if s.RetryWait <= 0 {
 		s.RetryWait = defaultRetryWait
+	}
+	if s.MaxRequestsPerPrincipal <= 0 {
+		s.MaxRequestsPerPrincipal = defaultRequestsPerPrincipal
+	}
+	if s.MaxStreamsPerPrincipal <= 0 {
+		s.MaxStreamsPerPrincipal = defaultStreamsPerPrincipal
+	}
+	if s.VaultIdle <= 0 {
+		s.VaultIdle = defaultVaultIdle
 	}
 	r.live.Store(&s)
 	perPrincipal := s.MaxInstancesPerPrincipal
