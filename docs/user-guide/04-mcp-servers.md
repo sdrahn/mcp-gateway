@@ -602,7 +602,13 @@ What users see:
   works. Asking again before signing in gives the same link.
 - The user signs in at the server's authorization server and consents
   there; the page they land on afterwards names the server and the user
-  it signed in for and says to return to the agent.
+  it signed in for and says to return to the agent. The gateway checks
+  first that the answer comes from the authorization server it sent the
+  user to (the `iss` parameter, RFC 9207, as MCP 2026-07-28 asks); one
+  naming another issuer fails without its code being used (`the
+  authorization response names the issuer "…", not "…", the one signed
+  in with`), as does one without `iss` from a server that announces it
+  (`… has no iss, which … announces`).
 - Tokens are renewed when they expire: when the server refuses the
   access token, the running instance gets a renewed one from the gateway
   and the call goes on, in the same session with the server. If the
@@ -628,7 +634,7 @@ How the gateway is a client of the authorization server:
 | `sign_in` key | Default | Meaning |
 |---|---|---|
 | `scopes` | the server's `scopes_supported` | the scopes to ask for |
-| `client_id` | none | the client registered with the authorization server for the redirect URI above. Without it, the gateway uses a client ID metadata document (`<origin>/oauth/client.json`) where the authorization server supports them, else registers itself dynamically (RFC 7591) once per server. With neither, the first sign-in fails: `the authorization server … neither supports client ID metadata documents nor registration; register the gateway there (redirect URI …) and set sign_in.client_id`. |
+| `client_id` | none | the client registered with the authorization server for the redirect URI above. Without it, the gateway uses a client ID metadata document (`<origin>/oauth/client.json`) where the authorization server supports them, else registers itself dynamically (RFC 7591) once per server, as a `web` application (`native` when the gateway's URL is on the local host). With neither, the first sign-in fails: `the authorization server … neither supports client ID metadata documents nor registration; register the gateway there (redirect URI …) and set sign_in.client_id`. |
 | `client_secret` | none | a credential name (in `credentials`) holding the client's secret, for a confidential client; needs `client_id` |
 
 ```yaml

@@ -36,6 +36,12 @@ type Server struct {
 	// NoRegistration and CIMD say what the metadata offers.
 	NoRegistration bool
 	CIMD           bool
+	// AnnounceIss announces iss in authorization responses (RFC 9207);
+	// Iss is the iss the authorization endpoint sends ("": none).
+	AnnounceIss bool
+	Iss         string
+	// Registrations are the metadata of the dynamic registrations.
+	Registrations []map[string]any
 
 	mu       sync.Mutex
 	codes    map[string]grant  // code to grant
@@ -104,7 +110,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/.well-known/oauth-authorization-server/as":
 		m := map[string]any{"issuer": s.Issuer(), "authorization_endpoint": s.Base + "/as/authorize",
 			"token_endpoint": s.Base + "/as/token", "revocation_endpoint": s.Base + "/as/revoke",
-			"code_challenge_methods_supported": []string{"S256"}, "client_id_metadata_document_supported": s.CIMD}
+			"code_challenge_methods_supported": []string{"S256"}, "client_id_metadata_document_supported": s.CIMD,
+			"authorization_response_iss_parameter_supported": s.AnnounceIss}
 		if !s.NoRegistration {
 			m["registration_endpoint"] = s.Base + "/as/register"
 		}
@@ -115,6 +122,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			oauthError(w, 400, "invalid_client_metadata", "not JSON")
 			return
 		}
+		s.mu.Lock()
+		s.Registrations = append(s.Registrations, m)
+		s.mu.Unlock()
 		writeJSON(w, 201, map[string]any{"client_id": "client-" + token(), "redirect_uris": m["redirect_uris"]})
 	case r.URL.Path == "/as/authorize":
 		s.authorize(w, r)
@@ -165,6 +175,9 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 	back := redirect.Query()
 	back.Set("code", code)
 	back.Set("state", q.Get("state"))
+	if s.Iss != "" {
+		back.Set("iss", s.Iss)
+	}
 	redirect.RawQuery = back.Encode()
 	http.Redirect(w, r, redirect.String(), http.StatusFound)
 }

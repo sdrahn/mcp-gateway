@@ -1296,10 +1296,15 @@ Decision records carry the protocol version; the round trips of one call
 share the approval or decision id.
 
 **Authorization.** As a resource server nothing changes: each request
-carries its token, as today. As an OAuth client (the sign-in helper,
+carries its token, as today. As an OAuth client (the sign-in,
 §5.7.3) the gateway validates `iss` in the authorization response
-(RFC 9207) before redeeming the code, sends `application_type: "web"`
-when it registers dynamically, and keeps registrations keyed by the
+(RFC 9207) against the issuer of the metadata it signed in with, exact
+string comparison, before it uses the code or shows an error from the
+response; a server that announces `iss`
+(`authorization_response_iss_parameter_supported`) must send it. It
+sends `application_type: "web"` (`"native"` for a redirect URI on the
+local host) when it registers dynamically and in its client ID metadata
+document, and keeps registrations keyed by the
 authorization server's issuer; client ID metadata documents, which the
 specification now prefers to dynamic registration, the gateway already
 serves.
@@ -2596,8 +2601,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     - servers' `InputRequiredResult` passed to legacy agents as requests
       over their session and retried at the server (§5.11.4), with policy
       on each input request (done);
-    - the sign-in helper: `iss` validated (RFC 9207), `application_type`
-      in dynamic registration;
+    - the sign-in: `iss` validated (RFC 9207), `application_type`
+      in dynamic registration (done);
     - tests against modern servers built with the SDKs that speak
       2026-07-28, stdio and HTTP.
 

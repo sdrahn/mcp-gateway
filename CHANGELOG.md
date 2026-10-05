@@ -34,6 +34,12 @@ minor release (with a warning) and removed in the next.
   elicitation is declined, a refused sampling or roots request ends the
   call; at most 8 rounds per call. Modern servers are told the
   capabilities the agent declared and policy lets them use.
+- Signing in to a server checks that the authorization response comes
+  from the authorization server the user was sent to (`iss`, RFC 9207,
+  as MCP 2026-07-28 asks) before its code is used, and the gateway
+  registers itself with `application_type` (`web`, or `native` for a
+  gateway URL on the local host); the client ID metadata document names
+  it too.
 
 ## v0.13.0 — 2026-10-05
 

@@ -430,14 +430,18 @@ func (m *Manager) PendingFor(uid uint32) []PendingInfo {
 }
 
 // Complete finishes the sign-in of state with the authorization server's
-// answer on the callback: code, or an error.
-func (m *Manager) Complete(ctx context.Context, state, code, errCode, errDesc string) (*Pending, error) {
+// answer on the callback: code, or an error, and the issuer the answer
+// names (iss, nil if absent), checked first (RFC 9207).
+func (m *Manager) Complete(ctx context.Context, state string, iss *string, code, errCode, errDesc string) (*Pending, error) {
 	pd := m.take(state)
 	if pd == nil {
 		return nil, errors.New("this sign-in link is unknown, used or expired; start the sign-in again from your agent")
 	}
-	var err error
+	// Neither the code nor an error of a response from another issuer is
+	// used.
+	err := pd.info.server.CheckIssuer(iss)
 	switch {
+	case err != nil:
 	case errCode != "":
 		err = &oauth.Error{Code: errCode, Description: errDesc}
 	case code == "":

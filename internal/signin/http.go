@@ -6,6 +6,8 @@ import (
 	"html/template"
 	"net/http"
 	"time"
+
+	"github.com/sdrahn/mcp-gateway/internal/oauth"
 )
 
 // callbackTimeout bounds the code exchange the callback waits for.
@@ -59,7 +61,11 @@ func (m *Manager) callback(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), callbackTimeout)
 	defer cancel()
-	pd, err := m.Complete(ctx, q.Get("state"), q.Get("code"), q.Get("error"), q.Get("error_description"))
+	var iss *string
+	if v, ok := q["iss"]; ok {
+		iss = &v[0]
+	}
+	pd, err := m.Complete(ctx, q.Get("state"), iss, q.Get("code"), q.Get("error"), q.Get("error_description"))
 	pageHeaders(w)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
@@ -89,6 +95,7 @@ func (m *Manager) clientMetadata(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"client_id":                  m.ClientMetadataURL,
 		"client_name":                "mcp-gateway",
+		"application_type":           oauth.ApplicationType(m.RedirectURI),
 		"redirect_uris":              []string{m.RedirectURI},
 		"grant_types":                []string{"authorization_code", "refresh_token"},
 		"response_types":             []string{"code"},

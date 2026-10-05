@@ -134,6 +134,7 @@ func serverMetadata(ctx context.Context, client *http.Client, issuer string) (*S
 func register(ctx context.Context, client *http.Client, req Request) (*Client, error) {
 	body, _ := json.Marshal(map[string]any{
 		"client_name":                cmp.Or(req.ClientName, "mcp-gateway"),
+		"application_type":           ApplicationType(req.RedirectURI),
 		"redirect_uris":              []string{req.RedirectURI},
 		"grant_types":                []string{"authorization_code", "refresh_token"},
 		"response_types":             []string{"code"},
