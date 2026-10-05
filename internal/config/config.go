@@ -175,6 +175,10 @@ type Approvals struct {
 	// clients may give up on requests that report nothing; the TypeScript
 	// SDK does after 60 s).
 	ProgressInterval time.Duration `yaml:"progress_interval"`
+	// RetryWait is how long a retry of an agent of MCP 2026-07-28 waits
+	// for an approval or a sign-in before it is answered to retry again
+	// (below the clients' request timeouts).
+	RetryWait time.Duration `yaml:"retry_wait"`
 }
 
 // Supervisor configures backend instance launching.
@@ -445,6 +449,7 @@ const (
 	DefaultPolicyTimeout         = 250 * time.Millisecond
 	DefaultApprovalTimeout       = 120 * time.Second
 	DefaultProgressInterval      = 15 * time.Second
+	DefaultRetryWait             = 25 * time.Second
 	DefaultIdleTimeout           = 15 * time.Minute
 	DefaultSessionsPerPrincipal  = 64
 	DefaultInstancesPerPrincipal = 32
@@ -552,6 +557,9 @@ func (g *Gateway) setDefaults() {
 	if g.Approvals.ProgressInterval == 0 {
 		g.Approvals.ProgressInterval = DefaultProgressInterval
 	}
+	if g.Approvals.RetryWait == 0 {
+		g.Approvals.RetryWait = DefaultRetryWait
+	}
 	if g.ApprovalTimeout == 0 {
 		g.ApprovalTimeout = DefaultApprovalTimeout
 	}
@@ -612,6 +620,9 @@ func (g *Gateway) Validate() error {
 	}
 	if g.Approvals.ProgressInterval < time.Second {
 		return errors.New("approvals.progress_interval: must be at least 1s")
+	}
+	if g.Approvals.RetryWait < time.Second {
+		return errors.New("approvals.retry_wait: must be at least 1s")
 	}
 	if g.Approvals.ControlSocket != "-" && !filepath.IsAbs(g.Approvals.ControlSocket) {
 		return fmt.Errorf("approvals.control_socket: must be an absolute path or \"-\", got %q", g.Approvals.ControlSocket)

@@ -1093,9 +1093,10 @@ from the page: the Rego tests are not installed.
 
 *Roadmap steps 24 and 25, decision D18 (accepted). Servers (step 24):
 done. Agents (step 25): in progress; serving them is switched off
-(`serveModernAgents` in `cmd/mcp-gateway`) until approvals and
-subscriptions reach them too, since agents that speak 2026-07-28 would
-otherwise lose both against today's legacy sessions.
+(`serveModernAgents` in `cmd/mcp-gateway`) until the session's state is
+re-scoped for them and the client suite tests the modern SDKs, since
+agents that speak 2026-07-28 fall back to legacy sessions meanwhile.
+Approvals, sign-ins and subscriptions reach them (§5.11.1, §5.11.2).
 Sources: the specification of 2026-07-28 (changelog, versioning,
 Streamable HTTP, stdio, MRTR, subscriptions, discovery, caching) and
 SEP-2575 (stateless MCP), SEP-2567 (sessionless MCP), SEP-2322 (MRTR),
@@ -1259,7 +1260,13 @@ or pending sign-in id, the server's own `requestState` if any
 (§5.11.4), and an expiry. A state that fails to open, belongs to
 another principal or call, or has expired is refused (`-32602`); it is
 never logged. Single use is enforced where it matters: an approval
-answer is recorded once.
+answer is recorded once. A "once" grant that allowed the call travels
+in the state for the call's later rounds (a sign-in, a server's input
+requests), so that the approval is not asked again; a server's input
+requests that policy refused are answered by the gateway, and its
+answers travel in the state too. The state expires after 30 minutes.
+An approval decided while no retry waited is kept as for a call that
+went away (§5.6.1): the next retry finds its grant.
 
 #### 5.11.3 State that belonged to the session
 
@@ -2634,6 +2641,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     - `subscriptions/listen` (done, switched off with the item above);
     - approvals and sign-ins as multi round-trip requests with a sealed
       `requestState`; waiting rounds bounded by `approvals.retry_wait`;
+      a modern server's input requests passed on to modern agents
+      (done, switched off with the items above);
     - session state re-scoped (pseudonym vault per principal and
       endpoint, limits on requests and streams per principal);
     - legacy servers' requests during a modern agent's call refused and

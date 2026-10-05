@@ -52,12 +52,16 @@ type Router struct {
 	// ListTTL is ttlMs of lists for modern agents (http.list_ttl;
 	// default 60 s).
 	ListTTL time.Duration
+	// RetryWait is how long a modern agent's retry waits for an
+	// approval or a sign-in (approvals.retry_wait; default 25 s).
+	RetryWait time.Duration
 	// ModernAgents serves agents' requests of MCP 2026-07-28 (agents.go).
 	// Off, such requests are served as before (a server/discover probe
 	// is unknown, and the agent falls back to initialize).
 	ModernAgents bool
 
 	once      sync.Once
+	sealer    *sealer
 	registry  atomic.Pointer[map[string]*config.Backend] // the definitions in force (SetBackends)
 	reloadMu  sync.Mutex
 	live      atomic.Pointer[Settings] // the settings in force (SetSettings)
@@ -78,6 +82,12 @@ type Router struct {
 type SignIns interface {
 	Signed(p principal.Principal, server string) bool
 	Run(ctx context.Context, el broker.Elicitor, b *config.Backend, p principal.Principal) error
+	// Link, LinkError, Await and Abandon sign modern agents in with
+	// multi round-trip requests (mrtr.go).
+	Link(ctx context.Context, b *config.Backend, p principal.Principal) (string, broker.URLElicitParams, error)
+	LinkError(ctx context.Context, b *config.Backend, p principal.Principal) error
+	Await(ctx context.Context, server, id string, p principal.Principal, wait time.Duration) error
+	Abandon(id string, p principal.Principal)
 	Prepare(ctx context.Context, b *config.Backend, p principal.Principal) (*config.Backend, func(), error)
 	// Rejected records that the server refused p's access token.
 	Rejected(server string, p principal.Principal)
@@ -236,10 +246,11 @@ func (r *Router) init() {
 			initial = map[string]*config.Backend{}
 		}
 		r.registry.Store(&initial)
+		r.sealer = newSealer()
 		r.pool = newPool(r.Launcher, r.IdleTimeout, r.Log)
 		r.applySettings(Settings{IdleTimeout: r.IdleTimeout, ProgressInterval: r.ProgressInterval,
 			MaxSessionsPerPrincipal: r.MaxSessionsPerPrincipal, MaxInstancesPerPrincipal: r.MaxInstancesPerPrincipal,
-			MaxInstances: r.MaxInstances, ListTTL: r.ListTTL})
+			MaxInstances: r.MaxInstances, ListTTL: r.ListTTL, RetryWait: r.RetryWait})
 		r.pool.onListChanged = r.listChanged
 		r.pool.current = func(server string) *config.Backend { return (*r.registry.Load())[server] }
 		if r.SignIns != nil {
@@ -256,11 +267,15 @@ func (r *Router) init() {
 type Settings struct {
 	IdleTimeout, ProgressInterval                                   time.Duration
 	MaxSessionsPerPrincipal, MaxInstancesPerPrincipal, MaxInstances int
-	ListTTL                                                         time.Duration
+	ListTTL, RetryWait                                              time.Duration
 }
 
-// defaultListTTL is ListTTL when it is not set.
-const defaultListTTL = 60 * time.Second
+// defaultListTTL and defaultRetryWait are ListTTL and RetryWait when
+// they are not set.
+const (
+	defaultListTTL   = 60 * time.Second
+	defaultRetryWait = 25 * time.Second
+)
 
 // SetSettings changes the settings (a reload of the configuration):
 // limits apply to the next session or instance, the idle timeout to
@@ -274,6 +289,9 @@ func (r *Router) SetSettings(s Settings) {
 func (r *Router) applySettings(s Settings) {
 	if s.ListTTL <= 0 {
 		s.ListTTL = defaultListTTL
+	}
+	if s.RetryWait <= 0 {
+		s.RetryWait = defaultRetryWait
 	}
 	r.live.Store(&s)
 	perPrincipal := s.MaxInstancesPerPrincipal

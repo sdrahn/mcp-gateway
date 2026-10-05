@@ -192,6 +192,9 @@ func (s *Session) cacheable(method string, result any) any {
 	if err != nil || json.Unmarshal(raw, &res) != nil || res == nil {
 		return result
 	}
+	if string(res["resultType"]) == `"input_required"` {
+		return res // an interim result: nothing to cache
+	}
 	res["resultType"] = json.RawMessage(`"complete"`)
 	set := func(k string, v any) { res[k], _ = json.Marshal(v) }
 	switch method {

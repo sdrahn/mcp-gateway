@@ -13,6 +13,7 @@ var Reloadable = []string{
 	"approval_timeout",
 	"approvals.url_template",
 	"approvals.progress_interval",
+	"approvals.retry_wait",
 	"notifications",
 	"limits",
 	"supervisor.idle_timeout",

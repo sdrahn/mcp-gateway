@@ -298,6 +298,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		MaxInstancesPerPrincipal: gw.Limits.InstancesPerPrincipal,
 		MaxInstances:             gw.Limits.Instances,
 		ListTTL:                  gw.HTTP.ListTTL,
+		RetryWait:                gw.Approvals.RetryWait,
 		ModernAgents:             serveModernAgents,
 	}
 	if signIns != nil {
