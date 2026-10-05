@@ -40,7 +40,7 @@ func TestCheck(t *testing.T) {
 			 "obligations": {"redact_output": ["secret"], "max_output_bytes": 1000, "rate_limit": "10/m",
 			   "arg_constraints": {"path": "^/srv/"}, "audit": "full", "reidentify": "customer",
 			   "pseudonymize": {"detect": ["email", "iban"], "patterns": {"customer": "C-[0-9]+"}, "fields": {"name": "person"}}}},
-			{"server": "*", "client": "sampling.create", "allow_sensitive": true},
+			{"server": "*", "client": "sampling/createMessage", "allow_sensitive": true},
 			{"server": "*", "resource": "file://${home}/*", "effect": "deny"}]}},
 			"bindings": {"users": {"alice": ["r"]}, "groups": {"dev": ["r"]}},
 			"approvers": {"default": ["self", "role:r", "group:wheel", "user:bob"]}}`, nil},

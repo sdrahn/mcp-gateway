@@ -70,7 +70,7 @@
         "tool": { "description": "Tool name glob.", "type": "string" },
         "prompt": { "description": "Prompt name glob.", "type": "string" },
         "resource": { "description": "Resource URI glob; ${home} is the principal's home directory.", "type": "string" },
-        "client": { "description": "Glob over requests MCP servers send to the agent: sampling.create, elicitation.create, roots.list.", "type": "string" },
+        "client": { "description": "Glob over the methods of requests MCP servers send to the agent: sampling/createMessage, elicitation/create, roots/list.", "type": "string" },
         "effect": { "enum": ["allow", "deny"] },
         "require_approval": { "type": "boolean" },
         "approval_channel": { "enum": ["url", "form", "oob"] },
