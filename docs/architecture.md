@@ -261,6 +261,9 @@ mapped remote ones.)
   as a dynamic user, isolated by the instance's MCS pair.
 - **Roles** are derived by policy data (`data.mcp.rbac.bindings`) from groups,
   users or claims — role assignment is itself policy, not code.
+- **Scopes** (proposed, §6.7, D17): a remote principal's `scopes` are the
+  token's `scope` (or `scp`) claim. They never add a role; role data may
+  map them to a ceiling on what the agent holding the token may do.
 - `client` comes from the MCP `initialize` request (`clientInfo`); it is
   **self-asserted** and must only be used for convenience rules, never as a
   security boundary.
@@ -1352,6 +1355,85 @@ grant > ask > default deny.)
   item 6), emits `list_changed` notifications and records a
   `mcp-policy-change` audit event.
 
+### 6.7 Token scopes as a ceiling (proposed)
+
+*Proposed for roadmap step 23 (0.14), decision D17. Not implemented.*
+
+An OAuth scope says what a client may do on the user's behalf: the
+client asks for it, the user consents, the authorization server grants
+it, often by the client's configuration rather than the user's (a
+Keycloak client scope assigned to a client is granted to each of its
+users unless role scope mappings restrict it). A scope is a delegation,
+not an entitlement. So scopes never grant a role; who the principal is
+and which roles they hold stays with `sub`, the groups claim and the
+bindings (§5.2, §6.4). What scopes may do is narrow: an administrator's
+automation agent gets a token with `mcp:read` and may list and read,
+not change anything, although its user could.
+
+**Input.** `input.principal.scopes`: the token's scopes (`scope`, else
+`scp`), for remote principals only. Local principals and principals of
+`mcp-connect` have no token and no scopes. A new optional key: the input
+stays version 1 (D10). Custom policy can use it at once.
+
+**Role data.** An optional `scopes` object maps a scope to a ceiling:
+
+```json
+{
+  "scopes": {
+    "mcp:read":  { "roles": ["viewer"] },
+    "mcp:fs":    { "permissions": [ { "server": "fs", "tool": "*" },
+                                    { "server": "fs", "resource": "*" } ] },
+    "mcp:admin": { "unlimited": true },
+    "default":   { "unlimited": true }
+  }
+}
+```
+
+- A ceiling is the permissions of named roles (`roles`), permissions of
+  its own in the form of §6.4 (`permissions`: targets and globs; the
+  fields that qualify an allow, such as `require_approval` or
+  `obligations`, are refused here), or `unlimited`.
+- A token's ceiling is the union of the ceilings of its scopes that the
+  map names: scopes add up, as they do in OAuth. Scopes the map does not
+  name are ignored (`openid`, `profile`, …).
+- `http.scopes` stays what it is: scopes every token must carry to be
+  accepted at all, checked before any of this.
+- `default` is the ceiling of a token that carries none of the named
+  scopes. Absent, it is `unlimited`: role data without `scopes`, or tokens
+  without such scopes, behave as today. Set to a ceiling (or to
+  `{"permissions": []}`, nothing), it makes narrowing the rule rather
+  than the exception.
+
+**Decision.** A request is allowed only if the roles allow it **and** it
+lies within the ceiling: explicit denies still win, the ceiling only
+removes. A request the roles would allow, or allow after an approval,
+but the ceiling does not is denied, not asked: the ceiling limits the
+token, and an approval by the same user, or a standing grant, does not
+lift it. Lists (`data.mcp.filter.visible`) show what the roles and the
+ceiling both allow. The decision names the scopes whose ceilings would
+allow the request (`required_scopes`); the reason says it lies outside
+the token's scopes.
+
+**Step-up.** For a call outside the ceiling over HTTP, the gateway
+answers the request with `403` and `WWW-Authenticate: Bearer
+error="insufficient_scope", scope="<the token's scopes> <a required
+scope>"` (RFC 6750 §3.1), as the MCP authorization specification
+describes for a scope challenge, so that a client that supports it has
+the user authorize the wider scope and retries. Clients that do not get
+the call's error with the same text.
+
+**Checks and tools.** `mcp-gateway --check-policy-data` refuses a ceiling
+naming an unknown role or with qualifying fields; Cockpit shows the map
+next to the roles; `mcp-gateway-admin setup http --token` shows the
+token's scopes and its ceiling; decision records in the audit trail
+carry the token's scopes and whether the ceiling denied.
+
+**Managing roles in the identity provider** needs none of this: a claim
+with the user's realm or client roles (a mapper in Keycloak), named in
+`http.groups_claim`, and bindings of gateway roles to those names make
+the identity provider the place where roles are assigned. That works
+today.
+
 ## 7. Key flows
 
 ### 7.1 Local `tools/call` requiring approval
@@ -1720,6 +1802,39 @@ expiry instead of answering `401`. The callback on the Cockpit page (which would
 to a local account): remote principals have no Cockpit login. Tokens
 in the kernel keyring or a TPM-sealed key: not available in containers
 and not on every host; a key sealed with `systemd-creds` may follow.
+
+**D17 — Token scopes limit what an agent may do; they never grant.**
+*Proposed (2026-10-05, for roadmap step 23; not decided):* a remote
+principal's token scopes are part of the policy input
+(`input.principal.scopes`), and role data may map scopes to ceilings
+(§6.7). A request must be allowed by the principal's roles and lie
+within the ceiling of the token's scopes; outside it, the request is
+denied (no approval), lists hide it, and over HTTP the gateway answers
+with an `insufficient_scope` challenge naming a scope that would allow
+it. Without a `scopes` map, or for a token with none of its scopes and
+no `default` ceiling, nothing changes.
+*Rationale:* in OAuth a scope is what a client may do for its user,
+requested by the client and often granted by the client's
+configuration; letting it grant roles would tie privileges to how a
+client is set up, and a permissive client would hand out more than the
+user's roles. As a ceiling, a scope can only take away, so a mistake in
+the identity provider or in the map denies too much, never too little,
+and an administrator can give an automation agent a token narrower than
+their own rights. The user's entitlements stay in claims that follow the
+user (groups, roles), which bindings already use.
+*Considered:* scopes as a source of roles (rejected: above); a scope per
+server or tool (`mcp:fs:write_file`): exact, but the identity provider
+fills with scopes and every new tool needs one there, so a map from a
+few coarse scopes to ceilings is kept in the gateway's role data;
+approvals lifting a ceiling: the same user would approve what their
+token was narrowed not to do; an audience per server endpoint
+(`/mcp/fs`) as a ceiling: complements this for whole servers and may
+follow.
+*Open for the discussion:* whether lists should show tools outside the
+ceiling, so that clients can step up when calling them (more discoverable,
+but an agent sees what it cannot call); whether `default` should become
+narrowing in a later release; scope names to recommend (`mcp:read`,
+`mcp:write`, `mcp:admin`, `mcp:<server>`).
 
 ## 10. Repository layout
 
@@ -2166,6 +2281,18 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       refused (audience, issuer, expiry, scope). The gateway's domain
       also reaches the identity provider on `http_cache_port_t` (8080,
       Keycloak's default), where it could not fetch the keys before.
+
+23. **Scopes that narrow** (0.14, proposed):
+    - token scopes as a ceiling (§6.7, decision D17, proposed): the
+      token's scopes in the policy input; an optional `scopes` map in the
+      role data from scopes to ceilings (roles, permissions, or
+      unlimited; a `default` for tokens without a named scope); requests
+      outside the ceiling denied without approval and hidden from lists,
+      with an `insufficient_scope` challenge over HTTP for clients to
+      step up; checks in `--check-policy-data`, the ceiling in `setup
+      http --token`, Cockpit and the audit trail; the user guide with
+      Keycloak client scopes, and with roles assigned in the identity
+      provider through `http.groups_claim`.
 
 ## 12. Open items
 
