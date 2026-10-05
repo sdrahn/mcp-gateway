@@ -27,6 +27,13 @@ minor release (with a warning) and removed in the next.
   a call by closing its stream. A server unavailable when probed is
   probed again at its next start instead of being taken for an earlier
   version.
+- A modern server that asks the client for input (a form, sampling,
+  roots) gets it: the gateway asks the agent over its session, each
+  request decided by policy as a legacy server's request is, and calls
+  the server again with the answers; the agent sees one call. A refused
+  elicitation is declined, a refused sampling or roots request ends the
+  call; at most 8 rounds per call. Modern servers are told the
+  capabilities the agent declared and policy lets them use.
 
 ## v0.13.0 — 2026-10-05
 

@@ -56,9 +56,12 @@ func (fakePDP) Decide(_ context.Context, in pep.Input) (pep.Decision, error) {
 	case "roots.list":
 		return allow, nil
 	case "sampling.create":
+		if in.Resource.Server == "moderndeny" {
+			return deny, nil
+		}
 		return pep.Decision{Effect: pep.Allow, Obligations: &pep.Obligations{Pseudonymize: &pseudo.Spec{Detect: []string{"email"}}}}, nil
 	case "elicitation.create":
-		if in.Args["sensitive"] == true {
+		if in.Args["sensitive"] == true || in.Resource.Server == "moderndeny" {
 			return deny, nil
 		}
 		return allow, nil
@@ -476,9 +479,38 @@ func (f *fakeInstance) modernRequest(c *jsonrpc.Conn, m *jsonrpc.Message, name s
 		_ = c.Write(ack)
 	case "tools/call":
 		switch name {
-		case "ask_input":
-			respond(map[string]any{"resultType": "input_required", "inputRequests": map[string]any{
-				"q": map[string]any{"method": "elicitation/create", "params": map[string]any{"message": "?"}}}})
+		case "ask_input", "ask_secret", "ask_sample", "ask_forever":
+			// Input asked for with a result (multi round-trip): the
+			// answers and the state come back with the next call.
+			var in struct {
+				InputResponses json.RawMessage `json:"inputResponses"`
+				RequestState   *string         `json:"requestState"`
+			}
+			_ = json.Unmarshal(m.Params, &in)
+			if in.RequestState != nil && *in.RequestState == "s1" && name != "ask_forever" {
+				respond(text("answers " + string(in.InputResponses)))
+				return true
+			}
+			requests := map[string]any{
+				"ask_input": map[string]any{
+					"name": map[string]any{"method": "elicitation/create", "params": map[string]any{"message": "Your name?",
+						"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{"name": map[string]any{"type": "string"}}}}},
+					"roots": map[string]any{"method": "roots/list", "params": map[string]any{}},
+				},
+				"ask_secret": map[string]any{
+					"pw": map[string]any{"method": "elicitation/create", "params": map[string]any{"message": "Password?",
+						"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{"password": map[string]any{"type": "string"}}}}},
+				},
+				"ask_sample": map[string]any{
+					"llm": map[string]any{"method": "sampling/createMessage", "params": map[string]any{"maxTokens": 10,
+						"messages": []any{map[string]any{"role": "user", "content": map[string]any{"type": "text", "text": "hi"}}}}},
+				},
+			}[name]
+			r := map[string]any{"resultType": "input_required", "requestState": "s1"}
+			if requests != nil {
+				r["inputRequests"] = requests
+			}
+			respond(r)
 		case "read_log":
 			if meta[metaLogLevel] != nil {
 				n, _ := jsonrpc.NewNotification("notifications/message", map[string]any{"level": "info", "data": "logged"})

@@ -1259,15 +1259,19 @@ answer is recorded once.
 |---|---|---|
 | modern | modern | Passes a server's `InputRequiredResult` on after policy has decided each input request as a request from the server is decided today (`client` permissions, `allow_sensitive`, pseudonymization of sampling messages). The server's `requestState` travels inside the gateway's; the retry goes to the principal's instance with the server's state restored. |
 | modern | legacy | Calls pass as today. A request the legacy server sends while it runs a modern agent's call (`elicitation/create`, `sampling/createMessage`, `roots/list`) is refused: an elicitation is declined, the others get an error, each audited. The gateway does not park the server's request to turn it into an `InputRequiredResult` (decided: not worth the state it needs); such servers keep elicitation and sampling with legacy agents, and get them with modern agents once they speak 2026-07-28. |
-| legacy | modern | The server answers `InputRequiredResult`. The gateway asks the agent over its session (the requests the server wants, decided by policy as above), retries the call at the server with `inputResponses` and the server's `requestState`, and the agent sees one call. |
+| legacy | modern | The server answers `InputRequiredResult`. The gateway asks the agent over its session (the requests the server wants, decided by policy as above), retries the call at the server with `inputResponses` and the server's `requestState`, and the agent sees one call. An elicitation policy or the agent refuses is answered as declined; a refused sampling or roots request ends the call, since answers have no error form. At most 8 rounds per call. `inputResponses` and `requestState` an agent puts into its own request are removed: the answers are the gateway's to give, after policy. |
 | legacy | legacy | as today |
 
 #### 5.11.5 Servers (modern)
 
 The gateway sends each request with `_meta`: the modern version, its
 `clientInfo`, and as `clientCapabilities` what the agent of this request
-declared and policy lets the server use (elicitation, sampling, roots),
-so a server asks only for what the agent can give; to a legacy server it
+declared and policy lets the server use (elicitation and each of its
+modes, sampling, roots; decided without the arguments of a particular
+request, which policy still decides on each), so a server asks only for
+what the agent can give. Only the requests that may be answered with
+`InputRequiredResult` (`tools/call`, `resources/read`, `prompts/get`)
+carry them; others declare none; to a legacy server it
 keeps declaring a fixed set at `initialize`. It opens
 `subscriptions/listen` on an instance for the changes it relays, and
 answers `UnsupportedProtocolVersionError` by choosing from the server's
@@ -2588,10 +2592,10 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     - the connector modern: era by a modern request's `400`, the required
       headers (`Mcp-Method`, `Mcp-Name`, `Mcp-Param-*`), no session
       (done);
-    - the agent's capabilities in requests as policy allows;
+    - the agent's capabilities in requests as policy allows (done);
     - servers' `InputRequiredResult` passed to legacy agents as requests
       over their session and retried at the server (§5.11.4), with policy
-      on each input request;
+      on each input request (done);
     - the sign-in helper: `iss` validated (RFC 9207), `application_type`
       in dynamic registration;
     - tests against modern servers built with the SDKs that speak

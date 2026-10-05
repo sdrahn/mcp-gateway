@@ -410,10 +410,20 @@ x-mcp-header"). Cancelling a call closes its stream. A server that is
 unavailable when probed (an HTTP error without an MCP answer) is probed
 again at its next start.
 
-Not yet: a modern server's request for input from the client (an
-`InputRequiredResult`) ends the call with an error naming it; that
-follows in 0.14. `mcp-gateway-admin inspect` and the doctor probe the
-same way.
+A modern server asks the client for input (a form, a sampling request,
+its roots) with a result instead of a request of its own. The gateway
+asks the agent over its session, as it relays a legacy server's
+requests: each decided by the `client` permissions of the policy and
+labelled with the server's name, sampling messages pseudonymized as
+policy says. It then calls the server again with the answers, and the
+agent sees one call. An elicitation policy or the user refuses reaches
+the server as declined; a refused sampling or roots request ends the
+call with the policy's error. One call takes at most 8 such rounds
+("… asked the client for input more than 8 times in one call"). A
+modern server is told only of the capabilities the agent declared and
+the policy lets it use, on calls, reads and prompts.
+
+`mcp-gateway-admin inspect` and the doctor probe the same way.
 
 ## Privileged servers
 

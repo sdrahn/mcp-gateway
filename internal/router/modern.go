@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
+	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/signin"
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
@@ -79,7 +81,7 @@ type discoverResult struct {
 func (u *upstream) discover(ctx context.Context) (initResult, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
-	params, err := withMeta(nil, u.meta(nil))
+	params, err := withMeta(nil, u.meta(nil, "server/discover"))
 	if err != nil {
 		return initResult{}, false, err
 	}
@@ -164,11 +166,15 @@ func (u *upstream) probe(ctx context.Context, method string, params json.RawMess
 // client capabilities yet: a modern server then asks for nothing from the
 // client (multi round-trip requests come with roadmap step 24's relay of
 // input requests).
-func (u *upstream) meta(s *Session) map[string]any {
+func (u *upstream) meta(s *Session, method string) map[string]any {
+	caps := map[string]any{}
+	if s != nil && inputMethods[method] {
+		caps = s.serverCapabilities(u.backend)
+	}
 	m := map[string]any{
 		metaProtocolVersion:    modernVersion,
 		metaClientInfo:         map[string]any{"name": "mcp-gateway", "version": version.Version},
-		metaClientCapabilities: map[string]any{},
+		metaClientCapabilities: caps,
 	}
 	if level := s.currentLogLevel(); level != "" {
 		m[metaLogLevel] = level
@@ -280,7 +286,7 @@ func (u *upstream) listen() {
 	if id == nil {
 		return
 	}
-	params, err := withMeta(map[string]any{"notifications": filter}, u.meta(nil))
+	params, err := withMeta(map[string]any{"notifications": filter}, u.meta(nil, "subscriptions/listen"))
 	if err == nil {
 		var req *jsonrpc.Message
 		if req, err = jsonrpc.NewRequest(id, "subscriptions/listen", params); err == nil {
@@ -369,4 +375,103 @@ func completeResult(raw json.RawMessage) (json.RawMessage, bool) {
 		return raw, false
 	}
 	return out, false
+}
+
+// inputMethods are the requests a modern server may answer with an
+// InputRequiredResult: those get the client's capabilities.
+var inputMethods = map[string]bool{"tools/call": true, "resources/read": true, "prompts/get": true}
+
+// maxInputRounds bounds the input rounds of one call.
+const maxInputRounds = 8
+
+// serverCapabilities returns what the gateway declares to a modern server
+// b on a request of s: of what the client declared, the capabilities to
+// ask it for input (elicitation, its modes, sampling, roots) that policy
+// lets b use. Anything else the client declared (extensions, tasks,
+// experimental) is not passed on.
+func (s *Session) serverCapabilities(b *config.Backend) map[string]any {
+	caps := map[string]any{}
+	allowed := func(method string, args map[string]any) bool {
+		return pep.Evaluate(s.ctx, s.r.PDP, pep.Input{
+			Principal: s.snapshotPrincipal(),
+			Action:    backendRequests[method],
+			Resource:  pep.Resource{Server: b.Name, Kind: "client", Name: method, Privileged: b.Privileged},
+			Args:      args,
+			Context:   s.policyContext(newDecisionID()),
+		}).Effect == pep.Allow
+	}
+	modes := map[string]any{}
+	for mode, raw := range s.elicitationModes() {
+		if !allowed("elicitation/create", map[string]any{"mode": mode, "fields": []string{}, "sensitive": false}) {
+			continue
+		}
+		var v any = map[string]any{}
+		if len(raw) > 0 {
+			_ = json.Unmarshal(raw, &v)
+		}
+		modes[mode] = v
+	}
+	if len(modes) > 0 {
+		caps["elicitation"] = modes
+	}
+	s.mu.Lock()
+	declared := map[string]json.RawMessage{"sampling": s.clientCaps["sampling"], "roots": s.clientCaps["roots"]}
+	s.mu.Unlock()
+	for name, method := range map[string]string{"sampling": "sampling/createMessage", "roots": "roots/list"} {
+		var v any
+		if declared[name] == nil || json.Unmarshal(declared[name], &v) != nil || !allowed(method, nil) {
+			continue
+		}
+		caps[name] = v
+	}
+	return caps
+}
+
+// inputRequired is an InputRequiredResult (MCP 2026-07-28).
+type inputRequired struct {
+	InputRequests map[string]struct {
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	} `json:"inputRequests"`
+	RequestState *string `json:"requestState"`
+}
+
+// answerInput asks the client for what a modern server's
+// InputRequiredResult (raw) requests, each request decided and relayed as
+// a request from the server would be, and sets the answers and the
+// server's state in params for the call's next round. An elicitation
+// the gateway or the client refuses is declined; a refused sampling or
+// roots request ends the call (the round's answers have no error form).
+func (s *Session) answerInput(ctx context.Context, u *upstream, raw json.RawMessage, params map[string]json.RawMessage) *jsonrpc.Error {
+	var r inputRequired
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return rpcError(jsonrpc.CodeInternalError, u.backend.Name+" asked for input in a malformed result")
+	}
+	keys := make([]string, 0, len(r.InputRequests))
+	for k := range r.InputRequests {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	responses := make(map[string]json.RawMessage, len(keys))
+	for _, k := range keys {
+		in := r.InputRequests[k]
+		reply := s.relayBackendRequest(ctx, u, &jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: json.RawMessage(strconv.Quote(k)), Method: in.Method, Params: in.Params}, requestOf(ctx))
+		switch {
+		case reply.Error == nil:
+			responses[k] = reply.Result
+		case in.Method == "elicitation/create":
+			responses[k] = json.RawMessage(`{"action":"decline"}`)
+		default:
+			return &jsonrpc.Error{Code: reply.Error.Code, Message: fmt.Sprintf("%s asked the client (%s): %s", u.backend.Name, in.Method, reply.Error.Message)}
+		}
+	}
+	delete(params, "inputResponses")
+	delete(params, "requestState")
+	if len(responses) > 0 {
+		params["inputResponses"], _ = json.Marshal(responses)
+	}
+	if r.RequestState != nil {
+		params["requestState"], _ = json.Marshal(*r.RequestState)
+	}
+	return nil
 }
