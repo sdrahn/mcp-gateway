@@ -1565,7 +1565,8 @@ grant > ask > default deny.)
 
 ### 6.7 Token scopes as a ceiling (proposed)
 
-*Proposed for roadmap step 23 (0.14), decision D17. Not implemented.*
+*Proposed for roadmap step 23, decision D17. Not implemented; open
+for now, with no release planned.*
 
 An OAuth scope says what a client may do on the user's behalf: the
 client asks for it, the user consents, the authorization server grants
@@ -2543,7 +2544,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       also reaches the identity provider on `http_cache_port_t` (8080,
       Keycloak's default), where it could not fetch the keys before.
 
-23. **Scopes that narrow** (0.14, proposed):
+23. **Scopes that narrow** (proposed, no release planned):
     - token scopes as a ceiling (§6.7, decision D17, proposed): the
       token's scopes in the policy input; an optional `scopes` map in the
       role data from scopes to ceilings (roles, permissions, or
@@ -2555,7 +2556,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       Keycloak client scopes, and with roles assigned in the identity
       provider through `http.groups_claim`.
 
-24. **Modern MCP servers** (§5.11, D18):
+24. **Modern MCP servers** (0.14, §5.11, D18):
     - the server side dual-era: era probed per definition
       (`server/discover`, fallback to `initialize`; the connector by a
       modern request's `400`), requests with `_meta` and the agent's
