@@ -2607,7 +2607,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       2026-07-28, stdio and HTTP (done: `test/servers`,
       `e2e/servers_test.go`, Go, Python and TypeScript SDKs).
 
-25. **Modern MCP agents** (§5.11, D18):
+25. **Modern MCP agents** (0.14, §5.11, D18):
     - requests served statelessly beside legacy sessions: headers checked
       against the body, `server/discover`, per-request capabilities and
       log level, `subscriptions/listen`, `ttlMs` and `cacheScope` on
@@ -2618,8 +2618,9 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       endpoint, limits on requests and streams per principal);
     - legacy servers' requests during a modern agent's call refused and
       audited (§5.11.4);
-    - the client suite with the modern SDKs (Python SDK 2, mcp-go 1.1,
-      the TypeScript SDK's modern transport) over the socket and HTTPS.
+    - the client suite with the modern SDKs (Python `mcp` 2.3, mcp-go
+      1.1, the TypeScript SDK 2.3's `@modelcontextprotocol/client`)
+      over the socket and HTTPS.
 
 ## 12. Open items
 
