@@ -40,6 +40,10 @@ minor release (with a warning) and removed in the next.
   registers itself with `application_type` (`web`, or `native` for a
   gateway URL on the local host); the client ID metadata document names
   it too.
+- CI tests the gateway with servers of MCP 2026-07-28 built with the
+  official Go, Python and TypeScript SDKs, over stdio and HTTP: calls,
+  a form the server asks for with a multi round-trip result, and a
+  parameter mirrored into a header (`test/servers`).
 
 ## v0.13.0 — 2026-10-05
 

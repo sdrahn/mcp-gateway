@@ -1,0 +1,10 @@
+{
+  "name": "mcp-gateway-server-ts",
+  "private": true,
+  "description": "Test MCP server of MCP 2026-07-28 built with the official TypeScript SDK (e2e/servers_test.go)",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.3.1",
+    "zod": "4.6.5"
+  }
+}
