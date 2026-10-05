@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -20,9 +21,19 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
 
-// protocolVersion is the MCP version offered to the server (the one the
-// gateway speaks to backends).
-const protocolVersion = "2025-06-18"
+// protocolVersion is the legacy MCP version offered to a server that
+// needs the initialize handshake, modernVersion the one used with a
+// server that answers server/discover (the versions the gateway speaks to
+// servers, internal/router).
+const (
+	protocolVersion = "2025-11-25"
+	modernVersion   = "2026-07-28"
+)
+
+// ErrProbeEnded is returned when the server exited on server/discover, as
+// some legacy servers do on a request before initialize; Start then
+// starts it again and initializes it.
+var ErrProbeEnded = errors.New("the server exited when probed with server/discover")
 
 // maxPages bounds paginated lists, as the router does.
 const maxPages = 100
@@ -94,7 +105,12 @@ type Session struct {
 // and keeps the session open for calls. rw is closed when ctx ends; Close
 // ends the session without closing rw.
 func Open(ctx context.Context, rw io.ReadWriteCloser) (*Session, *Result, error) {
-	s := &Session{ctx: ctx, c: &client{conn: jsonrpc.NewConn(rw)}, stop: make(chan struct{})}
+	return open(ctx, rw, false)
+}
+
+// open is Open; legacy skips the server/discover probe.
+func open(ctx context.Context, rw io.ReadWriteCloser, legacy bool) (*Session, *Result, error) {
+	s := &Session{ctx: ctx, c: &client{conn: jsonrpc.NewConn(rw), legacy: legacy}, stop: make(chan struct{})}
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -103,6 +119,10 @@ func Open(ctx context.Context, rw io.ReadWriteCloser) (*Session, *Result, error)
 		}
 	}()
 	res, err := s.c.probe()
+	if errors.Is(err, ErrProbeEnded) {
+		s.Close()
+		return nil, nil, err
+	}
 	if err != nil {
 		s.Close()
 		return nil, nil, s.explain(err)
@@ -175,9 +195,58 @@ func (s *Session) Call(tool string, args map[string]any) (CallResult, error) {
 type client struct {
 	conn   *jsonrpc.Conn
 	nextID int
+	// legacy skips the server/discover probe; modern is set for a server
+	// that answered it (requests then carry the protocol fields in
+	// _meta).
+	legacy, modern bool
+}
+
+// discover probes the server with server/discover (MCP 2026-07-28). It
+// returns its result in the form of an initialize result for a server
+// that speaks modernVersion, nil for a legacy server (any other error).
+func (c *client) discover() (*Result, error) {
+	raw, err := c.call("server/discover", map[string]any{})
+	var rpcErr *jsonrpc.Error
+	switch {
+	case errors.As(err, &rpcErr):
+		if rpcErr.Code == -32022 || rpcErr.Code == -32021 || rpcErr.Code == -32020 {
+			return nil, fmt.Errorf("server/discover: %s %s", rpcErr.Message, rpcErr.Data)
+		}
+		return nil, nil
+	case errors.Is(err, io.EOF):
+		return nil, ErrProbeEnded
+	case err != nil:
+		return nil, err
+	}
+	var d struct {
+		SupportedVersions []string                   `json:"supportedVersions"`
+		Capabilities      map[string]json.RawMessage `json:"capabilities"`
+		Instructions      string                     `json:"instructions"`
+		Meta              struct {
+			ServerInfo ServerInfo `json:"io.modelcontextprotocol/serverInfo"`
+		} `json:"_meta"`
+	}
+	if json.Unmarshal(raw, &d) != nil || len(d.SupportedVersions) == 0 {
+		return nil, nil
+	}
+	if !slices.Contains(d.SupportedVersions, modernVersion) {
+		return nil, fmt.Errorf("the server speaks MCP %s, the gateway %s and earlier", strings.Join(d.SupportedVersions, ", "), modernVersion)
+	}
+	c.modern = true
+	return &Result{Server: d.Meta.ServerInfo, ProtocolVersion: modernVersion, Capabilities: d.Capabilities,
+		Instructions: d.Instructions, Tools: []Tool{}}, nil
 }
 
 func (c *client) probe() (*Result, error) {
+	if !c.legacy {
+		res, err := c.discover()
+		if err != nil {
+			return nil, err
+		}
+		if res != nil {
+			return c.lists(res)
+		}
+	}
 	raw, err := c.call("initialize", map[string]any{
 		"protocolVersion": protocolVersion,
 		"capabilities":    map[string]any{},
@@ -202,13 +271,18 @@ func (c *client) probe() (*Result, error) {
 	if err := c.conn.Write(n); err != nil {
 		return nil, err
 	}
-	res := &Result{
+	return c.lists(&Result{
 		Server:          init.ServerInfo,
 		ProtocolVersion: init.ProtocolVersion,
 		Capabilities:    init.Capabilities,
 		Instructions:    init.Instructions,
 		Tools:           []Tool{},
-	}
+	})
+}
+
+// lists adds what the server's capabilities announce to res.
+func (c *client) lists(res *Result) (*Result, error) {
+	init := res
 	if _, ok := init.Capabilities["tools"]; ok {
 		if err := c.list("tools/list", "tools", &res.Tools); err != nil {
 			return nil, err
@@ -266,7 +340,14 @@ func (c *client) list(method, field string, out any) error {
 }
 
 // call sends a request and waits for its response.
-func (c *client) call(method string, params any) (json.RawMessage, error) {
+func (c *client) call(method string, params map[string]any) (json.RawMessage, error) {
+	if c.modern || method == "server/discover" {
+		params["_meta"] = map[string]any{
+			"io.modelcontextprotocol/protocolVersion":    modernVersion,
+			"io.modelcontextprotocol/clientInfo":         map[string]any{"name": "mcp-gateway-inspect", "version": version.Version},
+			"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+		}
+	}
 	c.nextID++
 	id := json.RawMessage(strconv.Itoa(c.nextID))
 	req, err := jsonrpc.NewRequest(id, method, params)

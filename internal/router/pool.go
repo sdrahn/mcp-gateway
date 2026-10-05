@@ -75,6 +75,9 @@ type pool struct {
 	// limits and stopped by closeAll like the others.
 	retired map[*poolEntry]struct{}
 	failing map[string]*failures
+	// eras remembers, per server definition, whether its server speaks
+	// modern MCP (modern.go): learned by probing the first instance.
+	eras map[*config.Backend]era
 }
 
 // each calls f for every entry, retired ones included; p.mu must be held.
@@ -150,7 +153,8 @@ var errDefinitionChanged = errors.New("server definition changed; try again")
 func newPool(l supervisor.Launcher, idle time.Duration, log *slog.Logger) *pool {
 	return &pool{launcher: l, idle: idle, log: log, now: time.Now,
 		backoffBase: backoffBase, backoffMax: backoffMax, stableAfter: stableAfter, drainTimeout: drainTimeout,
-		entries: map[string]*poolEntry{}, retired: map[*poolEntry]struct{}{}, failing: map[string]*failures{}}
+		entries: map[string]*poolEntry{}, retired: map[*poolEntry]struct{}{}, failing: map[string]*failures{},
+		eras: map[*config.Backend]era{}}
 }
 
 // makeRoom checks the instance limits for a new instance of pr. At a
@@ -353,6 +357,8 @@ func (p *pool) start(ctx context.Context, b *config.Backend, pr principal.Princi
 		return nil, err
 	}
 	hooks := upstreamHooks{
+		era:           p.era(b),
+		learnEra:      func(e era) { p.setEra(b, e) },
 		internal:      pr.Transport == principal.TransportInternal,
 		onListChanged: p.onListChanged,
 	}
@@ -362,6 +368,19 @@ func (p *pool) start(ctx context.Context, b *config.Backend, pr principal.Princi
 		}
 	}
 	up, err := newUpstream(ctx, b, id, inst, p.log, hooks)
+	if errors.Is(err, errProbeEnded) {
+		// A legacy server that ends on a request before initialize: start
+		// it again and initialize it, now and from now on.
+		p.setEra(b, eraLegacy)
+		p.log.Info("instance exited when probed; starting it again with initialize", "server", b.Name, "instance", inst.Name())
+		id = authn.NewSessionID()
+		if inst, err = p.launcher.Start(ctx, unit, pr, id); err != nil {
+			metrics.InstanceFailures.Inc(b.Name, "start")
+			return nil, err
+		}
+		hooks.era = eraLegacy
+		up, err = newUpstream(ctx, b, id, inst, p.log, hooks)
+	}
 	if err != nil && b.SignIn != nil && p.rejected != nil && strings.Contains(err.Error(), signin.RejectedMarker) {
 		// A token the server refused although it had not expired: the
 		// next start refreshes it.
@@ -375,6 +394,28 @@ func (p *pool) start(ctx context.Context, b *config.Backend, pr principal.Princi
 	metrics.InstanceStarts.Inc(b.Name)
 	p.log.Info("instance started", "server", b.Name, "instance", inst.Name(), "sub", pr.Sub)
 	return up, nil
+}
+
+// era returns what the pool knows of b's era.
+func (p *pool) era(b *config.Backend) era {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.eras[b]
+}
+
+// setEra remembers b's era, and forgets those of definitions replaced
+// since.
+func (p *pool) setEra(b *config.Backend, e era) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.current != nil {
+		for old := range p.eras {
+			if p.current(old.Name) != old {
+				delete(p.eras, old)
+			}
+		}
+	}
+	p.eras[b] = e
 }
 
 // exited handles the end of e's instance: expected if the pool stopped

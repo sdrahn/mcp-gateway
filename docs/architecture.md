@@ -2557,13 +2557,17 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       provider through `http.groups_claim`.
 
 24. **Modern MCP servers** (0.14, §5.11, D18):
-    - the server side dual-era: era probed per definition
-      (`server/discover`, fallback to `initialize`; the connector by a
-      modern request's `400`), requests with `_meta` and the agent's
-      capabilities as policy allows, the connector's required headers
-      (`Mcp-Method`, `Mcp-Name`, `Mcp-Param-*`), `subscriptions/listen`
-      toward servers, `UnsupportedProtocolVersionError` handled; legacy
-      servers moved to 2025-11-25;
+    - the server side dual-era over stdio: era probed per definition
+      (`server/discover`, fallback to `initialize`, a server that exits
+      on the probe started again and initialized), requests with
+      `_meta`, `subscriptions/listen` toward servers (list changes,
+      resources clients subscribed to), the log level per request,
+      `UnsupportedProtocolVersionError` handled, `resultType` removed for
+      legacy agents; legacy servers moved to 2025-11-25; `inspect` and
+      the doctor probe the same way (done);
+    - the connector modern: era by a modern request's `400`, the required
+      headers (`Mcp-Method`, `Mcp-Name`, `Mcp-Param-*`), no session;
+    - the agent's capabilities in requests as policy allows;
     - servers' `InputRequiredResult` passed to legacy agents as requests
       over their session and retried at the server (§5.11.4), with policy
       on each input request;

@@ -384,6 +384,28 @@ only of servers that offer resources, as the discovery instance tells.
 Use `discovery: instance` for servers whose tool list depends on the user
 (for example on files in the home directory or the user's configuration).
 
+### Protocol versions
+
+MCP 2026-07-28 dropped the `initialize` handshake: such ("modern")
+servers answer `server/discover` instead, and every request carries the
+protocol version in its `_meta`. When the gateway starts the first
+instance of a definition, it sends `server/discover`; a modern server is
+then used without the handshake, any other answer means an earlier
+("legacy") server, which is initialized with MCP 2025-11-25 as before.
+The result is kept for the definition (a changed definition is probed
+again). A legacy server that exits on the probe, as some do on a request
+before `initialize`, is started again and initialized, and is not probed
+again. Agents see no difference: a legacy agent uses a modern server as
+any other, and `logging/setLevel` and `resources/subscribe` work with
+both (the gateway turns them into the per-request log level and the
+server's subscription stream).
+
+Not yet: servers that speak HTTP (`url`) are reached with the legacy
+transport, and a modern server's request for input from the client
+(an `InputRequiredResult`) ends the call with an error naming it. Both
+follow in 0.14. `mcp-gateway-admin inspect` and the doctor probe the
+same way.
+
 ## Privileged servers
 
 A server that installs packages (mcp-server-zypp) writes anywhere below

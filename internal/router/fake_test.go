@@ -149,6 +149,19 @@ type fakeInstance struct {
 
 	argsMu   sync.Mutex
 	lastArgs json.RawMessage // arguments of the last update_customer call
+
+	// Requests the backend received (methods, and the _meta of each),
+	// and for "modern…" backends the filters of subscriptions/listen.
+	seenMu  sync.Mutex
+	methods []string
+	metas   []map[string]json.RawMessage
+	listens []json.RawMessage
+}
+
+func (f *fakeInstance) seen() ([]string, []map[string]json.RawMessage, []json.RawMessage) {
+	f.seenMu.Lock()
+	defer f.seenMu.Unlock()
+	return append([]string(nil), f.methods...), append([]map[string]json.RawMessage(nil), f.metas...), append([]json.RawMessage(nil), f.listens...)
 }
 
 func (f *fakeInstance) updateArgs() string {
@@ -243,6 +256,15 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 			Meta   json.RawMessage `json:"_meta"`
 		}
 		_ = json.Unmarshal(m.Params, &p)
+		var meta map[string]json.RawMessage
+		_ = json.Unmarshal(p.Meta, &meta)
+		f.seenMu.Lock()
+		f.methods = append(f.methods, m.Method)
+		f.metas = append(f.metas, meta)
+		f.seenMu.Unlock()
+		if f.modernRequest(c, m, p.Name, meta) {
+			continue
+		}
 		switch m.Method {
 		case "initialize":
 			caps := map[string]any{"tools": map[string]any{}, "prompts": map[string]any{}, "resources": map[string]any{}}
@@ -383,4 +405,77 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 			_ = c.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeMethodNotFound, "nope"))
 		}
 	}
+}
+
+// modernRequest serves what differs for backends named "modern…" (MCP
+// 2026-07-28: server/discover, no initialize, subscriptions/listen) and
+// "fragile…" (a legacy server that ends on a request before initialize,
+// the first time); it reports whether it answered m.
+func (f *fakeInstance) modernRequest(c *jsonrpc.Conn, m *jsonrpc.Message, name string, meta map[string]json.RawMessage) bool {
+	if strings.HasPrefix(f.name, "fragile") && m.Method == "server/discover" {
+		_ = f.Close()
+		return true
+	}
+	if strings.HasPrefix(f.name, "silent") && m.Method == "server/discover" {
+		return true // never answers
+	}
+	if !strings.HasPrefix(f.name, "modern") {
+		return false
+	}
+	if string(meta[metaProtocolVersion]) != `"`+modernVersion+`"` || meta[metaClientCapabilities] == nil {
+		_ = c.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeInvalidParams, "missing per-request metadata"))
+		return true
+	}
+	respond := func(v map[string]any) {
+		if v["resultType"] == nil {
+			v["resultType"] = "complete"
+		}
+		r, _ := jsonrpc.NewResult(m.ID, v)
+		_ = c.Write(r)
+	}
+	switch m.Method {
+	case "server/discover":
+		if strings.HasPrefix(f.name, "modernnext") {
+			e := jsonrpc.NewError(m.ID, codeUnsupportedVersion, "Unsupported protocol version")
+			e.Error.Data = json.RawMessage(`{"supported":["2027-03-01"],"requested":"` + modernVersion + `"}`)
+			_ = c.Write(e)
+			return true
+		}
+		respond(map[string]any{
+			"supportedVersions": []string{modernVersion},
+			"capabilities":      map[string]any{"tools": map[string]any{"listChanged": true}, "resources": map[string]any{}, "logging": map[string]any{}},
+			"instructions":      "modern instructions",
+			"_meta":             map[string]any{metaServerInfo: map[string]any{"name": "fake-" + f.name}},
+		})
+	case "initialize", "resources/subscribe", "resources/unsubscribe", "logging/setLevel", "ping":
+		_ = c.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeMethodNotFound, "not in MCP "+modernVersion))
+	case "subscriptions/listen":
+		var p struct {
+			Notifications json.RawMessage `json:"notifications"`
+		}
+		_ = json.Unmarshal(m.Params, &p)
+		f.seenMu.Lock()
+		f.listens = append(f.listens, p.Notifications)
+		f.seenMu.Unlock()
+		ack, _ := jsonrpc.NewNotification("notifications/subscriptions/acknowledged", map[string]any{
+			"_meta": map[string]any{metaSubscriptionID: m.ID}, "notifications": p.Notifications})
+		_ = c.Write(ack)
+	case "tools/call":
+		switch name {
+		case "ask_input":
+			respond(map[string]any{"resultType": "input_required", "inputRequests": map[string]any{
+				"q": map[string]any{"method": "elicitation/create", "params": map[string]any{"message": "?"}}}})
+		case "read_log":
+			if meta[metaLogLevel] != nil {
+				n, _ := jsonrpc.NewNotification("notifications/message", map[string]any{"level": "info", "data": "logged"})
+				_ = c.Write(n)
+			}
+			respond(text("log level " + string(meta[metaLogLevel])))
+		default:
+			respond(text(f.name + " did " + name))
+		}
+	default:
+		return false
+	}
+	return true
 }
