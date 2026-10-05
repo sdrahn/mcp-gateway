@@ -400,10 +400,19 @@ any other, and `logging/setLevel` and `resources/subscribe` work with
 both (the gateway turns them into the per-request log level and the
 server's subscription stream).
 
-Not yet: servers that speak HTTP (`url`) are reached with the legacy
-transport, and a modern server's request for input from the client
-(an `InputRequiredResult`) ends the call with an error naming it. Both
-follow in 0.14. `mcp-gateway-admin inspect` and the doctor probe the
+Servers that speak HTTP (`url`) are probed the same way. To a modern
+one the connector sends what the 2026-07-28 transport asks for: no
+session, the headers `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`,
+and `Mcp-Param-…` for the tool parameters the server marks with
+`x-mcp-header`; a tool whose marks are invalid is left out of its
+list, with a warning in the instance's log ("tool left out: invalid
+x-mcp-header"). Cancelling a call closes its stream. A server that is
+unavailable when probed (an HTTP error without an MCP answer) is probed
+again at its next start.
+
+Not yet: a modern server's request for input from the client (an
+`InputRequiredResult`) ends the call with an error naming it; that
+follows in 0.14. `mcp-gateway-admin inspect` and the doctor probe the
 same way.
 
 ## Privileged servers

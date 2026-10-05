@@ -9,6 +9,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
+	"github.com/sdrahn/mcp-gateway/internal/signin"
 )
 
 // modernRouter is testRouter with the servers "modern" (MCP 2026-07-28),
@@ -228,5 +229,30 @@ func TestSilentProbe(t *testing.T) {
 	}
 	if methods, _, _ := l.started("silent")[0].seen(); len(methods) != 2 || methods[1] != "initialize" {
 		t.Fatalf("requests %v", methods)
+	}
+}
+
+// A probe that fails for a reason other than the server's era (a refused
+// token, an HTTP 503 the connector reports) does not make the server
+// legacy: the next start probes again. A refused token stays the
+// sign-in's error.
+func TestProbeFailureNotRemembered(t *testing.T) {
+	r, _ := modernRouter(t)
+	for _, name := range []string{"refused", "unavailable"} {
+		r.Backends[name] = &config.Backend{Name: name, Isolation: config.IsolationPrincipal}
+	}
+	r.init()
+	ctx := context.Background()
+	_, _, err := r.pool.acquire(ctx, r.Backends["refused"], alice())
+	if err == nil || !strings.Contains(err.Error(), signin.RejectedMarker) || strings.Contains(err.Error(), "initializing") {
+		t.Fatalf("refused: %v", err)
+	}
+	if _, _, err := r.pool.acquire(ctx, r.Backends["unavailable"], alice()); err == nil || !strings.Contains(err.Error(), "503") {
+		t.Fatalf("unavailable: %v", err)
+	}
+	for _, name := range []string{"refused", "unavailable"} {
+		if e := r.pool.era(r.Backends[name]); e != eraUnknown {
+			t.Errorf("%s: era %v remembered", name, e)
+		}
 	}
 }

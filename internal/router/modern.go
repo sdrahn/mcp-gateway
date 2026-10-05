@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
+	"github.com/sdrahn/mcp-gateway/internal/signin"
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
 
@@ -92,6 +93,11 @@ func (u *upstream) discover(ctx context.Context) (initResult, bool, error) {
 		return initResult{}, false, err
 	}
 	if e := resp.Error; e != nil {
+		if strings.Contains(e.Message, signin.RejectedMarker) {
+			// The connector's server refused the principal's token: an
+			// answer about the sign-in, not the server's era.
+			return initResult{}, false, e
+		}
 		switch e.Code {
 		case codeUnsupportedVersion:
 			var d struct {

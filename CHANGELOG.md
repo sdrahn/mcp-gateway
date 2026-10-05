@@ -10,7 +10,7 @@ minor release (with a warning) and removed in the next.
 ### Added
 
 - Servers of MCP 2026-07-28, which have no `initialize` handshake, can
-  be registered (servers started as programs; those with `url` follow).
+  be registered, started as programs or reached with `url`.
   The gateway probes a definition's first instance with
   `server/discover` and uses a modern server without the handshake, with
   the protocol version and its identity in every request, the log level
@@ -18,7 +18,15 @@ minor release (with a warning) and removed in the next.
   subscribed resources; agents see no difference. Other servers are
   initialized as before, now with MCP 2025-11-25; one that exits on the
   probe is started again and initialized. `mcp-gateway-admin inspect`
-  and the doctor probe the same way.
+  and the doctor probe the same way. To a modern server with `url` the
+  connector posts each request without a session and with the headers
+  of the 2026-07-28 transport (`MCP-Protocol-Version`, `Mcp-Method`,
+  `Mcp-Name`, `Mcp-Param-…` for parameters a tool marks with
+  `x-mcp-header`), leaves out tools whose marks are invalid, retries
+  once after a header mismatch, relays the server's errors, and cancels
+  a call by closing its stream. A server unavailable when probed is
+  probed again at its next start instead of being taken for an earlier
+  version.
 
 ## v0.13.0 — 2026-10-05
 
