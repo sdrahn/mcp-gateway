@@ -142,6 +142,7 @@ func (r *Router) sharedInit(ctx context.Context, b *config.Backend) (initResult,
 // see the backend through shared discovery and did not get the
 // notification from their own instance are told as well.
 func (r *Router) listChanged(u *upstream, m *jsonrpc.Message) {
+	r.backendListChanged(u, m)
 	methods := invalidates[m.Method]
 	r.discovery.mu.Lock()
 	for _, method := range methods {

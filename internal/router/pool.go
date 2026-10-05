@@ -401,6 +401,7 @@ func (p *pool) start(ctx context.Context, b *config.Backend, pr principal.Princi
 		metrics.InstanceFailures.Inc(b.Name, "start")
 		return nil, err
 	}
+	up.owner = principalKey(pr)
 	metrics.InstanceStarts.Inc(b.Name)
 	p.log.Info("instance started", "server", b.Name, "instance", inst.Name(), "sub", pr.Sub)
 	return up, nil

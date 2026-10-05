@@ -28,6 +28,14 @@ func (f *modernServe) serve(ctx context.Context, out jsonrpc.MessageConn, p prin
 	case "notify":
 		n, _ := jsonrpc.NewNotification("notifications/progress", map[string]any{"progress": 1})
 		_ = jsonrpc.WriteRelated(out, n, m.ID)
+	case "subscriptions/listen":
+		n, _ := jsonrpc.NewNotification("notifications/subscriptions/acknowledged", map[string]any{"notifications": map[string]any{}})
+		_ = out.Write(n)
+		<-ctx.Done()
+		f.mu.Lock()
+		f.cancelled = true
+		f.mu.Unlock()
+		return
 	case "slow":
 		<-ctx.Done()
 		f.mu.Lock()
@@ -46,9 +54,14 @@ const modernMetaJSON = `"_meta":{"io.modelcontextprotocol/protocolVersion":"2026
 
 func modernPost(t *testing.T, url, method, params string, hdr map[string]string) *http.Response {
 	t.Helper()
+	return modernPostAs(t, "alice", url, method, params, hdr)
+}
+
+func modernPostAs(t *testing.T, token, url, method, params string, hdr map[string]string) *http.Response {
+	t.Helper()
 	body := `{"jsonrpc":"2.0","id":1,"method":"` + method + `","params":{` + params + modernMetaJSON + `}}`
 	req, _ := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
-	req.Header.Set("Authorization", "Bearer alice")
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("MCP-Protocol-Version", "2026-07-28")
@@ -205,5 +218,34 @@ func TestModernOff(t *testing.T) {
 	resp := modernPost(t, srv.URL+"/mcp", "server/discover", "", nil)
 	if body := readAll(t, resp); resp.StatusCode != 400 || strings.Contains(body, "jsonrpc") {
 		t.Fatalf("without Request: %d %s", resp.StatusCode, body)
+	}
+}
+
+// subscriptions/listen is a stream: it needs SSE, and it ends when the
+// token is no longer accepted.
+func TestModernListen(t *testing.T) {
+	f := &modernServe{}
+	expired := make(chan struct{}, 1)
+	srv, _ := newTestServer(t, func(c *HTTPConfig) {
+		c.Request = f.serve
+		c.TokenExpired = func(principal.Principal) { expired <- struct{}{} }
+	})
+	resp := modernPost(t, srv.URL+"/mcp", "subscriptions/listen", "", map[string]string{"Accept": "application/json"})
+	if body := readAll(t, resp); resp.StatusCode != 400 || !strings.Contains(body, "text/event-stream") {
+		t.Fatalf("without SSE: %d %s", resp.StatusCode, body)
+	}
+	start := time.Now()
+	resp = modernPostAs(t, "alice-brief", srv.URL+"/mcp", "subscriptions/listen", `"notifications":{"toolsListChanged":true},`, nil)
+	body := readAll(t, resp)
+	if resp.Header.Get("Content-Type") != "text/event-stream" || !strings.Contains(body, "subscriptions/acknowledged") {
+		t.Fatalf("%v %s", resp.Header, body)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("the stream outlived the token by %v", d)
+	}
+	select {
+	case <-expired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("TokenExpired not called")
 	}
 }

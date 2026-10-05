@@ -1195,12 +1195,20 @@ answer about the era.
   gateway honours. Policy and definition changes go out as
   `toolsListChanged`, `promptsListChanged`, `resourcesListChanged` to
   the principal's open streams (the change events of §5.3, today sent
-  to sessions). `resourceSubscriptions` are admitted only for URIs the
-  principal may read, and an update is delivered only while that still
-  holds; the gateway subscribes at the server on the principal's
-  instance (`subscriptions/listen` toward a modern server,
-  `resources/subscribe` on a legacy one). Streams count against a
-  per-principal limit (below).
+  to sessions), and so do the servers' own list changes (from a shared
+  discovery instance, or the principal's). `resourceSubscriptions` are
+  admitted only for URIs the principal may subscribe to
+  (`resources.subscribe`, audited), and an update is delivered only while
+  that still holds; the gateway subscribes at the server on the
+  principal's instance (`subscriptions/listen` toward a modern server,
+  counted per URI and undone with the stream; `resources/subscribe` on a
+  legacy one, not undone, since the instance is the principal's and
+  updates reach only the streams that subscribed). What comes before the
+  acknowledgement waits for it. A stream ends without a response when the
+  agent cancels it (closing it on HTTP, `notifications/cancelled` on the
+  socket) or its token expires, and with the request's response when its
+  server is removed from the definitions; on HTTP it sends comment
+  keep-alives. Streams count against a per-principal limit (below).
 - **Logging.** The level is per request (`…/logLevel`); log messages go
   only on that request's stream, and only if the request asked.
   `logging/setLevel` and its replay to new instances (§5.3) remain for
@@ -2623,7 +2631,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       against the body, `server/discover`, per-request capabilities and
       log level, `ttlMs` and `cacheScope` on lists and reads, error codes
       per era (done, switched off until the items below);
-    - `subscriptions/listen`;
+    - `subscriptions/listen` (done, switched off with the item above);
     - approvals and sign-ins as multi round-trip requests with a sealed
       `requestState`; waiting rounds bounded by `approvals.retry_wait`;
     - session state re-scoped (pseudonym vault per principal and

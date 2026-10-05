@@ -98,7 +98,7 @@ func TestAgent(t *testing.T) {
 
 	res := resultFields(t, c.roundTrip(1, "server/discover", withAgentMeta(nil, nil)))
 	if string(res["supportedVersions"]) != `["2026-07-28"]` || string(res["resultType"]) != `"complete"` ||
-		!strings.Contains(string(res["_meta"]), metaServerInfo) || strings.Contains(string(res["capabilities"]), "listChanged") {
+		!strings.Contains(string(res["_meta"]), metaServerInfo) || !strings.Contains(string(res["capabilities"]), `"listChanged":true`) {
 		t.Fatalf("discover: %v", res)
 	}
 
@@ -140,7 +140,7 @@ func TestAgentErrors(t *testing.T) {
 	if m.Error == nil || m.Error.Code != jsonrpc.CodeInvalidParams {
 		t.Fatalf("no capabilities: %+v", m.Error)
 	}
-	for i, method := range []string{"initialize", "ping", "logging/setLevel", "resources/subscribe", "subscriptions/listen"} {
+	for i, method := range []string{"initialize", "ping", "logging/setLevel", "resources/subscribe"} {
 		if m := c.roundTrip(10+i, method, withAgentMeta(nil, nil)); m.Error == nil || m.Error.Code != jsonrpc.CodeMethodNotFound {
 			t.Errorf("%s: %+v", method, m)
 		}
@@ -307,5 +307,108 @@ func TestAgentPolicyInput(t *testing.T) {
 	if in.Context.ProtocolVersion != modernVersion || in.Principal.SessionID != "" || in.Principal.Client.Name != "modern-agent" ||
 		in.Context.ClientCapabilities["sampling"] == nil {
 		t.Fatalf("input %+v", in)
+	}
+}
+
+// listenAck opens a subscriptions/listen stream with id and filter and
+// returns the acknowledged filter.
+func listenAck(t *testing.T, c *client, id int, filter map[string]any) map[string]any {
+	t.Helper()
+	c.send(id, "subscriptions/listen", withAgentMeta(map[string]any{"notifications": filter}, nil))
+	m := c.read()
+	var p struct {
+		Meta          map[string]json.RawMessage `json:"_meta"`
+		Notifications map[string]any             `json:"notifications"`
+	}
+	if m.Method != "notifications/subscriptions/acknowledged" || json.Unmarshal(m.Params, &p) != nil ||
+		string(p.Meta[metaSubscriptionID]) != itoa(id) {
+		t.Fatalf("want the acknowledgement of %d, got %+v", id, m)
+	}
+	return p.Notifications
+}
+
+// A modern agent's stream: the acknowledgement names what is honoured (a
+// resource policy does not let it subscribe to is left out), policy
+// changes come as the list changes it asked for, with the stream's id,
+// and the updates of the resources it subscribed to.
+func TestAgentListen(t *testing.T) {
+	r, _ := testRouter(t, time.Hour)
+	c := agent(t, r, alice(), "fs")
+	ack := listenAck(t, c, 5, map[string]any{"toolsListChanged": true,
+		"resourceSubscriptions": []string{"file:///ok/a.txt", "file:///secret"}})
+	if got, _ := json.Marshal(ack); string(got) != `{"resourceSubscriptions":["file:///ok/a.txt"],"toolsListChanged":true}` {
+		t.Fatalf("ack %s", got)
+	}
+	// The fake server answers resources/subscribe with an update of the
+	// resource and one of a resource not subscribed to.
+	m := c.read()
+	if m.Method != "notifications/resources/updated" || !strings.Contains(string(m.Params), `"uri":"file:///ok/a.txt"`) ||
+		!strings.Contains(string(m.Params), `"io.modelcontextprotocol/subscriptionId":5`) {
+		t.Fatalf("update %+v", m)
+	}
+
+	r.PolicyChanged()
+	m = c.read()
+	if m.Method != "notifications/tools/list_changed" || !strings.Contains(string(m.Params), `"io.modelcontextprotocol/subscriptionId":5`) {
+		t.Fatalf("list change %+v", m)
+	}
+	// Only the kinds asked for.
+	select {
+	case m := <-c.msgs:
+		t.Fatalf("unexpected %+v", m)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Cancelled by the agent: no response, and no more changes.
+	n, _ := jsonrpc.NewNotification("notifications/cancelled", map[string]any{"requestId": 5})
+	c.write(n)
+	time.Sleep(50 * time.Millisecond)
+	r.PolicyChanged()
+	if text, _ := toolText(t, c.roundTrip(6, "tools/call", withAgentMeta(map[string]any{"name": "read_file"}, nil))); text != "fs did read_file" {
+		t.Fatalf("after: %q", text)
+	}
+}
+
+// Removing the stream's server ends it from the gateway's side, with the
+// request's response.
+func TestAgentListenEnds(t *testing.T) {
+	r, _ := testRouter(t, time.Hour)
+	c := agent(t, r, alice(), "git")
+	listenAck(t, c, 3, map[string]any{"promptsListChanged": true})
+	next := map[string]*config.Backend{}
+	for k, v := range r.Backends {
+		if k != "git" {
+			next[k] = v
+		}
+	}
+	r.SetBackends(next)
+	m := c.read()
+	if m.Key() != "3" || m.Error != nil || !strings.Contains(string(m.Result), `"io.modelcontextprotocol/subscriptionId":3`) ||
+		!strings.Contains(string(m.Result), `"resultType":"complete"`) {
+		t.Fatalf("got %+v", m)
+	}
+}
+
+// A server's own list change reaches the listeners of its principal.
+func TestAgentListenServerChange(t *testing.T) {
+	r, l := modernRouter(t)
+	c := agent(t, r, alice(), "modern")
+	// Start the principal's instance.
+	c.roundTrip(1, "tools/list", withAgentMeta(nil, nil))
+	listenAck(t, c, 2, map[string]any{"toolsListChanged": true})
+	n, _ := jsonrpc.NewNotification("notifications/tools/list_changed", map[string]any{})
+	_ = l.started("modern")[0].be.Write(n)
+	if m := c.read(); m.Method != "notifications/tools/list_changed" {
+		t.Fatalf("got %+v", m)
+	}
+	// bob's listener hears nothing of alice's instance.
+	cb := agent(t, r, bob(), "modern")
+	listenAck(t, cb, 1, map[string]any{"toolsListChanged": true})
+	_ = l.started("modern")[0].be.Write(n)
+	c.read()
+	select {
+	case m := <-cb.msgs:
+		t.Fatalf("bob got %+v", m)
+	case <-time.After(100 * time.Millisecond):
 	}
 }

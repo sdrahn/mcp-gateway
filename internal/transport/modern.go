@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
 	"github.com/sdrahn/mcp-gateway/internal/mcpheader"
@@ -78,7 +79,28 @@ func (h *HTTPHandler) postModern(w http.ResponseWriter, r *http.Request, p princ
 		return
 	}
 	out := &modernWriter{w: w, id: m.Key(), sse: acceptsSSE(r)}
-	h.cfg.Request(r.Context(), out, p, server, m, r.Header)
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	if m.Method == "subscriptions/listen" {
+		// A stream: SSE, kept alive, and only as long as the token is
+		// accepted (as the GET stream of a session).
+		if !out.sse {
+			writeRPCError(w, http.StatusBadRequest, m.ID, jsonrpc.CodeInvalidRequest, "subscriptions/listen needs Accept: text/event-stream", nil)
+			return
+		}
+		if !p.Expires.IsZero() {
+			t := time.AfterFunc(time.Until(p.Expires), func() {
+				cancel()
+				if h.cfg.TokenExpired != nil {
+					h.cfg.TokenExpired(p)
+				}
+			})
+			defer t.Stop()
+		}
+	}
+	stop := out.keepAlive(keepAlive)
+	defer stop()
+	h.cfg.Request(ctx, out, p, server, m, r.Header)
 	out.finish()
 }
 
@@ -209,6 +231,34 @@ func (o *modernWriter) Write(m *jsonrpc.Message) error {
 	}
 	o.done = response
 	return nil
+}
+
+// keepAlive writes an SSE comment every interval while the response is a
+// stream; the returned function stops it.
+func (o *modernWriter) keepAlive(interval time.Duration) func() {
+	t := time.NewTicker(interval)
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				o.mu.Lock()
+				if o.streamed && !o.done {
+					_, _ = fmt.Fprint(o.w, ": keep-alive\n\n")
+					if f, ok := o.w.(http.Flusher); ok {
+						f.Flush()
+					}
+				}
+				o.mu.Unlock()
+			}
+		}
+	}()
+	return func() {
+		t.Stop()
+		close(done)
+	}
 }
 
 // finish ends a response the handler did not write (the client went
