@@ -315,7 +315,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcpgw_signing_key_t` | `/etc/mcp-gateway/bundle/signing.pem` |
 | `mcpgw_var_lib_t` | `/var/lib/mcp-gateway` |
 | `mcpgw_runtime_t`, `mcpgw_sock_t`, `mcpgw_ctl_sock_t`, `mcpopa_sock_t` | `/run/mcp-gateway` and its sockets |
-| `mcp_port_t` | the HTTPS port (`semanage port -a -t mcp_port_t -p tcp 8443`) |
+| `mcp_port_t` | the HTTPS port (`semanage port -a -t mcp_port_t -p tcp 8443`, or `-m` where the policy already labels it) |
 | `mcp_metrics_port_t` | the metrics port (`semanage port -a -t mcp_metrics_port_t -p tcp 9464`) |
 
 | Boolean | Default | Allows |

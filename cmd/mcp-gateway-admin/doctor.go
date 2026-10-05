@@ -135,6 +135,10 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 	add(d.roleData())
 	add(d.services()...)
 	add(d.stateFiles())
+	if d.only == "" {
+		add(d.tls()...)
+		add(d.firewall()...)
+	}
 	if d.isolated {
 		add(doctor.Result{Check: "policy", Status: doctor.Skip,
 			Summary: "servers cannot reach OPA (mcp-gateway-admin doctor as root asks it; explain_decision evaluates the policy files)"})
@@ -291,6 +295,58 @@ func gatewayStatus(sock string) doctor.Result {
 		r.Details = append(r.Details, "changed since the start: "+strings.Join(st.RestartNeeded, ", "))
 	}
 	return r
+}
+
+// tls checks the HTTP listener's certificate and key (doctor.TLS), as
+// the gateway's account would read them. The key is readable by that
+// account alone, so only root checks it.
+func (d *doctorRun) tls() []doctor.Result {
+	if d.gw.HTTP.Listen == "" {
+		return nil
+	}
+	if d.isolated || !d.root {
+		return []doctor.Result{{Check: "TLS", Status: doctor.Skip,
+			Summary: "the key is the gateway's alone: mcp-gateway-admin doctor as root checks it"}}
+	}
+	u, err := user.Lookup(statedir.User)
+	if err != nil {
+		return []doctor.Result{{Check: "TLS", Status: doctor.Skip, Summary: "no " + statedir.User + " account"}}
+	}
+	acct := doctor.Account{Name: u.Username}
+	uid, _ := strconv.ParseUint(u.Uid, 10, 32)
+	gid, _ := strconv.ParseUint(u.Gid, 10, 32)
+	acct.UID, acct.GID = uint32(uid), uint32(gid)
+	if ids, err := u.GroupIds(); err == nil {
+		for _, id := range ids {
+			if g, err := strconv.ParseUint(id, 10, 32); err == nil {
+				acct.Groups = append(acct.Groups, uint32(g))
+			}
+		}
+	}
+	var types func(string) (string, error)
+	if supervisor.SELinuxEnabled() {
+		types = fileType
+	}
+	return doctor.TLS(d.gw.HTTP, acct, types, time.Now())
+}
+
+// firewall checks that firewalld lets remote clients reach the HTTP
+// listener (doctor.Firewall); firewall-cmd needs root.
+func (d *doctorRun) firewall() []doctor.Result {
+	if d.gw.HTTP.Listen == "" {
+		return nil
+	}
+	if _, err := exec.LookPath("firewall-cmd"); err != nil {
+		return nil
+	}
+	if d.isolated || !d.root {
+		return []doctor.Result{{Check: "firewall", Status: doctor.Skip,
+			Summary: "firewall-cmd needs root: mcp-gateway-admin doctor as root checks it"}}
+	}
+	return doctor.Firewall(d.gw.HTTP.Listen, func(args ...string) (string, error) {
+		out, err := exec.Command("firewall-cmd", args...).Output()
+		return string(out), err
+	})
 }
 
 // stateFiles finds files in the gateway's state directory that its

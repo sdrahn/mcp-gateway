@@ -138,9 +138,15 @@ install -m0640 -g mcp-gateway gw.crt /etc/mcp-gateway/tls/cert.pem
 install -m0640 -g mcp-gateway gw.key /etc/mcp-gateway/tls/key.pem
 restorecon -R /etc/mcp-gateway/tls
 
-semanage port -a -t mcp_port_t -p tcp 8443      # SELinux: let the gateway bind 8443
+# SELinux: let the gateway bind 8443 (-m where the policy already labels it, e.g. http_port_t)
+semanage port -a -t mcp_port_t -p tcp 8443 2>/dev/null || semanage port -m -t mcp_port_t -p tcp 8443
 firewall-cmd --permanent --add-port=8443/tcp && firewall-cmd --reload
 ```
+
+`mcp-gateway-admin doctor` (as root) checks the files and the firewall:
+`TLS` that the gateway's account and SELinux domain can read them, that
+they belong together and that the certificate names the host of
+`http.audience`; `firewall` that firewalld lets the port in.
 
 ### 3. Configuration
 
@@ -265,6 +271,7 @@ http:
 
 | Status | Meaning |
 |---|---|
+| connection refused (no HTTP status) | nothing listens there, or the firewall rejects the port: from the host itself, `curl -k https://localhost:8443/.well-known/oauth-protected-resource/mcp` answers when the gateway listens (the journal says `msg=listening http=:8443`); if it does and remote clients are refused, open the port (`mcp-gateway-admin doctor`, `firewall`) |
 | `401 authentication required` | no token; see the `WWW-Authenticate` header |
 | `401 invalid token` | wrong issuer or audience, expired, bad signature, or not bound to the presented certificate; the gateway's journal says why (`token rejected`) |
 | `403 insufficient scope` | the token lacks a scope from `http.scopes` |
