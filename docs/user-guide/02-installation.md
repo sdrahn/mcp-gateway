@@ -164,10 +164,12 @@ Booleans (all off by default):
 setsebool -P mcpgw_can_send_mail on
 ```
 
-For remote access, label the HTTPS port:
+For remote access, label the HTTPS port, and open it in the firewall:
 
 ```bash
-semanage port -a -t mcp_port_t -p tcp 8443
+# -m where the policy already labels the port (8443 is often http_port_t)
+semanage port -a -t mcp_port_t -p tcp 8443 2>/dev/null || semanage port -m -t mcp_port_t -p tcp 8443
+firewall-cmd --permanent --add-port=8443/tcp && firewall-cmd --reload
 ```
 
 ## Other packages

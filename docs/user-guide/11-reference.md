@@ -150,6 +150,8 @@ the same across releases; the texts may change.
 | `role-data` | | role data |
 | `unit` | `mcp-gateway.service`, `mcp-opa.service` | the unit |
 | `state-files` | | state files |
+| `tls` | | TLS |
+| `firewall` | | firewall |
 | `gateway-status` | | gateway status |
 | `policy` | | policy |
 | `servers` | | servers |
@@ -358,7 +360,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcpgw_token_t` | `/var/lib/mcp-gateway/tokens` (the gateway only) |
 | `mcpgw_cred_run_t` | `/run/mcp-gateway/credentials` (the gateway writes, systemd reads) |
 | `mcpgw_runtime_t`, `mcpgw_sock_t`, `mcpgw_ctl_sock_t`, `mcpopa_sock_t` | `/run/mcp-gateway` and its sockets |
-| `mcp_port_t` | the HTTPS port (`semanage port -a -t mcp_port_t -p tcp 8443`) |
+| `mcp_port_t` | the HTTPS port (`semanage port -a -t mcp_port_t -p tcp 8443`, or `-m` where the policy already labels it) |
 | `mcp_metrics_port_t` | the metrics port (`semanage port -a -t mcp_metrics_port_t -p tcp 9464`) |
 
 | Boolean | Default | Allows |
