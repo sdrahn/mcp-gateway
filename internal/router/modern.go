@@ -230,6 +230,9 @@ func (s *Session) currentLogLevel() string {
 	if s == nil {
 		return ""
 	}
+	if s.modern {
+		return s.agentLevel
+	}
 	s.mu.Lock()
 	raw := s.logLevel
 	s.mu.Unlock()

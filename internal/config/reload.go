@@ -20,6 +20,7 @@ var Reloadable = []string{
 	"policy.watch_interval",
 	"http.cert_file",
 	"http.key_file",
+	"http.list_ttl",
 }
 
 // RestartNeeded returns the keys whose value in next differs from

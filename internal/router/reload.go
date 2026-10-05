@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 )
@@ -43,6 +44,7 @@ func (r *Router) SetBackends(next map[string]*config.Backend) BackendChanges {
 	r.init()
 	r.reloadMu.Lock()
 	defer r.reloadMu.Unlock()
+	r.lastChange.Store(time.Now())
 	prev := *r.registry.Load()
 	next = maps.Clone(next)
 	var ch BackendChanges

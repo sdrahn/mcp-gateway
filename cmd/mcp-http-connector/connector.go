@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/egress"
+	"github.com/sdrahn/mcp-gateway/internal/mcpheader"
 )
 
 // maxLine bounds a message from the gateway or the server (as the
@@ -61,7 +62,7 @@ type connector struct {
 	// Modern servers (modern.go).
 	inflight map[string]context.CancelFunc // requests, by id
 	lists    map[string]bool               // tools/list requests, by id
-	schemas  map[string][]paramHeader      // x-mcp-header parameters, by tool
+	schemas  map[string][]mcpheader.Param  // x-mcp-header parameters, by tool
 	listSeq  int
 	listMu   sync.Mutex // one listing of the tools at a time
 
@@ -298,7 +299,7 @@ func (c *connector) postOnce(ctx context.Context, body []byte, m message, mod *m
 		header = mod.header
 		switch m.Method {
 		case "tools/call":
-			paramHeaders(header, c.toolHeadersFor(ctx, mod), mod.params.Arguments)
+			mcpheader.Set(header, c.toolHeadersFor(ctx, mod), mod.params.Arguments)
 		case "tools/list":
 			c.mu.Lock()
 			if c.lists == nil {

@@ -291,10 +291,16 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 					{"name": "write_file", "inputSchema": map[string]any{"type": "object"}},
 				}, "nextCursor": "p2"})
 			} else {
-				respond(m, map[string]any{"tools": []map[string]any{
+				tools := []map[string]any{
 					{"name": "delete_file", "inputSchema": map[string]any{"type": "object"}},
 					{"name": "ask_roots", "inputSchema": map[string]any{"type": "object"}},
-				}})
+				}
+				if strings.HasPrefix(f.name, "regional") {
+					// A parameter mirrored into a header (MCP 2026-07-28).
+					tools = append(tools, map[string]any{"name": "read_region", "inputSchema": map[string]any{"type": "object",
+						"properties": map[string]any{"region": map[string]any{"type": "string", "x-mcp-header": "Region"}}}})
+				}
+				respond(m, map[string]any{"tools": tools})
 			}
 		case "tools/call":
 			switch p.Name {
@@ -393,6 +399,10 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 		case "resources/templates/list":
 			respond(m, map[string]any{"resourceTemplates": []map[string]any{{"uriTemplate": "file:///ok/{name}", "name": "ok"}}})
 		case "resources/read":
+			if strings.HasSuffix(p.URI, "/missing") {
+				_ = c.Write(jsonrpc.NewError(m.ID, -32002, "resource not found"))
+				break
+			}
 			respond(m, map[string]any{"contents": []map[string]any{{"uri": p.URI, "text": f.name + " content"}}})
 		case "resources/subscribe":
 			respond(m, map[string]any{})

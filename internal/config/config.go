@@ -239,6 +239,9 @@ type HTTP struct {
 	AllowedOrigins []string `yaml:"allowed_origins"`
 	// SessionIdleTimeout closes MCP sessions without traffic.
 	SessionIdleTimeout time.Duration `yaml:"session_idle_timeout"`
+	// ListTTL is how long agents of MCP 2026-07-28 may consider a list
+	// fresh (ttlMs), on every transport.
+	ListTTL time.Duration `yaml:"list_ttl"`
 	// ClientCAFile holds the CA certificates (PEM) that client
 	// certificates must chain to (mTLS).
 	ClientCAFile string `yaml:"client_ca_file"`
@@ -452,6 +455,7 @@ const (
 	MinMCSCategories       = 8
 	DefaultWatchInterval   = 10 * time.Second
 	DefaultHTTPSessionIdle = 30 * time.Minute
+	DefaultListTTL         = time.Minute
 	DefaultGroupsClaim     = "groups"
 	DefaultSELinuxType     = "mcpsrv_generic_t"
 	// HTTPSELinuxType and HTTPRunAs are the defaults of a server defined
@@ -578,6 +582,9 @@ func (g *Gateway) setDefaults() {
 	if g.HTTP.SessionIdleTimeout == 0 {
 		g.HTTP.SessionIdleTimeout = DefaultHTTPSessionIdle
 	}
+	if g.HTTP.ListTTL == 0 {
+		g.HTTP.ListTTL = DefaultListTTL
+	}
 	if g.HTTP.ClientAuth == "" {
 		g.HTTP.ClientAuth = "none"
 		if g.HTTP.ClientCAFile != "" {
@@ -699,6 +706,9 @@ func (g *Gateway) Validate() error {
 		}
 		if g.HTTP.SessionIdleTimeout < 0 {
 			return errors.New("http.session_idle_timeout: must not be negative")
+		}
+		if g.HTTP.ListTTL < 0 {
+			return errors.New("http.list_ttl: must not be negative")
 		}
 	}
 	return nil

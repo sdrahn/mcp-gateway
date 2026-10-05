@@ -1091,7 +1091,11 @@ from the page: the Rego tests are not installed.
 
 ### 5.11 Protocol revision 2026-07-28
 
-*Roadmap steps 24 and 25, decision D18 (accepted). Not implemented yet.
+*Roadmap steps 24 and 25, decision D18 (accepted). Servers (step 24):
+done. Agents (step 25): in progress; serving them is switched off
+(`serveModernAgents` in `cmd/mcp-gateway`) until approvals and
+subscriptions reach them too, since agents that speak 2026-07-28 would
+otherwise lose both against today's legacy sessions.
 Sources: the specification of 2026-07-28 (changelog, versioning,
 Streamable HTTP, stdio, MRTR, subscriptions, discovery, caching) and
 SEP-2575 (stateless MCP), SEP-2567 (sessionless MCP), SEP-2322 (MRTR),
@@ -1160,6 +1164,13 @@ answer about the era.
   `X-Accel-Buffering: no`; long-lived streams send comment keep-alives.
 - **Unix socket** (`mcp-connect`, local agents): the same messages,
   newline-delimited; cancellation by `notifications/cancelled`.
+- **Request sessions.** Each modern request is served in a session of
+  its own for its duration (no session id, not counted as a session):
+  its capabilities, client and log level come from its `_meta`, its
+  instances are the principal's (also for `isolation: session`), and
+  what a call needs of the server's tools (annotations for policy,
+  declared arguments, `x-mcp-header` parameters) the gateway lists from
+  the server (a shared discovery instance's cache where there is one).
 - **Identity and policy input.** The principal comes from the token or
   the peer credentials of each request, as today. `input.context`
   gains `protocol_version`; `client_capabilities` and `client` come from
@@ -2610,17 +2621,18 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
 25. **Modern MCP agents** (0.14, §5.11, D18):
     - requests served statelessly beside legacy sessions: headers checked
       against the body, `server/discover`, per-request capabilities and
-      log level, `subscriptions/listen`, `ttlMs` and `cacheScope` on
-      lists and reads, error codes per era;
+      log level, `ttlMs` and `cacheScope` on lists and reads, error codes
+      per era (done, switched off until the items below);
+    - `subscriptions/listen`;
     - approvals and sign-ins as multi round-trip requests with a sealed
       `requestState`; waiting rounds bounded by `approvals.retry_wait`;
     - session state re-scoped (pseudonym vault per principal and
       endpoint, limits on requests and streams per principal);
     - legacy servers' requests during a modern agent's call refused and
-      audited (§5.11.4);
+      audited (§5.11.4) (done);
     - the client suite with the modern SDKs (Python `mcp` 2.3, mcp-go
       1.1, the TypeScript SDK 2.3's `@modelcontextprotocol/client`)
-      over the socket and HTTPS.
+      over the socket and HTTPS, and serving modern agents switched on.
 
 ## 12. Open items
 
