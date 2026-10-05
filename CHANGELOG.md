@@ -7,6 +7,19 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Servers of MCP 2026-07-28, which have no `initialize` handshake, can
+  be registered (servers started as programs; those with `url` follow).
+  The gateway probes a definition's first instance with
+  `server/discover` and uses a modern server without the handshake, with
+  the protocol version and its identity in every request, the log level
+  per request and the server's subscription stream for list changes and
+  subscribed resources; agents see no difference. Other servers are
+  initialized as before, now with MCP 2025-11-25; one that exits on the
+  probe is started again and initialized. `mcp-gateway-admin inspect`
+  and the doctor probe the same way.
+
 ## v0.13.0 — 2026-10-05
 
 Signing in to servers lasts and works with every client, and remote

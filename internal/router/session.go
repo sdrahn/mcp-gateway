@@ -844,7 +844,13 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		}
 		return nil, resp.Error
 	}
-	result, stats, err := ob.ApplyOutput(resp.Result, s.vault)
+	raw, inputRequired := completeResult(resp.Result)
+	if inputRequired {
+		// A modern server asks the client for input (multi round-trip
+		// request); relaying it comes later in roadmap step 24.
+		return nil, rpcError(jsonrpc.CodeInternalError, t.server+" asks the client for input in a way the gateway does not pass on yet (MCP 2026-07-28)")
+	}
+	result, stats, err := ob.ApplyOutput(raw, s.vault)
 	if len(stats) > 0 {
 		s.auditPseudonymized(p, t.server, t.resource.Name, decisionID, stats)
 	}

@@ -19,8 +19,9 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
 
-// protocolVersion is the MCP version the gateway speaks to backends.
-const protocolVersion = "2025-06-18"
+// protocolVersion is the legacy MCP version the gateway initializes
+// backends with (modernVersion for those without the handshake).
+const protocolVersion = "2025-11-25"
 
 // supportedVersions are the versions accepted from clients.
 var supportedVersions = map[string]bool{
@@ -81,6 +82,9 @@ type upstream struct {
 	conn  *jsonrpc.Conn
 	log   *slog.Logger
 	init  initResult
+	// modern: the server speaks MCP 2026-07-28 (modern.go): no
+	// handshake, per-request _meta, a subscriptions/listen stream.
+	modern bool
 
 	nextID    atomic.Int64
 	closed    chan struct{}
@@ -105,6 +109,11 @@ type upstream struct {
 	// onIdle, if set, is called when the last request in flight was
 	// answered.
 	onIdle func()
+	// listenID is the id of the open subscriptions/listen request of a
+	// modern server, subscribed the resources clients subscribed to
+	// (with how many subscriptions each).
+	listenID   json.RawMessage
+	subscribed map[string]int
 }
 
 // newUpstream performs the MCP handshake with a freshly started instance.
@@ -124,11 +133,32 @@ func newUpstream(ctx context.Context, b *config.Backend, id string, inst supervi
 		calls:         map[*Session]map[string]json.RawMessage{},
 		progress:      map[string]progressRoute{},
 		inflight:      map[string]struct{}{},
+		subscribed:    map[string]int{},
 	}
 	go u.readLoop()
 
 	ctx, cancel := context.WithTimeout(ctx, initTimeout)
 	defer cancel()
+	// Servers that speak HTTP are reached through the connector, which
+	// speaks the legacy transport (roadmap step 24 brings the modern one).
+	if hooks.era != eraLegacy && b.URL == "" {
+		init, modern, err := u.discover(ctx)
+		if err != nil {
+			u.close()
+			if errors.Is(err, errProbeEnded) {
+				return nil, err
+			}
+			return nil, fmt.Errorf("probing %s: %w", b.Name, err)
+		}
+		if hooks.learnEra != nil {
+			hooks.learnEra(map[bool]era{true: eraModern, false: eraLegacy}[modern])
+		}
+		if modern {
+			u.modern, u.init = true, init
+			u.listen()
+			return u, nil
+		}
+	}
 	resp, err := u.request(ctx, nil, "initialize", map[string]any{
 		"protocolVersion": protocolVersion,
 		// The gateway relays these to its clients, subject to policy.
@@ -245,6 +275,21 @@ func (u *upstream) request(ctx context.Context, s *Session, method string, param
 	if u.draining.Load() {
 		return nil, errShuttingDown
 	}
+	if u.modern {
+		switch method {
+		case "resources/subscribe", "resources/unsubscribe":
+			raw, _ := json.Marshal(params)
+			return u.subscribe(raw, method == "resources/subscribe"), nil
+		case "logging/setLevel":
+			// The level travels with each request (meta).
+			return &jsonrpc.Message{JSONRPC: jsonrpc.Version, Result: json.RawMessage(`{}`)}, nil
+		}
+		p, err := withMeta(params, u.meta(s))
+		if err != nil {
+			return nil, err
+		}
+		params = p
+	}
 	id := json.RawMessage(strconv.FormatInt(u.nextID.Add(1), 10))
 	req, err := jsonrpc.NewRequest(id, method, params)
 	if err != nil {
@@ -312,6 +357,11 @@ func (u *upstream) unregisterProgress(gw json.RawMessage) {
 
 // upstreamHooks configure a new upstream.
 type upstreamHooks struct {
+	// era is what the pool knows of the definition's era: eraLegacy
+	// skips the server/discover probe. learnEra is told the result of a
+	// probe.
+	era           era
+	learnEra      func(era)
 	internal      bool
 	onListChanged func(*upstream, *jsonrpc.Message)
 	// token, for an instance of a server with sign_in, answers its
@@ -410,6 +460,9 @@ func (u *upstream) readLoop() {
 }
 
 func (u *upstream) notification(m *jsonrpc.Message) {
+	if u.modern {
+		m = stripSubscriptionMeta(m)
+	}
 	switch m.Method {
 	case "notifications/progress":
 		var p map[string]json.RawMessage
