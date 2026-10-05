@@ -258,7 +258,7 @@ Server names must be unique across all files.
 | `sign_in` | none | with `url`: each user signs in to the server with their own account there (`scopes`, `client_id`, `client_secret`). See [Signing in for each user](#signing-in-for-each-user) |
 | `env` | none | extra environment variables (map); `${HOME}` and `${USER}` are replaced as in `command` |
 | `selinux_type` | `mcpsrv_generic_t` (`mcpsrv_http_t` with `url`) | the SELinux domain instances run in; must be `mcpsrv_<name>_t` (see [SELinux domains](#selinux-domains-for-servers)) |
-| `isolation` | `principal` | `principal`: one instance per principal, shared by that principal's sessions. `session`: a new instance per session. |
+| `isolation` | `principal` | `principal`: one instance per principal, shared by that principal's sessions. `session`: a new instance per session; agents of MCP 2026-07-28 have no session and share one instance per principal, as with `principal`. |
 | `network` | `false` | allow network access. Without it, the instance has a private network namespace and only unix sockets. |
 | `run_as` | `principal` (`dynamic` with `url`) | whom the instance runs as: `principal` (the local user; remote users without a local account get a throwaway dynamic user), `dynamic` (always a throwaway dynamic user), or the name of a system account |
 | `discovery` | `shared` (`instance` with `sign_in`) | where tool and prompt lists come from: `shared` (one gateway-owned instance per server, cached; listing starts no per-user instances), `instance` (each principal's own instance, for servers whose tools depend on the user) |

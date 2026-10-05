@@ -9,6 +9,38 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- Agents of MCP 2026-07-28 are served, on the socket and over HTTPS,
+  beside agents of earlier versions on the same endpoints. They need
+  no `initialize` and no session: every request carries the protocol
+  version and the client's capabilities, and the gateway checks the
+  2026-07-28 headers against the body. `server/discover` tells what an
+  endpoint offers, and lists and reads carry `ttlMs` (`http.list_ttl`,
+  1 min; 0 for a while after a policy or definition change) and
+  `cacheScope: private`. Errors follow the version.
+  - Approvals, sign-ins and what a modern server asks the user for are
+    multi round-trip requests. The call is answered at once with the
+    form, the approval page or the sign-in link to show, and the
+    agent's SDK calls again with the answer. Retries wait for a decision
+    up to `approvals.retry_wait` (25 s, new), so no round trip outlasts
+    the agents' timeouts. The gateway's `requestState` is sealed and
+    bound to the user, the call and 30 minutes.
+  - List changes and resource updates come on a `subscriptions/listen`
+    stream the agent opens. Subscribed resources are decided by policy
+    (`resources.subscribe`).
+  - Log messages go only to requests that ask for them.
+  - What a session held belongs to the user:
+    - pseudonyms per user and endpoint, dropped after
+      `pseudonymize.vault_idle` (1 h, new);
+    - limits on requests in flight and subscription streams per user
+      (`limits.requests_per_principal`, 64; `limits.streams_per_principal`,
+      16);
+    - no "session" grants;
+    - one instance per user for servers marked `isolation: session`.
+  - The Python SDK 2.3 and mcp-go 1.1 (Kit) use 2026-07-28 with the
+    gateway from now on, as does the TypeScript SDK 2.3 when it is asked
+    to negotiate. The client suite runs all three. mcp-go gives up on a
+    call after three rounds without input (about 75 s); raise
+    `approvals.retry_wait` for longer approvals by Kit users.
 - Servers of MCP 2026-07-28, which have no `initialize` handshake, can
   be registered, started as programs or reached with `url`.
   The gateway probes a definition's first instance with

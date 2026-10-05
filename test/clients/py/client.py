@@ -17,6 +17,7 @@ import httpx2
 import mcp.types as types
 from mcp import Client, StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
 env = os.environ
 home = env["MCPGW_HOME"]
@@ -74,7 +75,8 @@ async def approval():
     async def on_progress(value, total, message):
         progress.append(value)
 
-    async with Client(server(), logging_callback=on_log) as client:
+    # On MCP 2026-07-28 log messages come only to requests that ask for them.
+    async with Client(server(), logging_callback=on_log, log_level="info") as client:
         r = await client.call_tool(
             "write_file",
             {"path": os.path.join(home, "approved.txt"), "content": "ok"},
@@ -104,12 +106,23 @@ async def listchanged():
             changed.set()
 
     async with Client(server(), message_handler=on_message) as client:
-        before = names((await client.list_tools()).tools)
-        ready()
-        try:
-            await asyncio.wait_for(changed.wait(), 20)
-        except TimeoutError:
-            pass
+        if client.session.protocol_version in MODERN_PROTOCOL_VERSIONS:
+            # MCP 2026-07-28: changes come on a stream the client opens.
+            async with client.listen(tools_list_changed=True) as sub:
+                before = names((await client.list_tools()).tools)
+                ready()
+                try:
+                    await asyncio.wait_for(anext(sub), 20)
+                    changed.set()
+                except TimeoutError:
+                    pass
+        else:
+            before = names((await client.list_tools()).tools)
+            ready()
+            try:
+                await asyncio.wait_for(changed.wait(), 20)
+            except TimeoutError:
+                pass
         after = names((await client.list_tools()).tools)
         return {"before": before, "after": after, "notified": changed.is_set()}
 

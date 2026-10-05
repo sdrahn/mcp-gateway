@@ -1,0 +1,9 @@
+{
+  "name": "mcp-gateway-client-ts2",
+  "private": true,
+  "description": "Compatibility test client: the TypeScript SDK 2.3 client (MCP 2026-07-28) against the gateway (e2e/clients_test.go)",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.3.1"
+  }
+}

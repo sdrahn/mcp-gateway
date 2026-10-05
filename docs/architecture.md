@@ -1092,11 +1092,8 @@ from the page: the Rego tests are not installed.
 ### 5.11 Protocol revision 2026-07-28
 
 *Roadmap steps 24 and 25, decision D18 (accepted). Servers (step 24):
-done. Agents (step 25): in progress; serving them is switched off
-(`serveModernAgents` in `cmd/mcp-gateway`) until the session's state is
-re-scoped for them (done) and the client suite tests the modern SDKs, since
-agents that speak 2026-07-28 fall back to legacy sessions meanwhile.
-Approvals, sign-ins and subscriptions reach them (§5.11.1, §5.11.2).
+done. Agents (step 25): done; the client suite runs the TypeScript SDK 2.3,
+the Python SDK 2.3 and mcp-go 1.1 on 2026-07-28 against the gateway.
 Sources: the specification of 2026-07-28 (changelog, versioning,
 Streamable HTTP, stdio, MRTR, subscriptions, discovery, caching) and
 SEP-2575 (stateless MCP), SEP-2567 (sessionless MCP), SEP-2322 (MRTR),
@@ -1266,7 +1263,13 @@ requests), so that the approval is not asked again; a server's input
 requests that policy refused are answered by the gateway, and its
 answers travel in the state too. The state expires after 30 minutes.
 An approval decided while no retry waited is kept as for a call that
-went away (§5.6.1): the next retry finds its grant.
+went away (§5.6.1): the next retry finds its grant. An `oob` approval
+has nothing to show the agent first, so its first round already waits.
+For the clients' sake an `InputRequiredResult` always carries
+`inputRequests` (empty if there is nothing to ask) and the method's own
+result field, empty (`content`, `contents`, `messages`): mcp-go 1.1
+refuses a result without the latter, the Python SDK 2.3 takes one with
+it but without `inputRequests` for a final result.
 
 #### 5.11.3 State that belonged to the session
 
@@ -2637,20 +2640,20 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     - requests served statelessly beside legacy sessions: headers checked
       against the body, `server/discover`, per-request capabilities and
       log level, `ttlMs` and `cacheScope` on lists and reads, error codes
-      per era (done, switched off until the items below);
-    - `subscriptions/listen` (done, switched off with the item above);
+      per era (done);
+    - `subscriptions/listen` (done);
     - approvals and sign-ins as multi round-trip requests with a sealed
       `requestState`; waiting rounds bounded by `approvals.retry_wait`;
       a modern server's input requests passed on to modern agents
-      (done, switched off with the items above);
+      (done);
     - session state re-scoped (pseudonym vault per principal and
-      endpoint, limits on requests and streams per principal) (done,
-      switched off with the items above);
+      endpoint, limits on requests and streams per principal) (done);
     - legacy servers' requests during a modern agent's call refused and
       audited (§5.11.4) (done);
     - the client suite with the modern SDKs (Python `mcp` 2.3, mcp-go
       1.1, the TypeScript SDK 2.3's `@modelcontextprotocol/client`)
-      over the socket and HTTPS, and serving modern agents switched on.
+      over the socket and HTTPS, and serving modern agents switched on
+      (done).
 
 ## 12. Open items
 

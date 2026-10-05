@@ -57,10 +57,12 @@ jobs:
           python-version: "3.12"
       - run: npm ci --no-audit --no-fund
         working-directory: test/clients/ts
+      - run: npm ci --no-audit --no-fund
+        working-directory: test/clients/ts2
       - run: pip install -r test/clients/py/requirements.txt
       - run: go test -count=1 -v -run TestClients ./e2e/
         env:
-          MCPGW_CLIENTS: ts,py,go
+          MCPGW_CLIENTS: ts,ts2,py,go
           GOTOOLCHAIN: auto
 
   # Servers of MCP 2026-07-28 built with the official SDKs (Go, Python,

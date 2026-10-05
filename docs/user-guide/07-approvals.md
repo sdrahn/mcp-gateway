@@ -132,7 +132,7 @@ SDK calls again with the answer. The agent sees one call.
 |---|---|---|
 | `form` | the approval form as an input request (`approval`) | carries the choice; the call runs, or is denied ("declined by user") |
 | `url` | the approval page as a URL-mode input request | waits up to `approvals.retry_wait` (25 s, with progress) for the decision; otherwise it is answered to retry again, and the next retry waits again |
-| `oob` | no input request, only the state; the request is in the inbox (and the agent gets the log message if it asked for log messages) | as for `url` |
+| `oob` | waits up to `approvals.retry_wait` first, then (undecided) no input request, only the state; the request is in the inbox (and the agent gets the log message if it asked for log messages) | as for `url` |
 
 Each round trip ends before the agents' request timeouts, so the
 approval may take until `approval_timeout` (120 s) whatever the agent's

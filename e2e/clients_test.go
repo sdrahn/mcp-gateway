@@ -27,7 +27,7 @@ type compatClient struct {
 }
 
 // compatClients returns the client programs named in $MCPGW_CLIENTS
-// (comma-separated: ts, py, go), set up as test/clients/README.md
+// (comma-separated: ts, ts2, py, go), set up as test/clients/README.md
 // describes; the test fails if one cannot run.
 
 // fsTools are the file server's tools the developer role offers
@@ -58,6 +58,19 @@ func compatClients(t *testing.T, bin string) []compatClient {
 			func(ca string) []string { return []string{"NODE_EXTRA_CA_CERTS=" + ca} }})
 	}
 
+	// ts2: the TypeScript SDK 2.3 client, which speaks MCP 2026-07-28.
+	ts2, _ := filepath.Abs(filepath.Join("..", "test", "clients", "ts2"))
+	if !required["ts2"] {
+		// not asked for
+	} else if node, err := exec.LookPath("node"); err != nil {
+		missing("ts2", "node not found")
+	} else if _, err := os.Stat(filepath.Join(ts2, "node_modules")); err != nil {
+		missing("ts2", "run npm ci in test/clients/ts2")
+	} else {
+		out = append(out, compatClient{"ts2", []string{node, filepath.Join(ts2, "client.mjs")},
+			func(ca string) []string { return []string{"NODE_EXTRA_CA_CERTS=" + ca} }})
+	}
+
 	py, _ := filepath.Abs(filepath.Join("..", "test", "clients", "py"))
 	python := os.Getenv("MCPGW_PYTHON")
 	if python == "" {
@@ -83,7 +96,7 @@ func compatClients(t *testing.T, bin string) []compatClient {
 			func(ca string) []string { return []string{"MCPGW_CA=" + ca} }})
 	}
 	for name := range required {
-		if name != "ts" && name != "py" && name != "go" {
+		if name != "ts" && name != "ts2" && name != "py" && name != "go" {
 			t.Fatalf("unknown client %q in MCPGW_CLIENTS", name)
 		}
 	}
@@ -133,7 +146,12 @@ func runClient(t *testing.T, c compatClient, scenario string, env []string, onRe
 }
 
 // gatewayVersions are the MCP versions the gateway accepts from clients.
-var gatewayVersions = map[string]bool{"2024-11-05": true, "2025-03-26": true, "2025-06-18": true, "2025-11-25": true}
+var gatewayVersions = map[string]bool{"2024-11-05": true, "2025-03-26": true, "2025-06-18": true, "2025-11-25": true, "2026-07-28": true}
+
+// modernClients are the clients that speak MCP 2026-07-28 with the
+// gateway: no session, approvals as multi round-trip requests, list
+// changes on a subscriptions/listen stream.
+var modernClients = map[string]bool{"ts2": true, "py": true, "go": true}
 
 func strs(v any) string {
 	l, _ := v.([]any)
@@ -257,11 +275,14 @@ func TestClients(t *testing.T) {
 					if r["server"] != "mcp-server-fs" || strs(r["tools"]) != fsTools || r["read"] != "hello clients" {
 						t.Fatalf("discovery or call: %v", r)
 					}
-					// Clients that try a newer protocol first (the Python SDK
-					// probes server/discover of MCP 2026-07-28) must fall back
-					// to one the gateway speaks.
+					// The version agreed is one the gateway speaks: MCP
+					// 2026-07-28 for the clients that try it first (Python,
+					// mcp-go), an earlier one for the others.
 					if v, ok := r["protocolVersion"]; ok && !gatewayVersions[fmt.Sprint(v)] {
 						t.Fatalf("protocol version %v", v)
+					}
+					if modernClients[c.name] && r["protocolVersion"] != "2026-07-28" {
+						t.Fatalf("%s did not agree on MCP 2026-07-28: %v", c.name, r["protocolVersion"])
 					}
 					denied, _ := r["denied"].(map[string]any)
 					if denied["isError"] != true && denied["error"] == nil {
