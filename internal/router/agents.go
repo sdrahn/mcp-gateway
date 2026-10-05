@@ -165,10 +165,11 @@ func (s *Session) agentRequest(ctx context.Context, m *jsonrpc.Message, header h
 		}
 	case "prompts/get", "resources/read", "completion/complete":
 		h = s.call
+	case "subscriptions/listen":
+		h = s.listen
 	default:
 		// Among them what MCP 2026-07-28 removed (initialize, ping,
-		// logging/setLevel, resources/subscribe and unsubscribe) and,
-		// for now, subscriptions/listen.
+		// logging/setLevel, resources/subscribe and unsubscribe).
 		if _, legacy := s.handlers(m.Method); !legacy {
 			p := s.snapshotPrincipal()
 			s.r.Audit.Log(audit.Record{Sub: p.Sub, Action: m.Method, Effect: string(pep.Deny), Reason: "method not permitted"})
@@ -250,17 +251,8 @@ func (s *Session) discover(ctx context.Context, m *jsonrpc.Message) (any, *jsonr
 		return nil, rpcErr
 	}
 	res, _ := init.(map[string]any)
-	// The changes of lists come on subscriptions/listen, which is not
-	// served yet (roadmap step 25): no listChanged, no subscribe.
-	caps := map[string]any{}
-	raw, _ := json.Marshal(res["capabilities"])
-	var in map[string]map[string]any
-	_ = json.Unmarshal(raw, &in)
-	for k, v := range in {
-		delete(v, "listChanged")
-		delete(v, "subscribe")
-		caps[k] = v
-	}
+	// Changes and subscribed resources come on subscriptions/listen.
+	caps := res["capabilities"]
 	info := res["serverInfo"]
 	if info == nil {
 		info = map[string]any{"name": "mcp-gateway", "version": version.Version}

@@ -75,6 +75,7 @@ func (r *Router) SetBackends(next map[string]*config.Backend) BackendChanges {
 		sessions = append(sessions, s)
 	}
 	r.mu.Unlock()
+	sessions = append(sessions, r.listenersWhere(nil)...)
 	for _, s := range sessions {
 		ep := s.endpoint()
 		var nep endpoint
@@ -84,8 +85,9 @@ func (r *Router) SetBackends(next map[string]*config.Backend) BackendChanges {
 			nep = singleEndpoint(b)
 		} else {
 			// The session's server went away: its calls fail as for an
-			// unknown server.
+			// unknown server, a listener's stream ends.
 			nep = endpoint{backends: map[string]*config.Backend{}, order: ep.order}
+			s.endListen()
 		}
 		s.ep.Store(&nep)
 	}

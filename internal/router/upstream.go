@@ -72,6 +72,8 @@ type upstream struct {
 	// internal: the instance runs for the gateway's own principal (shared
 	// discovery), not for a user.
 	internal bool
+	// owner is the principal the instance runs for (principalKey).
+	owner string
 	// onListChanged, if set, is told about the backend's */list_changed
 	// notifications (the router invalidates cached lists).
 	onListChanged func(*upstream, *jsonrpc.Message)

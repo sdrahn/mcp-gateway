@@ -87,6 +87,13 @@ type Session struct {
 	// clientCaps are the request's, agentLevel its log level.
 	modern     bool
 	agentLevel string
+	// listening is the stream of a modern agent's subscriptions/listen
+	// (listen.go).
+	listening *agentListen
+	// initialized: the client sent initialize (a connection that only
+	// carries modern requests never does, and hears nothing as a
+	// session).
+	initialized bool
 }
 
 func newSession(r *Router, ep endpoint, client jsonrpc.MessageConn, p principal.Principal) *Session {
@@ -421,6 +428,7 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 	s.mu.Lock()
 	s.clientCaps = p.Capabilities
 	s.principal.Client = p.ClientInfo
+	s.initialized = !s.modern
 	s.mu.Unlock()
 
 	v := protocolVersion
@@ -520,6 +528,16 @@ func withListChanged(caps map[string]json.RawMessage) map[string]json.RawMessage
 
 // listChanged tells the client that what it may see may have changed.
 func (s *Session) listChanged() {
+	if s.modern {
+		s.listChangedOn(allLists...)
+		return
+	}
+	s.mu.Lock()
+	initialized := s.initialized
+	s.mu.Unlock()
+	if !initialized {
+		return
+	}
 	for _, m := range []string{"notifications/tools/list_changed", "notifications/prompts/list_changed",
 		"notifications/resources/list_changed"} {
 		_ = s.client.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, Method: m})
@@ -1244,9 +1262,14 @@ func (s *Session) policyContext(decisionID string) pep.Context {
 // request it belongs to, if known (nil: none).
 func (s *Session) upstreamNotification(u *upstream, m *jsonrpc.Message, req json.RawMessage) {
 	if s.modern {
-		// A modern request gets the log messages it asked for; changes of
-		// lists and resources come on subscriptions/listen.
-		if m.Method != "notifications/message" || !s.agentLogs(m.Params) {
+		// A modern request gets the log messages it asked for, a listener
+		// the updates of the resources it subscribed to; list changes
+		// reach listeners from the router (backendListChanged).
+		switch {
+		case m.Method == "notifications/resources/updated":
+			s.resourceUpdated(u, m)
+			return
+		case m.Method != "notifications/message" || !s.agentLogs(m.Params):
 			return
 		}
 	}

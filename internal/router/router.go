@@ -69,6 +69,8 @@ type Router struct {
 
 	mu       sync.Mutex
 	sessions map[*Session]struct{}
+	// listeners are the modern agents' subscriptions/listen streams.
+	listeners map[*Session]struct{}
 }
 
 // SignIns signs principals in to servers with sign_in and gives their
@@ -105,6 +107,7 @@ func (r *Router) SignInChanged(k signin.Key, server string, signedIn bool) {
 		}
 	}
 	r.mu.Unlock()
+	sessions = append(sessions, r.listenersWhere(func(s *Session) bool { return k.Same(signin.KeyOf(s.snapshotPrincipal())) })...)
 	for _, s := range sessions {
 		s.listChanged()
 	}
@@ -128,6 +131,7 @@ func (r *Router) PolicyChanged() {
 	}
 	r.mu.Unlock()
 	r.lastChange.Store(time.Now())
+	sessions = append(sessions, r.listenersWhere(nil)...)
 	r.Log.Info("policy changed; notifying sessions", "sessions", len(sessions))
 	for _, s := range sessions {
 		s.listChanged()
