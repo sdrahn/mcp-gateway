@@ -63,6 +63,35 @@ jobs:
           MCPGW_CLIENTS: ts,py,go
           GOTOOLCHAIN: auto
 
+  # Servers of MCP 2026-07-28 built with the official SDKs (Go, Python,
+  # TypeScript), over stdio and HTTP, behind the gateway (roadmap step 24).
+  sdk-servers:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            test/servers/go/go.sum
+      - uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci --no-audit --no-fund
+        working-directory: test/servers/ts
+      - run: pip install -r test/servers/py/requirements.txt
+      - run: go test -count=1 -v -run TestModernServers ./e2e/
+        env:
+          MCPGW_SERVERS: go,py,ts
+          GOTOOLCHAIN: auto
+
   # Fuzzing (roadmap step 14): each target for a minute, with its seeds and
   # the inputs that failed before (testdata/fuzz). A failing input is
   # uploaded; add it to testdata/fuzz with the fix.

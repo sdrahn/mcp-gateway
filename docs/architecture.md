@@ -2604,7 +2604,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     - the sign-in: `iss` validated (RFC 9207), `application_type`
       in dynamic registration (done);
     - tests against modern servers built with the SDKs that speak
-      2026-07-28, stdio and HTTP.
+      2026-07-28, stdio and HTTP (done: `test/servers`,
+      `e2e/servers_test.go`, Go, Python and TypeScript SDKs).
 
 25. **Modern MCP agents** (§5.11, D18):
     - requests served statelessly beside legacy sessions: headers checked

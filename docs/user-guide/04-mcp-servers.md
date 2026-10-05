@@ -423,6 +423,15 @@ call with the policy's error. One call takes at most 8 such rounds
 modern server is told only of the capabilities the agent declared and
 the policy lets it use, on calls, reads and prompts.
 
+Tested in CI with servers built with the official SDKs, over stdio and
+HTTP: Go (`github.com/modelcontextprotocol/go-sdk` 1.8), Python (`mcp`
+2.3) and TypeScript (`@modelcontextprotocol/server` 2.3). Two things a
+server's author may need to know: the Go SDK serves 2026-07-28 over
+HTTP only without sessions (`StreamableHTTPOptions{Stateless: true}`),
+and the TypeScript SDK only through `serveStdio` and
+`createMcpHandler` (a `StdioServerTransport` connected by hand speaks
+the earlier revisions). Such a server still works, as a legacy one.
+
 `mcp-gateway-admin inspect` and the doctor probe the same way.
 
 ## Privileged servers
