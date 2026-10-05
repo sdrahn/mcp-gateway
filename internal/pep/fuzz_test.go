@@ -3,6 +3,7 @@ package pep
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
@@ -17,6 +18,8 @@ func FuzzVersioned(f *testing.F) {
 		`{"action":"tools.call","args":{"path":"/home/a"}}`,
 		`{"args":{"version":2,"x":"}\",\"version\":3"}}`,
 		`{"a":" </script>"}`,
+		`{"Version":1}`,
+		`{"verſion":1}`,
 	} {
 		f.Add([]byte(s))
 	}
@@ -25,8 +28,10 @@ func FuzzVersioned(f *testing.F) {
 		if json.Unmarshal(data, &in) != nil || jsonrpc.CheckKeys(data) != nil {
 			return
 		}
-		if _, ok := in["version"]; ok {
-			return // no input of the gateway has one
+		for k := range in {
+			if strings.EqualFold(k, "version") {
+				return // no input of the gateway has one, in any case
+			}
 		}
 		out, err := versioned(in)
 		if err != nil {
