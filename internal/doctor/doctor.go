@@ -63,6 +63,8 @@ var checkIDs = map[string]string{
 	"SELinux":             "selinux-denials",
 	"SELinux types":       "selinux-types",
 	"SELinux transitions": "selinux-transitions",
+	"TLS":                 "tls",
+	"firewall":            "firewall",
 }
 
 // checkPrefixes are the IDs of the checks labeled "<prefix><subject>",

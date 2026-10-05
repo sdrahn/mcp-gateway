@@ -9,6 +9,13 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- `mcp-gateway-admin doctor` checks the HTTP listener's certificate and
+  key (`tls`: they load, the gateway's account and SELinux domain can
+  read them, the certificate names the host of `http.audience` and has
+  not expired) and whether firewalld lets its port in (`firewall`). A
+  key the gateway cannot read keeps it from starting although
+  `mcp-gateway --check` passes; a closed port makes remote clients see
+  "connection refused" while the gateway works on the host.
 - An instance of a server with `sign_in` outlives its access token: when
   the server refuses it (401), the connector gets a renewed one from the
   gateway and the call goes on, in the same session with the server.
