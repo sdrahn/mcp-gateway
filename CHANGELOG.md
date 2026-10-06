@@ -7,6 +7,58 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v0.14.0 — 2026-10-06
+
+The gateway speaks MCP 2026-07-28 on both sides. Servers that dropped
+the `initialize` handshake can be registered, started and reached with
+`url`, and keep working with every agent. Agents of 2026-07-28 are
+served without a session, beside the agents of earlier versions on the
+same endpoints:
+- approvals, sign-ins and what a server asks the user for become multi
+  round-trip requests, so no call has to outlast an agent's timeout;
+- list changes come on a subscription stream the agent opens;
+- what a session held belongs to the user.
+
+The Python SDK 2.3, mcp-go 1.1 (Kit) and the TypeScript SDK 2.3 are
+tested on 2026-07-28 in CI; the TypeScript SDK 1.x (Claude Code) keeps
+the handshake.
+
+Upgrading from 0.13.x needs no changes to `gateway.yaml`, server
+definitions or role data. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. Things
+to know:
+
+- **Agents that use 2026-07-28 now:** the Python SDK 2.x and mcp-go 1.1,
+  and with it Kit. They used to fall back to the handshake. Without a
+  session:
+  - "session" grants are not offered to them; offer a duration
+    (`approval_scopes`) where they need one;
+  - servers with `isolation: session` give them one instance per user;
+  - list changes reach them only on a `subscriptions/listen` stream they
+    open (Kit opens none, as it acted on no `list_changed` before);
+  - log messages reach them only for requests that ask for them.
+- **Kit approvals:** an approval out of band or on the approval page
+  ends for Kit after about 75 s, since mcp-go gives up after three rounds
+  without input. Raise `approvals.retry_wait` (25 s) if Kit users need
+  longer, for example to 40 s for two minutes; keep it below 60 s.
+- **New settings,** all optional with defaults:
+  - `http.list_ttl` (1 min);
+  - `approvals.retry_wait` (25 s);
+  - `pseudonymize.vault_idle` (1 h);
+  - `limits.requests_per_principal` (64);
+  - `limits.streams_per_principal` (16).
+- **Policy input:** for a 2026-07-28 request, `context.protocol_version`
+  is `2026-07-28` and the principal has no `session_id`. Custom policy
+  that keys on the session needs another key for those requests.
+- **`client` permissions** match the request's method
+  (`sampling/createMessage`, `elicitation/create`, `roots/list`), as the
+  role data schema now says too. Permissions written with the action
+  names the documentation showed before (`sampling.create`, …) matched
+  nothing and need the method names.
+- **Servers** that keep the handshake are initialized with MCP
+  2025-11-25. A server that exits on the `server/discover` probe is
+  started again and initialized.
+
 ### Added
 
 - Agents of MCP 2026-07-28 are served, on the socket and over HTTPS,
