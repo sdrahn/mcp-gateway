@@ -139,7 +139,8 @@ func (r *Router) serveAgentRequest(ctx context.Context, ep endpoint, out jsonrpc
 	s.ctx = ctx
 	defer s.release()
 
-	result, rpcErr := s.agentRequest(withRequest(ctx, m.ID), m, header)
+	reqCtx, challenge := withChallenge(withRequest(ctx, m.ID))
+	result, rpcErr := s.agentRequest(reqCtx, m, header)
 	if ctx.Err() != nil {
 		return // cancelled: the client went away or said so
 	}
@@ -148,14 +149,14 @@ func (r *Router) serveAgentRequest(ctx context.Context, ep endpoint, out jsonrpc
 			// MCP 2026-07-28 names an unknown resource invalid params.
 			rpcErr = &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: rpcErr.Message, Data: rpcErr.Data}
 		}
-		_ = out.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Error: rpcErr})
+		_ = out.Write(challenge.mark(&jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Error: rpcErr}))
 		return
 	}
 	resp, err := jsonrpc.NewResult(m.ID, result)
 	if err != nil {
 		resp = jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "internal error")
 	}
-	_ = out.Write(resp)
+	_ = out.Write(challenge.mark(resp))
 }
 
 // agentRequest serves a modern request and returns its result, with the

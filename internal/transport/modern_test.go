@@ -45,6 +45,11 @@ func (f *modernServe) serve(ctx context.Context, out jsonrpc.MessageConn, p prin
 	case "missing":
 		_ = out.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeMethodNotFound, "method not found"))
 		return
+	case "outside":
+		r, _ := jsonrpc.NewResult(m.ID, map[string]any{"isError": true})
+		r.ScopeChallenge = "mcp:git"
+		_ = out.Write(r)
+		return
 	}
 	r, _ := jsonrpc.NewResult(m.ID, map[string]any{"server": server, "sub": p.Sub, "session": p.SessionID, "region": h.Get("Mcp-Param-Region")})
 	_ = out.Write(r)
@@ -111,6 +116,18 @@ func TestModernRequest(t *testing.T) {
 	resp = modernPost(t, srv.URL+"/mcp", "missing", "", nil)
 	if body := readAll(t, resp); resp.StatusCode != http.StatusNotFound || !strings.Contains(body, "-32601") {
 		t.Fatalf("unknown method: %d %s", resp.StatusCode, body)
+	}
+}
+
+// A modern request denied for lacking a scope is a 403 challenge.
+func TestModernScopeChallenge(t *testing.T) {
+	f := &modernServe{}
+	srv, _ := newTestServer(t, func(c *HTTPConfig) { c.Request = f.serve })
+	resp := modernPost(t, srv.URL+"/mcp/fs", "outside", "", nil)
+	body := readAll(t, resp)
+	if resp.StatusCode != http.StatusForbidden || !strings.Contains(resp.Header.Get("WWW-Authenticate"), `error="insufficient_scope", scope="openid mcp mcp:git"`) ||
+		!strings.Contains(body, `"isError":true`) {
+		t.Fatalf("%d %v %s", resp.StatusCode, resp.Header, body)
 	}
 }
 

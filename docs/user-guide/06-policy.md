@@ -363,8 +363,19 @@ in roles), or everything (`"unlimited": true`).
 - A request outside the ceiling is **denied**, not asked: an approval
   does not lift the token's limit. The decision says "outside the
   token's scopes", is marked `outside_scopes` and names the scopes that
-  would allow it (`required_scopes`); the audit trail records the
-  token's scopes.
+  would allow it (`required_scopes`, narrower ones first, unlimited
+  ones last); the audit trail records the token's scopes.
+- **Step-up.** The agent gets the denial with the scopes that would
+  allow it ("outside the token's scopes; a token with the scope
+  mcp:write or mcp:admin would allow it"). Over HTTPS the request is
+  answered with `403` and an `insufficient_scope` challenge asking for
+  the token's scopes plus the first of them, as the MCP authorization
+  specification describes: an agent that supports it (the TypeScript
+  SDK with an OAuth provider, for example) has the user authorize the
+  wider scope and sends the request again. That holds for legacy
+  sessions and agents of MCP 2026-07-28 alike, while nothing of the
+  response has been streamed yet (a request answered after progress
+  gets the denial as its result); other agents show the error.
 - Explicit denies of the roles come first. A role named in a ceiling
   contributes only its allowing permissions; its denies still apply
   through the principal's roles.

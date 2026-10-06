@@ -66,6 +66,12 @@ type Message struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 	Result  json.RawMessage `json:"result,omitempty"`
 	Error   *Error          `json:"error,omitempty"`
+
+	// ScopeChallenge, on a response, is the OAuth scope a token lacked
+	// for the request (a token-scope ceiling denied it): over HTTP the
+	// response becomes a 403 insufficient_scope challenge asking for it,
+	// where it still can. Never sent.
+	ScopeChallenge string `json:"-"`
 }
 
 // IsRequest reports whether m is a request (method and id).

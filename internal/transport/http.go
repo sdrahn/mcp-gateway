@@ -80,9 +80,14 @@ const (
 	// connection can still be resumed.
 	resumeRetention = 5 * time.Minute
 	keepAlive       = 25 * time.Second
-	reapInterval    = time.Minute
-	pushTimeout     = 10 * time.Second
-	sessionIDBytes  = 16
+	// challengeWait is how long the headers of an SSE response to a
+	// request wait for its first message, so that a request a token
+	// scope ceiling denies can still be answered with 403 (a decision
+	// is quicker; a request that takes longer streams as before).
+	challengeWait  = 2 * time.Second
+	reapInterval   = time.Minute
+	pushTimeout    = 10 * time.Second
+	sessionIDBytes = 16
 )
 
 var supportedVersions = map[string]bool{"2025-03-26": true, "2025-06-18": true, "2025-11-25": true}
@@ -225,6 +230,24 @@ func (h *HTTPHandler) serveMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(meta)
+}
+
+// scopeChallenge answers a request denied for lacking an OAuth scope
+// (jsonrpc.Message.ScopeChallenge) with 403 and an insufficient_scope
+// challenge for the token's scopes and scope (RFC 6750 section 3.1, the
+// MCP authorization specification's step-up), so that a client that
+// supports it has the user authorize the wider scope and retries. The
+// body is the JSON-RPC response, whose text says the same.
+func (h *HTTPHandler) scopeChallenge(w http.ResponseWriter, p principal.Principal, scope string, body []byte) {
+	scopes := slices.Clone(p.Scopes)
+	if !slices.Contains(scopes, scope) {
+		scopes = append(scopes, scope)
+	}
+	w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata=%q, error="insufficient_scope", scope=%q, error_description=%q`,
+		h.metaURL, strings.Join(scopes, " "), "the request needs the scope "+scope))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = w.Write(append(body, '\n'))
 }
 
 func (h *HTTPHandler) authenticate(w http.ResponseWriter, r *http.Request) (principal.Principal, bool) {
@@ -475,6 +498,8 @@ type sseEvent struct {
 	seq      int
 	data     []byte
 	response bool
+	// challenge is the response's ScopeChallenge.
+	challenge string
 }
 
 // add appends m to the stream's events. Caller holds the session's mu.
@@ -484,7 +509,11 @@ func (st *stream) add(m *jsonrpc.Message) {
 		return
 	}
 	resp := st.key != "" && m.IsResponse() && m.Key() == st.key
-	st.events = append(st.events, sseEvent{seq: st.next, data: data, response: resp})
+	ev := sseEvent{seq: st.next, data: data, response: resp}
+	if resp {
+		ev.challenge = m.ScopeChallenge
+	}
+	st.events = append(st.events, ev)
 	st.next++
 	if len(st.events) > replayEvents {
 		st.events = st.events[len(st.events)-replayEvents:]
@@ -752,6 +781,9 @@ func (s *httpSession) handleRequest(w http.ResponseWriter, r *http.Request, p pr
 	if sse {
 		// The stream outlives this connection: the client may resume it.
 		defer s.detach(st, conn)
+		if s.challenged(w, r, p, st, wake) {
+			return
+		}
 		s.pipe(w, r, p, st, 0, conn, wake)
 		return
 	}
@@ -768,6 +800,10 @@ func (s *httpSession) handleRequest(w http.ResponseWriter, r *http.Request, p pr
 		evs := st.eventsAfter(0)
 		s.mu.Unlock()
 		if len(evs) > 0 {
+			if ev := evs[len(evs)-1]; ev.challenge != "" {
+				s.h.scopeChallenge(w, p, ev.challenge, ev.data)
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write(append(evs[len(evs)-1].data, '\n'))
 			return
@@ -779,6 +815,44 @@ func (s *httpSession) handleRequest(w http.ResponseWriter, r *http.Request, p pr
 		case <-s.closed:
 			http.Error(w, "session ended", http.StatusNotFound)
 			return
+		}
+	}
+}
+
+// challenged waits up to challengeWait for the first event of the SSE
+// request stream st, before its headers are written: if it is a
+// response with a scope challenge, the request is answered with the
+// challenge (403) instead of a stream, and challenged reports true.
+// Otherwise the stream starts as usual (pipe sends what came).
+func (s *httpSession) challenged(w http.ResponseWriter, r *http.Request, p principal.Principal, st *stream, wake chan struct{}) bool {
+	t := time.NewTimer(challengeWait)
+	defer t.Stop()
+	for {
+		s.mu.Lock()
+		evs := st.eventsAfter(0)
+		var ev sseEvent
+		if len(evs) > 0 {
+			ev = evs[0]
+			if ev.challenge != "" {
+				delete(s.streams, st.num) // answered: nothing to resume
+			}
+		}
+		s.mu.Unlock()
+		if len(evs) > 0 {
+			if ev.challenge == "" {
+				return false
+			}
+			s.h.scopeChallenge(w, p, ev.challenge, ev.data)
+			return true
+		}
+		select {
+		case <-wake:
+		case <-t.C:
+			return false
+		case <-r.Context().Done():
+			return true
+		case <-s.closed:
+			return false
 		}
 	}
 }

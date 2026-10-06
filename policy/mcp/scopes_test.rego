@@ -32,7 +32,7 @@ test_scope_ceiling_narrows if {
 	d.effect == "deny"
 	d.outside_scopes == true
 	d.reason == "outside the token's scopes"
-	d.required_scopes == ["mcp:admin", "mcp:git"]
+	d.required_scopes == ["mcp:git", "mcp:admin"]
 
 	authz.decision.effect == "allow" with input as call(with_scopes(["mcp:read"]), "git", "read_log", {})
 		with data.mcp.rbac.scopes as scope_map
