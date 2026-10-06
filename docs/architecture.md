@@ -1148,7 +1148,9 @@ get `UnsupportedProtocolVersion` naming the versions it may use, and
 2.3, Python 2.3, mcp-go 1.1) then fall back to the handshake. The name
 is self-asserted, like `clientInfo` everywhere (§5.2): it chooses the
 protocol, never what is allowed. As shipped, Kit is capped at
-2025-11-25.
+2025-11-25. For clients named in `agents.no_request_timeout` (Kit, as
+shipped), a round of an approval or a sign-in waits until it is decided
+instead of `approvals.retry_wait` (§5.11.2).
 
 #### 5.11.1 Agents (modern)
 
@@ -1247,6 +1249,11 @@ MRTR removes the wait:
    only a `requestState`, which the client may retry at once. Each round
    trip stays shorter than any client timeout; the approval keeps its
    own expiry (`approvals.timeout`), after which the call is denied.
+   For clients without a request timeout of their own, named in
+   `agents.no_request_timeout` (Kit, as shipped), a round waits until
+   the decision or the expiry instead: mcp-go 1.1 gives up after three
+   rounds in a row that ask for nothing (step 26). Sign-in rounds wait
+   alike.
 
 Approvals in the inbox, push notices and approval pages are keyed by
 the approval's id, carried in the `requestState`, not by a session.
@@ -2718,12 +2725,17 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       SDK 2.3 and mcp-go 1.1, named as a capped client, fall back to
       2025-11-25, and an approval out of band longer than their request
       timeout is one call (done);
-    - later, if Kit is to speak 2026-07-28 with the gateway: a waiting
-      round lasting up to `approval_timeout` for clients without a
-      request timeout of their own, or upstream, a change to mcp-go
-      that treats an answer without input requests as "retry later"
-      with a backoff and a bound on rounds, as the Python and
-      TypeScript SDKs do. Then the shipped cap can go;
+    - in the gateway, for clients that speak 2026-07-28 (the cap
+      removed): `agents.no_request_timeout` names clients without a
+      request timeout of their own, shipped with `[kit]`; a round of an
+      approval or a sign-in waits for them until it is decided (up to
+      `approval_timeout`, `sign_in.timeout`) instead of
+      `approvals.retry_wait`, so mcp-go never sees three rounds that
+      ask for nothing (done);
+    - upstream, later: a change to mcp-go that treats an answer without
+      input requests as "retry later" with a backoff and a bound on
+      rounds, as the Python and TypeScript SDKs do. Then the shipped
+      cap and list can go;
     - considered: offering tasks to clients that declare them (Kit
       does), so that an approval becomes a task the client polls (more
       general, but tasks would need policy and obligations on their

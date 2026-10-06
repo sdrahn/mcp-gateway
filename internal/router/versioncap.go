@@ -30,6 +30,17 @@ func lowerKeys(caps map[string]string) map[string]string {
 	return out
 }
 
+// lowerNames returns names in lower case (nil if none).
+func lowerNames(names []string) []string {
+	var out []string
+	for _, n := range names {
+		if n = strings.ToLower(strings.TrimSpace(n)); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // versionCap returns the newest version the gateway speaks with the
 // client named name, or "" if it is not capped.
 func (r *Router) versionCap(name string) string {

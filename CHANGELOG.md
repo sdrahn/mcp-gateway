@@ -9,6 +9,13 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- `agents.no_request_timeout` names clients without a request timeout
+  of their own (default `[kit]`): on MCP 2026-07-28 a round of an
+  approval or a sign-in waits for them until it is decided, up to
+  `approval_timeout`, instead of `approvals.retry_wait`. So Kit's
+  approvals wait as long without the version cap as with it (roadmap
+  step 26).
+
 - Token scopes as a ceiling (D17): the optional `scopes` map in the role
   data limits what a token's scopes let remote principals do; the roles
   decide within it. A request outside it is denied (never asked) with

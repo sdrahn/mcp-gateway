@@ -136,7 +136,9 @@ SDK calls again with the answer. The agent sees one call.
 
 Each round trip ends before the agents' request timeouts, so the
 approval may take until `approval_timeout` (120 s) whatever the agent's
-timeout. A decision made while no retry waits is kept as for a call
+timeout. For agents without a request timeout of their own, named in
+`agents.no_request_timeout` (Kit, as shipped; chapter 3), a round waits
+until the decision instead. A decision made while no retry waits is kept as for a call
 that went away (above): the next retry finds it. The scope "session" is
 not offered: there is no session.
 

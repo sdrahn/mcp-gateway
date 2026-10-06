@@ -56,7 +56,7 @@ within `policy.watch_interval` (10 s).
 | `notifications.email` (all keys) | apply to the next mail; the password file is read again |
 | `limits` | apply to the next session, instance or request |
 | `pseudonymize.vault_idle` | applies to the next request |
-| `agents.max_version` | applies to the next request or session |
+| `agents.max_version`, `agents.no_request_timeout` | apply to the next request or session (`no_request_timeout`: to the next round) |
 | `supervisor.idle_timeout` | applies to instances that become idle from then on |
 | `policy.timeout`, `policy.watch_interval` | apply to the next decision and check |
 | `http.cert_file`, `http.key_file` | the certificate and key are read again; new connections get them. Renewing the files is a change too, so a renewed certificate needs no restart |
@@ -269,16 +269,21 @@ pseudonymize:
 agents:
   max_version:
     kit: "2025-11-25"
+  no_request_timeout: [kit]
 ```
 
 | Key | Default | Meaning |
 |---|---|---|
 | `agents.max_version` | `{kit: "2025-11-25"}` | the newest MCP version the gateway speaks with a client, by the name the client gives (`clientInfo.name`, case-insensitive): one of `2024-11-05`, `2025-03-26`, `2025-06-18`, `2025-11-25`, `2026-07-28`. A client capped below 2026-07-28 is answered as by a gateway without it and uses the `initialize` handshake (chapter 5). Setting the key replaces the default; `{}` caps no client. The name is the client's own claim: it chooses the protocol, never what is allowed |
+| `agents.no_request_timeout` | `[kit]` | clients, by name (case-insensitive), that have no request timeout of their own: on MCP 2026-07-28 a round of an approval or a sign-in waits for them until it is decided (up to `approval_timeout`, `sign_in.timeout`) instead of `approvals.retry_wait`. Setting the key replaces the default; `[]` names none. Like `max_version`, it chooses how long a round waits, never what is allowed |
 
 Kit is capped because mcp-go 1.1 gives up on a call after three
 answers in a row that ask for nothing, so on 2026-07-28 an approval
 that takes longer than about 75 s ends for it; with the handshake the
-call waits up to `approval_timeout` (chapter 5).
+call waits up to `approval_timeout` (chapter 5). With the cap removed,
+`no_request_timeout` keeps Kit's approvals that long on 2026-07-28 too:
+a round waits until the decision, so Kit never sees three rounds that
+ask for nothing.
 
 ### Remote access (HTTPS)
 

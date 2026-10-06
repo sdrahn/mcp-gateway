@@ -65,6 +65,9 @@ type Router struct {
 	// MaxVersion caps the MCP version per client name (agents.max_version;
 	// versioncap.go). Nil caps no client.
 	MaxVersion map[string]string
+	// NoRequestTimeout names clients whose approval and sign-in rounds
+	// wait until decided (agents.no_request_timeout; mrtr.go).
+	NoRequestTimeout []string
 	// ModernAgents serves agents' requests of MCP 2026-07-28 (agents.go).
 	// Off, such requests are served as before (a server/discover probe
 	// is unknown, and the agent falls back to initialize).
@@ -264,7 +267,7 @@ func (r *Router) init() {
 			MaxSessionsPerPrincipal: r.MaxSessionsPerPrincipal, MaxInstancesPerPrincipal: r.MaxInstancesPerPrincipal,
 			MaxInstances: r.MaxInstances, ListTTL: r.ListTTL, RetryWait: r.RetryWait,
 			MaxRequestsPerPrincipal: r.MaxRequestsPerPrincipal, MaxStreamsPerPrincipal: r.MaxStreamsPerPrincipal, VaultIdle: r.VaultIdle,
-			MaxVersion: r.MaxVersion})
+			MaxVersion: r.MaxVersion, NoRequestTimeout: r.NoRequestTimeout})
 		r.pool.onListChanged = r.listChanged
 		r.pool.current = func(server string) *config.Backend { return (*r.registry.Load())[server] }
 		if r.SignIns != nil {
@@ -285,6 +288,7 @@ type Settings struct {
 	MaxRequestsPerPrincipal, MaxStreamsPerPrincipal                 int
 	VaultIdle                                                       time.Duration
 	MaxVersion                                                      map[string]string
+	NoRequestTimeout                                                []string
 }
 
 // defaultListTTL and defaultRetryWait are ListTTL and RetryWait when
@@ -320,6 +324,7 @@ func (r *Router) applySettings(s Settings) {
 		s.VaultIdle = defaultVaultIdle
 	}
 	s.MaxVersion = lowerKeys(s.MaxVersion)
+	s.NoRequestTimeout = lowerNames(s.NoRequestTimeout)
 	r.live.Store(&s)
 	perPrincipal := s.MaxInstancesPerPrincipal
 	if perPrincipal <= 0 {

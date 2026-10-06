@@ -143,7 +143,18 @@ type Agents struct {
 	// an empty map caps no client. The name is self-asserted: it chooses
 	// the protocol, never what is allowed.
 	MaxVersion map[string]string `yaml:"max_version"`
+	// NoRequestTimeout names clients (clientInfo.name, case-insensitive)
+	// that have no request timeout of their own: on MCP 2026-07-28 a
+	// round of an approval or a sign-in waits for them until it is
+	// decided (up to approval_timeout, sign_in.timeout) instead of
+	// approvals.retry_wait, so that clients that give up after a few
+	// rounds that ask for nothing (mcp-go 1.1) wait as long as with the
+	// handshake. Unset, DefaultNoRequestTimeout applies; [] names none.
+	NoRequestTimeout []string `yaml:"no_request_timeout"`
 }
+
+// DefaultNoRequestTimeout is Agents.NoRequestTimeout's default.
+func DefaultNoRequestTimeout() []string { return []string{"kit"} }
 
 // AgentVersions are the MCP versions the gateway speaks with agents,
 // oldest first.
@@ -609,6 +620,9 @@ func (g *Gateway) setDefaults() {
 	if g.Agents.MaxVersion == nil {
 		g.Agents.MaxVersion = DefaultMaxVersion()
 	}
+	if g.Agents.NoRequestTimeout == nil {
+		g.Agents.NoRequestTimeout = DefaultNoRequestTimeout()
+	}
 	if g.ApprovalTimeout == 0 {
 		g.ApprovalTimeout = DefaultApprovalTimeout
 	}
@@ -688,6 +702,11 @@ func (g *Gateway) Validate() error {
 		}
 		if !slices.Contains(AgentVersions, v) {
 			return fmt.Errorf("agents.max_version.%s: unknown MCP version %q (one of %s)", name, v, strings.Join(AgentVersions, ", "))
+		}
+	}
+	for _, name := range g.Agents.NoRequestTimeout {
+		if strings.TrimSpace(name) == "" {
+			return errors.New("agents.no_request_timeout: empty client name")
 		}
 	}
 	if g.Approvals.ControlSocket != "-" && !filepath.IsAbs(g.Approvals.ControlSocket) {

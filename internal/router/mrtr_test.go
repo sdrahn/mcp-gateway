@@ -241,6 +241,33 @@ func TestAgentApprovalOOB(t *testing.T) {
 
 }
 
+// For a client without a request timeout of its own
+// (agents.no_request_timeout), a round waits until the approval is
+// decided, however long past approvals.retry_wait: the call is one round.
+func TestAgentApprovalUntilDecided(t *testing.T) {
+	r := approvalRouter(t, pep.ChannelURL)
+	r.NoRequestTimeout = []string{"Kit"}
+	c := agent(t, r, alice(), "fs")
+	call := map[string]any{"name": "run_job", "arguments": map[string]any{"n": 1}}
+	kit := map[string]any{metaClientInfo: map[string]any{"name": "kit", "version": "0.121.1"}}
+
+	go func() {
+		time.Sleep(500 * time.Millisecond) // five times approvals.retry_wait
+		pending := r.Broker.ListPending(context.Background(), self)
+		if len(pending) == 1 {
+			_, _ = r.Broker.Resolve(context.Background(), self, pending[0].ID, true, "once")
+		}
+	}()
+	if text, isErr := toolText(t, c.roundTrip(1, "tools/call", withAgentMeta(call, kit))); isErr || text != "fs did run_job" {
+		t.Fatalf("approved in one round: %q %v", text, isErr)
+	}
+
+	// Other clients still get a round per approvals.retry_wait.
+	if ir := inputRequiredOf(t, c.roundTrip(2, "tools/call", withAgentMeta(call, nil))); len(ir.InputRequests) != 0 {
+		t.Fatalf("other client: %+v", ir)
+	}
+}
+
 // A modern server's input requests reach a modern agent with the
 // gateway's state, after policy: the retry's answers and the server's
 // state go back to the server. What policy refuses the gateway answers.

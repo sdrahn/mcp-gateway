@@ -416,10 +416,11 @@ What the gateway does for clients:
   a call after three answers in a row that ask for nothing (a pending
   approval decided out of band or on the page): with
   `approvals.retry_wait` 25 s, after about 75 s. Kit is therefore
-  capped at the handshake, where a call waits up to `approval_timeout`.
-  For other mcp-go agents, cap them too (`agents.max_version`), or
-  raise `approvals.retry_wait` (40 s gives two minutes; keep it below
-  60 s, the TypeScript SDK's request timeout).
+  capped at the handshake, where a call waits up to `approval_timeout`,
+  and named in `agents.no_request_timeout`, so that on 2026-07-28 (cap
+  removed) a round waits until the decision. For other mcp-go agents
+  without a request timeout, name them in both, or in
+  `agents.no_request_timeout` only.
 
 ## Agents
 
@@ -484,7 +485,7 @@ mcpServers:
 | Sessions | one MCP session per server per `kit` run (`kit -p` runs are one each); within a run, Kit replaces a session that has been idle for 5 minutes. "Session" grants end with it: offer a duration (`approval_scopes`) to Kit users |
 | Approvals | Kit cannot answer elicitations, so `url` and `form` fall back to `oob` (the shipped policy's fallback). Kit shows nothing while a call waits: approvers learn of it from the desktop notification or mail (chapter 7) and decide in Cockpit; the call returns when they do, or after `approval_timeout` |
 | Timeouts | none of its own on tool calls; `approval_timeout` decides |
-| Protocol | with `agents.max_version: {}` (no cap) Kit speaks 2026-07-28: no session, no "session" grants, and an approval ends for it after about 75 s (three waiting rounds of `approvals.retry_wait`, above) |
+| Protocol | with `agents.max_version: {}` (no cap) Kit speaks 2026-07-28: no session, no "session" grants; approvals still wait up to `approval_timeout`, since Kit is named in `agents.no_request_timeout` (a round waits until the decision). Without that, an approval ends for Kit after about 75 s (three waiting rounds of `approvals.retry_wait`, above) |
 | Policy changes | Kit reads the tool list when it starts and does not act on `list_changed` (over HTTP it does not receive it either); start Kit again after role changes. Tools that policy removed meanwhile are refused when called |
 | Load | before each tool call Kit lists the server's tools as a health check |
 | Tasks | with `tasksMode: always` Kit asks for a task; the gateway runs the call synchronously (it offers no tasks, so `auto` never asks) |
