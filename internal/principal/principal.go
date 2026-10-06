@@ -49,6 +49,10 @@ type Principal struct {
 	// local account mapping.
 	UID    *uint32  `json:"uid,omitempty"`
 	Groups []string `json:"groups,omitempty"`
+	// Scopes are a remote principal's token scopes (its "scope" claim,
+	// else "scp"). They never grant; role data may map them to a ceiling
+	// (docs/architecture.md, section 6.7).
+	Scopes []string `json:"scopes,omitempty"`
 	// Home is the home directory of the local account, if any.
 	Home string `json:"home,omitempty"`
 	// Roles are derived by policy data; the gateway fills them in only when

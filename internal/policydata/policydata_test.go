@@ -72,6 +72,17 @@ func TestCheck(t *testing.T) {
 				"/roles/r/permissions/0/obligations/arg_constraints/a/1: invalid regular expression",
 				"/roles/r/permissions/0/obligations/pseudonymize/patterns/c: invalid regular expression",
 				"/roles/r/permissions/0/obligations/redact_output/0: invalid regular expression"}},
+		{"scopes", `{"roles": {"viewer": {"permissions": []}}, "scopes": {
+			"mcp:read": {"roles": ["viewer"]},
+			"mcp:fs": {"description": "d", "permissions": [{"server": "fs", "tool": "*", "args": {"path": "^/srv/"}}, {"server": "fs", "resource": "*"}]},
+			"mcp:admin": {"unlimited": true}, "default": {"permissions": []}}}`, nil},
+		{"scope ceiling with qualifying fields", `{"roles": {}, "scopes": {"mcp:fs": {"permissions": [
+			{"server": "fs", "tool": "*", "require_approval": true}]}}}`,
+			[]string{"/scopes/mcp:fs/permissions/0: additional properties 'require_approval' not allowed"}},
+		{"scope ceiling empty or limited", `{"roles": {}, "scopes": {"a": {}, "b": {"unlimited": false}}}`,
+			[]string{"/scopes/a: missing property", "/scopes/b/unlimited: value must be true"}},
+		{"scope ceiling problems", `{"roles": {}, "scopes": {"mcp:x": {"roles": ["viewr"], "permissions": [{"server": "fs", "tool": "x", "args": {"p": "("}}]}}}`,
+			[]string{`/scopes/mcp:x/permissions/0/args/p: invalid regular expression`, `/scopes/mcp:x/roles/0: unknown role "viewr"`}},
 		{"unknown roles", `{"roles": {"r": {"permissions": []}}, "bindings": {"users": {"alice": ["r", "admn"]}, "groups": {"dev": ["x"]}},
 			"approvers": {"db": ["self", "role:dba"]}}`,
 			[]string{`/approvers/db/1: unknown role "dba"`, `/bindings/groups/dev/0: unknown role "x"`, `/bindings/users/alice/1: unknown role "admn"`}},

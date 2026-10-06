@@ -24,6 +24,7 @@ pending.principal.groups
 pending.principal.home
 pending.principal.iss
 pending.principal.roles
+pending.principal.scopes
 pending.principal.selinux
 pending.principal.session_id
 pending.principal.sub

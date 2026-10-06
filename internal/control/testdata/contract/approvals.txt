@@ -21,6 +21,7 @@
 [].principal.home
 [].principal.iss
 [].principal.roles
+[].principal.scopes
 [].principal.selinux
 [].principal.session_id
 [].principal.sub

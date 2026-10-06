@@ -38,6 +38,7 @@ request.principal.groups
 request.principal.home
 request.principal.iss
 request.principal.roles
+request.principal.scopes
 request.principal.selinux
 request.principal.session_id
 request.principal.sub

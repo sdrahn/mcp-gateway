@@ -107,6 +107,7 @@ func (o *OAuth) Authenticate(ctx context.Context, token string, cert *x509.Certi
 		Sub:       sub,
 		Issuer:    o.cfg.Issuer,
 		Groups:    claimStrings(claims, o.cfg.GroupsClaim),
+		Scopes:    scopes,
 		Transport: principal.TransportHTTP,
 	}
 	// Required and valid (checked above): streams the request opens end
