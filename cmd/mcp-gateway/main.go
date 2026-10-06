@@ -302,7 +302,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		MaxRequestsPerPrincipal:  gw.Limits.RequestsPerPrincipal,
 		MaxStreamsPerPrincipal:   gw.Limits.StreamsPerPrincipal,
 		VaultIdle:                gw.Pseudonymize.VaultIdle,
-		ModernAgents:             serveModernAgents,
+		ModernAgents:             true,
 	}
 	if signIns != nil {
 		r.SignIns = signIns
@@ -482,7 +482,7 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Ro
 				"principal": p.Sub, "transport": string(p.Transport), "session": p.SessionID,
 			})
 		},
-		Request: modernRequests(r),
+		Request: r.ServeRequest,
 		Log:     log,
 	}, authn.NewOAuth(cfg, nil), r.ServeClient)
 	if err != nil {
@@ -684,20 +684,4 @@ func warnMissingSELinuxTypes(log *slog.Logger, backends map[string]*config.Backe
 		log.Warn("selinux_type is not in the loaded SELinux policy; install its module, or instances of these servers fail to start",
 			"selinux_type", t, "servers", strings.Join(missing[t], ","))
 	}
-}
-
-// serveModernAgents turns on serving agents' requests of MCP 2026-07-28
-// without a session. Off until roadmap step 25 is complete: agents that
-// speak it (Python SDK 2, mcp-go 1.1) would otherwise lose approvals in
-// their own dialog and list change notifications, which come to them as
-// multi round-trip requests and on subscriptions/listen.
-const serveModernAgents = false
-
-// modernRequests is the HTTP transport's RequestFunc: nil while
-// serveModernAgents is off.
-func modernRequests(r *router.Router) transport.RequestFunc {
-	if !serveModernAgents {
-		return nil
-	}
-	return r.ServeRequest
 }

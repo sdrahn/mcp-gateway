@@ -193,6 +193,11 @@ func approval(ctx context.Context) (map[string]any, error) {
 			progress++
 		}
 	})
+	// On MCP 2026-07-28 log messages come only to requests that ask for
+	// them (mcp-go then puts the level into each request).
+	if err := c.SetLevel(ctx, mcp.SetLevelRequest{Params: mcp.SetLevelParams{Level: mcp.LoggingLevelInfo}}); err != nil {
+		return nil, err
+	}
 	r, err := call(ctx, c, "write_file", map[string]any{"path": filepath.Join(home, "approved.txt"), "content": "ok"},
 		&mcp.Meta{ProgressToken: "p-1"})
 	if err != nil {
@@ -255,15 +260,29 @@ func listchanged(ctx context.Context) (map[string]any, error) {
 		return nil, err
 	}
 	defer func() { _ = c.Close() }()
-	changed := make(chan struct{}, 1)
+	changed, acked := make(chan struct{}, 1), make(chan struct{}, 1)
 	c.OnNotification(func(n mcp.JSONRPCNotification) {
-		if n.Method == "notifications/tools/list_changed" {
+		ch := map[string]chan struct{}{"notifications/tools/list_changed": changed, "notifications/subscriptions/acknowledged": acked}[n.Method]
+		if ch != nil {
 			select {
-			case changed <- struct{}{}:
+			case ch <- struct{}{}:
 			default:
 			}
 		}
 	})
+	if c.ProtocolVersion() == mcp.ProtocolVersion20260728 {
+		// MCP 2026-07-28: changes come on a stream the client opens.
+		stop, err := c.ListenAsync(ctx, mcp.SubscriptionFilter{ToolsListChanged: true}, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer stop()
+		select {
+		case <-acked:
+		case <-time.After(10 * time.Second):
+			return nil, errors.New("subscriptions/listen not acknowledged")
+		}
+	}
 	before, err := toolNames(ctx, c)
 	if err != nil {
 		return nil, err

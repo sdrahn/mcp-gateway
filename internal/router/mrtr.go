@@ -227,12 +227,25 @@ func (s *Session) inputRequired(r *agentRound, st agentState, requests map[strin
 	if err != nil {
 		return nil
 	}
-	res := map[string]any{"resultType": "input_required", "requestState": sealed}
-	if len(requests) > 0 {
-		res["inputRequests"] = requests
+	// inputRequests always, empty if there is nothing to ask: with the
+	// method's own result field (below) and no inputRequests, some
+	// clients (the Python SDK 2.3) take the result for the method's.
+	if requests == nil {
+		requests = map[string]inputRequest{}
+	}
+	res := map[string]any{"resultType": "input_required", "requestState": sealed, "inputRequests": requests}
+	// The method's own result field, empty: some clients (mcp-go 1.1)
+	// parse the result as the method's before they look at resultType,
+	// and refuse it without that field.
+	if field, ok := emptyResultFields[r.method]; ok {
+		res[field] = []any{}
 	}
 	return res
 }
+
+// emptyResultFields are the required fields of the results of the
+// methods that may ask for input.
+var emptyResultFields = map[string]string{"tools/call": "content", "resources/read": "contents", "prompts/get": "messages"}
 
 // decideModern evaluates policy for t on a modern agent's call (r nil:
 // a request that cannot ask for input), with the approval policy asks
@@ -285,23 +298,7 @@ func (s *Session) decideModern(ctx context.Context, t *callTarget, decisionID st
 			s.r.Broker.Withdraw(st.Approval, p)
 			return pep.Decision{Effect: pep.Deny, Reason: "declined by user"}, "", in, nil
 		}
-		stop := s.reportWaiting(t)
-		g, outcome := s.r.Broker.Await(ctx, st.Approval, p, s.r.settings().RetryWait)
-		stop()
-		switch outcome {
-		case broker.Waiting:
-			return dec, "", in, s.inputRequired(r, agentState{Approval: st.Approval}, nil)
-		case broker.Decided:
-			return s.granted(ctx, in, g, nil, r)
-		}
-		// Decided while no retry waited (its grant is stored), or denied
-		// or expired.
-		in.Grants = s.r.Broker.Grants(p, t.resource.Server, t.resource.Name)
-		dec, grantID := s.withOnce(ctx, &in, r)
-		if dec.Effect == pep.Ask {
-			dec = pep.Decision{Effect: pep.Deny, Reason: "approval denied or expired"}
-		}
-		return dec, grantID, in, nil
+		return s.awaitApproval(ctx, t, in, dec, st.Approval, r)
 	}
 	c, err := s.r.Broker.Channel(s, ask)
 	if err != nil {
@@ -316,10 +313,33 @@ func (s *Session) decideModern(ctx context.Context, t *callTarget, decisionID st
 		return dec, "", in, s.inputRequired(r, agentState{Approval: id}, map[string]inputRequest{
 			"approval": {Method: "elicitation/create", Params: s.r.Broker.URLParams(in, ask, id)}})
 	default:
+		// Nothing to show the agent first: this round waits already.
 		id := s.r.Broker.Park(in, ask, c)
 		s.r.Broker.NotifyOOB(requestElicitor{s, requestOf(ctx)}, in, id)
-		return dec, "", in, s.inputRequired(r, agentState{Approval: id}, nil)
+		return s.awaitApproval(ctx, t, in, dec, id, r)
 	}
+}
+
+// awaitApproval waits up to approvals.retry_wait for the decision on
+// parked approval id, and answers the round with it, or to retry.
+func (s *Session) awaitApproval(ctx context.Context, t *callTarget, in pep.Input, dec pep.Decision, id string, r *agentRound) (pep.Decision, string, pep.Input, any) {
+	stop := s.reportWaiting(t)
+	g, outcome := s.r.Broker.Await(ctx, id, in.Principal, s.r.settings().RetryWait)
+	stop()
+	switch outcome {
+	case broker.Waiting:
+		return dec, "", in, s.inputRequired(r, agentState{Approval: id}, nil)
+	case broker.Decided:
+		return s.granted(ctx, in, g, nil, r)
+	}
+	// Decided while no retry waited (its grant is stored), or denied or
+	// expired.
+	in.Grants = s.r.Broker.Grants(in.Principal, t.resource.Server, t.resource.Name)
+	dec, grantID := s.withOnce(ctx, &in, r)
+	if dec.Effect == pep.Ask {
+		dec = pep.Decision{Effect: pep.Deny, Reason: "approval denied or expired"}
+	}
+	return dec, grantID, in, nil
 }
 
 // withOnce evaluates in, with a "once" grant from an approval decided

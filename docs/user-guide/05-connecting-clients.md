@@ -323,15 +323,18 @@ http:
 
 ## Client compatibility
 
-The gateway speaks MCP 2024-11-05 to 2025-11-25 with agents. CI runs the
-common client libraries against it, the way agents use them, over
-`mcp-connect` and over HTTPS (`test/clients`):
+The gateway speaks MCP 2024-11-05 to 2026-07-28 with agents: the
+versions up to 2025-11-25 with the `initialize` handshake and a session,
+2026-07-28 without (below). CI runs the common client libraries against
+it, the way agents use them, over `mcp-connect` and over HTTPS
+(`test/clients`):
 
-| Library (version tested) | Used by | Notes |
-|---|---|---|
-| `@modelcontextprotocol/sdk` 1.31 (TypeScript) | Claude Code, most Node-based agents and IDEs | gives up on a request after 60 s by default; only progress notifications keep it going, and only if the agent asked for them and let them extend the timeout |
-| `mcp` 2.2 (Python) | Python agents and frameworks | tries MCP 2026-07-28 first (`server/discover`) and falls back to the initialize handshake |
-| `mcp-go` 1.1 | Kit and other Go agents | asks for 2026-07-28 and falls back likewise; over HTTP it hears of tool-list changes only with continuous listening, which Kit does not turn on |
+| Library (version tested) | Used by | Protocol with the gateway | Notes |
+|---|---|---|---|
+| `@modelcontextprotocol/sdk` 1.31 (TypeScript) | Claude Code, most Node-based agents and IDEs | 2025-11-25 | gives up on a request after 60 s by default; only progress notifications keep it going, and only if the agent asked for them and let them extend the timeout |
+| `@modelcontextprotocol/client` 2.3 (TypeScript) | Node-based agents on SDK 2 | 2026-07-28 with `versionNegotiation: {mode: "auto"}`, else 2025-11-25 | drives approvals itself (below); log messages need the `logLevel` in a request's `_meta`, list changes `client.listen()` |
+| `mcp` 2.3 (Python) | Python agents and frameworks | 2026-07-28 | log messages need `log_level` on the `Client`, list changes `client.listen()` |
+| `mcp-go` 1.1 | Kit and other Go agents | 2026-07-28 | log messages need `SetLevel`, list changes `Listen`/`ListenAsync`; gives up on a call after three answers in a row that ask for nothing (below) |
 
 Each is tested on: discovery and calls filtered by policy, an approval
 out of band that takes longer than the client's request timeout, an
@@ -351,10 +354,23 @@ What the gateway does for clients:
   features are not passed on: their requests and results would bypass
   policy and obligations. A call that asks for a task anyway runs
   synchronously.
-- **Newer protocol versions** are answered with the gateway's own. A
-  `server/discover` probe (MCP 2026-07-28) gets "method not found" (over
-  HTTP, before a session exists, status 400), on which clients fall back
-  to the initialize handshake; the probe is not audited as a denial.
+- **MCP 2026-07-28** (`server/discover`, then requests that carry the
+  protocol version in `_meta`) is served without a session, on the
+  socket and over HTTPS. What a session held belongs to the user:
+  approvals and sign-ins are multi round-trip requests (chapter 7),
+  pseudonyms are kept per user and endpoint (chapter 6), and requests
+  in flight and subscription streams are limited per user (chapter 3).
+  List changes and resource updates come only on a
+  `subscriptions/listen` stream the agent opens; log messages only to
+  requests that ask for them. A later version gets the
+  `UnsupportedProtocolVersion` error naming the versions the gateway
+  speaks.
+- **Approval rounds of mcp-go.** mcp-go 1.1 gives up on a call after
+  three answers in a row that ask for nothing (a pending approval
+  decided out of band or on the page): with `approvals.retry_wait`
+  25 s, after about 75 s. If Kit users need approvals that take longer,
+  raise `approvals.retry_wait` (40 s gives two minutes; keep it below
+  60 s, the TypeScript SDK's request timeout).
 
 ## Agents
 
@@ -390,9 +406,9 @@ claude mcp add --scope user --transport http fs https://gw.example.com:8443/mcp/
 
 ### Kit
 
-Tested: Kit 0.117 (mcp-go 1.1.1). It asks for MCP 2026-07-28 and falls
-back to 2025-11-25. It supports neither elicitation nor progress, and
-ignores notifications.
+Tested: Kit 0.117 (mcp-go 1.1.1). It asks for MCP 2026-07-28, which the
+gateway speaks, so it works without a session. It supports neither
+elicitation nor progress, and opens no subscription stream.
 
 ```yaml
 # ~/.kit.yml
@@ -414,10 +430,10 @@ mcpServers:
 
 | Topic | Behaviour |
 |---|---|
-| Sessions | one MCP session per server per `kit` run (`kit -p` runs are one each); within a run, Kit replaces a session that has been idle for 5 minutes. "Session" grants end with it: offer a duration (`approval_scopes`) to Kit users |
-| Approvals | Kit cannot answer elicitations, so `url` and `form` fall back to `oob` (the shipped policy's fallback). Kit shows nothing while a call waits: approvers learn of it from the desktop notification or mail (chapter 7) and decide in Cockpit; the call returns when they do, or after `approval_timeout` |
-| Timeouts | none of its own on tool calls; `approval_timeout` decides |
-| Policy changes | Kit reads the tool list when it starts and does not act on `list_changed` (over HTTP it does not receive it either); start Kit again after role changes. Tools that policy removed meanwhile are refused when called |
+| Sessions | none (MCP 2026-07-28): "session" grants are not offered; offer a duration (`approval_scopes`) to Kit users |
+| Approvals | Kit cannot answer elicitations, so `url` and `form` fall back to `oob` (the shipped policy's fallback). Kit shows nothing while a call waits: approvers learn of it from the desktop notification or mail (chapter 7) and decide in Cockpit; the call returns when they do. mcp-go gives up after about 75 s (three waiting rounds of `approvals.retry_wait`, above); raise `retry_wait` for longer approvals |
+| Timeouts | none of its own on tool calls |
+| Policy changes | Kit reads the tool list when it starts and opens no subscription stream; start Kit again after role changes. Tools that policy removed meanwhile are refused when called |
 | Load | before each tool call Kit lists the server's tools as a health check |
 | Tasks | with `tasksMode: always` Kit asks for a task; the gateway runs the call synchronously (it offers no tasks, so `auto` never asks) |
 
