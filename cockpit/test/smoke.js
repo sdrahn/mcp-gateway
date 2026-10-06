@@ -109,6 +109,9 @@ function site() {
     check(bindings.includes("wheel") && bindings.includes("admin") && bindings.includes("dev"), "bindings listed");
     check((await page.textContent("#roles")).includes("approval via url"), "permission flags");
     check((await page.textContent("#roles")).includes("Shipped with the systemd server setup"), "shipped role shown");
+    const scopesText = await page.textContent("#roles");
+    check(scopesText.includes("mcp:admin: unlimited") && scopesText.includes("mcp:read: roles developer") &&
+          scopesText.includes("mcp:git: server git: tool *") && scopesText.includes("Without \"default\""), "token scope ceilings shown");
     check(await page.$eval("#binding-add select[name=role]", s => [...s.options].some(o => o.value === "systemd-reader")),
           "shipped role offered for bindings");
     await page.fill("#binding-add input[name=name]", "alice");

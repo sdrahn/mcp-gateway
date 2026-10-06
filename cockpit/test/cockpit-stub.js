@@ -11,6 +11,8 @@
                      { server: "fs", tool: "write_file", require_approval: true, approval_channel: "url", args: { path: "^/home/" } }] } },
         bindings: { users: {}, groups: { wheel: ["admin"], dev: ["developer"] } },
         approvers: { default: ["self", "role:admin"] },
+        scopes: { "mcp:read": { roles: ["developer"] }, "mcp:admin": { unlimited: true },
+                  "mcp:git": { permissions: [{ server: "git", tool: "*" }] } },
     }, null, 2);
     let instances = [
         { id: "i1", server: "fs", unit: "mcp-fs-i1.service", sub: "alice", uid: 1001, transport: "unix", isolation: "principal",

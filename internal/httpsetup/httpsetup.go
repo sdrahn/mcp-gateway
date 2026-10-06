@@ -30,6 +30,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/authn"
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/doctor"
+	"github.com/sdrahn/mcp-gateway/internal/policydata"
 )
 
 // Answers are what the administrator tells about the setup; empty ones
@@ -315,9 +316,10 @@ func portLabels(out string) func(port string) string {
 
 // Token checks a token as the gateway takes it (authn.OAuth with h) and
 // says whom it makes the principal, or why the gateway refuses it, from
-// the token's claims (read without verifying them, to explain). The
-// token itself is never printed.
-func Token(ctx context.Context, h config.HTTP, client *http.Client, token string) []doctor.Result {
+// the token's claims (read without verifying them, to explain). With the
+// role data (nil if not readable), it also tells the ceiling the token's
+// scopes set (section 6.7). The token itself is never printed.
+func Token(ctx context.Context, h config.HTTP, client *http.Client, token string, roleData []byte) []doctor.Result {
 	r := doctor.Result{Check: "token"}
 	claims := jwt.MapClaims{}
 	if _, _, err := jwt.NewParser().ParseUnverified(token, claims); err != nil {
@@ -354,10 +356,46 @@ func Token(ctx context.Context, h config.HTTP, client *http.Client, token string
 			r.Details = append(r.Details, fmt.Sprintf("%s %q is no local account: servers with run_as: principal run as a dynamic user", h.LocalUserClaim, name))
 		}
 	}
+	if len(p.Scopes) > 0 {
+		r.Details = append(r.Details, "scopes: "+strings.Join(p.Scopes, " "))
+	}
+	if roleData != nil {
+		r.Details = append(r.Details, ceilingText(roleData, p.Scopes))
+	}
 	if exp, err := claims.GetExpirationTime(); err == nil && exp != nil {
 		r.Details = append(r.Details, "expires "+exp.Format(time.RFC3339))
 	}
 	return []doctor.Result{r}
+}
+
+// ceilingText says what the role data's scopes map lets a token with
+// scopes do at most.
+func ceilingText(roleData []byte, scopes []string) string {
+	c, err := policydata.CeilingOf(roleData, scopes)
+	switch {
+	case err != nil:
+		return "ceiling: the role data cannot be read: " + err.Error()
+	case !c.Map:
+		return "ceiling: none (the role data has no scopes map; the token's scopes do not narrow its roles)"
+	case len(c.Scopes) == 0:
+		return "ceiling: none (none of the token's scopes is in the role data's scopes map, and there is no default)"
+	case c.Unlimited:
+		return "ceiling: " + strings.Join(c.Scopes, ", ") + " (unlimited; the roles decide)"
+	}
+	var what []string
+	if len(c.Roles) > 0 {
+		what = append(what, "roles "+strings.Join(c.Roles, ", "))
+	}
+	if c.Permissions == 1 {
+		what = append(what, "1 permission")
+	} else if c.Permissions > 1 {
+		what = append(what, fmt.Sprintf("%d permissions", c.Permissions))
+	}
+	if len(what) == 0 {
+		what = append(what, "nothing")
+	}
+	return "ceiling: " + strings.Join(c.Scopes, ", ") + " (" + strings.Join(what, ", ") +
+		"); within the roles, only this is allowed, the rest is denied (over HTTPS with an insufficient_scope challenge)"
 }
 
 // refusal explains, from its claims, why the gateway refuses a token.

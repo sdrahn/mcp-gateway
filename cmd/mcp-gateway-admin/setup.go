@@ -17,6 +17,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/doctor"
 	"github.com/sdrahn/mcp-gateway/internal/httpsetup"
+	"github.com/sdrahn/mcp-gateway/internal/policydata"
 	"github.com/sdrahn/mcp-gateway/internal/statedir"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 )
@@ -32,7 +33,8 @@ keys, as the gateway fetches them; the certificate and key, as the
 gateway's account and SELinux domain read them; the SELinux labels of
 the port and of the identity provider's port; firewalld; with -token, an
 access token as the gateway takes it (whom it makes the principal, with
-which groups, or why it is refused); and the listener, as a client
+which groups and scopes, the ceiling its scopes set in the role data,
+or why it is refused); and the listener, as a client
 reaches it. Flags left out keep what the http block has, so
 "setup http -token FILE" alone checks a running setup.
 Run it as root. Exits 1 if a check failed, 2 on bad flags, 0 otherwise.
@@ -69,6 +71,7 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&a.LocalUserClaim, "local-user-claim", "", "token claim naming a local account to act as, e.g. preferred_username (http.local_user_claim)")
 	scopes := fs.String("scopes", "", "comma-separated scopes every token must carry, e.g. mcp (http.scopes; \"\" for none)")
 	tokenFile := fs.String("token", "", "file with an access token to check as the gateway takes it, - for standard input")
+	policyData := fs.String("policy-data", policydata.DefaultPath, "role data, for the ceiling of the token's scopes (empty: none)")
 	write := fs.Bool("write", false, "write the http block to the configuration")
 	timeout := fs.Duration("timeout", 10*time.Second, "how long to wait for the identity provider and the listener")
 	asJSON := fs.Bool("json", false, "print the results as JSON")
@@ -128,7 +131,13 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 	rs = append(rs, setupPorts(h, root)...)
 	rs = append(rs, setupFirewall(h, root)...)
 	if token != "" {
-		rs = append(rs, httpsetup.Token(ctx, h, client, token)...)
+		var roleData []byte
+		if *policyData != "" {
+			// Unreadable role data (no administrative access) leaves the
+			// ceiling out.
+			roleData, _ = os.ReadFile(*policyData)
+		}
+		rs = append(rs, httpsetup.Token(ctx, h, client, token, roleData)...)
 	}
 	rs = append(rs, httpsetup.Listener(ctx, h, client, token)...)
 	doctor.Identify(rs)

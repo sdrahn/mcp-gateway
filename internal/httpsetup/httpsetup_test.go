@@ -239,7 +239,7 @@ func TestToken(t *testing.T) {
 
 	tok := p.token(t, jwt.MapClaims{"iss": p.issuer, "aud": h.Audience, "sub": "0b5e-uuid", "exp": exp,
 		"groups": []string{"mcp-admins"}, "preferred_username": "no-such-user-here"})
-	rs := Token(ctx, h, p.srv.Client(), tok)
+	rs := Token(ctx, h, p.srv.Client(), tok, nil)
 	d := strings.Join(rs[0].Details, "\n")
 	if rs[0].Status != doctor.OK || rs[0].Summary != "accepted: principal 0b5e-uuid" ||
 		!strings.Contains(d, "groups: mcp-admins") || !strings.Contains(d, "is no local account") {
@@ -251,24 +251,42 @@ func TestToken(t *testing.T) {
 
 	// No groups claim: Keycloak without a Group Membership mapper.
 	tok = p.token(t, jwt.MapClaims{"iss": p.issuer, "aud": h.Audience, "sub": "u", "exp": exp})
-	if rs = Token(ctx, h, p.srv.Client(), tok); rs[0].Status != doctor.Warn || !strings.Contains(strings.Join(rs[0].Details, "\n"), "Group Membership mapper") {
+	if rs = Token(ctx, h, p.srv.Client(), tok, nil); rs[0].Status != doctor.Warn || !strings.Contains(strings.Join(rs[0].Details, "\n"), "Group Membership mapper") {
 		t.Errorf("no groups: %+v", rs[0])
 	}
 
 	// Keycloak's default audience is "account".
 	tok = p.token(t, jwt.MapClaims{"iss": p.issuer, "aud": "account", "sub": "u", "exp": exp})
-	rs = Token(ctx, h, p.srv.Client(), tok)
+	rs = Token(ctx, h, p.srv.Client(), tok, nil)
 	if rs[0].Status != doctor.Fail || !strings.Contains(rs[0].Details[0], "the token is for account") || !strings.Contains(rs[0].Details[1], "Audience mapper") {
 		t.Errorf("audience: %+v", rs[0])
 	}
 
 	h.Scopes = []string{"mcp"}
 	tok = p.token(t, jwt.MapClaims{"iss": p.issuer, "aud": h.Audience, "sub": "u", "exp": exp, "scope": "openid"})
-	if rs = Token(ctx, h, p.srv.Client(), tok); rs[0].Status != doctor.Fail || !strings.Contains(strings.Join(rs[0].Details, " "), `lacks "mcp"`) {
+	if rs = Token(ctx, h, p.srv.Client(), tok, nil); rs[0].Status != doctor.Fail || !strings.Contains(strings.Join(rs[0].Details, " "), `lacks "mcp"`) {
 		t.Errorf("scope: %+v", rs[0])
 	}
-	if rs = Token(ctx, h, p.srv.Client(), "opaque"); rs[0].Status != doctor.Fail || !strings.Contains(rs[0].Summary, "not a JWT") {
+	if rs = Token(ctx, h, p.srv.Client(), "opaque", nil); rs[0].Status != doctor.Fail || !strings.Contains(rs[0].Summary, "not a JWT") {
 		t.Errorf("opaque: %+v", rs[0])
+	}
+
+	// With the role data: the scopes and the ceiling they set.
+	roles := []byte(`{"scopes": {"mcp:read": {"roles": ["viewer"], "permissions": [{"server": "git", "tool": "log"}]}, "mcp:admin": {"unlimited": true}}}`)
+	for scope, want := range map[string]string{
+		"mcp mcp:read":  "ceiling: mcp:read (roles viewer, 1 permission); within the roles, only this is allowed",
+		"mcp mcp:admin": "ceiling: mcp:admin (unlimited; the roles decide)",
+		"mcp":           "ceiling: none (none of the token's scopes is in the role data's scopes map, and there is no default)",
+	} {
+		tok = p.token(t, jwt.MapClaims{"iss": p.issuer, "aud": h.Audience, "sub": "u", "exp": exp, "scope": scope, "groups": []string{}})
+		d := strings.Join(Token(ctx, h, p.srv.Client(), tok, roles)[0].Details, "\n")
+		if !strings.Contains(d, "scopes: "+scope) || !strings.Contains(d, want) {
+			t.Errorf("%s: %s", scope, d)
+		}
+	}
+	tok = p.token(t, jwt.MapClaims{"iss": p.issuer, "aud": h.Audience, "sub": "u", "exp": exp, "scope": "mcp"})
+	if d := strings.Join(Token(ctx, h, p.srv.Client(), tok, []byte(`{"roles": {}}`))[0].Details, "\n"); !strings.Contains(d, "ceiling: none (the role data has no scopes map") {
+		t.Errorf("no map: %s", d)
 	}
 }
 
