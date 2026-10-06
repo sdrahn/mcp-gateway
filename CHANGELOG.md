@@ -5,7 +5,12 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.14.1 — 2026-10-06
+
+A fix for Kit's approvals. Upgrading from 0.14.0 needs no changes: the
+cap for Kit is the default, also with a `gateway.yaml` kept from 0.14.0.
+Restart the gateway after the update
+(`systemctl restart mcp-gateway.service`).
 
 ### Fixed
 
