@@ -1718,16 +1718,20 @@ treated alike; each round of a multi round-trip call is decided with
 that round's token.
 
 **Checks and tools.** `mcp-gateway --check-policy-data` refuses a ceiling
-naming an unknown role or with qualifying fields; Cockpit shows the map
-next to the roles; `mcp-gateway-admin setup http --token` shows the
-token's scopes and its ceiling; decision records in the audit trail
-carry the token's scopes and whether the ceiling denied.
+naming an unknown role or with qualifying fields; Cockpit's Policy tab
+shows the map next to the roles; `mcp-gateway-admin setup http --token`
+shows the token's scopes and the ceiling they set in the role data
+(`policydata.CeilingOf`, which chooses the ceiling as the policy does);
+decision records in the audit trail carry the token's scopes and
+whether the ceiling denied.
 
 **Managing roles in the identity provider** needs none of this: a claim
 with the user's realm or client roles (a mapper in Keycloak), named in
 `http.groups_claim`, and bindings of gateway roles to those names make
-the identity provider the place where roles are assigned. That works
-today.
+the identity provider the place where roles are assigned. The claim
+must be a top-level list: nested claims (Keycloak's
+`realm_access.roles`) are not read. The user guide (chapter 5) shows
+both with Keycloak.
 
 ## 7. Key flows
 
@@ -2643,10 +2647,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       step up; checks in `--check-policy-data`, the ceiling in `setup
       http --token`, Cockpit and the audit trail; the user guide with
       Keycloak client scopes, and with roles assigned in the identity
-      provider through `http.groups_claim`;
-      (done so far: the scopes in the policy input, the `scopes` map in
-      the role data and its checks, the ceiling in the decision and in
-      lists, the audit trail, the `insufficient_scope` challenge);
+      provider through `http.groups_claim` (done);
     - for agents of MCP 2026-07-28 (§5.11) the same per request: a
       request outside the ceiling is answered with the `insufficient_scope`
       challenge (`403`) over HTTP, and a call's tool error on the

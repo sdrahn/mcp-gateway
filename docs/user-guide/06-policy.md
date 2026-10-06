@@ -388,7 +388,11 @@ in roles), or everything (`"unlimited": true`).
 
 Recommended names: `mcp:read`, `mcp:write`, `mcp:admin`, and
 `mcp:<server>` for a single server. Define them as client scopes in the
-identity provider, and let agents request only what they need. The
+identity provider (chapter 5, "Roles and scopes from the identity
+provider", for Keycloak), and let agents request only what they need.
+Cockpit's Policy tab lists the ceilings next to the roles;
+`mcp-gateway-admin setup http --token FILE` shows a token's scopes and
+the ceiling they set. The
 token scopes required of every token (`http.scopes`, chapter 3) are a
 separate check.
 

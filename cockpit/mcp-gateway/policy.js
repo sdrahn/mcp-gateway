@@ -1,5 +1,5 @@
 /* Policy tab: what OPA has loaded, and the role data (roles, bindings,
- * approver rules) in /etc/mcp-gateway/policy/rbac/data.json, edited with
+ * approver rules, token scope ceilings) in /etc/mcp-gateway/policy/rbac/data.json, edited with
  * administrative access. OPA picks changes up by itself (--watch); with a
  * signed bundle file they take effect once the bundle is rebuilt, which
  * the page does with mcp-policy-bundle if the signing key is on this host.
@@ -54,6 +54,12 @@ function validateRBAC(d) {
             for (const r of list) {
                 if (!(r in roles) && !(r in shippedRoles)) problems.push(kind.slice(0, -1) + " \"" + who + "\" is bound to unknown role \"" + r + "\".");
             }
+        }
+    }
+    if (d.scopes !== undefined && !isObj(d.scopes)) problems.push("\"scopes\" must be an object.");
+    for (const [scope, c] of Object.entries(isObj(d.scopes) ? d.scopes : {})) {
+        for (const r of (isObj(c) && Array.isArray(c.roles)) ? c.roles : []) {
+            if (!(r in roles) && !(r in shippedRoles)) problems.push("Scope \"" + scope + "\" names unknown role \"" + r + "\".");
         }
     }
     return problems;
@@ -283,7 +289,37 @@ function renderRBAC() {
                      ...Object.entries(approvers).sort().map(([server, rules]) =>
                          el("li", null, (server === "default" ? "default" : "server " + server) + ": " + rules.join(", "))))));
 
+    box.append(scopesCard(rbac.scopes));
+
     document.getElementById("rbac-json").value = JSON.stringify(rbac, null, 2);
+}
+
+/* scopesCard shows the token scope ceilings (user guide chapter 6, "Token
+ * scopes"): what a token with each scope may do at most over HTTPS; the
+ * roles decide within that. */
+function scopesCard(scopes) {
+    const entries = Object.entries(scopes || {}).sort(([a], [b]) => (a === "default") - (b === "default") || a.localeCompare(b));
+    if (entries.length === 0) {
+        return el("div", { class: "card" },
+                  el("h3", null, "Token scopes"),
+                  el("div", { class: "muted" }, "No ceilings: the scopes of remote users' tokens do not narrow their roles. " +
+                     "Add a \"scopes\" map to the role data to limit what a token may do (user guide, chapter 6)."));
+    }
+    const items = entries.map(([scope, c]) => {
+        const name = scope === "default" ? "default (tokens with none of these scopes)" : scope;
+        if (c.unlimited) return el("li", null, name + ": unlimited (the roles decide)");
+        const parts = [];
+        if ((c.roles || []).length) parts.push("roles " + c.roles.join(", "));
+        const perms = (c.permissions || []).map(permissionText);
+        return el("li", null, name + ": " + (parts.concat(perms).join("; ") || "nothing"));
+    });
+    const notes = ["A request needs the roles and the ceiling of one of the token's scopes; outside it, it is denied " +
+                   "(never asked), and over HTTPS answered with an insufficient_scope challenge. Local users are not limited."];
+    if (!("default" in (scopes || {}))) notes.push("Without \"default\", tokens with none of these scopes are not limited.");
+    return el("div", { class: "card" },
+              el("h3", null, "Token scopes"),
+              el("ul", { class: "permissions" }, ...items),
+              ...notes.map(n => el("div", { class: "muted" }, n)));
 }
 
 tabs.policy = {

@@ -17,7 +17,11 @@ minor release (with a warning) and removed in the next.
   carries `principal.scopes`. Over HTTPS such a request is answered
   with `403` and an `insufficient_scope` challenge for the first of
   the scopes that would allow it, so that agents that support it step
-  up; the denial's text names those scopes.
+  up; the denial's text names those scopes. Cockpit's Policy tab lists
+  the ceilings next to the roles, and `mcp-gateway-admin setup http
+  --token` shows a token's scopes and the ceiling they set (new flag
+  `--policy-data`). The user guide shows Keycloak client scopes for the
+  ceiling, and roles assigned in Keycloak through `http.groups_claim`.
 
 ## v0.14.1 — 2026-10-06
 

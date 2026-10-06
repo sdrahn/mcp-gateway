@@ -249,7 +249,46 @@ at the endpoint URL:
 | otherwise | the token's `sub` (with its issuer) and the token's groups; no home directory. MCP servers with `run_as: principal` run as a throwaway dynamic user. |
 
 Policy bindings name users by `sub` (the local account name, or the
-token subject) and groups by name.
+token subject) and groups by name. The token's scopes can narrow what
+its roles allow (a ceiling, chapter 6, "Token scopes").
+
+### Roles and scopes from the identity provider
+
+**Roles assigned in the identity provider.** The gateway takes the
+groups from one claim (`http.groups_claim`), and bindings under
+`groups` match its values. Any multivalued claim works, so roles
+assigned in the identity provider can stand in for groups. In
+Keycloak, in the client's dedicated scope:
+
+- a **User Realm Role** mapper (or **User Client Role**, for roles of
+  one client) with *Token Claim Name* `mcp_roles`, *Multivalued* and
+  *Add to access token* on;
+- `http.groups_claim: mcp_roles`;
+- bindings of gateway roles to those role names:
+  `"groups": {"mcp-developer": ["developer"]}`.
+
+The claim must be a top-level list of names: nested claims such as
+Keycloak's default `realm_access.roles` are not read. One claim holds
+the groups; to use both Keycloak groups and roles, map one of them.
+
+**Scopes for the ceiling.** A scope in the `scopes` map of the role
+data (chapter 6) limits what a token carrying it may do. In Keycloak:
+
+1. Client scopes → *Create client scope*: name `mcp:read` (likewise
+   `mcp:write`, `mcp:admin`, `mcp:<server>`), type *Optional*,
+   *Include in token scope* on;
+2. Clients → the agent's client → Client scopes → *Add client scope*:
+   add them as *Optional*, so a token carries one only when the agent
+   asks for it (`scope=openid mcp mcp:read`), or as *Default* for every
+   token of that client;
+3. check a token: `mcp-gateway-admin setup http --token FILE` shows
+   its scopes and the ceiling they set.
+
+A request outside the ceiling is answered over HTTPS with `403` and an
+`insufficient_scope` challenge naming the scope it needs; agents that
+support it ask the user to authorize that scope. Keep `http.scopes` for
+the scope every token must carry (for example `mcp`); the ceiling
+scopes come on top of it.
 
 ### Sessions and resumability
 

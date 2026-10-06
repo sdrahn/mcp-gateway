@@ -194,6 +194,7 @@ if a check failed, 2 on usage errors, 0 otherwise.
 | `--local-user-claim NAME` | token claim naming a local account (`http.local_user_claim`) |
 | `--scopes LIST` | comma-separated scopes every token must carry (`http.scopes`; `""` for none) |
 | `--token FILE` | an access token to check as the gateway takes it (`-`: standard input); it is never printed |
+| `--policy-data FILE` | role data, for the ceiling of the token's scopes (default: `/etc/mcp-gateway/policy/rbac/data.json`; empty: none; unreadable: left out) |
 | `--write` | write the `http` block |
 | `--timeout DURATION` | how long to wait for the identity provider and the listener (default `10s`) |
 | `--json` | print the results as JSON, as the doctor does |
@@ -207,7 +208,7 @@ The checks, with their `id`s:
 | `tls` | the certificate and key, as `doctor` checks them |
 | `selinux-port` | the listener's port is labeled `mcp_port_t`, and the identity provider's port `http_port_t` or `http_cache_port_t` (the gateway's SELinux domain reaches no other) |
 | `firewall` | firewalld lets the port in, as `doctor` checks it |
-| `token` | with `--token`: accepted, and as which principal with which groups; or refused, and why (issuer, audience, expiry, scope), from the token's claims |
+| `token` | with `--token`: accepted, and as which principal with which groups and scopes, and the ceiling those scopes set in the role data (chapter 6, "Token scopes"); or refused, and why (issuer, audience, expiry, scope), from the token's claims |
 | `listener` | `https://<host of --url>/.well-known/oauth-protected-resource/mcp` answers with this issuer and audience, with the certificate verified as clients verify it; with `--token`, an `initialize` is accepted |
 
 ### mcp-gateway-admin serve
