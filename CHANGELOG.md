@@ -7,6 +7,39 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v0.15.0 — 2026-10-06
+
+Token scopes can now narrow what a remote user's roles allow. An
+optional `scopes` map in the role data gives each OAuth scope a ceiling
+(roles, permissions, or unlimited); a request needs the user's roles
+and the ceiling of one of the token's scopes. Outside it, the request is
+denied, and over HTTPS answered with an `insufficient_scope` challenge
+so that agents that support it ask the user for the wider scope.
+Cockpit and `mcp-gateway-admin setup http --token` show the ceilings,
+and the user guide shows how to set up scopes and roles in Keycloak.
+Kit's approvals wait up to `approval_timeout` on every protocol version
+(the cap of 0.14.1, and rounds that wait until decided).
+
+Upgrading from 0.14.x needs no changes to `gateway.yaml`, server
+definitions or role data: without a `scopes` map nothing is narrowed.
+After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. Things
+to know:
+
+- **Ceilings apply to remote users only.** Local users (Unix socket)
+  are never limited, and a token with none of the map's scopes is not
+  limited unless the map has a `default`.
+- **Streamed responses over HTTPS** (SSE) now send their headers with
+  the first message, or after 2 s, instead of at once, so that a
+  request outside the ceiling can still be answered with `403`.
+- **New settings,** optional with defaults:
+  - `agents.no_request_timeout` (`[kit]`);
+  - `agents.max_version` (`{kit: "2025-11-25"}`), already in 0.14.1.
+- **Policy input and decision:** `principal.scopes` (a remote
+  principal's token scopes); a denial outside the ceiling carries
+  `outside_scopes` and `required_scopes`. Custom policy can use them
+  (chapter 12).
+
 ### Added
 
 - `agents.no_request_timeout` names clients without a request timeout
