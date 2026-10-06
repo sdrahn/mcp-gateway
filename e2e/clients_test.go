@@ -232,6 +232,9 @@ func TestClients(t *testing.T) {
   issuer: %s
   audience: %s
   scopes: [mcp]
+agents:
+  max_version:
+    compat-capped: "2025-11-25"
 `, port, certFile, keyFile, provider.srv.URL, audience))
 	waitHTTPS(t, port)
 	ctl := controlClient(e.ctlSock)
@@ -316,6 +319,33 @@ func TestClients(t *testing.T) {
 					}
 					if n, _ := r["progress"].(float64); n < 3 {
 						t.Errorf("progress notifications while waiting: %v", r["progress"])
+					}
+				})
+
+				// A client capped by agents.max_version (as Kit is by
+				// default) falls back to the handshake, and an approval
+				// out of band is one call again, however long it takes.
+				t.Run("capped", func(t *testing.T) {
+					if !modernClients[c.name] {
+						t.Skip("speaks the handshake anyway")
+					}
+					env := append(envFor("fs"), "MCPGW_CLIENT_NAME=compat-capped")
+					r := runClient(t, c, "basic", env, nil)
+					if r["protocolVersion"] != "2025-11-25" || r["read"] != "hello clients" {
+						t.Fatalf("capped client: %v", r)
+					}
+					approved := make(chan struct{})
+					go func() {
+						defer close(approved)
+						if id := pending(t, "fs"); id != "" {
+							time.Sleep(4 * time.Second)
+							controlDo(t, ctl, "POST", "/v1/approvals/"+id, `{"decision":"approve","scope":"once"}`, nil)
+						}
+					}()
+					r = runClient(t, c, "approval", env, nil)
+					<-approved
+					if r["isError"] == true || !strings.HasPrefix(fmt.Sprint(r["text"]), "wrote") {
+						t.Fatalf("approved write of a capped client: %v", r)
 					}
 				})
 

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -31,6 +32,23 @@ func TestLoadGatewayDefaults(t *testing.T) {
 		g.Limits.SessionsPerPrincipal != DefaultSessionsPerPrincipal || g.Limits.InstancesPerPrincipal != DefaultInstancesPerPrincipal ||
 		g.Limits.Instances != 0 {
 		t.Errorf("defaults not applied: %+v", g)
+	}
+}
+
+// agents.max_version caps Kit unless set; an empty map caps no client.
+func TestAgentsMaxVersion(t *testing.T) {
+	for content, want := range map[string]map[string]string{
+		"{}\n":                         {"kit": "2025-11-25"},
+		"agents:\n  max_version: {}\n": {},
+		"agents:\n  max_version:\n    claude-code: 2025-06-18\n": {"claude-code": "2025-06-18"},
+	} {
+		g, err := LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", content))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !maps.Equal(g.Agents.MaxVersion, want) {
+			t.Errorf("%q: max_version = %v, want %v", content, g.Agents.MaxVersion, want)
+		}
 	}
 }
 
@@ -89,6 +107,8 @@ func TestLoadGatewayErrors(t *testing.T) {
 		"http plain aud":   "http:\n  listen: ':8443'\n  cert_file: c\n  key_file: k\n  issuer: https://idp\n  audience: http://gw.example.com/mcp\n",
 		"bad selinux":      "supervisor:\n  selinux: maybe\n",
 		"negative limit":   "limits:\n  instances: -1\n",
+		"bad max version":  "agents:\n  max_version:\n    kit: '2025-12-01'\n",
+		"empty client":     "agents:\n  max_version:\n    '': '2025-11-25'\n",
 	}
 	for name, content := range tests {
 		t.Run(name, func(t *testing.T) {
