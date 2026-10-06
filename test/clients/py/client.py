@@ -46,7 +46,7 @@ def ready():
 
 
 async def basic():
-    async with Client(server(), client_info=types.Implementation(name="compat-py", version="1")) as client:
+    async with Client(server(), client_info=types.Implementation(name=env.get("MCPGW_CLIENT_NAME", "compat-py"), version="1")) as client:
         out = {
             "server": client.server_info.name if client.server_info else None,
             "protocolVersion": client.session.protocol_version,

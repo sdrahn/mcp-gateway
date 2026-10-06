@@ -73,7 +73,11 @@ func connect(ctx context.Context, opts ...client.ClientOption) (*client.Client, 
 	// As Kit does (internal/tools/connection_pool.go).
 	req := mcp.InitializeRequest{}
 	req.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	req.Params.ClientInfo = mcp.Implementation{Name: "compat-go", Version: "1"}
+	name := os.Getenv("MCPGW_CLIENT_NAME")
+	if name == "" {
+		name = "compat-go"
+	}
+	req.Params.ClientInfo = mcp.Implementation{Name: name, Version: "1"}
 	req.Params.Capabilities = mcp.ClientCapabilities{Tasks: mcp.NewTasksCapability()}
 	res, err := c.Initialize(ctx, req)
 	if err != nil {

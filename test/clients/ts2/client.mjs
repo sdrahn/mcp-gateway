@@ -11,6 +11,8 @@
 // 2026-07-28. Approvals are then multi round-trip requests the SDK drives
 // itself, log messages come only to requests that ask for them, and list
 // changes on a subscriptions/listen stream the client opens.
+// MCPGW_CLIENT_NAME, if set, is the name it gives (clientInfo), as in the
+// Python and Go clients: one capped by agents.max_version.
 import { Client, LOG_LEVEL_META_KEY, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import path from "node:path";
@@ -34,7 +36,7 @@ function transport() {
 
 async function connect(capabilities = {}) {
     const client = new Client(
-        { name: "compat-ts2", version: "1" },
+        { name: env.MCPGW_CLIENT_NAME || "compat-ts2", version: "1" },
         { capabilities, versionNegotiation: { mode: "auto" } },
     );
     const logs = [];

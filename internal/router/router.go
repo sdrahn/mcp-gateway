@@ -62,6 +62,9 @@ type Router struct {
 	// VaultIdle drops a modern agent's pseudonym vault this long after
 	// its last request (pseudonymize.vault_idle; default 1 h).
 	VaultIdle time.Duration
+	// MaxVersion caps the MCP version per client name (agents.max_version;
+	// versioncap.go). Nil caps no client.
+	MaxVersion map[string]string
 	// ModernAgents serves agents' requests of MCP 2026-07-28 (agents.go).
 	// Off, such requests are served as before (a server/discover probe
 	// is unknown, and the agent falls back to initialize).
@@ -260,7 +263,8 @@ func (r *Router) init() {
 		r.applySettings(Settings{IdleTimeout: r.IdleTimeout, ProgressInterval: r.ProgressInterval,
 			MaxSessionsPerPrincipal: r.MaxSessionsPerPrincipal, MaxInstancesPerPrincipal: r.MaxInstancesPerPrincipal,
 			MaxInstances: r.MaxInstances, ListTTL: r.ListTTL, RetryWait: r.RetryWait,
-			MaxRequestsPerPrincipal: r.MaxRequestsPerPrincipal, MaxStreamsPerPrincipal: r.MaxStreamsPerPrincipal, VaultIdle: r.VaultIdle})
+			MaxRequestsPerPrincipal: r.MaxRequestsPerPrincipal, MaxStreamsPerPrincipal: r.MaxStreamsPerPrincipal, VaultIdle: r.VaultIdle,
+			MaxVersion: r.MaxVersion})
 		r.pool.onListChanged = r.listChanged
 		r.pool.current = func(server string) *config.Backend { return (*r.registry.Load())[server] }
 		if r.SignIns != nil {
@@ -280,6 +284,7 @@ type Settings struct {
 	ListTTL, RetryWait                                              time.Duration
 	MaxRequestsPerPrincipal, MaxStreamsPerPrincipal                 int
 	VaultIdle                                                       time.Duration
+	MaxVersion                                                      map[string]string
 }
 
 // defaultListTTL and defaultRetryWait are ListTTL and RetryWait when
@@ -314,6 +319,7 @@ func (r *Router) applySettings(s Settings) {
 	if s.VaultIdle <= 0 {
 		s.VaultIdle = defaultVaultIdle
 	}
+	s.MaxVersion = lowerKeys(s.MaxVersion)
 	r.live.Store(&s)
 	perPrincipal := s.MaxInstancesPerPrincipal
 	if perPrincipal <= 0 {

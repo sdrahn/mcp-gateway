@@ -84,6 +84,8 @@ type Gateway struct {
 	SignIn SignInSettings `yaml:"sign_in"`
 	// Pseudonymize configures the pseudonym vaults.
 	Pseudonymize Pseudonymize `yaml:"pseudonymize"`
+	// Agents configures how the gateway speaks to agents.
+	Agents Agents `yaml:"agents"`
 
 	// Warnings are the deprecated keys the file uses (see deprecation).
 	Warnings []string `yaml:"-"`
@@ -130,6 +132,29 @@ type Pseudonymize struct {
 	// MCP 2026-07-28, which have no session) this long after its last
 	// request: its pseudonyms no longer resolve.
 	VaultIdle time.Duration `yaml:"vault_idle"`
+}
+
+// Agents configures how the gateway speaks to agents (MCP clients).
+type Agents struct {
+	// MaxVersion maps a client name (clientInfo.name, case-insensitive)
+	// to the newest MCP version the gateway speaks with it: a client
+	// capped below 2026-07-28 is answered as by a gateway without it and
+	// uses the initialize handshake. Unset, DefaultMaxVersion applies;
+	// an empty map caps no client. The name is self-asserted: it chooses
+	// the protocol, never what is allowed.
+	MaxVersion map[string]string `yaml:"max_version"`
+}
+
+// AgentVersions are the MCP versions the gateway speaks with agents,
+// oldest first.
+var AgentVersions = []string{"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28"}
+
+// DefaultMaxVersion is Agents.MaxVersion's default: mcp-go 1.1 (Kit)
+// gives up on a call after three answers in a row that ask for nothing,
+// so approvals that take longer end for it on 2026-07-28; with the
+// handshake, a call waits up to approval_timeout.
+func DefaultMaxVersion() map[string]string {
+	return map[string]string{"kit": "2025-11-25"}
 }
 
 // Metrics configures where the metrics (Prometheus text format) can be
@@ -581,6 +606,9 @@ func (g *Gateway) setDefaults() {
 	if g.Approvals.RetryWait == 0 {
 		g.Approvals.RetryWait = DefaultRetryWait
 	}
+	if g.Agents.MaxVersion == nil {
+		g.Agents.MaxVersion = DefaultMaxVersion()
+	}
 	if g.ApprovalTimeout == 0 {
 		g.ApprovalTimeout = DefaultApprovalTimeout
 	}
@@ -653,6 +681,14 @@ func (g *Gateway) Validate() error {
 	}
 	if g.Approvals.RetryWait < time.Second {
 		return errors.New("approvals.retry_wait: must be at least 1s")
+	}
+	for name, v := range g.Agents.MaxVersion {
+		if strings.TrimSpace(name) == "" {
+			return errors.New("agents.max_version: empty client name")
+		}
+		if !slices.Contains(AgentVersions, v) {
+			return fmt.Errorf("agents.max_version.%s: unknown MCP version %q (one of %s)", name, v, strings.Join(AgentVersions, ", "))
+		}
 	}
 	if g.Approvals.ControlSocket != "-" && !filepath.IsAbs(g.Approvals.ControlSocket) {
 		return fmt.Errorf("approvals.control_socket: must be an absolute path or \"-\", got %q", g.Approvals.ControlSocket)

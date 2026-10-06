@@ -302,6 +302,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		MaxRequestsPerPrincipal:  gw.Limits.RequestsPerPrincipal,
 		MaxStreamsPerPrincipal:   gw.Limits.StreamsPerPrincipal,
 		VaultIdle:                gw.Pseudonymize.VaultIdle,
+		MaxVersion:               gw.Agents.MaxVersion,
 		ModernAgents:             true,
 	}
 	if signIns != nil {

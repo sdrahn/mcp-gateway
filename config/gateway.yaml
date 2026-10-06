@@ -154,3 +154,12 @@ limits:
 # are dropped this long after the user's last request there.
 pseudonymize:
   vault_idle: 1h
+
+# The newest MCP version spoken with a client, by the name it gives
+# (clientInfo): one capped below 2026-07-28 uses the initialize
+# handshake. Kit (mcp-go 1.1) gives up on approvals after about 75 s on
+# 2026-07-28; with the handshake they wait up to approval_timeout.
+# Setting this replaces the default; {} caps no client.
+agents:
+  max_version:
+    kit: "2025-11-25"

@@ -23,6 +23,7 @@ var Reloadable = []string{
 	"http.key_file",
 	"http.list_ttl",
 	"pseudonymize.vault_idle",
+	"agents.max_version",
 }
 
 // RestartNeeded returns the keys whose value in next differs from
