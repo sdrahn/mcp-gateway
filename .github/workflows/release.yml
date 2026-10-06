@@ -3,7 +3,9 @@ name: Release
 # Pushing a tag vX.Y.Z publishes a GitHub release with the source tarball
 # and vendor.tar.gz (the Go modules), named as the OBS package expects
 # them (packaging/suse), and the tag's section of CHANGELOG.md as notes.
-# Binary packages come from OBS.
+# A release published in the web interface instead (which creates the
+# tag) gets the same files and keeps what was set there (pre-release,
+# latest, title and notes). Binary packages come from OBS.
 on:
   push:
     tags: ["v*"]
@@ -53,16 +55,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          prerelease=""
-          # Pre-releases: tags like v1.2.0-rc1.
-          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
           title="mcp-gateway ${GITHUB_REF_NAME}"
-          # A release published in the web interface creates the tag and
-          # exists already: attach the sources and set title and notes.
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+          if release=$(gh release view "$GITHUB_REF_NAME" --json databaseId,name,body 2>/dev/null); then
+            # A release made in the web interface (publishing it created
+            # the tag) keeps what was set there: pre-release, latest and
+            # draft are not touched, and a title or notes written there
+            # stay. The sources are attached; only an empty title or
+            # empty notes are filled in.
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
-            gh release edit "$GITHUB_REF_NAME" --title "$title" --notes-file notes.md $prerelease
+            id=$(jq -r .databaseId <<<"$release")
+            name=$(jq -r '.name // ""' <<<"$release")
+            body=$(jq -r '.body // ""' <<<"$release")
+            fields=()
+            [ -n "${name//[[:space:]]/}" ] || fields+=(-f "name=$title")
+            [ -n "${body//[[:space:]]/}" ] || fields+=(-F "body=@notes.md")
+            if [ ${#fields[@]} -gt 0 ]; then
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" "${fields[@]}" >/dev/null
+            fi
           else
+            # A pushed tag: a pre-release for tags like v1.2.0-rc1, else a
+            # full release.
+            prerelease=""
+            case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
             gh release create "$GITHUB_REF_NAME" dist/* \
               --title "$title" --notes-file notes.md --verify-tag $prerelease
           fi
