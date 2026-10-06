@@ -14,7 +14,10 @@ minor release (with a warning) and removed in the next.
   decide within it. A request outside it is denied (never asked) with
   `outside_scopes` and `required_scopes` in the decision, lists hide it,
   and the audit trail records the token's scopes. The policy input
-  carries `principal.scopes`.
+  carries `principal.scopes`. Over HTTPS such a request is answered
+  with `403` and an `insufficient_scope` challenge for the first of
+  the scopes that would allow it, so that agents that support it step
+  up; the denial's text names those scopes.
 
 ## v0.14.1 — 2026-10-06
 

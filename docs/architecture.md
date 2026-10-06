@@ -1699,11 +1699,23 @@ explicit denies, which still deny through the roles.
 
 **Step-up.** For a call outside the ceiling over HTTP, the gateway
 answers the request with `403` and `WWW-Authenticate: Bearer
-error="insufficient_scope", scope="<the token's scopes> <a required
-scope>"` (RFC 6750 §3.1), as the MCP authorization specification
-describes for a scope challenge, so that a client that supports it has
-the user authorize the wider scope and retries. Clients that do not get
-the call's error with the same text.
+resource_metadata=…, error="insufficient_scope", scope="<the token's
+scopes> <a required scope>"` (RFC 6750 §3.1), as the MCP authorization
+specification describes for a scope challenge, so that a client that
+supports it has the user authorize the wider scope and retries. The
+required scope is the first of `required_scopes`, which lists narrower
+ceilings first and unlimited ones last. The body is the JSON-RPC
+response, whose text names the scopes that would allow the request
+("…; a token with the scope mcp:write or mcp:admin would allow it");
+clients that do not step up show it. The router marks such a response
+(`ScopeChallenge`, never sent) and the HTTP transport turns it into the
+challenge while the response's headers are unwritten: a JSON response,
+a modern request's response before anything streamed, and an SSE
+request stream, whose headers wait up to 2 s for the first message
+(a decision comes sooner). Afterwards, and on the socket, the response
+is the denial as usual. Legacy sessions and modern requests are
+treated alike; each round of a multi round-trip call is decided with
+that round's token.
 
 **Checks and tools.** `mcp-gateway --check-policy-data` refuses a ceiling
 naming an unknown role or with qualifying fields; Cockpit shows the map
@@ -2634,12 +2646,15 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       provider through `http.groups_claim`;
       (done so far: the scopes in the policy input, the `scopes` map in
       the role data and its checks, the ceiling in the decision and in
-      lists, the audit trail);
+      lists, the audit trail, the `insufficient_scope` challenge);
     - for agents of MCP 2026-07-28 (§5.11) the same per request: a
       request outside the ceiling is answered with the `insufficient_scope`
       challenge (`403`) over HTTP, and a call's tool error on the
       socket; a ceiling also applies to subscriptions (`resources.subscribe`)
-      and to the requests of a multi round-trip call.
+      and to the requests of a multi round-trip call (done: each round is
+      decided with its token; a resource subscription outside the ceiling
+      is left out of a `subscriptions/listen` stream, as other refused
+      ones are);
 
 24. **Modern MCP servers** (0.14, §5.11, D18):
     - the server side dual-era over stdio: era probed per definition

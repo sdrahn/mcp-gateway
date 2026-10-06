@@ -78,7 +78,8 @@ func (h *HTTPHandler) postModern(w http.ResponseWriter, r *http.Request, p princ
 		writeRPCError(w, http.StatusBadRequest, m.ID, jsonrpc.CodeInvalidParams, "invalid params: _meta lacks "+metaClientCapabilities, nil)
 		return
 	}
-	out := &modernWriter{w: w, id: m.Key(), sse: acceptsSSE(r)}
+	out := &modernWriter{w: w, id: m.Key(), sse: acceptsSSE(r),
+		challenge: func(scope string, body []byte) { h.scopeChallenge(w, p, scope, body) }}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	if m.Method == "subscriptions/listen" {
@@ -179,6 +180,8 @@ type modernWriter struct {
 	w   http.ResponseWriter
 	id  string
 	sse bool
+	// challenge answers a response with a scope challenge (403).
+	challenge func(scope string, body []byte)
 
 	mu       sync.Mutex
 	streamed bool // the SSE stream started
@@ -206,6 +209,10 @@ func (o *modernWriter) Write(m *jsonrpc.Message) error {
 	if !o.streamed {
 		if response {
 			o.done = true
+			if m.ScopeChallenge != "" && o.challenge != nil {
+				o.challenge(m.ScopeChallenge, b)
+				return nil
+			}
 			o.w.Header().Set("Content-Type", "application/json")
 			o.w.WriteHeader(statusOf(m))
 			_, err = o.w.Write(append(b, '\n'))

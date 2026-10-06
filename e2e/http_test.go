@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -234,7 +235,11 @@ func TestRemoteHTTP(t *testing.T) {
 	    {"server": "fs", "tool": "write_file", "require_approval": true,
 	     "approval_channel": "form", "args": {"path": %q}}
 	  ]}},
-	  "bindings": {"groups": {}, "users": {"u-remote": ["developer"]}}
+	  "bindings": {"groups": {}, "users": {"u-remote": ["developer"]}},
+	  "scopes": {
+	    "mcp:read": {"permissions": [{"server": "*", "tool": "read_*"}]},
+	    "mcp:write": {"roles": ["developer"]}
+	  }
 	}`, "^"+regexp.QuoteMeta(home)+"/")
 	e := setup(t, rbac, map[string]string{"fs": home}, fmt.Sprintf(`http:
   listen: 127.0.0.1:%d
@@ -384,6 +389,39 @@ func TestRemoteHTTP(t *testing.T) {
 		}
 		if b, err := os.ReadFile(target); err != nil || string(b) != "resumed" {
 			t.Fatalf("file %q %v", b, err)
+		}
+	})
+
+	// A token with only mcp:read: reads within its ceiling, a write
+	// outside it is answered with a challenge for mcp:write, also on an
+	// SSE request, and is gone from the tool list. (Tokens with none of
+	// the map's scopes, as above, are not limited.)
+	t.Run("outside the token's scopes", func(t *testing.T) {
+		r := &remote{t: t, client: client, url: audience + "/fs", token: provider.tokenWith(t, "u-remote", audience, map[string]any{"scope": "mcp mcp:read"})}
+		r.call(1, "initialize", init["params"])
+		if got := listNames(t, r.call(2, "tools/list", map[string]any{}), "tools", "name"); strings.Contains(got, "write_file") {
+			t.Fatalf("tools = %s", got)
+		}
+		if text, isErr := toolResult(t, r.call(3, "tools/call", map[string]any{"name": "read_file", "arguments": map[string]any{"path": "hello.txt"}})); isErr || text != "hello remote" {
+			t.Fatalf("read: %q %v", text, isErr)
+		}
+		want := `error="insufficient_scope", scope="mcp mcp:read mcp:write"`
+		for i, sse := range []bool{false, true} {
+			resp := r.post(map[string]any{"jsonrpc": "2.0", "id": 4 + i, "method": "tools/call", "params": map[string]any{
+				"name": "write_file", "arguments": map[string]any{"path": filepath.Join(home, "scoped.txt"), "content": "no"},
+			}}, sse)
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusForbidden || !strings.Contains(resp.Header.Get("WWW-Authenticate"), want) ||
+				!strings.Contains(string(body), "a token with the scope mcp:write would allow it") {
+				t.Fatalf("sse %v: %d %q %s", sse, resp.StatusCode, resp.Header.Get("WWW-Authenticate"), body)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(home, "scoped.txt")); err == nil {
+			t.Fatal("write outside the ceiling happened")
+		}
+		if !strings.Contains(e.gwLogs.String(), `"outside_scopes":true`) {
+			t.Error("no audit record of the outside-scope denial")
 		}
 	})
 

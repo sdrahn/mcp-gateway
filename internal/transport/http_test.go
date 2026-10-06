@@ -30,7 +30,7 @@ type fakeAuth struct{}
 func (fakeAuth) Authenticate(_ context.Context, token string, _ *x509.Certificate) (principal.Principal, error) {
 	switch token {
 	case "alice", "bob":
-		return principal.Principal{Sub: token, Issuer: "https://idp", Transport: principal.TransportHTTP}, nil
+		return principal.Principal{Sub: token, Issuer: "https://idp", Transport: principal.TransportHTTP, Scopes: []string{"openid", "mcp"}}, nil
 	case "alice-brief": // alice, with a token about to expire
 		return principal.Principal{Sub: "alice", Issuer: "https://idp", Transport: principal.TransportHTTP,
 			Expires: time.Now().Add(briefToken)}, nil
@@ -91,6 +91,16 @@ func echoServe(_ context.Context, c jsonrpc.MessageConn, p principal.Principal, 
 				}
 			}
 			r, _ := jsonrpc.NewResult(m.ID, map[string]any{})
+			_ = c.Write(r)
+		case m.Method == "outside": // denied for lacking a scope
+			r, _ := jsonrpc.NewResult(m.ID, map[string]any{"isError": true})
+			r.ScopeChallenge = "mcp:git"
+			_ = c.Write(r)
+		case m.Method == "outside-later": // the same after a notification
+			n, _ := jsonrpc.NewNotification("notifications/progress", map[string]any{"progress": 1})
+			_ = jsonrpc.WriteRelated(c, n, m.ID)
+			r, _ := jsonrpc.NewResult(m.ID, map[string]any{"isError": true})
+			r.ScopeChallenge = "mcp:git"
 			_ = c.Write(r)
 		case m.Method == "later":
 			r, _ := jsonrpc.NewResult(m.ID, map[string]any{})
@@ -878,5 +888,26 @@ func TestRequestStreamEndsAtTokenExpiry(t *testing.T) {
 	nextEv(t, ev2) // priming
 	if final := nextEv(t, ev2); final.msg == nil || final.msg.Key() != "2" || !strings.Contains(string(final.msg.Result), "accept") {
 		t.Fatalf("resumed: %+v", final)
+	}
+}
+
+// A response denied for lacking a scope is a 403 insufficient_scope
+// challenge for the token's scopes and that scope, as JSON and on an SSE
+// request before anything streamed; after a message streamed it is the
+// response as usual.
+func TestScopeChallenge(t *testing.T) {
+	srv, _ := newTestServer(t, nil)
+	sid := initialize(t, srv, "/mcp/fs", "alice")
+	want := `Bearer resource_metadata="https://gw.example.com/.well-known/oauth-protected-resource/mcp", error="insufficient_scope", scope="openid mcp mcp:git", error_description="the request needs the scope mcp:git"`
+	for _, accept := range []string{"application/json", "application/json, text/event-stream"} {
+		resp := do(t, srv, req{token: "alice", path: "/mcp/fs", session: sid, accept: accept, body: `{"jsonrpc":"2.0","id":2,"method":"outside"}`})
+		body := readBody(t, resp)
+		if resp.StatusCode != http.StatusForbidden || resp.Header.Get("WWW-Authenticate") != want || !strings.Contains(body, `"isError":true`) {
+			t.Fatalf("%s: %d %q %s", accept, resp.StatusCode, resp.Header.Get("WWW-Authenticate"), body)
+		}
+	}
+	resp := do(t, srv, req{token: "alice", path: "/mcp/fs", session: sid, accept: "application/json, text/event-stream", body: `{"jsonrpc":"2.0","id":3,"method":"outside-later"}`})
+	if body := readBody(t, resp); resp.StatusCode != 200 || !strings.Contains(body, `"isError":true`) {
+		t.Fatalf("after streaming: %d %s", resp.StatusCode, body)
 	}
 }

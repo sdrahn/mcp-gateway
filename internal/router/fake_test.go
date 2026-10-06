@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,12 @@ func (fakePDP) Decide(_ context.Context, in pep.Input) (pep.Decision, error) {
 	deny := pep.Decision{Effect: pep.Deny, Reason: "not yours"}
 	switch in.Action {
 	case "tools.call":
+		// A token with scopes but without mcp:write: writes lie outside
+		// its ceiling (§6.7).
+		if p := in.Principal; p.Transport == principal.TransportHTTP && len(p.Scopes) > 0 && !slices.Contains(p.Scopes, "mcp:write") &&
+			strings.HasPrefix(in.Resource.Name, "write_") {
+			return pep.Decision{Effect: pep.Deny, Reason: "outside the token's scopes", OutsideScopes: true, RequiredScopes: []string{"mcp:write", "mcp:admin"}}, nil
+		}
 		// Policy on the arguments as forwarded (after re-identification).
 		if note, _ := in.Args["note"].(string); in.Resource.Name == "update_customer" && strings.Contains(note, "forbidden@") {
 			return deny, nil

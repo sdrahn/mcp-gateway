@@ -276,6 +276,7 @@ func (s *Session) clientRequest(m *jsonrpc.Message) {
 		return
 	}
 	ctx, cancel := context.WithCancel(withRequest(s.ctx, m.ID))
+	ctx, challenge := withChallenge(ctx)
 	s.mu.Lock()
 	s.inflight[m.Key()] = cancel
 	s.mu.Unlock()
@@ -292,14 +293,14 @@ func (s *Session) clientRequest(m *jsonrpc.Message) {
 			return // cancelled by the client or the session ended
 		}
 		if rpcErr != nil {
-			_ = s.client.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Error: rpcErr})
+			_ = s.client.Write(challenge.mark(&jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Error: rpcErr}))
 			return
 		}
 		resp, err := jsonrpc.NewResult(m.ID, result)
 		if err != nil {
 			resp = jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "internal error")
 		}
-		_ = s.client.Write(resp)
+		_ = s.client.Write(challenge.mark(resp))
 	}()
 }
 
@@ -391,6 +392,40 @@ type requestKey struct{}
 // withRequest marks ctx as serving the client's request id.
 func withRequest(ctx context.Context, id json.RawMessage) context.Context {
 	return context.WithValue(ctx, requestKey{}, id)
+}
+
+// challengeKey holds the request's *scopeChallenge.
+type challengeKey struct{}
+
+// scopeChallenge is the scope a request was denied for lacking (a token
+// scope ceiling), set while the request is served and put on its
+// response (jsonrpc.Message.ScopeChallenge).
+type scopeChallenge struct {
+	mu    sync.Mutex
+	scope string
+}
+
+// withChallenge returns ctx with a scopeChallenge for its request.
+func withChallenge(ctx context.Context) (context.Context, *scopeChallenge) {
+	c := &scopeChallenge{}
+	return context.WithValue(ctx, challengeKey{}, c), c
+}
+
+// challengeScope records that ctx's request lacked scope.
+func challengeScope(ctx context.Context, scope string) {
+	if c, _ := ctx.Value(challengeKey{}).(*scopeChallenge); c != nil {
+		c.mu.Lock()
+		c.scope = scope
+		c.mu.Unlock()
+	}
+}
+
+// mark puts the recorded scope on resp.
+func (c *scopeChallenge) mark(resp *jsonrpc.Message) *jsonrpc.Message {
+	c.mu.Lock()
+	resp.ScopeChallenge = c.scope
+	c.mu.Unlock()
+	return resp
 }
 
 // requestOf returns the client request ctx serves, nil if none.
@@ -867,6 +902,9 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		DecisionID: decisionID, Args: t.args, FullArgs: ob != nil && ob.FullAudit, Reidentified: nReidentified,
 		Privileged: s.r.privileged(t.server), Scopes: p.Scopes, OutsideScopes: dec.OutsideScopes})
 	if dec.Effect != pep.Allow {
+		if dec.OutsideScopes {
+			return s.scopeDenial(ctx, m.Method, dec)
+		}
 		return s.denial(m.Method, dec.Reason)
 	}
 	if len(reidentified) > 0 {
@@ -1187,6 +1225,21 @@ func (s *Session) denial(method, reason string) (any, *jsonrpc.Error) {
 		}, nil
 	}
 	return nil, rpcError(jsonrpc.CodeForbidden, reason)
+}
+
+// scopeDenial denies a request outside the token's scopes (§6.7): the
+// text names the scopes that would allow it, and over HTTP the response
+// becomes an insufficient_scope challenge for the first of them.
+func (s *Session) scopeDenial(ctx context.Context, method string, dec pep.Decision) (any, *jsonrpc.Error) {
+	reason := dec.Reason
+	if reason == "" {
+		reason = "outside the token's scopes"
+	}
+	if len(dec.RequiredScopes) == 0 {
+		return s.denial(method, reason+"; no scope of the token's allows it")
+	}
+	challengeScope(ctx, dec.RequiredScopes[0])
+	return s.denial(method, fmt.Sprintf("%s; a token with the scope %s would allow it", reason, strings.Join(dec.RequiredScopes, " or ")))
 }
 
 // rewriteProgressToken replaces params._meta.progressToken with a token

@@ -405,11 +405,14 @@ ceiling_perms[s] := own | roled if {
 	}
 }
 
-# The scopes whose ceilings cover the request.
-covering_scopes contains s if {
+# The scopes whose ceilings are unlimited.
+unlimited_scopes contains s if {
 	some s, c in scope_map
 	c.unlimited == true
 }
+
+# The scopes whose ceilings cover the request.
+covering_scopes contains s if some s in unlimited_scopes
 
 covering_scopes contains s if {
 	some s, ps in ceiling_perms
@@ -440,8 +443,12 @@ outside_scopes if {
 }
 
 # The scopes whose ceilings would allow the request, for a client to
-# step up to.
-required_scopes := sort(covering_scopes - {"default"})
+# step up to: the narrower ones first, unlimited ones last (the gateway
+# asks for the first).
+required_scopes := array.concat(
+	sort((covering_scopes - unlimited_scopes) - {"default"}),
+	sort(unlimited_scopes - {"default"}),
+)
 
 scope_denial := {
 	"effect": "deny",
