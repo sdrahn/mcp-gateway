@@ -261,7 +261,7 @@ mapped remote ones.)
   as a dynamic user, isolated by the instance's MCS pair.
 - **Roles** are derived by policy data (`data.mcp.rbac.bindings`) from groups,
   users or claims — role assignment is itself policy, not code.
-- **Scopes** (proposed, §6.7, D17): a remote principal's `scopes` are the
+- **Scopes** (§6.7, D17; roadmap step 23): a remote principal's `scopes` are the
   token's `scope` (or `scp`) claim. They never add a role; role data may
   map them to a ceiling on what the agent holding the token may do.
 - `client` comes from the MCP `initialize` request (`clientInfo`); it is
@@ -1621,10 +1621,10 @@ grant > ask > default deny.)
   item 6), emits `list_changed` notifications and records a
   `mcp-policy-change` audit event.
 
-### 6.7 Token scopes as a ceiling (proposed)
+### 6.7 Token scopes as a ceiling
 
-*Proposed for roadmap step 23, decision D17. Not implemented; open
-for now, with no release planned.*
+*Roadmap step 23 (0.15), decision D17 (accepted 2026-10-06). Not
+implemented yet.*
 
 An OAuth scope says what a client may do on the user's behalf: the
 client asks for it, the user consents, the authorization server grants
@@ -2071,7 +2071,7 @@ in the kernel keyring or a TPM-sealed key: not available in containers
 and not on every host; a key sealed with `systemd-creds` may follow.
 
 **D17 — Token scopes limit what an agent may do; they never grant.**
-*Proposed (2026-10-05, for roadmap step 23; not decided):* a remote
+*Decision (accepted 2026-10-06, roadmap step 23; proposed 2026-10-05):* a remote
 principal's token scopes are part of the policy input
 (`input.principal.scopes`), and role data may map scopes to ceilings
 (§6.7). A request must be allowed by the principal's roles and lie
@@ -2097,11 +2097,14 @@ approvals lifting a ceiling: the same user would approve what their
 token was narrowed not to do; an audience per server endpoint
 (`/mcp/fs`) as a ceiling: complements this for whole servers and may
 follow.
-*Open for the discussion:* whether lists should show tools outside the
-ceiling, so that clients can step up when calling them (more discoverable,
-but an agent sees what it cannot call); whether `default` should become
-narrowing in a later release; scope names to recommend (`mcp:read`,
-`mcp:write`, `mcp:admin`, `mcp:<server>`).
+*Settled with it* (the questions left open by the proposal, as §6.7
+answers them):
+- Lists show only what the roles and the ceiling both allow. Clients step
+  up when a call is refused, not from the list.
+- `default` stays `unlimited` when absent. Narrowing by default remains
+  a choice in the role data, not a later change of the default.
+- The user guide recommends `mcp:read`, `mcp:write`, `mcp:admin` and
+  `mcp:<server>` as scope names; the gateway itself names none.
 
 **D18 — The gateway speaks both eras of MCP, on both sides.**
 *Decision (accepted 2026-10-05, roadmap steps 24 and 25):* the
@@ -2602,8 +2605,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       also reaches the identity provider on `http_cache_port_t` (8080,
       Keycloak's default), where it could not fetch the keys before.
 
-23. **Scopes that narrow** (proposed, no release planned):
-    - token scopes as a ceiling (§6.7, decision D17, proposed): the
+23. **Scopes that narrow** (0.15, §6.7, D17):
+    - token scopes as a ceiling (§6.7, decision D17, accepted): the
       token's scopes in the policy input; an optional `scopes` map in the
       role data from scopes to ceilings (roles, permissions, or
       unlimited; a `default` for tokens without a named scope); requests
@@ -2612,7 +2615,12 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       step up; checks in `--check-policy-data`, the ceiling in `setup
       http --token`, Cockpit and the audit trail; the user guide with
       Keycloak client scopes, and with roles assigned in the identity
-      provider through `http.groups_claim`.
+      provider through `http.groups_claim`;
+    - for agents of MCP 2026-07-28 (§5.11) the same per request: a
+      request outside the ceiling is answered with the `insufficient_scope`
+      challenge (`403`) over HTTP, and a call's tool error on the
+      socket; a ceiling also applies to subscriptions (`resources.subscribe`)
+      and to the requests of a multi round-trip call.
 
 24. **Modern MCP servers** (0.14, §5.11, D18):
     - the server side dual-era over stdio: era probed per definition
@@ -2654,6 +2662,36 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       1.1, the TypeScript SDK 2.3's `@modelcontextprotocol/client`)
       over the socket and HTTPS, and serving modern agents switched on
       (done).
+
+26. **Kit's approvals as long as before** (0.15, after step 23; a
+    regression of 0.14):
+    - the problem: since 0.14, mcp-go 1.1 (Kit 0.121) speaks MCP
+      2026-07-28 with the gateway. It gives up on a call after three
+      answers in a row that ask for nothing (`maxLoadSheddingRoundTrips`,
+      a constant), so an approval out of band or on the page ends for
+      Kit after about three rounds of `approvals.retry_wait` (75 s).
+      Before 0.14 the call waited up to `approval_timeout`. Kit declares
+      neither elicitation nor roots, so the gateway cannot ask it for
+      something that resets the count;
+    - in the gateway: a waiting round lasts longer for clients known to
+      have no request timeout of their own, named by their `clientInfo`
+      (`kit`) in a setting with a shipped default, up to
+      `approval_timeout`. `clientInfo` is self-asserted; it decides only
+      how long a round waits, never what is allowed (§5.2);
+    - upstream: a change to mcp-go that treats an answer without input
+      requests as "retry later" with a backoff and a bound on rounds, as
+      the Python and TypeScript SDKs do, instead of failing after three.
+      The gateway's setting stays for the mcp-go versions without it;
+    - considered: offering tasks to clients that declare them (Kit
+      does), so that an approval becomes a task the client polls (more
+      general, but tasks would need policy and obligations on their
+      results, which the gateway does not offer yet); answering Kit with
+      the handshake protocol (`server/discover` refused by client name),
+      which would bring back the session and its long wait but chooses
+      the protocol by a self-asserted name;
+    - the client suite checks it: the Go client, set up as Kit, gets an
+      approval decided after more than three rounds of
+      `approvals.retry_wait`.
 
 ## 12. Open items
 
