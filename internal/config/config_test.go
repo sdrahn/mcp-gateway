@@ -52,6 +52,23 @@ func TestAgentsMaxVersion(t *testing.T) {
 	}
 }
 
+// agents.no_request_timeout names Kit unless set; [] names none.
+func TestAgentsNoRequestTimeout(t *testing.T) {
+	for content, want := range map[string][]string{
+		"{}\n":                                {"kit"},
+		"agents:\n  no_request_timeout: []\n": {},
+		"agents:\n  no_request_timeout: [my-agent]\n": {"my-agent"},
+	} {
+		g, err := LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", content))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(g.Agents.NoRequestTimeout, want) {
+			t.Errorf("%q: no_request_timeout = %v, want %v", content, g.Agents.NoRequestTimeout, want)
+		}
+	}
+}
+
 func TestLoadGatewayShippedExample(t *testing.T) {
 	g, err := LoadGateway("../../config/gateway.yaml")
 	if err != nil {
@@ -109,6 +126,7 @@ func TestLoadGatewayErrors(t *testing.T) {
 		"negative limit":   "limits:\n  instances: -1\n",
 		"bad max version":  "agents:\n  max_version:\n    kit: '2025-12-01'\n",
 		"empty client":     "agents:\n  max_version:\n    '': '2025-11-25'\n",
+		"empty patient":    "agents:\n  no_request_timeout: ['']\n",
 	}
 	for name, content := range tests {
 		t.Run(name, func(t *testing.T) {

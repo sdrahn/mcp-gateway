@@ -14,6 +14,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
@@ -320,11 +321,27 @@ func (s *Session) decideModern(ctx context.Context, t *callTarget, decisionID st
 	}
 }
 
-// awaitApproval waits up to approvals.retry_wait for the decision on
-// parked approval id, and answers the round with it, or to retry.
+// untilDecided is how long a round waits for a client without a request
+// timeout of its own: the approval or sign-in expires first.
+const untilDecided = 24 * time.Hour
+
+// roundWait is how long a round of an approval or a sign-in waits for
+// the decision: approvals.retry_wait, or until decided for clients named
+// in agents.no_request_timeout (mcp-go 1.1 gives up after three rounds in
+// a row that ask for nothing; roadmap step 26).
+func (s *Session) roundWait() time.Duration {
+	st := s.r.settings()
+	if slices.Contains(st.NoRequestTimeout, strings.ToLower(s.snapshotPrincipal().Client.Name)) {
+		return untilDecided
+	}
+	return st.RetryWait
+}
+
+// awaitApproval waits a round (roundWait) for the decision on parked
+// approval id, and answers the round with it, or to retry.
 func (s *Session) awaitApproval(ctx context.Context, t *callTarget, in pep.Input, dec pep.Decision, id string, r *agentRound) (pep.Decision, string, pep.Input, any) {
 	stop := s.reportWaiting(t)
-	g, outcome := s.r.Broker.Await(ctx, id, in.Principal, s.r.settings().RetryWait)
+	g, outcome := s.r.Broker.Await(ctx, id, in.Principal, s.roundWait())
 	stop()
 	switch outcome {
 	case broker.Waiting:
@@ -403,7 +420,7 @@ func (s *Session) signInModern(ctx context.Context, method string, b *config.Bac
 			s.r.SignIns.Abandon(id, p)
 			return failed(signin.ErrDeclined)
 		}
-		err := s.r.SignIns.Await(ctx, b.Name, id, p, s.r.settings().RetryWait)
+		err := s.r.SignIns.Await(ctx, b.Name, id, p, s.roundWait())
 		switch {
 		case err == nil:
 			return true, nil, nil

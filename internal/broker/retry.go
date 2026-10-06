@@ -66,6 +66,9 @@ func (b *Broker) Await(ctx context.Context, id string, who principal.Principal, 
 		b.mu.Unlock()
 		return nil, Gone
 	}
+	if left := p.Expires.Sub(b.now()); left < wait {
+		wait = left
+	}
 	if p.result != nil {
 		// Another call waits for it; this one waits as long, and finds
 		// the grant stored or the approval still pending.
@@ -80,9 +83,6 @@ func (b *Broker) Await(ctx context.Context, id string, who principal.Principal, 
 	}
 	ch := make(chan *pep.Grant, 1)
 	p.result, p.Waiting = ch, true
-	if left := p.Expires.Sub(b.now()); left < wait {
-		wait = left
-	}
 	b.persistPending()
 	b.publishPending(p, false)
 	b.mu.Unlock()

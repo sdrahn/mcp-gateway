@@ -160,6 +160,10 @@ pseudonymize:
 # handshake. Kit (mcp-go 1.1) gives up on approvals after about 75 s on
 # 2026-07-28; with the handshake they wait up to approval_timeout.
 # Setting this replaces the default; {} caps no client.
+# no_request_timeout names clients without a request timeout of their
+# own: on 2026-07-28 a round of an approval or a sign-in waits for them
+# until it is decided instead of approvals.retry_wait ([] names none).
 agents:
   max_version:
     kit: "2025-11-25"
+  no_request_timeout: [kit]
