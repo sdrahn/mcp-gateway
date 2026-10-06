@@ -7,6 +7,15 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Token scopes as a ceiling (D17): the optional `scopes` map in the role
+  data limits what a token's scopes let remote principals do; the roles
+  decide within it. A request outside it is denied (never asked) with
+  `outside_scopes` and `required_scopes` in the decision, lists hide it,
+  and the audit trail records the token's scopes. The policy input
+  carries `principal.scopes`.
+
 ## v0.14.0 — 2026-10-06
 
 The gateway speaks MCP 2026-07-28 on both sides. Servers that dropped

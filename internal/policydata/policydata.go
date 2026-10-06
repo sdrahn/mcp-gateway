@@ -238,6 +238,12 @@ type rbac struct {
 		Groups map[string][]string `json:"groups"`
 	} `json:"bindings"`
 	Approvers map[string][]string `json:"approvers"`
+	Scopes    map[string]struct {
+		Roles       []string `json:"roles"`
+		Permissions []struct {
+			Args map[string]string `json:"args"`
+		} `json:"permissions"`
+	} `json:"scopes"`
 }
 
 // stringList is a string or a list of strings.
@@ -305,6 +311,18 @@ func (d *rbac) check(shipped map[string]string) []string {
 		for i, rule := range d.Approvers[server] {
 			if role, ok := strings.CutPrefix(rule, "role:"); ok {
 				unknown(fmt.Sprintf("/approvers/%s/%d", escape(server), i), role)
+			}
+		}
+	}
+	for _, scope := range sortedKeys(d.Scopes) {
+		c := d.Scopes[scope]
+		base := "/scopes/" + escape(scope)
+		for i, role := range c.Roles {
+			unknown(fmt.Sprintf("%s/roles/%d", base, i), role)
+		}
+		for i, p := range c.Permissions {
+			for _, arg := range sortedKeys(p.Args) {
+				re(fmt.Sprintf("%s/permissions/%d/args/%s", base, i, escape(arg)), p.Args[arg])
 			}
 		}
 	}

@@ -49,6 +49,8 @@ For most installations, editing the data is all that is needed.
   bindings of all its groups.
 - **approvers**: who may decide on approvals, per server (see
   [Approver rules](#approver-rules)).
+- **scopes**: what a token's scopes let remote principals do at most
+  (optional; see [Token scopes](#token-scopes)).
 
 ### The shipped roles
 
@@ -333,6 +335,51 @@ are decided like tool calls, with `client` permissions:
 
 Without such permissions, servers cannot make these requests (only
 `admin` has them as shipped).
+
+## Token scopes
+
+Over HTTP, a token can carry OAuth scopes. The optional `scopes` map
+turns them into a ceiling: a scope names what a token with it may do at
+most, and the principal's roles decide within that.
+
+```json
+"scopes": {
+  "mcp:read":  {"roles": ["viewer"]},
+  "mcp:write": {"roles": ["developer"]},
+  "mcp:git":   {"permissions": [{"server": "git", "tool": "*"}]},
+  "mcp:admin": {"unlimited": true},
+  "default":   {"roles": ["viewer"]}
+}
+```
+
+A scope's ceiling is the permissions of the roles it names, the
+permissions it lists (with `server`, a target and optionally `args`, as
+in roles), or everything (`"unlimited": true`).
+
+- A ceiling only narrows: a request must be allowed (or asked) by the
+  roles **and** lie within the ceiling of one of the token's scopes.
+  Ceilings of several scopes add up. A scope never grants what the
+  roles do not.
+- A request outside the ceiling is **denied**, not asked: an approval
+  does not lift the token's limit. The decision says "outside the
+  token's scopes", is marked `outside_scopes` and names the scopes that
+  would allow it (`required_scopes`); the audit trail records the
+  token's scopes.
+- Explicit denies of the roles come first. A role named in a ceiling
+  contributes only its allowing permissions; its denies still apply
+  through the principal's roles.
+- Lists show only what lies within the ceiling.
+- Scopes not in the map (`openid`, `profile`, …) are ignored. A token
+  with none of the map's scopes gets the ceiling of `default`; without
+  `default`, such a token is not limited.
+- Without a `scopes` map, and for local principals (Unix socket), there
+  is no ceiling.
+
+Recommended names: `mcp:read`, `mcp:write`, `mcp:admin`, and
+`mcp:<server>` for a single server. Define them as client scopes in the
+identity provider, and let agents request only what they need. The
+token scopes required of every token (`http.scopes`, chapter 3) are a
+separate check.
 
 ## Approver rules
 

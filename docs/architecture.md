@@ -1386,6 +1386,9 @@ instead of OPA's default `/system/log/mask`, and bundles from
 }
 ```
 
+`principal.scopes` holds a remote principal's token scopes; the shipped
+policy uses them only as a ceiling (§6.7).
+
 `resource.sign_in` is `true` for the tool `sign_in` the gateway offers
 in place of a server's tools until the principal signed in to it
 (§5.7.3).
@@ -1677,9 +1680,11 @@ removes. A request the roles would allow, or allow after an approval,
 but the ceiling does not is denied, not asked: the ceiling limits the
 token, and an approval by the same user, or a standing grant, does not
 lift it. Lists (`data.mcp.filter.visible`) show what the roles and the
-ceiling both allow. The decision names the scopes whose ceilings would
-allow the request (`required_scopes`); the reason says it lies outside
-the token's scopes.
+ceiling both allow. The decision marks such a denial (`outside_scopes`)
+and names the scopes whose ceilings would allow the request
+(`required_scopes`); the reason says it lies outside the token's scopes.
+A role named in a ceiling contributes its permissions without its
+explicit denies, which still deny through the roles.
 
 **Step-up.** For a call outside the ceiling over HTTP, the gateway
 answers the request with `403` and `WWW-Authenticate: Bearer
@@ -2616,6 +2621,9 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       http --token`, Cockpit and the audit trail; the user guide with
       Keycloak client scopes, and with roles assigned in the identity
       provider through `http.groups_claim`;
+      (done so far: the scopes in the policy input, the `scopes` map in
+      the role data and its checks, the ceiling in the decision and in
+      lists, the audit trail);
     - for agents of MCP 2026-07-28 (§5.11) the same per request: a
       request outside the ceiling is answered with the `insufficient_scope`
       challenge (`403`) over HTTP, and a call's tool error on the

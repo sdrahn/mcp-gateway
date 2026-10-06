@@ -38,6 +38,11 @@
           "pattern": "^(self|(role|group|user):.+)$"
         }
       }
+    },
+    "scopes": {
+      "description": "Token scope to the ceiling of what a token with that scope may do; \"default\" for tokens without a named scope. Scopes never grant: a request must be allowed by the roles and lie within the ceiling.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/ceiling" }
     }
   },
   "required": ["roles"],
@@ -145,6 +150,54 @@
           "additionalProperties": { "$ref": "#/definitions/className" }
         }
       },
+      "additionalProperties": false
+    },
+    "ceiling": {
+      "description": "The permissions of named roles, permissions of its own, or unlimited.",
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "roles": {
+          "description": "Roles whose permissions (without their explicit denies) the ceiling covers.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "permissions": {
+          "description": "Targets the ceiling covers; fields that qualify an allow (require_approval, obligations, ...) do not belong here.",
+          "type": "array",
+          "items": { "$ref": "#/definitions/ceilingPermission" }
+        },
+        "unlimited": { "const": true }
+      },
+      "anyOf": [
+        { "required": ["roles"] },
+        { "required": ["permissions"] },
+        { "required": ["unlimited"] }
+      ],
+      "additionalProperties": false
+    },
+    "ceilingPermission": {
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "server": { "description": "Server name glob.", "type": "string" },
+        "tool": { "description": "Tool name glob.", "type": "string" },
+        "prompt": { "description": "Prompt name glob.", "type": "string" },
+        "resource": { "description": "Resource URI glob.", "type": "string" },
+        "client": { "description": "Glob over the methods of requests MCP servers send to the agent.", "type": "string" },
+        "args": {
+          "description": "Argument name to regular expression the (string) argument must match.",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "required": ["server"],
+      "anyOf": [
+        { "required": ["tool"] },
+        { "required": ["prompt"] },
+        { "required": ["resource"] },
+        { "required": ["client"] }
+      ],
       "additionalProperties": false
     },
     "detector": { "enum": ["email", "iban", "credit_card", "phone", "ipv4", "ipv6"] },

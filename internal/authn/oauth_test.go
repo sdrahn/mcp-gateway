@@ -120,6 +120,11 @@ func TestOAuthValid(t *testing.T) {
 	if p.Sub != "u-123" || p.Issuer != idp.srv.URL || p.Transport != "http" || p.UID != nil || len(p.Groups) != 1 || p.Groups[0] != "dev" {
 		t.Fatalf("principal %+v", p)
 	}
+	// The token's scopes are part of the principal (a ceiling in the
+	// policy, never a grant).
+	if len(p.Scopes) != 2 || p.Scopes[0] != "openid" || p.Scopes[1] != "mcp" {
+		t.Errorf("scopes %v", p.Scopes)
+	}
 
 	// The principal carries when the token stops being accepted.
 	exp := time.Now().Add(10 * time.Minute).Truncate(time.Second)

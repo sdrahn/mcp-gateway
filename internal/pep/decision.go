@@ -148,6 +148,11 @@ type Decision struct {
 	Reason      string       `json:"reason,omitempty"`
 	Ask         *AskSpec     `json:"ask,omitempty"`
 	Obligations *Obligations `json:"obligations,omitempty"`
+	// OutsideScopes marks a denial because the request lies outside the
+	// ceiling of the token's scopes (docs/architecture.md, section 6.7);
+	// RequiredScopes are the scopes whose ceilings would allow it.
+	OutsideScopes  bool     `json:"outside_scopes,omitempty"`
+	RequiredScopes []string `json:"required_scopes,omitempty"`
 }
 
 // Validate reports whether d is well-formed enough to be enforced,

@@ -49,6 +49,22 @@ func TestLogKeyedDigestAndKernel(t *testing.T) {
 	}
 }
 
+// A denial by the ceiling of the token's scopes names the scopes, in the
+// journal and the kernel audit trail.
+func TestLogOutsideScopes(t *testing.T) {
+	var out bytes.Buffer
+	k := &fakeKernel{}
+	a := New(&out, Options{Kernel: k})
+	a.Log(Record{Sub: "u-1", Action: "tools.call", Server: "git", Name: "commit", Effect: "deny",
+		Reason: "outside the token's scopes", Scopes: []string{"openid", "mcp:read"}, OutsideScopes: true})
+	if !strings.Contains(out.String(), `"scopes":"openid mcp:read"`) || !strings.Contains(out.String(), `"outside_scopes":true`) {
+		t.Fatalf("journal record: %s", out.String())
+	}
+	if len(k.msgs) != 1 || !strings.Contains(k.msgs[0], " outside_scopes=yes ") || !strings.Contains(k.msgs[0], "scopes=") {
+		t.Fatalf("kernel messages %v", k.msgs)
+	}
+}
+
 func TestLogPrivilegedToKernel(t *testing.T) {
 	var out bytes.Buffer
 	k := &fakeKernel{}

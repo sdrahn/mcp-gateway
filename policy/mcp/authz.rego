@@ -2,7 +2,8 @@
 # with the input document described in docs/architecture.md, section 6.2,
 # and expects a decision document as described in section 6.3.
 #
-# Precedence: explicit deny > allow > allow with a valid grant > ask > deny.
+# Precedence: explicit deny > outside the token's scopes > allow > allow
+# with a valid grant > ask > deny.
 package mcp.authz
 
 import rego.v1
@@ -62,9 +63,18 @@ target_field := {
 }
 
 matching contains p if {
+	some p in perms
+	p in covering
+}
+
+# The permissions that cover the request, among the principal's and those
+# of the ceilings of the scope map (below).
+candidate_perms := perms | {p | some ps in ceiling_perms; some p in ps}
+
+covering contains p if {
 	field := target_field[input.action]
 	target_ok(field)
-	some p in perms
+	some p in candidate_perms
 	server_ok(p)
 	glob.match(expand_glob(p[field]), null, input.resource.name)
 	args_ok(p)
@@ -75,10 +85,10 @@ matching contains p if {
 # until the principal signed in to it (input.resource.sign_in), follows
 # the server's tools: a permission naming any tool of the server covers
 # it (docs/architecture.md, section 5.7.3).
-matching contains p if {
+covering contains p if {
 	input.action == "tools.call"
 	input.resource.sign_in == true
-	some p in perms
+	some p in candidate_perms
 	server_ok(p)
 	is_string(p.tool)
 }
@@ -86,18 +96,18 @@ matching contains p if {
 # Completions follow what they complete: a prompt like prompts.get, a
 # resource template wherever the principal may read some resource of that
 # server. The same rules decide the visibility of resource templates.
-matching contains p if {
+covering contains p if {
 	input.action == "completion.complete"
 	input.resource.kind == "prompt"
-	some p in perms
+	some p in candidate_perms
 	server_ok(p)
 	glob.match(expand_glob(p.prompt), null, input.resource.name)
 }
 
-matching contains p if {
+covering contains p if {
 	input.action == "completion.complete"
 	input.resource.kind == "resource_template"
-	some p in perms
+	some p in candidate_perms
 	server_ok(p)
 	is_string(p.resource)
 }
@@ -353,6 +363,93 @@ as_list(x) := x if is_array(x)
 
 as_list(x) := [x] if is_string(x)
 
+# Token scopes as a ceiling (docs/architecture.md, section 6.7, D17).
+# The role data may map scopes to ceilings: the permissions of named
+# roles, permissions of their own, or "unlimited". A remote principal's
+# request must lie within the union of the ceilings of its token's
+# scopes, or within the "default" ceiling if the token has none of the
+# named scopes. A ceiling only takes away: what the roles do not allow
+# stays denied, and what lies outside it is denied, not asked.
+scope_map := object.get(data.mcp.rbac, "scopes", {})
+
+token_scopes := {s | some s in object.get(input.principal, "scopes", [])}
+
+named_scopes contains s if {
+	some s in token_scopes
+	s != "default"
+	is_object(scope_map[s])
+}
+
+# The scopes whose ceilings bound the request: the token's named scopes,
+# else "default" if the map has one.
+default ceiling_scopes := set()
+
+ceiling_scopes := named_scopes if count(named_scopes) > 0
+
+ceiling_scopes := {"default"} if {
+	count(named_scopes) == 0
+	is_object(scope_map.default)
+}
+
+# The permissions of each ceiling: its own, and those of the roles it
+# names. A role's explicit denies are not part of a ceiling (they still
+# deny through the roles).
+ceiling_perms[s] := own | roled if {
+	some s, c in scope_map
+	is_object(c)
+	own := {p | some p in object.get(c, "permissions", [])}
+	roled := {p |
+		some r in object.get(c, "roles", [])
+		some p in role_defs[r].permissions
+		not p.effect == "deny"
+	}
+}
+
+# The scopes whose ceilings cover the request.
+covering_scopes contains s if {
+	some s, c in scope_map
+	c.unlimited == true
+}
+
+covering_scopes contains s if {
+	some s, ps in ceiling_perms
+	some p in ps
+	p in covering
+}
+
+# Without a ceiling nothing is narrowed: local principals (no token),
+# role data without a map, or a token with none of its scopes and no
+# "default".
+within_ceiling if input.principal.transport != "http"
+
+within_ceiling if count(ceiling_scopes) == 0
+
+within_ceiling if {
+	some s in ceiling_scopes
+	s in covering_scopes
+}
+
+# The roles would allow the request, or allow it after an approval.
+roles_allow if allowed
+
+roles_allow if count(approvable) > 0
+
+outside_scopes if {
+	roles_allow
+	not within_ceiling
+}
+
+# The scopes whose ceilings would allow the request, for a client to
+# step up to.
+required_scopes := sort(covering_scopes - {"default"})
+
+scope_denial := {
+	"effect": "deny",
+	"reason": "outside the token's scopes",
+	"outside_scopes": true,
+	"required_scopes": required_scopes,
+}
+
 # An allow decision, with the obligations if there are any.
 allow_with(d) := object.union(d, {"obligations": obligations}) if count(obligations) > 0
 
@@ -365,6 +462,8 @@ default decision := {"effect": "deny", "reason": "no matching permission"}
 
 decision := {"effect": "deny", "reason": "denied by policy"} if {
 	denied
+} else := scope_denial if {
+	outside_scopes
 } else := allow_with({"effect": "allow"}) if {
 	allowed
 } else := allow_with({"effect": "allow", "reason": "approved"}) if {

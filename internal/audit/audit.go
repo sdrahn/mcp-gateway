@@ -40,6 +40,10 @@ type Record struct {
 	// Privileged marks decisions on privileged servers, which go to the
 	// kernel audit subsystem whatever the effect.
 	Privileged bool
+	// Scopes are the token's scopes of a remote principal; OutsideScopes
+	// marks a denial by their ceiling (docs/architecture.md, section 6.7).
+	Scopes        []string
+	OutsideScopes bool
 }
 
 // KernelSender delivers messages to the kernel audit subsystem.
@@ -105,6 +109,12 @@ func (a *Logger) Log(r Record) {
 	if r.Privileged {
 		attrs = append(attrs, "privileged", true)
 	}
+	if len(r.Scopes) > 0 {
+		attrs = append(attrs, "scopes", strings.Join(r.Scopes, " "))
+	}
+	if r.OutsideScopes {
+		attrs = append(attrs, "outside_scopes", true)
+	}
 	a.l.Info("mcp", attrs...)
 	if r.Effect == "deny" || r.Privileged {
 		fields := map[string]string{
@@ -114,6 +124,10 @@ func (a *Logger) Log(r Record) {
 		if r.Privileged {
 			fields["privileged"] = "yes"
 			fields["grant"] = r.GrantID
+		}
+		if r.OutsideScopes {
+			fields["scopes"] = strings.Join(r.Scopes, " ")
+			fields["outside_scopes"] = "yes"
 		}
 		a.kernel("mcp-decision", r.Effect != "deny", fields)
 	}

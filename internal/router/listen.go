@@ -122,7 +122,8 @@ func (s *Session) admitSubscription(server, uri string) bool {
 	r := pep.Resource{Server: server, Kind: "resource", Name: uri, Privileged: s.r.privileged(server)}
 	dec := pep.Evaluate(s.ctx, s.r.PDP, pep.Input{Principal: p, Action: "resources.subscribe", Resource: r, Context: s.policyContext(decisionID)})
 	s.r.Audit.Log(audit.Record{Sub: p.Sub, Action: "resources.subscribe", Server: server, Name: uri,
-		Effect: string(dec.Effect), Reason: dec.Reason, DecisionID: decisionID})
+		Effect: string(dec.Effect), Reason: dec.Reason, DecisionID: decisionID,
+		Scopes: p.Scopes, OutsideScopes: dec.OutsideScopes})
 	return dec.Effect == pep.Allow
 }
 

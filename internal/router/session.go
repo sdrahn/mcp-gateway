@@ -862,7 +862,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: t.action, Server: t.server,
 		Name: t.resource.Name, Effect: string(dec.Effect), Reason: dec.Reason, GrantID: grantID,
 		DecisionID: decisionID, Args: t.args, FullArgs: ob != nil && ob.FullAudit, Reidentified: nReidentified,
-		Privileged: s.r.privileged(t.server)})
+		Privileged: s.r.privileged(t.server), Scopes: p.Scopes, OutsideScopes: dec.OutsideScopes})
 	if dec.Effect != pep.Allow {
 		return s.denial(m.Method, dec.Reason)
 	}
@@ -1418,7 +1418,8 @@ func (s *Session) admitBackendRequest(u *upstream, method string, params json.Ra
 		})
 	}
 	s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: method, Server: u.backend.Name,
-		Effect: string(dec.Effect), Reason: dec.Reason, Instance: u.id, DecisionID: decisionID, Args: args})
+		Effect: string(dec.Effect), Reason: dec.Reason, Instance: u.id, DecisionID: decisionID, Args: args,
+		Scopes: p.Scopes, OutsideScopes: dec.OutsideScopes})
 	if dec.Effect == pep.Allow && method == "sampling/createMessage" {
 		// What a backend sends for sampling goes to the client's model:
 		// redaction, pseudonymization and the size limit apply to it as to

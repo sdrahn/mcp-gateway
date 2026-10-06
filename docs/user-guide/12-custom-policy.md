@@ -132,6 +132,7 @@ not enforce.
 | `principal.iss` | token issuer; remote principals only |
 | `principal.uid`, `home` | local account; absent for remote principals without one |
 | `principal.groups` | local groups, plus the token's groups for remote principals |
+| `principal.scopes` | the token's scopes (`scope`, else `scp`); remote principals only. The shipped policy uses them only as a ceiling (chapter 6); a scope never grants |
 | `principal.transport` | `unix` or `http` |
 | `principal.selinux` | the local client's SELinux context; empty for remote clients |
 | `principal.client` | **self-reported** by the agent; never base a decision on it |
@@ -168,6 +169,8 @@ makes an expression undefined, so the rule simply does not apply).
 | `version` | optional: the version of the decision document it is written for (`1`); another version is invalid (deny) |
 | `effect` | `allow`, `deny` or `ask`; anything else is invalid (deny) |
 | `reason` | free text; shown to the agent (`mcp-gateway: <reason>`) and in the audit record |
+| `outside_scopes` | `true` for a denial because the request lies outside the ceiling of the token's scopes; the audit record notes it |
+| `required_scopes` | with `outside_scopes`: the scopes whose ceilings would allow the request |
 | `obligations` | as in chapter 6: `redact_output`, `max_output_bytes`, `rate_limit`, `arg_constraints`, `audit`, `pseudonymize` (`{"detect": [...], "patterns": {...}, "fields": {...}}`), `reidentify` (argument names); a malformed obligation makes the decision invalid (deny) |
 | `ask.channel` | `form`, `url` or `oob`; required with `ask` |
 | `ask.prompt` | the question shown to the approver |

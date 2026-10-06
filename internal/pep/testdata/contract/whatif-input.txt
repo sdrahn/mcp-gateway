@@ -16,6 +16,7 @@ principals[].principal.groups
 principals[].principal.home
 principals[].principal.iss
 principals[].principal.roles
+principals[].principal.scopes
 principals[].principal.selinux
 principals[].principal.session_id
 principals[].principal.sub
