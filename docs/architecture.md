@@ -1139,6 +1139,17 @@ worked, since a probe over HTTP also fails while a server is
 unavailable, and a refused access token is the sign-in's error, not an
 answer about the era.
 
+**Version per client.** `agents.max_version` caps the version the
+gateway speaks with an agent by the name in its `clientInfo` (step 26).
+An agent capped below the modern version is answered as by a legacy
+gateway: `server/discover` is unknown (`-32601`), other modern requests
+get `UnsupportedProtocolVersion` naming the versions it may use, and
+`initialize` agrees on the cap at most. The dual-era SDKs (TypeScript
+2.3, Python 2.3, mcp-go 1.1) then fall back to the handshake. The name
+is self-asserted, like `clientInfo` everywhere (§5.2): it chooses the
+protocol, never what is allowed. As shipped, Kit is capped at
+2025-11-25.
+
 #### 5.11.1 Agents (modern)
 
 - **HTTP.** Each request is a POST; the response is JSON or an SSE
@@ -2671,8 +2682,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       over the socket and HTTPS, and serving modern agents switched on
       (done).
 
-26. **Kit's approvals as long as before** (0.15, after step 23; a
-    regression of 0.14):
+26. **Kit's approvals as long as before** (0.15, backported to 0.14.1;
+    a regression of 0.14):
     - the problem: since 0.14, mcp-go 1.1 (Kit 0.121) speaks MCP
       2026-07-28 with the gateway. It gives up on a call after three
       answers in a row that ask for nothing (`maxLoadSheddingRoundTrips`,
@@ -2681,25 +2692,26 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       Before 0.14 the call waited up to `approval_timeout`. Kit declares
       neither elicitation nor roots, so the gateway cannot ask it for
       something that resets the count;
-    - in the gateway: a waiting round lasts longer for clients known to
-      have no request timeout of their own, named by their `clientInfo`
-      (`kit`) in a setting with a shipped default, up to
-      `approval_timeout`. `clientInfo` is self-asserted; it decides only
-      how long a round waits, never what is allowed (§5.2);
-    - upstream: a change to mcp-go that treats an answer without input
-      requests as "retry later" with a backoff and a bound on rounds, as
-      the Python and TypeScript SDKs do, instead of failing after three.
-      The gateway's setting stays for the mcp-go versions without it;
+    - in the gateway: `agents.max_version` caps the MCP version per
+      client name (`clientInfo`), shipped with `kit: "2025-11-25"`
+      (§5.11, "Version per client"). Kit falls back to the handshake
+      and waits up to `approval_timeout` again, with a session. The
+      name is self-asserted; it chooses the protocol, never what is
+      allowed (§5.2). Reloadable; `{}` caps no client (done);
+    - the client suite checks it: the TypeScript SDK 2.3, the Python
+      SDK 2.3 and mcp-go 1.1, named as a capped client, fall back to
+      2025-11-25, and an approval out of band longer than their request
+      timeout is one call (done);
+    - later, if Kit is to speak 2026-07-28 with the gateway: a waiting
+      round lasting up to `approval_timeout` for clients without a
+      request timeout of their own, or upstream, a change to mcp-go
+      that treats an answer without input requests as "retry later"
+      with a backoff and a bound on rounds, as the Python and
+      TypeScript SDKs do. Then the shipped cap can go;
     - considered: offering tasks to clients that declare them (Kit
       does), so that an approval becomes a task the client polls (more
       general, but tasks would need policy and obligations on their
-      results, which the gateway does not offer yet); answering Kit with
-      the handshake protocol (`server/discover` refused by client name),
-      which would bring back the session and its long wait but chooses
-      the protocol by a self-asserted name;
-    - the client suite checks it: the Go client, set up as Kit, gets an
-      approval decided after more than three rounds of
-      `approvals.retry_wait`.
+      results, which the gateway does not offer yet).
 
 ## 12. Open items
 

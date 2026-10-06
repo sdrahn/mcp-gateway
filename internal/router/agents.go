@@ -112,6 +112,10 @@ func (r *Router) ServeRequest(ctx context.Context, out jsonrpc.MessageConn, p pr
 // serveAgentRequest serves the modern request m in a request session on
 // ep, writing to out.
 func (r *Router) serveAgentRequest(ctx context.Context, ep endpoint, out jsonrpc.MessageConn, p principal.Principal, m *jsonrpc.Message, header http.Header) {
+	if rpcErr := r.cappedRequest(m); rpcErr != nil {
+		_ = out.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Error: rpcErr})
+		return
+	}
 	am, rpcErr := parseAgentMeta(m)
 	if rpcErr != nil {
 		_ = out.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Error: rpcErr})

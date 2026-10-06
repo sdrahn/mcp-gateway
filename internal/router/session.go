@@ -435,6 +435,9 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 	if supportedVersions[p.ProtocolVersion] {
 		v = p.ProtocolVersion
 	}
+	if c := s.r.versionCap(p.ClientInfo.Name); c != "" && v > c {
+		v = c
+	}
 	if !s.endpoint().aggregated {
 		server := s.endpoint().order[0]
 		b := s.endpoint().backends[server]

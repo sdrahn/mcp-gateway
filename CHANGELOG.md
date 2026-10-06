@@ -16,6 +16,24 @@ minor release (with a warning) and removed in the next.
   and the audit trail records the token's scopes. The policy input
   carries `principal.scopes`.
 
+## v0.14.1 — 2026-10-06
+
+A fix for Kit's approvals. Upgrading from 0.14.0 needs no changes: the
+cap for Kit is the default, also with a `gateway.yaml` kept from 0.14.0.
+Restart the gateway after the update
+(`systemctl restart mcp-gateway.service`).
+
+### Fixed
+
+- Kit's approvals wait up to `approval_timeout` again (a regression of
+  0.14): mcp-go 1.1 gives up on a call after three answers in a row
+  that ask for nothing, so on MCP 2026-07-28 an approval ended for Kit
+  after about 75 s. The new setting `agents.max_version` caps the MCP
+  version per client name (`clientInfo`); as shipped, Kit is capped at
+  2025-11-25 and uses the handshake, with a session, as before 0.14.
+  `{}` caps no client. The name chooses the protocol, never what is
+  allowed.
+
 ## v0.14.0 — 2026-10-06
 
 The gateway speaks MCP 2026-07-28 on both sides. Servers that dropped
