@@ -283,6 +283,13 @@ selinux_validate_context(mcpsrv_admin_t)
 seutil_read_config(mcpsrv_admin_t)
 seutil_read_file_contexts(mcpsrv_admin_t)
 fs_getattr_xattr_fs(mcpsrv_admin_t)
+# The snapper check: ALLOW_USERS and ALLOW_GROUPS of snapper's configs
+# (/etc/snapper/configs), where the policy has a type for them.
+optional_policy(`
+	gen_require(`type snapperd_conf_t;')
+	list_dirs_pattern(mcpsrv_admin_t, snapperd_conf_t, snapperd_conf_t)
+	read_files_pattern(mcpsrv_admin_t, snapperd_conf_t, snapperd_conf_t)
+')
 
 ########################################
 #

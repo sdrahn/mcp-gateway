@@ -726,6 +726,10 @@ END
 	mcp-gateway-admin doctor --server snapper --no-start 2>&1 | grep -E '^[a-z]+ +snapper' | sed 's/^/  /'
 	check "doctor: snapperd allows mcp-snapper the vmtest config" \
 		sh -c 'mcp-gateway-admin doctor --server snapper --no-start 2>&1 | grep -qE "^OK +snapper snapper: .*vmtest"'
+	# The same through the gateway-admin server (mcpsrv_admin_t), which
+	# reads the configs' ALLOW_USERS under the policy.
+	stool alice gateway-admin doctor '{}'
+	check "gateway-admin: doctor reads snapper's configs" bash -c 'grep -q "snapperd allows mcp-snapper the configs" <<<"$1" && ! grep -q "reading snapper.s configs" <<<"$1"' _ "$out"
 	stool alice snapper list_configs '{}'
 	check "snapper: list_configs" succeeded_with "vmtest"
 	# The server's input schemas require every argument.
