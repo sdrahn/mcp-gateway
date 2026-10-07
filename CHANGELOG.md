@@ -5,7 +5,34 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.16.0 — 2026-10-07
+
+Agents look things up in the gateway's documentation for a small part
+of the tokens it cost before. The file server, and with it the
+`gateway-docs` server, searches text (`search_text`), reads a range of
+lines (`read_text_file` with `offset` and `limit`) and lists a Markdown
+file's headings with their line numbers (`outline_file`). The
+`gateway-docs` instructions tell agents to search first, or read the
+outline for a broad question, and then read only the section they need:
+a lookup costs a few thousand tokens instead of whole chapters, or
+about 40,000 for `architecture.md`.
+
+Upgrading from 0.15.x needs no changes to `gateway.yaml`, server
+definitions or role data. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. Things
+to know:
+
+- **New tools, so roles must allow them.** The shipped roles
+  `gateway-docs-reader` and `viewer` allow every tool of `gateway-docs`.
+  For `fs`, an installed `/etc/mcp-gateway/policy/rbac/data.json` is kept
+  on update: add `{"server": "fs", "tool": "search_text"}` and
+  `{"server": "fs", "tool": "outline_file"}` to the roles that should
+  have them. Roles written as `read_*` do not gain them.
+- **A copied `gateway-docs` definition** in
+  `/etc/mcp-gateway/servers.d/gateway-docs.yaml` keeps its old
+  instructions; copy the shipped one again
+  (`/usr/share/mcp-gateway/servers.d/gateway-docs.yaml`) to get the new
+  ones.
 
 ### Added
 
