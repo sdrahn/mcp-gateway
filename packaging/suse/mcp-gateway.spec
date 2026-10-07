@@ -14,7 +14,7 @@
 Name:           mcp-gateway
 Version:        0.17.0
 Release:        0
-Summary:        Policy-enforcing gateway for local MCP servers
+Summary:        Policy-enforcing gateway for MCP servers
 # MIT for mcp-gateway; the others for the vendored Go modules linked in.
 License:        MIT AND Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause
 Group:          Productivity/Networking/Security
@@ -43,9 +43,10 @@ Suggests:       %{name}-cockpit
 %{?systemd_ordering}
 
 %description
-mcp-gateway makes MCP (Model Context Protocol) servers that only speak
-stdio available to local clients (unix socket) and remote clients (MCP
-Streamable HTTP with OAuth bearer tokens). Every request is decided by
+mcp-gateway makes MCP (Model Context Protocol) servers available to
+local clients (unix socket) and remote clients (MCP Streamable HTTP with
+OAuth bearer tokens): servers on the host that speak stdio, and servers
+that speak Streamable HTTP, on the host or elsewhere. Every request is decided by
 OPA policy (RBAC, argument constraints), sensitive calls can require a
 human approval, and each MCP server instance runs as a confined systemd
 transient unit in its own SELinux domain.

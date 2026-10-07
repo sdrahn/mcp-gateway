@@ -5,8 +5,10 @@
 MCP servers give AI agents tools (run a command, write a file, query a
 database), prompts and resources. Most of them speak MCP over stdio: the
 agent starts the server as a child process, and the server runs with the
-agent's full rights. Nothing decides which tool an agent may call, nobody
-is asked before something destructive happens, and nothing is recorded.
+agent's full rights. Others are web services that speak MCP over
+Streamable HTTP, which each agent reaches with its own credentials.
+Either way, nothing decides which tool an agent may call, nobody is asked
+before something destructive happens, and nothing is recorded.
 
 mcp-gateway sits between agents and MCP servers:
 
@@ -14,6 +16,7 @@ mcp-gateway sits between agents and MCP servers:
   agent (local) ── mcp-connect ──┐                        ┌── MCP server "fs"   (confined, per user)
   agent (local, unix socket) ────┤                        ├── MCP server "git"  (confined, per user)
   agent (remote, HTTPS+OAuth) ───┴──▶  mcp-gateway  ──────┼── MCP server "db"   (confined, per user)
+                                        │   │    │        ├── MCP server "tickets" (Streamable HTTP, elsewhere)
                                         │   │    │        └── …
                         policy (OPA) ◀──┘   │    └──▶ approvals (you, in Cockpit / desktop / mail)
                                             └──▶ audit (journal, kernel audit)
@@ -23,6 +26,11 @@ mcp-gateway sits between agents and MCP servers:
   spawning servers: locally over a unix socket (or the `mcp-connect`
   shim for agents that can only spawn a command), remotely over MCP
   Streamable HTTP with OAuth 2.1 bearer tokens.
+- **Servers on the host and elsewhere.** Servers that speak stdio run on
+  the host under the gateway's control; servers that speak Streamable
+  HTTP, on the host or elsewhere, are reached through a confined
+  connector, directly or through a proxy, with a shared credential or
+  each user's own OAuth sign-in (chapter 4).
 - **Authorization by policy.** Every request (tool calls, prompts,
   resources, completions, and requests servers send back to the agent)
   is decided by the Open Policy Agent against role-based rules you
@@ -45,7 +53,7 @@ mcp-gateway sits between agents and MCP servers:
 
 | Term | Meaning |
 |---|---|
-| **MCP server** (backend) | A program speaking MCP over stdio, registered with the gateway by a definition file (chapter 4). |
+| **MCP server** (backend) | A program on the host speaking MCP over stdio (`command`), or a server speaking Streamable HTTP, on the host or elsewhere (`url`); registered with the gateway by a definition file (chapter 4). |
 | **Instance** | A running copy of an MCP server, started on demand for one principal (or one session) and stopped when idle. |
 | **Principal** | Who a request is for: a local user (identified by the kernel through the socket) or a remote identity (from the OAuth token). Policy decides on principals. |
 | **Session** | One agent connection (an MCP session). |

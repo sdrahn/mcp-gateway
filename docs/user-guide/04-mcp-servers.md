@@ -1,9 +1,12 @@
 # 4. MCP servers
 
-The gateway runs MCP servers that speak MCP over **stdio**. Each server is
+The gateway runs MCP servers that speak MCP over **stdio** (`command`),
+and connects to servers that speak **Streamable HTTP**, on the host or
+elsewhere (`url`; "Servers that speak HTTP" below). Each server is
 registered by a small YAML file; the gateway starts instances of it on
 demand, one per principal (or per session), confined by systemd and
-SELinux, and stops them when idle.
+SELinux, and stops them when idle (for a `url` server, the instance is
+the connector that relays to it).
 
 ## Registering a server
 
