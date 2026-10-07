@@ -92,7 +92,7 @@ const adminInstructions = `Diagnostics of the MCP gateway on this machine, for f
 - doctor: the checks of "mcp-gateway-admin doctor" (configuration, role data, services, state files, SELinux types, labels and denials, polkit, snapper, users without a role). Start here.
 - check_config: only whether the configuration and the role data are valid.
 - explain_decision: what the policy decides for a user calling a tool (or reading a resource, getting a prompt), with the roles the user holds and the permissions that match.
-- show_config: the configuration files (gateway.yaml, server definitions, role data), secrets masked.
+- show_config: the configuration files (gateway.yaml, server definitions, the exec servers' command files in /etc/mcp-gateway/exec.d, role data), secrets masked.
 - recent_audit: the gateway's recent decisions and events.
 - selinux_denials: SELinux denials for the gateway and its servers.
 
@@ -165,7 +165,7 @@ var adminTools = []map[string]any{
 			"arguments": map[string]any{"type": "object", "description": "the call's arguments, for permissions that constrain them"},
 		}, "user", "server", "name"),
 	adminTool("show_config", "Read the configuration",
-		"Without file: the configuration files (gateway.yaml, server definitions, role data, roles of the server setups). "+
+		"Without file: the configuration files (gateway.yaml, server definitions, the exec servers' command files, role data, roles of the server setups). "+
 			"With file: its content, values of keys that look like secrets masked.",
 		map[string]any{"file": map[string]any{"type": "string", "description": "a path as the list without file shows it"}}),
 	adminTool("recent_audit", "Recent decisions",
@@ -456,8 +456,8 @@ func localPrincipal(name string) (principal.Principal, error) {
 }
 
 // configFiles are the files show_config shows: the gateway's
-// configuration, the server definitions, the role data and the setups'
-// roles.
+// configuration, the server definitions, the command files of the exec
+// servers, the role data and the setups' roles.
 func (a *adminServer) configFiles() []string {
 	var files []string
 	gw, used, err := config.Resolve(a.configPath)
@@ -468,6 +468,9 @@ func (a *adminServer) configFiles() []string {
 		for _, dir := range []string{gw.VendorServersDir, gw.ServersDir} {
 			paths, _ := filepath.Glob(filepath.Join(dir, "*.yaml"))
 			files = append(files, paths...)
+		}
+		if backends, err := config.LoadBackends(gw.VendorServersDir, gw.ServersDir); err == nil {
+			files = append(files, execCommandFiles(backends)...)
 		}
 	}
 	files = append(files, a.policyData)
@@ -480,6 +483,46 @@ func (a *adminServer) configFiles() []string {
 		}
 	}
 	return out
+}
+
+// execCommandFiles returns the command files of the servers that run
+// mcp-server-exec: each --commands file, or the *.yaml files of a
+// --commands directory (default /etc/mcp-gateway/exec.d).
+func execCommandFiles(backends map[string]*config.Backend) []string {
+	var files []string
+	for _, b := range backends {
+		if len(b.Command) == 0 || filepath.Base(b.Command[0]) != "mcp-server-exec" {
+			continue
+		}
+		var paths []string
+		args := b.Command[1:]
+		for i := 0; i < len(args); i++ {
+			name, value, hasValue := strings.Cut(strings.TrimLeft(args[i], "-"), "=")
+			if name != "commands" || !strings.HasPrefix(args[i], "-") {
+				continue
+			}
+			if !hasValue && i+1 < len(args) {
+				i++
+				value = args[i]
+			}
+			paths = append(paths, value)
+		}
+		if len(paths) == 0 {
+			paths = []string{"/etc/mcp-gateway/exec.d"}
+		}
+		for _, p := range paths {
+			switch fi, err := os.Stat(p); {
+			case err != nil:
+			case fi.IsDir():
+				found, _ := filepath.Glob(filepath.Join(p, "*.yaml"))
+				files = append(files, found...)
+			default:
+				files = append(files, filepath.Clean(p))
+			}
+		}
+	}
+	slices.Sort(files)
+	return files
 }
 
 // secretKey matches YAML and JSON keys whose values are secrets.

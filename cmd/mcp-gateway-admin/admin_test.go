@@ -9,6 +9,7 @@ import (
 	"os/user"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -157,6 +158,55 @@ func TestReadConfig(t *testing.T) {
 	for _, other := range []string{"/etc/shadow", filepath.Join(dir, "servers.d", "..", "..", "..", "etc", "shadow")} {
 		if text, isErr, _ := callTool(t, a, "show_config", map[string]any{"file": other}); !isErr {
 			t.Errorf("%s read: %s", other, text)
+		}
+	}
+}
+
+// The exec servers' command files are configuration too: those of a
+// --commands directory and a --commands file; other files in the
+// directory are not.
+func TestReadConfigExecCommands(t *testing.T) {
+	a, dir := testAdmin(t)
+	cmds := filepath.Join(dir, "exec.d")
+	one := filepath.Join(dir, "one.yaml")
+	for p, content := range map[string]string{
+		filepath.Join(cmds, "disk.yaml"): "name: df\nprogram: /usr/bin/df\n",
+		filepath.Join(cmds, "notes.txt"): "not a command file\n",
+		one:                              "name: uptime\nprogram: /usr/bin/uptime\ntoken: s3cret\n",
+		filepath.Join(dir, "servers.d", "exec.yaml"): "name: exec\ncommand: [/usr/libexec/mcp-servers/mcp-server-exec, --commands, " + cmds + ", --commands=" + one + "]\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, _, sc := callTool(t, a, "show_config", map[string]any{})
+	files := sc["files"].([]string)
+	if !slices.Contains(files, filepath.Join(cmds, "disk.yaml")) || !slices.Contains(files, one) ||
+		slices.Contains(files, filepath.Join(cmds, "notes.txt")) {
+		t.Fatalf("files: %v", files)
+	}
+	text, isErr, _ := callTool(t, a, "show_config", map[string]any{"file": one})
+	if isErr || !strings.Contains(text, "program: /usr/bin/uptime") || strings.Contains(text, "s3cret") {
+		t.Errorf("%s:\n%s", one, text)
+	}
+	if text, isErr, _ := callTool(t, a, "show_config", map[string]any{"file": filepath.Join(cmds, "notes.txt")}); !isErr {
+		t.Errorf("notes.txt read: %s", text)
+	}
+}
+
+// Without --commands, the exec server reads /etc/mcp-gateway/exec.d.
+func TestExecCommandFilesDefault(t *testing.T) {
+	b := map[string]*config.Backend{
+		"exec":  {Command: []string{"/usr/libexec/mcp-servers/mcp-server-exec"}},
+		"other": {Command: []string{"/usr/bin/other", "--commands", "/tmp/x"}},
+	}
+	got := execCommandFiles(b)
+	for _, f := range got {
+		if !strings.HasPrefix(f, "/etc/mcp-gateway/exec.d/") {
+			t.Errorf("%s: not from the default directory", f)
 		}
 	}
 }

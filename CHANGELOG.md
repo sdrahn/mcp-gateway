@@ -5,6 +5,20 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Changed
+
+- `show_config` of the `gateway-admin` server also lists and shows the
+  exec servers' command files (`/etc/mcp-gateway/exec.d/*.yaml`, or
+  what an exec definition names with `--commands`), with secrets masked
+  as in the other files. Agents had no tool that read them.
+- The file server's shipped definition (`fs`) tells agents that the
+  gateway's configuration is not among its files and that the
+  `gateway-admin` server shows it; the documentation index
+  (`docs/README.md`) says which server answers which question about the
+  gateway, and which do not reach its files.
+
 ## v0.16.1 — 2026-10-07
 
 Fixes for the systemd server's program label, the doctor's hints and
