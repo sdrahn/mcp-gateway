@@ -638,6 +638,13 @@ if [ -d "$dir/servers" ]; then
 		echo "  $(file_label "${f%%:*}") ${f%%:*}"
 		check "${f%%:*} is labeled ${f##*:}" file_has_type "${f%%:*}" "${f##*:}"
 	done
+	# The package mcp-server-systemd installs the program under both names;
+	# as hard links they share one label, which a relabel of either name
+	# must keep.
+	ln -f /usr/bin/systemd-mcp /usr/bin/mcp-server-systemd &&
+		restorecon -F /usr/bin/mcp-server-systemd /usr/bin/systemd-mcp
+	check "/usr/bin/mcp-server-systemd, a second name, keeps mcpsrv_systemd_exec_t" file_has_type /usr/bin/mcp-server-systemd mcpsrv_systemd_exec_t
+	rm -f /usr/bin/mcp-server-systemd
 	# suseconnect-mcp caches profile ids in /run/suseconnect (created by
 	# the server where the policy transitions it; relabeled otherwise).
 	mkdir -p /run/suseconnect && restorecon -F /run/suseconnect
