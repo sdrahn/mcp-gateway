@@ -384,7 +384,7 @@ func TestReadOnlyAndAnnotations(t *testing.T) {
 	for _, tl := range s.toolList() {
 		names[tl["name"].(string)] = tl["annotations"].(map[string]any)
 	}
-	if len(names) != 17 {
+	if len(names) != 18 {
 		t.Errorf("%d tools", len(names))
 	}
 	for name, ann := range names {

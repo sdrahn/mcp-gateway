@@ -146,6 +146,7 @@ func (s *fileServer) tools() []tool {
 				"truncated": map[string]any{"type": "boolean"}}, "matches", "truncated"),
 			readOnly: true, idempotent: true, run: searchFiles},
 		searchTextTool(),
+		outlineTool(),
 		{name: "get_file_info", title: "File information",
 			description: "Type, size, permissions and times of a file or directory.",
 			input:       obj(map[string]any{"path": pathArg}, "path"),

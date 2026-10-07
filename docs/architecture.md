@@ -2782,6 +2782,44 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       then the range), and a test that the instructions name only tools
       the server has.
 
+28. **An outline of the documentation** (0.16; done):
+    - the problem: search (step 27) finds a precise term (a setting, an
+      error message, "D17"), but a broad question ("how do approvals
+      work for modern agents?") has no such term, matches in many
+      places, and an agent falls back to reading a whole chapter or
+      `architecture.md`;
+    - a tool `outline_file` in `mcp-server-fs` (read-only, every `fs`
+      server): the ATX headings of a file (`#` to `######`) with their
+      line numbers and the lines and bytes of each section, to the next
+      heading of the same or a higher level; `maxLevel` leaves out
+      deeper headings (their lines stay in their parent's section).
+      Lines in fenced code blocks (backticks or tildes) are not
+      headings: the docs have `# /etc/…` comments in examples. Setext
+      headings (a line underlined with `=` or `-`) are not recognised,
+      as a line of dashes is as often a rule. The file is read as a
+      stream, so its size is not bounded by `--max-read`; the outline
+      is small (about 3 KB for `architecture.md`, 5 KB for the changelog);
+    - chosen over outlines generated into the docs at build time: always
+      current, works for any Markdown file of any `fs` server, and no
+      build step or check that line numbers are current;
+    - the `gateway-docs` instructions: for a broad question, read the
+      outline, then the one section (`read_text_file` with `offset` and
+      `limit` from the outline);
+    - policy: a new tool, as `search_text`: `gateway-docs-reader` and
+      `viewer` allow every tool of `gateway-docs`; the shipped role
+      data's `developer` gets `outline_file` for `fs`. Not named
+      `read_*`, for the reason given in step 27;
+    - limits: the roadmap and decisions sections keep their items as
+      list entries, not headings, so the outline does not split them
+      (about 34 KB and 22 KB); search covers those ("step 26", "D17");
+    - tests: headings and section extents, fenced code (backticks and
+      tildes, a fence of the other kind inside one), `#tag` and indented
+      code not headings, `maxLevel`, files without headings, directories,
+      binary files and links out of the root refused; the section's
+      line range read back with `read_text_file`; an end-to-end test
+      reads the docs through the gateway by outline (outline, then the
+      section).
+
 ## 12. Open items
 
 - Per-conversation state for modern agents (D18): servers marked

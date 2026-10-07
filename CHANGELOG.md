@@ -9,6 +9,19 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- The file server lists a Markdown file's headings: `outline_file`
+  returns each heading with its line number and the lines and bytes of
+  its section (`maxLevel` to leave out deeper ones; headings in fenced
+  code are not headings). For a broad question without a precise term
+  to search for, an agent reads the outline (under 1,000 tokens for
+  `architecture.md`) and then the one section with `read_text_file`
+  (`offset`, `limit`); the `gateway-docs` instructions say so (roadmap
+  step 28). `outline_file` is a new tool: the shipped roles
+  `gateway-docs-reader` and `viewer` allow it for `gateway-docs`, and the
+  shipped role data's `developer` for `fs`. An installed
+  `/etc/mcp-gateway/policy/rbac/data.json` is kept on update; to let
+  users outline their files with `fs`, add
+  `{"server": "fs", "tool": "outline_file"}` to their role.
 - The file server (`mcp-server-fs`, and with it `gateway-docs`) finds
   text: `search_text` returns the matching lines below a path or in one
   file, with file, line number and context, capped (`maxResults`,

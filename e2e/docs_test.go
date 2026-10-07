@@ -64,3 +64,70 @@ func TestDocsLookup(t *testing.T) {
 		t.Fatalf("read_text_file around line %d of %s: %v %q", hit.Line, hit.Path, isErr, text)
 	}
 }
+
+// For a broad question the agent reads a file's outline, then the one
+// section (roadmap step 28): both a small part of architecture.md.
+func TestDocsOutline(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	docs, err := filepath.Abs(filepath.Join("..", "docs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rbac := fmt.Sprintf(`{
+	  "roles": {"reader": {"permissions": [
+	    {"server": "docs", "tool": "outline_file"},
+	    {"server": "docs", "tool": "read_*"}
+	  ]}},
+	  "bindings": {"groups": {}, "users": {%q: ["reader"]}}
+	}`, me.Username)
+	e := setup(t, rbac, map[string]string{"docs": docs}, "")
+	c := newClient(t, e.connect, e.gwSock, "docs")
+	c.initialize(map[string]any{})
+
+	arch := filepath.Join(docs, "architecture.md")
+	whole, err := os.Stat(arch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := c.call(2, "outline_file", map[string]any{"path": "architecture.md"})
+	text, isErr := toolResult(t, m)
+	var res struct {
+		Structured struct {
+			Headings []struct {
+				Title string
+				Line  int
+				Lines int
+			}
+		} `json:"structuredContent"`
+	}
+	if err := json.Unmarshal(m.Result, &res); err != nil || isErr || len(res.Structured.Headings) < 10 {
+		t.Fatalf("outline_file: %v %q", isErr, text)
+	}
+	if int64(len(text)) > whole.Size()/20 {
+		t.Errorf("the outline is %d bytes of a %d-byte file", len(text), whole.Size())
+	}
+
+	var sec *struct {
+		Title string
+		Line  int
+		Lines int
+	}
+	for i, h := range res.Structured.Headings {
+		if strings.Contains(h.Title, "Policy lifecycle") {
+			sec = &res.Structured.Headings[i]
+		}
+	}
+	if sec == nil {
+		t.Fatalf("no section \"Policy lifecycle\" in the outline: %s", text)
+	}
+	m = c.call(3, "read_text_file", map[string]any{"path": "architecture.md", "offset": sec.Line, "limit": sec.Lines})
+	text, isErr = toolResult(t, m)
+	if isErr || !strings.HasPrefix(text, "### ") || !strings.Contains(text, "Policy lifecycle") ||
+		!strings.Contains(text, fmt.Sprintf("[lines %d-%d of ", sec.Line, sec.Line+sec.Lines-1)) ||
+		int64(len(text)) > whole.Size()/20 {
+		t.Fatalf("the section at line %d: %v %q", sec.Line, isErr, text)
+	}
+}
