@@ -157,6 +157,7 @@ the same across releases; the texts may change.
 | `servers` | | servers |
 | `server` | server name | server *name* |
 | `roles` | server name | roles *name* |
+| `tool-notes` | server name | tool notes *name* |
 | `selinux-denials` | SELinux type (absent when there are none) | SELinux *type*, SELinux |
 | `selinux-transitions` | | SELinux transitions |
 | `selinux-types` | | SELinux types |

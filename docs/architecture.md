@@ -1517,7 +1517,11 @@ only for external models.
 
 `data.mcp.filter.visible` returns, for a principal and a list of
 resources, the subset to show — one OPA query per `*/list`, not one per
-item.
+item. For the visible tools, `data.mcp.filter.hints` returns what the
+principal's matching permissions say about calling them (the approval
+channel; the `args` constraints, expanded, when every covering
+permission has some), which the gateway adds to the tools' descriptions
+(roadmap step 29). Advice for the agent only: every call is decided.
 
 ### 6.4 RBAC data
 
@@ -2824,7 +2828,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       reads the docs through the gateway by outline (outline, then the
       section).
 
-29. **Tools that tell the agent what it may do** (0.17):
+29. **Tools that tell the agent what it may do** (0.17; part 1 done:
+    descriptions and `tool_notes`):
     - the problem: an agent learns what a user may do only by trying.
       The gateway's instructions are a fixed text (name prefixes, where
       the gateway's configuration and documentation are); a backend's

@@ -7,6 +7,22 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Tool descriptions tell the agent what the user's roles allow (roadmap
+  step 29, part 1). In `tools/list`, a tool limited by the user's roles
+  gets a line such as "[mcp-gateway] According to your roles, calls need
+  path starting with /home/alice/. Each call needs a human approval, out
+  of band …", from the shipped policy's new `data.mcp.filter.hints` and
+  the same role data the decisions use. Agents pick a call their roles
+  allow instead of finding out by trying; every call is still decided.
+  A custom `mcp/filter.rego` without `hints` gives no such lines.
+- `tool_notes` in a server definition: the administrator's notes on
+  tools (up to 500 characters each), added to their descriptions, for
+  what the server's own description does not say (an argument's format,
+  for example). The doctor warns about a note for a tool the server does
+  not offer.
+
 ## v0.16.2 — 2026-10-07
 
 Agents find the gateway's configuration: `show_config` of the

@@ -266,6 +266,7 @@ Server names must be unique across all files.
 | `run_as` | `principal` (`dynamic` with `url`) | whom the instance runs as: `principal` (the local user; remote users without a local account get a throwaway dynamic user), `dynamic` (always a throwaway dynamic user), or the name of a system account |
 | `discovery` | `shared` (`instance` with `sign_in`) | where tool and prompt lists come from: `shared` (one gateway-owned instance per server, cached; listing starts no per-user instances), `instance` (each principal's own instance, for servers whose tools depend on the user) |
 | `credentials` | none | secrets handed to the server by systemd, see [Secrets](#secrets) |
+| `tool_notes` | none | notes on tools, by tool name (up to 500 characters each), added to the tools' descriptions after "Administrator's note:": what the server's own description does not say, such as an argument's format. The doctor warns about a note for a tool the server does not offer |
 | `sandbox.protect_home` | `read-only` | access to home directories: `yes` (none), `read-only`, `read-write` |
 | `sandbox.read_write_paths` | none | existing absolute paths the instance may write despite `ProtectSystem=strict` (systemd `ReadWritePaths=`); paths of the gateway itself, and directories containing them, are refused |
 | `sandbox.state_directory` | none | a directory below `/var/lib` (a relative name, e.g. `my-server`) that systemd creates for the instance, owned by its user, mode 0700, writable and kept across instances (systemd `StateDirectory=`) |
@@ -287,6 +288,25 @@ sandbox:
   protect_home: read-write
 credentials: [fs-license]
 ```
+
+### What agents see about their limits
+
+In `tools/list`, the gateway adds a line to a tool's description when
+the user's roles limit it (the shipped policy's `data.mcp.filter.hints`,
+from the same role data the decisions use): the argument constraints,
+in words where they are a plain prefix or value, and whether calls need
+an approval and where. With the server's `tool_notes`, the
+administrator's note follows:
+
+```
+Reads a file.
+
+[mcp-gateway] According to your roles, calls need path starting with /home/alice/. Each call needs a human approval, out of band (Cockpit, a desktop notification or mail); the call waits for it.
+```
+
+The agent can then pick a call its roles allow instead of finding out by
+trying. Only role data is described, not custom policy rules, and only
+the user's own; every call is still decided.
 
 ## What an instance gets
 

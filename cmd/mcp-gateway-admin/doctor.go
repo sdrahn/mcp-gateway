@@ -480,6 +480,9 @@ func (d *doctorRun) servers() []doctor.Result {
 				"its tools only to root, which needs a privileged definition (chapter 4), or none without its configuration"}
 		}
 		rs = append(rs, r)
+		if r := toolNotesResult(name, b.ToolNotes, res.Tools); r != nil {
+			rs = append(rs, *r)
+		}
 		if len(roleFiles) > 0 {
 			findings, err := inspect.CheckRoles(roleFiles, name, res)
 			if err != nil {
@@ -498,6 +501,28 @@ func (d *doctorRun) servers() []doctor.Result {
 		}
 	}
 	return rs
+}
+
+// toolNotesResult warns about tool_notes of server name for tools it
+// does not offer (a typo, or a tool of another version): such a note is
+// never shown.
+func toolNotesResult(name string, notes map[string]string, tools []inspect.Tool) *doctor.Result {
+	have := map[string]bool{}
+	for _, t := range tools {
+		have[t.Name] = true
+	}
+	var unknown []string
+	for _, tool := range slices.Sorted(maps.Keys(notes)) {
+		if !have[tool] {
+			unknown = append(unknown, tool)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	return &doctor.Result{Check: "tool notes " + name, Status: doctor.Warn,
+		Summary: fmt.Sprintf("tool_notes name tools %s does not offer: %s", name, strings.Join(unknown, ", ")),
+		Details: []string{fmt.Sprintf("its tools: mcp-gateway-admin inspect --server %s; fix the names in its definition", name)}}
 }
 
 // rolesResult reports role permissions naming tools that server name (at
