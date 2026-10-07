@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sdrahn/mcp-gateway/internal/syscmd"
 )
 
 // Denial is one SELinux denial (AVC from the kernel, USER_AVC from a
@@ -144,8 +146,9 @@ func Involving(denials []Denial, errs []Record, domain string) ([]Denial, []Reco
 // logs through ausearch where auditd runs, else from the journal (where
 // the kernel's records go without auditd).
 func ReadAudit(ctx context.Context) ([]byte, error) {
-	if _, err := exec.LookPath("ausearch"); err == nil {
-		out, err := exec.CommandContext(ctx, "ausearch", "--input-logs", "-m", "AVC,USER_AVC,SELINUX_ERR",
+	// ausearch is in /usr/sbin, which the gateway-admin server's PATH lacks.
+	if ausearch, err := syscmd.Path("ausearch"); err == nil {
+		out, err := exec.CommandContext(ctx, ausearch, "--input-logs", "-m", "AVC,USER_AVC,SELINUX_ERR",
 			"-ts", "yesterday", "--raw").Output()
 		// ausearch exits 1 when nothing matches.
 		if err == nil || len(out) > 0 {

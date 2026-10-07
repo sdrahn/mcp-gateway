@@ -57,6 +57,8 @@ Group:          System/Management
 BuildArch:      noarch
 Requires:       selinux-policy-%{selinuxtype}
 Requires(post): selinux-policy-%{selinuxtype}
+# matchpathcon: the doctor compares the programs' labels with the policy's.
+Recommends:     selinux-tools
 # %%selinux_requires asks for the build's selinux-policy version and
 # release, so a build against a rebuild or maintenance update of the same
 # policy version cannot be installed on a host without that update. The
