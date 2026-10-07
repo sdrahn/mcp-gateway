@@ -5,6 +5,23 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Fixed
+
+- The SELinux policy labels `/usr/bin/mcp-server-systemd` as the
+  systemd server's program (`mcpsrv_systemd_exec_t`), as it does
+  `/usr/bin/systemd-mcp`: the package `mcp-server-systemd` installs the
+  program under both names. As hard links they share one label, and a
+  relabel of the second name (`restorecon`, a full relabel) set it to
+  `bin_t`, after which the shipped `systemd` server could not start.
+- The doctor's check of a server's program names the domain when the
+  program is labeled as another server's: a definition with the systemd
+  program and `selinux_type: mcpsrv_generic_t` (or none, a definition
+  written by hand) now gets "set selinux_type: mcpsrv_systemd_t" instead
+  of "relabel it: restorecon", which would have let the program start
+  in the generic domain without the system bus.
+
 ## v0.16.0 — 2026-10-07
 
 Agents look things up in the gateway's documentation for a small part

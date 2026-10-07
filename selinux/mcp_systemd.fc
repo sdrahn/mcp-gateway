@@ -1,1 +1,3 @@
 /usr/bin/systemd-mcp		--	gen_context(system_u:object_r:mcpsrv_systemd_exec_t,s0)
+# The package mcp-server-systemd installs the program under both names.
+/usr/bin/mcp-server-systemd	--	gen_context(system_u:object_r:mcpsrv_systemd_exec_t,s0)

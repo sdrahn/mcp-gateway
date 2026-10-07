@@ -290,6 +290,62 @@ func TestProgramLabels(t *testing.T) {
 	}
 }
 
+// A program labeled as another server's (a definition written by hand with
+// the systemd program and no selinux_type): the hint names the domain, not
+// a relabel, which would only let it start where it lacks the system bus.
+// gateway-docs runs the file server's program in its own domain.
+func TestProgramLabelsOtherServer(t *testing.T) {
+	const prog = "/usr/bin/mcp-server-systemd"
+	backends := map[string]*config.Backend{
+		"mysystemd":    {Command: []string{prog}, SELinuxType: "mcpsrv_generic_t"},
+		"gateway-docs": {Command: []string{"/usr/libexec/mcp-servers/mcp-server-fs"}, SELinuxType: "mcpsrv_docs_t"},
+	}
+	current := func(p string) (string, error) {
+		return map[string]string{prog: "mcpsrv_systemd_exec_t", "/usr/libexec/mcp-servers/mcp-server-fs": "mcpsrv_fs_exec_t"}[p], nil
+	}
+	policy := map[string]string{prog: "mcpsrv_systemd_exec_t", "/usr/libexec/mcp-servers/mcp-server-fs": "mcpsrv_fs_exec_t"}
+	expected := func(p string) (string, error) { return policy[p], nil }
+	notInstalled := func(p string) (string, error) {
+		if p == prog || p == "/usr/libexec/mcp-servers/mcp-server-fs" {
+			return current(p)
+		}
+		return "", errors.New(p + ": not found")
+	}
+
+	rs := ProgramLabels(backends, notInstalled, expected, func(string) bool { return false })
+	if len(rs) != 1 || rs[0].Check != "program mysystemd" || rs[0].Status != Fail ||
+		!strings.Contains(rs[0].Summary, "labeled mcpsrv_systemd_exec_t, the program of mcpsrv_systemd_t, but the server's definition says selinux_type mcpsrv_generic_t") {
+		t.Fatalf("other server's program: %+v", rs)
+	}
+	if len(rs[0].Details) != 1 || !strings.Contains(rs[0].Details[0], "set selinux_type: mcpsrv_systemd_t") ||
+		strings.Contains(rs[0].Details[0], "restorecon -v") {
+		t.Errorf("hint: %q", rs[0].Details)
+	}
+
+	// A policy without a rule for the path (0.16 and older for this
+	// name): the label is kept with semanage, not relabeled away.
+	policy[prog] = "bin_t"
+	for _, ro := range []bool{false, true} {
+		rs = ProgramLabels(backends, notInstalled, expected, func(string) bool { return ro })
+		want := "keep it with semanage fcontext -a -t mcpsrv_systemd_exec_t " + prog
+		if ro {
+			want = "keep it with transactional-update run semanage fcontext"
+		}
+		if len(rs) != 1 || len(rs[0].Details) != 2 || !strings.Contains(rs[0].Details[1], "the type bin_t") ||
+			!strings.Contains(rs[0].Details[1], want) {
+			t.Errorf("read-only %v: %+v", ro, rs)
+		}
+	}
+
+	// The right domain: all labeled.
+	backends["mysystemd"].SELinuxType = "mcpsrv_systemd_t"
+	policy[prog] = "mcpsrv_systemd_exec_t"
+	rs = ProgramLabels(backends, notInstalled, expected, func(string) bool { return false })
+	if len(rs) != 1 || rs[0].Status != OK {
+		t.Errorf("right domain: %+v", rs)
+	}
+}
+
 // A helper a server starts (zypp's worker) is checked too, where it is
 // installed: labeled bin_t, it would not run in rpm_t.
 func TestProgramLabelsHelpers(t *testing.T) {

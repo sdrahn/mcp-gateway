@@ -409,6 +409,45 @@ func ruleAllows(rules []string, acct, action string) bool {
 	return false
 }
 
+// execDomain returns the server domain a program type is the entry point
+// of (mcpsrv_systemd_exec_t: mcpsrv_systemd_t), or "" for other types.
+func execDomain(fileType string) string {
+	if !strings.HasPrefix(fileType, "mcpsrv_") || !strings.HasSuffix(fileType, "_exec_t") {
+		return ""
+	}
+	return strings.TrimSuffix(fileType, "_exec_t") + "_t"
+}
+
+// entersDomain reports whether systemd can start a program of a server
+// type in domain: each mcpsrv_X_t from mcpsrv_X_exec_t, mcpsrv_docs_t also
+// from mcpsrv_fs_exec_t (gateway-docs is the file server), as the modules
+// say (mcp_gateway_backend_template, mcp_gateway.te).
+func entersDomain(fileType, domain string) bool {
+	return execDomain(fileType) == domain || (fileType == "mcpsrv_fs_exec_t" && domain == "mcpsrv_docs_t")
+}
+
+// otherServersProgram is the result for a program labeled as another
+// server's (mcpsrv_systemd_exec_t) while its definition names a domain it
+// cannot enter (mcpsrv_generic_t): most often a definition written by hand
+// with the wrong or no selinux_type. Relabeling it to what the policy says
+// would let it start in the wrong domain, where it lacks what it needs (for
+// systemd: the system bus).
+func otherServersProgram(r Result, path, cur, exp, owner, domain string, readOnly bool) Result {
+	r.Status = Fail
+	r.Summary = fmt.Sprintf("%s is labeled %s, the program of %s, but the server's definition says selinux_type %s: systemd cannot start it there",
+		path, cur, owner, domain)
+	r.Details = []string{fmt.Sprintf("if it is that server's program, set selinux_type: %s in the definition "+
+		"(compare it with the shipped definitions in /usr/share/mcp-gateway/servers.d); a relabel does not help", owner)}
+	if exp != cur {
+		keep := fmt.Sprintf("semanage fcontext -a -t %s %s", cur, path)
+		if readOnly {
+			keep = "transactional-update run " + keep + ", then reboot (read-only file system)"
+		}
+		r.Details = append(r.Details, fmt.Sprintf("the policy gives %s the type %s, so the next relabel undoes its label: keep it with %s", path, exp, keep))
+	}
+	return r
+}
+
 // ProgramLabels checks that each server's program, and the other
 // TypedPrograms that are installed, carry the SELinux type the loaded
 // policy gives their path (current: the file's type,
@@ -444,6 +483,10 @@ func ProgramLabels(backends map[string]*config.Backend, current, expected func(p
 			continue
 		}
 		checked++
+		if owner := execDomain(cur); owner != "" && !entersDomain(cur, b.SELinuxType) {
+			out = append(out, otherServersProgram(r, path, cur, exp, owner, b.SELinuxType, readOnly(path)))
+			continue
+		}
 		if cur == exp {
 			continue
 		}
@@ -506,6 +549,7 @@ var TypedPrograms = []string{
 	"/usr/bin/mcp-server-zypp",
 	"/usr/bin/suseconnect-mcp",
 	"/usr/bin/systemd-mcp",
+	"/usr/bin/mcp-server-systemd",
 	"/usr/lib/mcp-gateway/opa",
 	"/usr/libexec/mcp-gateway/opa",
 	"/usr/lib/mcp-gateway/mcp-http-connector",
