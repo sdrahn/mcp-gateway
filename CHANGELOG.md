@@ -5,7 +5,12 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.15.1 — 2026-10-07
+
+A fix for the health check agents run through the `gateway-admin`
+server. Upgrading from 0.15.0 needs no changes; restart the gateway
+after the update (`systemctl restart mcp-gateway.service`), so that the
+next `gateway-admin` instance runs the new program.
 
 ### Fixed
 
