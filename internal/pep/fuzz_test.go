@@ -25,7 +25,9 @@ func FuzzVersioned(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var in map[string]json.RawMessage
-		if json.Unmarshal(data, &in) != nil || jsonrpc.CheckKeys(data) != nil {
+		// JSON null decodes into a nil map: not an object, which every
+		// input of the gateway is.
+		if json.Unmarshal(data, &in) != nil || in == nil || jsonrpc.CheckKeys(data) != nil {
 			return
 		}
 		for k := range in {
