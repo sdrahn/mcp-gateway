@@ -2824,6 +2824,66 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       reads the docs through the gateway by outline (outline, then the
       section).
 
+29. **Tools that tell the agent what it may do** (0.17):
+    - the problem: an agent learns what a user may do only by trying.
+      The gateway's instructions are a fixed text (name prefixes, where
+      the gateway's configuration and documentation are); a backend's
+      own instructions reach the agent only in a session for that one
+      server; a tool's description is the server's, which knows nothing
+      of the user's roles; and a denial says "denied by policy" without
+      what the roles allow or what to use instead. Agents probe: `fs`
+      outside the home, the systemd server's `get_file` on `/run`, a
+      relative time where a server wants RFC 3339. The gateway knows the
+      answers per principal, from the role data the policy decides on;
+    - tool descriptions with the principal's limits: in `tools/list`,
+      each tool's description gets one line from the principal's
+      matching permissions: the `args` and `arg_constraints` patterns,
+      in words where they are simple ("only paths under /etc/systemd and
+      /usr/lib/systemd") and as the pattern otherwise, and
+      `require_approval` with its channel ("needs a human approval, in
+      Cockpit or by mail"). Only role data is summarised, not custom
+      Rego, so the line says "according to your roles". The line changes
+      when the roles do; the gateway already sends `list_changed` then;
+    - denials that say why and what instead: a denial names the rule
+      that failed (the argument and the patterns the roles allow, the
+      tool no role grants, the scope missing), and, where the shipped
+      servers are there, where to look instead (the gateway's
+      configuration: `gateway-admin` `show_config`). Custom policy keeps
+      its own `reason`. Only what the principal's own roles allow is
+      named, never other users' roles;
+    - per-principal instructions: the instructions of an aggregated
+      session list the servers the principal sees, one line each (what
+      it reaches, its limits, a short form of the server's own
+      instructions), after the fixed text of today. Within a budget
+      (about 600 tokens; longer server instructions are cut, with a
+      pointer to the capabilities tool), since clients put instructions
+      into every request;
+    - a capabilities tool: `gateway__capabilities` (offered to every
+      principal, decided by policy like any tool) returns the
+      principal's servers, tools, argument limits and approval rules in
+      full, and the paths and services no visible server reaches. Pulled
+      when the agent is unsure, so it costs nothing until then. A
+      resource (`gateway://capabilities`) with the same content for
+      clients that read resources;
+    - notes per tool from the administrator: `tool_notes` in a server
+      definition (`list_log: "from: RFC 3339, e.g.
+      2026-10-07T11:00:00+02:00; relative times are refused"`), appended
+      to the tool's description and listed by the capabilities tool, for
+      what an upstream server's schema does not say. Reloadable like the
+      rest of the definition; `check_config` warns on a note for a tool
+      the server does not have;
+    - what it does not change: the policy still decides every call; the
+      text is advice to the agent, derived from the same data, never
+      trusted back. A principal learns only its own limits, which it can
+      find out by trying anyway;
+    - tests: the description line for `args`, `arg_constraints` and
+      approvals (and none without a matching permission); denial texts
+      for each failing rule; the instructions within budget and per
+      principal; the capabilities tool against the role data;
+      `tool_notes` in descriptions and in `check_config`; e2e: an agent
+      that reads a limit from the description does not make the call
+      that would be denied.
+
 ## 12. Open items
 
 - Per-conversation state for modern agents (D18): servers marked
