@@ -274,7 +274,9 @@ read these files, by design: the file server sees the user's home only,
 and the systemd roles allow reading systemd's own files only (systemd-mcp
 reports such a refusal as "calling method was canceled by user"). The
 servers' instructions, and those of the aggregated endpoint, point
-agents to `gateway-admin`.
+agents to `gateway-admin`. On the aggregated endpoint,
+`gateway_capabilities` lists what the user may do on each server and
+where the gateway's files are (chapter 5).
 
 Users need a role for it: the shipped `viewer` and `developer` roles
 include it, and the shipped role `gateway-docs-reader` grants only it:

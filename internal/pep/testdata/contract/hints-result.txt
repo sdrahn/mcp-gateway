@@ -1,9 +1,7 @@
-# Result of data.mcp.filter.visible
+# Result of data.mcp.filter.hints
 # Fields may be added, never renamed or removed (docs/architecture.md, D10).
-[].annotations
-[].builtin
-[].kind
+[].approval
+[].args
+[].args[]
 [].name
-[].privileged
 [].server
-[].sign_in

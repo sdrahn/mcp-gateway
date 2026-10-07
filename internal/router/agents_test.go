@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -161,7 +162,7 @@ func TestAgentAggregatedSorted(t *testing.T) {
 			t.Fatalf("not sorted: %v", got)
 		}
 	}
-	if len(got) != 9 {
+	if len(got) != 10 || !slices.Contains(got, capabilitiesTool) {
 		t.Fatalf("tools %v", got)
 	}
 }

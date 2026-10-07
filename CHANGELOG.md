@@ -22,6 +22,15 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- Agents on the aggregated endpoint are told what the user may do
+  (roadmap step 29, part 3). The instructions name the servers the user
+  may use, with their number of tools and the first sentence of their
+  own instructions, within about 600 tokens. The gateway's own tool
+  `gateway_capabilities` returns, per server, its instructions and its
+  tools with the limits of the user's roles, and where the gateway's
+  configuration and documentation are. Policy decides on it as on any
+  tool (`resource.builtin`, the shipped `mcp/builtin.rego`): everyone
+  holding a role gets it. A custom policy without such a rule hides it.
 - Tool descriptions tell the agent what the user's roles allow (roadmap
   step 29, part 1). In `tools/list`, a tool limited by the user's roles
   gets a line such as "[mcp-gateway] According to your roles, calls need

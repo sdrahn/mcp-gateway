@@ -49,6 +49,10 @@ type Resource struct {
 	// server's tools until the principal signed in to it
 	// (docs/architecture.md, section 5.7.3).
 	SignIn bool `json:"sign_in,omitempty"`
+	// Builtin marks a tool of the gateway itself (gateway_capabilities:
+	// what the principal's roles allow; docs/architecture.md, roadmap
+	// step 29), not of a server.
+	Builtin bool `json:"builtin,omitempty"`
 }
 
 // Grant is a recorded human approval, as passed to policy.

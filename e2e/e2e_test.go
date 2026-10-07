@@ -513,8 +513,20 @@ func TestAggregatedEndpoint(t *testing.T) {
 		c.request(2, "tools/list", map[string]any{})
 		if got := listNames(t, c.read(), "tools", "name"); got != "fs__read_text_file,fs__read_file,fs__read_media_file,fs__read_multiple_files,"+
 			"fs__list_directory,fs__list_dir,fs__list_directory_with_sizes,fs__list_allowed_directories,"+
-			"notes__read_text_file,notes__read_file,notes__read_media_file,notes__read_multiple_files" {
+			"notes__read_text_file,notes__read_file,notes__read_media_file,notes__read_multiple_files,gateway_capabilities" {
 			t.Fatalf("tools = %s", got)
+		}
+	})
+
+	t.Run("the instructions and gateway_capabilities say what the roles allow", func(t *testing.T) {
+		if !strings.Contains(string(init.Result), "Servers you may use: fs (8 tools: ") ||
+			!strings.Contains(string(init.Result), "notes (4 tools: ") {
+			t.Errorf("initialize: %s", init.Result)
+		}
+		text, isErr := toolResult(t, c.call(20, "gateway_capabilities", map[string]any{}))
+		if isErr || !strings.Contains(text, "## fs (8 tools)") || !strings.Contains(text, "- notes__read_file: ") ||
+			strings.Contains(text, "write_file") {
+			t.Fatalf("got %q isError=%v", text, isErr)
 		}
 	})
 

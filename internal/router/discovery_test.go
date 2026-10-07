@@ -124,9 +124,13 @@ func TestSetLevelStartsNoInstances(t *testing.T) {
 	if m := c.roundTrip(1, "logging/setLevel", map[string]any{"level": "debug"}); m.Error != nil {
 		t.Fatalf("setLevel: %+v", m.Error)
 	}
+	// The overview in the instructions may have started discovery
+	// instances at initialize; none of alice's.
 	for _, name := range []string{"fs", "git", "tmp"} {
-		if n := len(l.started(name)); n != 0 {
-			t.Fatalf("setLevel started %d %s instances", n, name)
+		for _, fi := range l.started(name) {
+			if fi.p.Sub != discoveryPrincipal.Sub {
+				t.Fatalf("setLevel started a %s instance for %s", name, fi.p.Sub)
+			}
 		}
 	}
 }

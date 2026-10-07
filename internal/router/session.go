@@ -510,7 +510,7 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 			"logging":     map[string]any{},
 		},
 		"serverInfo":   map[string]any{"name": "mcp-gateway", "version": version.Version},
-		"instructions": aggregatedInstructions(s.endpoint()),
+		"instructions": aggregatedInstructions(s.endpoint()) + s.overview(ctx),
 	}, nil
 }
 
@@ -615,12 +615,22 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	}
 	type key = itemKey
 	visible := map[key]bool{}
-	if len(resources) > 0 {
-		vs, err := s.r.PDP.Visible(ctx, s.snapshotPrincipal(), resources)
+	query := resources
+	if spec.kind == "tool" && s.endpoint().aggregated {
+		// The gateway's own tool, as policy decides (capabilities.go).
+		query = append(slices.Clip(resources), capabilitiesResource)
+	}
+	showCapabilities := false
+	if len(query) > 0 {
+		vs, err := s.r.PDP.Visible(ctx, s.snapshotPrincipal(), query)
 		if err != nil {
 			s.log.Warn("filtering failed; hiding everything", "method", m.Method, "err", err)
 		}
 		for _, r := range vs {
+			if r.Builtin {
+				showCapabilities = true
+				continue
+			}
 			visible[key{r.Server, r.Kind, r.Name}] = true
 		}
 	}
@@ -660,6 +670,13 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 			annotations[exposed] = a
 		}
 		out = append(out, it.raw)
+	}
+	if showCapabilities {
+		raw := capabilitiesItem()
+		var a map[string]any
+		_ = json.Unmarshal(raw["annotations"], &a)
+		annotations[capabilitiesTool] = a
+		out = append(out, raw)
 	}
 	if spec.kind == "tool" {
 		s.mu.Lock()
@@ -858,6 +875,12 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	}
 	if err := checkParamKeys(params); err != nil {
 		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params: "+err.Error())
+	}
+	if m.Method == "tools/call" && s.endpoint().aggregated {
+		var name string
+		if json.Unmarshal(params["name"], &name) == nil && name == capabilitiesTool {
+			return s.capabilities(ctx)
+		}
 	}
 	// A modern agent's call that may ask for input is a round of a multi
 	// round-trip request (mrtr.go).

@@ -62,6 +62,7 @@ type client struct {
 	conn *jsonrpc.Conn
 	msgs chan *jsonrpc.Message
 	done chan struct{}
+	init *jsonrpc.Message // the initialize response
 }
 
 // connect starts a session. server "" means no hello (aggregated).
@@ -107,8 +108,8 @@ func connectWrapped(t *testing.T, r *Router, p principal.Principal, server strin
 	if server != "" {
 		c.write(init)
 	}
-	if m := c.read(); m.Key() != "0" || m.Error != nil {
-		t.Fatalf("initialize: %+v", m)
+	if c.init = c.read(); c.init.Key() != "0" || c.init.Error != nil {
+		t.Fatalf("initialize: %+v", c.init)
 	}
 	t.Cleanup(c.close)
 	return c
@@ -242,7 +243,7 @@ func TestAggregatedTools(t *testing.T) {
 	c := connect(t, r, alice(), "", nil)
 
 	got := names(t, c.roundTrip(1, "tools/list", map[string]any{}), "tools", "name")
-	want := "fs__read_file,fs__write_file,fs__ask_roots,git__read_file,git__write_file,git__ask_roots,tmp__read_file,tmp__write_file,tmp__ask_roots"
+	want := "fs__read_file,fs__write_file,fs__ask_roots,git__read_file,git__write_file,git__ask_roots,tmp__read_file,tmp__write_file,tmp__ask_roots,gateway_capabilities"
 	if strings.Join(got, ",") != want {
 		t.Fatalf("tools = %v", got)
 	}

@@ -15,6 +15,7 @@ func TestContract(t *testing.T) {
 		"decision.txt":       Decision{},
 		"visible-input.txt":  VisibleInput{},
 		"visible-result.txt": []Resource{},
+		"hints-result.txt":   []Hint{},
 		"whatif-input.txt":   WhatIfInput{},
 		"whatif-result.txt":  []Change{},
 	} {
