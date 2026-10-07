@@ -111,32 +111,37 @@ func TestReadTextRange(t *testing.T) {
 // The gateway-docs server's instructions name only tools this server has,
 // and tell agents to search before reading.
 func TestGatewayDocsInstructions(t *testing.T) {
-	b, err := os.ReadFile("../../packaging/fs-server/gateway-docs.yaml.in")
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := regexp.MustCompile(`"--instructions", "((?:[^"\\]|\\.)*)"`).FindSubmatch(b)
-	if m == nil {
-		t.Fatal("no --instructions in gateway-docs.yaml.in")
-	}
-	instr := string(m[1])
-	s, _ := newTestServer(t, 1)
-	have := map[string]bool{}
-	for _, tl := range s.tools() {
-		have[tl.name] = true
-	}
-	// Tool-like names: lower-case words joined by underscores, as the
-	// server's tools are named. show_config, check_config and doctor are
-	// the gateway-admin server's, named as such.
-	other := map[string]bool{"show_config": true, "check_config": true}
-	for _, name := range regexp.MustCompile(`\b[a-z]+(?:_[a-z]+)+\b`).FindAllString(instr, -1) {
-		if !have[name] && !other[name] {
-			t.Errorf("the instructions name %q, which mcp-server-fs does not have", name)
+	for file, wants := range map[string][]string{
+		"gateway-docs.yaml.in": {"search_text", "offset", "limit"},
+		"fs.yaml.in":           {"gateway-admin", "show_config"},
+	} {
+		b, err := os.ReadFile("../../packaging/fs-server/" + file)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	for _, want := range []string{"search_text", "offset", "limit"} {
-		if !strings.Contains(instr, want) {
-			t.Errorf("the instructions do not mention %s", want)
+		m := regexp.MustCompile(`"--instructions", "((?:[^"\\]|\\.)*)"`).FindSubmatch(b)
+		if m == nil {
+			t.Fatalf("no --instructions in %s", file)
+		}
+		instr := string(m[1])
+		s, _ := newTestServer(t, 1)
+		have := map[string]bool{}
+		for _, tl := range s.tools() {
+			have[tl.name] = true
+		}
+		// Tool-like names: lower-case words joined by underscores, as the
+		// server's tools are named. show_config, check_config and doctor are
+		// the gateway-admin server's, named as such.
+		other := map[string]bool{"show_config": true, "check_config": true}
+		for _, name := range regexp.MustCompile(`\b[a-z]+(?:_[a-z]+)+\b`).FindAllString(instr, -1) {
+			if !have[name] && !other[name] {
+				t.Errorf("%s: the instructions name %q, which mcp-server-fs does not have", file, name)
+			}
+		}
+		for _, want := range wants {
+			if !strings.Contains(instr, want) {
+				t.Errorf("%s: the instructions do not mention %s", file, want)
+			}
 		}
 	}
 }
