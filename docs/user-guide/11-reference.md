@@ -130,7 +130,7 @@ usage errors, 0 otherwise.
 | `--config FILE` | gateway configuration (as for `mcp-gateway`) |
 | `--policy-data FILE` | role data (default: `/etc/mcp-gateway/policy/rbac/data.json`) |
 | `--shipped-policy DIR` | shipped policy with the roles of the server setups (default: `/usr/share/mcp-gateway/policy`; empty: none) |
-| `--server NAME` | check only this server |
+| `--server NAME` | check only this server: whether it starts and what its roles name, the SELinux denials of its domain, its type and program label (with its helpers), polkit and snapper for it; the configuration and the role data only when they fail, and none of the gateway's own checks (services, state files, policy, TLS, firewall, principals) |
 | `--no-start` | do not start the servers |
 | `--since DURATION` | how far back to look for SELinux denials (default `24h`), within the current boot |
 | `--previous-boots` | with `--since`, also count denials from before the current boot |

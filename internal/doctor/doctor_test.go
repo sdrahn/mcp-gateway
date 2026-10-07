@@ -254,7 +254,7 @@ func TestProgramLabels(t *testing.T) {
 		}[p], nil
 	}
 	for _, ro := range []bool{false, true} {
-		rs := ProgramLabels(backends, current, expected, func(string) bool { return ro })
+		rs := ProgramLabels(backends, TypedPrograms, current, expected, func(string) bool { return ro })
 		var snapper, gone *Result
 		for i := range rs {
 			switch rs[i].Check {
@@ -284,7 +284,7 @@ func TestProgramLabels(t *testing.T) {
 		}
 		return "", errors.New(p + ": not found")
 	}
-	rs := ProgramLabels(ok, onlySystemd, expected, func(string) bool { return false })
+	rs := ProgramLabels(ok, TypedPrograms, onlySystemd, expected, func(string) bool { return false })
 	if len(rs) != 1 || rs[0].Status != OK {
 		t.Errorf("all labeled: %+v", rs)
 	}
@@ -312,7 +312,7 @@ func TestProgramLabelsOtherServer(t *testing.T) {
 		return "", errors.New(p + ": not found")
 	}
 
-	rs := ProgramLabels(backends, notInstalled, expected, func(string) bool { return false })
+	rs := ProgramLabels(backends, TypedPrograms, notInstalled, expected, func(string) bool { return false })
 	if len(rs) != 1 || rs[0].Check != "program mysystemd" || rs[0].Status != Fail ||
 		!strings.Contains(rs[0].Summary, "labeled mcpsrv_systemd_exec_t, the program of mcpsrv_systemd_t, but the server's definition says selinux_type mcpsrv_generic_t") {
 		t.Fatalf("other server's program: %+v", rs)
@@ -326,7 +326,7 @@ func TestProgramLabelsOtherServer(t *testing.T) {
 	// name): the label is kept with semanage, not relabeled away.
 	policy[prog] = "bin_t"
 	for _, ro := range []bool{false, true} {
-		rs = ProgramLabels(backends, notInstalled, expected, func(string) bool { return ro })
+		rs = ProgramLabels(backends, TypedPrograms, notInstalled, expected, func(string) bool { return ro })
 		want := "keep it with semanage fcontext -a -t mcpsrv_systemd_exec_t " + prog
 		if ro {
 			want = "keep it with transactional-update run semanage fcontext"
@@ -340,7 +340,7 @@ func TestProgramLabelsOtherServer(t *testing.T) {
 	// The right domain: all labeled.
 	backends["mysystemd"].SELinuxType = "mcpsrv_systemd_t"
 	policy[prog] = "mcpsrv_systemd_exec_t"
-	rs = ProgramLabels(backends, notInstalled, expected, func(string) bool { return false })
+	rs = ProgramLabels(backends, TypedPrograms, notInstalled, expected, func(string) bool { return false })
 	if len(rs) != 1 || rs[0].Status != OK {
 		t.Errorf("right domain: %+v", rs)
 	}
@@ -363,13 +363,13 @@ func TestProgramLabelsHelpers(t *testing.T) {
 	expected := func(p string) (string, error) {
 		return map[string]string{"/usr/bin/mcp-server-zypp": "mcpsrv_zypp_exec_t", worker: "rpm_exec_t", "/usr/bin/mcp-gateway": "mcpgw_exec_t"}[p], nil
 	}
-	rs := ProgramLabels(backends, current, expected, func(string) bool { return false })
+	rs := ProgramLabels(backends, TypedPrograms, current, expected, func(string) bool { return false })
 	if len(rs) != 1 || rs[0].Check != "program "+worker || rs[0].Status != Fail ||
 		!strings.Contains(rs[0].Summary, "labeled bin_t, the policy says rpm_exec_t") || !strings.Contains(rs[0].Details[0], "restorecon -v "+worker) {
 		t.Fatalf("worker: %+v", rs)
 	}
 	labels[worker] = "rpm_exec_t"
-	rs = ProgramLabels(backends, current, expected, func(string) bool { return false })
+	rs = ProgramLabels(backends, TypedPrograms, current, expected, func(string) bool { return false })
 	if len(rs) != 1 || rs[0].Status != OK || !strings.Contains(rs[0].Summary, "1 servers' programs and 2 other programs") {
 		t.Errorf("all labeled: %+v", rs)
 	}
@@ -438,5 +438,28 @@ func TestIdentify(t *testing.T) {
 	}
 	if Warned(rs) || !Warned([]Result{{Status: OK}, {Status: Warn}}) {
 		t.Error("Warned")
+	}
+}
+
+// With one server, only its helpers are checked: zypp's worker for zypp,
+// none for systemd.
+func TestHelpersOf(t *testing.T) {
+	zypp := map[string]*config.Backend{"zypp": {Command: []string{"/usr/bin/mcp-server-zypp"}}}
+	if got := HelpersOf(zypp); len(got) != 1 || got[0] != "/usr/libexec/mcp-server-zypp/zypp-mcp-tool" {
+		t.Errorf("zypp: %v", got)
+	}
+	systemd := map[string]*config.Backend{"systemd": {Command: []string{"/usr/bin/systemd-mcp"}, SELinuxType: "mcpsrv_systemd_t"}}
+	if got := HelpersOf(systemd); len(got) != 0 {
+		t.Errorf("systemd: %v", got)
+	}
+	labeled := func(string) (string, error) { return "mcpsrv_systemd_exec_t", nil }
+	rs := ProgramLabels(systemd, nil, labeled, labeled, func(string) bool { return false })
+	if len(rs) != 1 || rs[0].Summary != "the 1 servers' programs are labeled as the policy says" {
+		t.Errorf("one server: %+v", rs)
+	}
+	for _, p := range HelpersOf(zypp) {
+		if !slices.Contains(TypedPrograms, p) {
+			t.Errorf("helper %s is not in TypedPrograms", p)
+		}
 	}
 }
