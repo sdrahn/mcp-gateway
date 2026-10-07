@@ -21,6 +21,11 @@ minor release (with a warning) and removed in the next.
   written by hand) now gets "set selinux_type: mcpsrv_systemd_t" instead
   of "relabel it: restorecon", which would have let the program start
   in the generic domain without the system bus.
+- The doctor run through the `gateway-admin` server (an agent's health
+  check) reads snapper's configs for its snapper check: the
+  `mcpsrv_admin_t` domain was denied `/etc/snapper/configs`
+  (`snapperd_conf_t`), so the check was skipped and each run left a
+  denial ("SELinux mcpsrv_admin_t: … snapperd_conf_t:dir { read }").
 - `mcp-gateway-admin doctor --server NAME` (and the `doctor` tool of the
   `gateway-admin` server with `server`) checks only that server: the
   gateway's own checks (services, state files, policy, TLS, firewall,
