@@ -356,8 +356,9 @@ optional_policy(`
 ```
 
 ```
-# mcp_systemd.fc
-/usr/bin/systemd-mcp  --  gen_context(system_u:object_r:mcpsrv_systemd_exec_t,s0)
+# mcp_systemd.fc (the package installs the program under both names)
+/usr/bin/systemd-mcp         --  gen_context(system_u:object_r:mcpsrv_systemd_exec_t,s0)
+/usr/bin/mcp-server-systemd  --  gen_context(system_u:object_r:mcpsrv_systemd_exec_t,s0)
 ```
 
 For firewalld (or snapper), the same with their names, and instead of
