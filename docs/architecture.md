@@ -2741,6 +2741,47 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       general, but tasks would need policy and obligations on their
       results, which the gateway does not offer yet).
 
+27. **Documentation that costs fewer tokens** (0.16):
+    - the problem: agents read the gateway's documentation through the
+      `gateway-docs` server (`mcp-server-fs --read-only` on the docs
+      directory). Its only search, `search_files`, matches file names,
+      and `read_text_file` returns a whole file or its first or last
+      lines. So an answer costs the index (about 2k tokens) and a whole
+      chapter (6k to 12k), or `architecture.md` (about 41k), or the
+      changelog (about 23k), most of it beside the question;
+    - text search in `mcp-server-fs`: a tool `search_text` (read-only,
+      every `fs` server) returning the lines below a path that contain a
+      text or match a regular expression (`regexp: true`; RE2, so no
+      backtracking), case-insensitive by default, with the file, the
+      line number and a few lines of context (`context`, default 2),
+      capped by count (`maxResults`, default 50) and by `--max-read`,
+      with `truncated` when there are more. It skips binary files and,
+      as `search_files` does, btrfs `.snapshots` directories and
+      `excludePatterns`; its `path` argument is the other tools', so
+      `args` conditions and `arg_constraints` on `path` apply to it;
+    - line ranges in `read_text_file`: `offset` (the first line, from 1)
+      and `limit` (how many lines) beside `head` and `tail`, so that an
+      agent reads the section around a match; the result says which
+      lines it holds and how many the file has;
+    - the `gateway-docs` server's instructions: search first
+      (`search_text`), then read the lines around a match
+      (`read_text_file` with `offset` and `limit`); read
+      `architecture.md` and `CHANGELOG.md` by section, never whole;
+      `README.md` still names the file for a question and the error
+      messages;
+    - policy: the tool is new, so a role must allow it. The shipped
+      role `gateway-docs-reader` allows every tool of the server; the
+      shipped role data's `developer` gets `search_text` beside
+      `search_files` (an installed `rbac/data.json` is kept on update:
+      the CHANGELOG says to add it). It is not named `read_*`: roles
+      written for reading do not gain it unnoticed;
+    - tests: the tool's unit tests (literal and regular expression,
+      case, context at file edges, caps, binary files, symbolic links
+      out of the root refused as for the other tools); `read_text_file`
+      ranges; the client suite reads the docs as an agent would (search,
+      then the range), and a test that the instructions name only tools
+      the server has.
+
 ## 12. Open items
 
 - Per-conversation state for modern agents (D18): servers marked
