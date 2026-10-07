@@ -5,7 +5,18 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.16.2 — 2026-10-07
+
+Agents find the gateway's configuration: `show_config` of the
+`gateway-admin` server now also shows the exec servers' command files,
+and the file server and the documentation tell agents to ask
+`gateway-admin` for the gateway's configuration. Upgrading from 0.16.1
+needs no changes. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`). A copy of the `fs`
+definition in `/etc/mcp-gateway/servers.d` keeps its old command line;
+copy the shipped one again
+(`/usr/share/mcp-gateway/servers.d/fs-demo.yaml`) for the new
+instructions.
 
 ### Changed
 
