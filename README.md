@@ -1,8 +1,10 @@
 # mcp-gateway
 
-A policy-enforcing gateway that makes local, stdio-only
+A policy-enforcing gateway that makes
 [MCP](https://modelcontextprotocol.io/) servers available to local and
-remote MCP clients, with:
+remote MCP clients: servers on the host that speak stdio, and servers
+that speak Streamable HTTP, on the host or elsewhere (directly or
+through a proxy, optionally with each user's own OAuth sign-in), with:
 
 - access control / RBAC,
 - permission elicitation (human approval of sensitive actions),

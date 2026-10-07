@@ -1,8 +1,10 @@
 # mcp-gateway — Architecture
 
 Status: maintained with the code; decisions D1–D14 accepted (section 9).
-Scope: design of a policy-enforcing proxy that exposes local stdio-only MCP
-servers on a Linux host to local and remote MCP clients.
+Scope: design of a policy-enforcing proxy that exposes MCP servers to
+local and remote MCP clients: local servers that speak stdio, and
+servers that speak Streamable HTTP, on the host or elsewhere (section
+5.7.2).
 
 This document explains why the gateway is built the way it is. How to
 install, configure and run it is the [user guide](user-guide/README.md);
@@ -26,7 +28,9 @@ install, configure and run it is the [user guide](user-guide/README.md);
 ## 1. Problem statement
 
 A Linux host has several MCP servers installed that speak MCP **only over
-stdio**. Clients (AI agents such as Kit, Claude Code, IDE integrations)
+stdio**; others run as web services, on the host or elsewhere, and speak
+Streamable HTTP (since 0.11 the gateway relays to those too, section
+5.7.2). Clients (AI agents such as Kit, Claude Code, IDE integrations)
 should be able to use them:
 
 - **locally** — processes on the same host, running as various Unix users;
@@ -72,7 +76,7 @@ Access must be governed. The gateway shall
 
 | Term | Meaning |
 |---|---|
-| **Backend** | An MCP server on the host, spoken to over stdio. |
+| **Backend** | An MCP server, spoken to over stdio: a program on the host, or, for a server that speaks Streamable HTTP, the connector that relays to it (section 5.7.2). |
 | **Instance** | A running process of a backend, bound to one principal/session. |
 | **Client** | An MCP client connecting to the gateway. |
 | **Principal** | The authenticated identity on whose behalf a client acts. |
