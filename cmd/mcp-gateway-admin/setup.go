@@ -20,6 +20,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/policydata"
 	"github.com/sdrahn/mcp-gateway/internal/statedir"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
+	"github.com/sdrahn/mcp-gateway/internal/syscmd"
 )
 
 const setupUsage = `usage: mcp-gateway-admin setup http [flags]
@@ -283,13 +284,14 @@ func setupPorts(h config.HTTP, root bool) []doctor.Result {
 	if !supervisor.SELinuxEnabled() {
 		return nil
 	}
-	if _, err := exec.LookPath("semanage"); err != nil {
+	semanage, err := syscmd.Path("semanage")
+	if err != nil {
 		return []doctor.Result{{Check: "SELinux port", Status: doctor.Skip, Summary: "no semanage (package policycoreutils-python-utils) to read the port labels"}}
 	}
 	if !root {
 		return []doctor.Result{{Check: "SELinux port", Status: doctor.Skip, Summary: "semanage needs root: run setup http as root"}}
 	}
-	out, err := exec.Command("semanage", "port", "-l", "-n").Output()
+	out, err := exec.Command(semanage, "port", "-l", "-n").Output()
 	if err != nil {
 		return []doctor.Result{{Check: "SELinux port", Status: doctor.Skip, Summary: "semanage port -l: " + err.Error()}}
 	}

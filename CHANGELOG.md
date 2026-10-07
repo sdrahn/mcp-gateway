@@ -23,6 +23,24 @@ minor release (with a warning) and removed in the next.
   is kept on update; to let users search their files with `fs`, add
   `{"server": "fs", "tool": "search_text"}` to their role.
 
+## v0.15.1 — 2026-10-07
+
+A fix for the health check agents run through the `gateway-admin`
+server. Upgrading from 0.15.0 needs no changes; restart the gateway
+after the update (`systemctl restart mcp-gateway.service`), so that the
+next `gateway-admin` instance runs the new program.
+
+### Fixed
+
+- The doctor run through the `gateway-admin` server (an agent's health
+  check) now compares the programs' SELinux labels with the policy's:
+  it looked for `matchpathcon` and `restorecon` only in the server's
+  `PATH`, which has no `/usr/sbin`, and reported "install selinux-tools"
+  although the package was installed. It now looks in `/usr/sbin` and
+  `/sbin` too, likewise for `ausearch` (SELinux denials from the audit
+  log instead of the journal) and `semanage`, and says why when the
+  tools cannot be run. The SELinux package recommends `selinux-tools`.
+
 ## v0.15.0 — 2026-10-06
 
 Token scopes can now narrow what a remote user's roles allow. An

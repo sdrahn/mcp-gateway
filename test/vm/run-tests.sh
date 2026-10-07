@@ -210,7 +210,7 @@ sestatus | grep -E 'policy name|mode'
 
 section "Install"
 zypper -n --gpg-auto-import-keys ref >/dev/null
-zypper -n in --no-recommends audit policycoreutils selinux-policy-targeted selinux-policy-devel polkit \
+zypper -n in --no-recommends audit policycoreutils selinux-tools selinux-policy-targeted selinux-policy-devel polkit \
 	rpm-build jq >/dev/null ||
 	die "installing dependencies failed"
 systemctl enable --now auditd
@@ -363,6 +363,9 @@ check "gateway-admin: doctor" succeeded_with "configuration: "
 check "gateway-admin: doctor does not ask OPA" succeeded_with "servers cannot reach OPA"
 check "gateway-admin: doctor asks systemd" succeeded_with "mcp-gateway.service: active"
 check "gateway-admin: doctor reads the audit log" bash -c '! grep -q "reading the audit log" <<<"$1"' _ "$out"
+# matchpathcon is in /usr/sbin, which the server's PATH lacks: the doctor
+# finds it there and compares the programs' labels with the policy's.
+check "gateway-admin: doctor gets the policy's labels" bash -c '! grep -q "the policy.s label for" <<<"$1" && grep -q "labeled as the policy says" <<<"$1"' _ "$out"
 stool alice gateway-admin check_config '{}'
 check "gateway-admin: check_config" succeeded_with "role data: /etc/mcp-gateway/policy/rbac/data.json valid"
 stool_approved alice gateway-admin explain_decision '{"user":"bob","server":"fs","name":"delete_file"}'
