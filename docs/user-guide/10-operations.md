@@ -259,7 +259,10 @@ file server (chapter 4). Its instructions tell the agent to search
 first (`search_text`) and read only the lines around a match
 (`read_text_file` with `offset` and `limit`): a lookup costs a few
 thousand tokens instead of whole chapters (`architecture.md` alone is
-about 40,000).
+about 40,000). For a broad question without a precise term, the agent
+reads a file's outline (`outline_file`: its headings with line numbers
+and sizes, under 1,000 tokens for `architecture.md`) and then the one
+section.
 
 For the configuration in force on the machine, the agent needs the
 `gateway-admin` server (role `gateway-admin`): its `show_config` shows

@@ -734,9 +734,9 @@ sandbox:
 ```
 
 Its tools have the names and arguments of the MCP project's reference
-filesystem server, which agents know, and two additions (`search_text`,
-line ranges in `read_text_file`) that let an agent read only what it
-needs:
+filesystem server, which agents know, and three additions (`search_text`,
+`outline_file`, line ranges in `read_text_file`) that let an agent read
+only what it needs:
 
 | Tool | Does |
 |---|---|
@@ -747,6 +747,7 @@ needs:
 | `directory_tree` | the tree below a directory as JSON, without following links |
 | `search_files` | paths matching a glob: `*.go` at any depth, `src/**/*.go` relative to the start; `excludePatterns` |
 | `search_text` | lines of text files below a path, or in one file, containing `query` (case-insensitive unless `caseSensitive`; a regular expression with `regexp: true`, RE2 syntax), with file, line number and `context` lines (2); at most `maxResults` (50) matching lines and `--max-read` bytes; skips binary files and files larger than `--max-read`, follows no links; `excludePatterns` |
+| `outline_file` | the Markdown headings of a file (`#` to `######`, not those in fenced code) with their line numbers and the lines and bytes of each section, to the next heading of the same or a higher level; `maxLevel` (6) leaves out deeper ones. An agent reads one section with `read_text_file` (`offset`: its line, `limit`: its lines) |
 | `get_file_info` | type, size, permissions, times, MIME type |
 | `list_allowed_directories` | the directories the server works in |
 | `write_file` | creates or replaces a file, at once (temporary file renamed over it) |

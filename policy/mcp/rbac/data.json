@@ -19,6 +19,7 @@
         {"server": "fs", "resource": "file://${home}/*"},
         {"server": "fs", "tool": "search_files"},
         {"server": "fs", "tool": "search_text"},
+        {"server": "fs", "tool": "outline_file"},
         {"server": "fs", "tool": "directory_tree"},
         {"server": "fs", "tool": "get_file_info"},
         {"server": "fs", "tool": "write_file", "require_approval": true, "approval_channel": "url", "args": {"path": "^${home}/"}},
