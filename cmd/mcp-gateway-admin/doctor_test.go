@@ -17,6 +17,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/doctor"
+	"github.com/sdrahn/mcp-gateway/internal/inspect"
 )
 
 func TestDoctorUsage(t *testing.T) {
@@ -270,5 +271,18 @@ func TestDoctorApproverGroups(t *testing.T) {
 	doctor.Identify(rs)
 	if rs[1].ID != "approver-group" || rs[1].Subject != "root" {
 		t.Errorf("%+v", rs[1])
+	}
+}
+
+// A tool note for a tool the server does not offer is never shown: the
+// doctor warns.
+func TestToolNotesResult(t *testing.T) {
+	tools := []inspect.Tool{{Name: "list_log"}, {Name: "get_file"}}
+	if r := toolNotesResult("systemd", map[string]string{"list_log": "x"}, tools); r != nil {
+		t.Fatalf("known tool: %+v", r)
+	}
+	r := toolNotesResult("systemd", map[string]string{"list_log": "x", "list_logs": "y", "a": "z"}, tools)
+	if r == nil || r.Status != doctor.Warn || r.Summary != "tool_notes name tools systemd does not offer: a, list_logs" {
+		t.Fatalf("unknown tools: %+v", r)
 	}
 }

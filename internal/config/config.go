@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 
@@ -370,6 +371,10 @@ type Backend struct {
 	// as a whole (package installation). Only the administrator's
 	// directory may define one, and only with run_as: root.
 	Privileged bool `yaml:"privileged"`
+	// ToolNotes are the administrator's notes on tools, by tool name,
+	// appended to the tools' descriptions (what an upstream server's
+	// schema does not say, such as an argument's format).
+	ToolNotes map[string]string `yaml:"tool_notes"`
 
 	// Warnings are the deprecated keys the file uses (see deprecation).
 	Warnings []string `yaml:"-"`
@@ -520,6 +525,8 @@ const (
 	DefaultListTTL         = time.Minute
 	DefaultGroupsClaim     = "groups"
 	DefaultSELinuxType     = "mcpsrv_generic_t"
+	// MaxToolNote bounds a tool note: it goes into every tools/list.
+	MaxToolNote = 500
 	// HTTPSELinuxType and HTTPRunAs are the defaults of a server defined
 	// with url: the connector's domain, and a throwaway user (it needs
 	// nobody's files).
@@ -980,6 +987,16 @@ func (b *Backend) Validate() error {
 	}
 	if !backendName.MatchString(b.Name) {
 		return fmt.Errorf("name: %q must match %s", b.Name, backendName)
+	}
+	for tool, note := range b.ToolNotes {
+		switch {
+		case tool == "":
+			return errors.New("tool_notes: a note without a tool name")
+		case strings.TrimSpace(note) == "":
+			return fmt.Errorf("tool_notes: %s: empty note", tool)
+		case utf8.RuneCountInString(note) > MaxToolNote:
+			return fmt.Errorf("tool_notes: %s: longer than %d characters", tool, MaxToolNote)
+		}
 	}
 	if b.URL != "" {
 		if err := b.validateURL(); err != nil {

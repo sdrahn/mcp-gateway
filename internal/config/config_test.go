@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 func writeFile(t *testing.T, dir, name, content string) string {
@@ -518,5 +520,34 @@ func TestCheckSignIn(t *testing.T) {
 	}
 	if got := g.RedirectURI(); got != "https://gw.example.com:8443/oauth/callback" {
 		t.Errorf("redirect %s", got)
+	}
+}
+
+// Tool notes: a tool name and a non-empty note of at most MaxToolNote
+// characters each.
+func TestBackendToolNotes(t *testing.T) {
+	check := func(notes map[string]string) error {
+		b := Backend{Name: "systemd", Command: []string{"/usr/bin/systemd-mcp"}, ToolNotes: notes}
+		b.setDefaults()
+		return b.Validate()
+	}
+	if err := check(map[string]string{"list_log": "from: RFC 3339, e.g. 2026-10-07T11:00:00+02:00"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		notes map[string]string
+		want  string
+	}{
+		{map[string]string{"": "x"}, "without a tool name"},
+		{map[string]string{"list_log": " "}, "empty note"},
+		{map[string]string{"list_log": strings.Repeat("ä", MaxToolNote+1)}, "longer than"},
+	} {
+		if err := check(c.notes); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: %v, want %q", c.notes, err, c.want)
+		}
+	}
+	var b Backend
+	if err := yaml.Unmarshal([]byte("name: x\ncommand: [/bin/true]\ntool_notes:\n  run: only on weekdays\n"), &b); err != nil || b.ToolNotes["run"] != "only on weekdays" {
+		t.Errorf("yaml: %+v %v", b.ToolNotes, err)
 	}
 }

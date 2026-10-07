@@ -84,6 +84,7 @@ var checkPrefixes = []struct{ prefix, id string }{
 	{"roles ", "roles"},
 	{"server ", "server"},
 	{"snapper ", "snapper"},
+	{"tool notes ", "tool-notes"},
 }
 
 // Identify sets each result's ID and Subject from its Check label (see

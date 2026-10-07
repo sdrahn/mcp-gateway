@@ -94,6 +94,29 @@ func TestOPAVisible(t *testing.T) {
 	}
 }
 
+// Hints come from data.mcp.filter.hints; a policy without the rule (one
+// written before 0.17: undefined) gives none, without an error.
+func TestOPAHints(t *testing.T) {
+	var result atomicString
+	result.Store(`{"result":[{"server":"fs","name":"write_file","approval":"oob","args":[{"path":"^/home/alice/"}]}]}`)
+	o := fakeOPA(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != HintsPath {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(result.Load()))
+	})
+	rs := []Resource{{Server: "fs", Kind: "tool", Name: "write_file"}}
+	got, err := o.Hints(context.Background(), principal.Principal{Sub: "alice"}, rs)
+	if err != nil || len(got) != 1 || got[0].Approval != "oob" || got[0].Args[0]["path"] != "^/home/alice/" {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	result.Store(`{}`)
+	if got, err := o.Hints(context.Background(), principal.Principal{Sub: "alice"}, rs); err != nil || got != nil {
+		t.Fatalf("undefined: %+v, %v", got, err)
+	}
+}
+
 func TestOPAFingerprint(t *testing.T) {
 	var rbac, other, profiles atomicString
 	var ids atomic.Int64

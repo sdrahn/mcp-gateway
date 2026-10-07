@@ -65,6 +65,7 @@ input as self-reported.
 |---|---|---|
 | `data.mcp.authz.decision` | every call, and every request an MCP server sends to the agent | a decision document (below) |
 | `data.mcp.filter.visible` | every `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list` | the subset of `input.resources` to show |
+| `data.mcp.filter.hints` | every `tools/list`, for the visible tools (optional: a policy without it gives none) | a set of `{"server", "name", "approval", "args"}`: the approval channel (`""` for none) and the argument constraints (one object per permission) the gateway adds to the tool's description (chapter 4, "What agents see about their limits") |
 | `data.mcp.approvals.allow` | control API: may this approver decide on this pending approval? | `true`/`false` |
 | `data.mcp.approvals.manage_grant` | control API: may this caller see and revoke this grant? | `true`/`false` |
 | `data.mcp.approvals.manage_instance` | control API: may this caller see and stop this instance? | `true`/`false` |

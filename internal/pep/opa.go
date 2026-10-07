@@ -26,6 +26,23 @@ type Filterer interface {
 	Visible(ctx context.Context, p principal.Principal, rs []Resource) ([]Resource, error)
 }
 
+// Hint is what the principal's roles say about calling a tool
+// (policy/mcp/filter.rego, hints): the approval channel if calls need an
+// approval, and the argument constraints (one map per permission, by
+// argument) if every permission covering the tool has some.
+type Hint struct {
+	Server   string              `json:"server"`
+	Name     string              `json:"name"`
+	Approval string              `json:"approval"`
+	Args     []map[string]string `json:"args"`
+}
+
+// Hinter gives hints on the tools of a discovery result. Optional: a
+// policy without hints gives none.
+type Hinter interface {
+	Hints(ctx context.Context, p principal.Principal, rs []Resource) ([]Hint, error)
+}
+
 // PDP is the full policy decision point interface used by the router.
 type PDP interface {
 	Decider
@@ -36,6 +53,7 @@ type PDP interface {
 const (
 	DecisionPath     = "/v1/data/mcp/authz/decision"
 	VisiblePath      = "/v1/data/mcp/filter/visible"
+	HintsPath        = "/v1/data/mcp/filter/hints"
 	ApproveAllowPath = "/v1/data/mcp/approvals/allow"
 	ManageGrantPath  = "/v1/data/mcp/approvals/manage_grant"
 	WhatIfPath       = "/v1/data/mcp/whatif/changes"
@@ -128,6 +146,19 @@ func (o *OPA) Visible(ctx context.Context, p principal.Principal, rs []Resource)
 	in := VisibleInput{p, rs}
 	var out []Resource
 	if err := o.query(ctx, VisiblePath, in, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Hints implements Hinter. A policy without the rule (one written before
+// 0.17) gives no hints.
+func (o *OPA) Hints(ctx context.Context, p principal.Principal, rs []Resource) ([]Hint, error) {
+	var out []Hint
+	if err := o.query(ctx, HintsPath, VisibleInput{p, rs}, &out); err != nil {
+		if errors.Is(err, errUndefined) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return out, nil
@@ -327,10 +358,13 @@ func (o *OPA) queryWithin(ctx context.Context, timeout time.Duration, path strin
 		return fmt.Errorf("opa: %w", err)
 	}
 	if len(envelope.Result) == 0 {
-		return errors.New("opa: undefined result for " + path)
+		return fmt.Errorf("%w for %s", errUndefined, path)
 	}
 	return json.Unmarshal(envelope.Result, result)
 }
+
+// errUndefined is a query of a rule the policy does not define.
+var errUndefined = errors.New("opa: undefined result")
 
 // versioned returns input as JSON with "version" (InputVersion) added.
 // Every input is a JSON object; none has a "version" of its own.

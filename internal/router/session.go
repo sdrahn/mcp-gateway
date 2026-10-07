@@ -613,7 +613,7 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	for i, it := range items {
 		resources[i] = pep.Resource{Server: it.server, Kind: spec.kind, Name: it.name, Privileged: s.r.privileged(it.server), SignIn: it.signIn}
 	}
-	type key struct{ server, kind, name string }
+	type key = itemKey
 	visible := map[key]bool{}
 	if len(resources) > 0 {
 		vs, err := s.r.PDP.Visible(ctx, s.snapshotPrincipal(), resources)
@@ -625,11 +625,28 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		}
 	}
 
+	hints := map[key]*pep.Hint{}
+	if spec.kind == "tool" {
+		hints = s.toolHints(ctx, resources, visible)
+	}
+
 	out := make([]map[string]json.RawMessage, 0, len(items))
 	annotations := map[string]map[string]any{}
 	for _, it := range items {
-		if !visible[key{it.server, spec.kind, it.name}] {
+		k := key{it.server, spec.kind, it.name}
+		if !visible[k] {
 			continue
+		}
+		if spec.kind == "tool" {
+			note := ""
+			if b := s.endpoint().backends[it.server]; b != nil {
+				note = b.ToolNotes[it.name]
+			}
+			if text := hintText(hints[k], note); text != "" {
+				var desc string
+				_ = json.Unmarshal(it.raw["description"], &desc)
+				it.raw["description"], _ = json.Marshal(describe(desc, text))
+			}
 		}
 		exposed := s.endpoint().exposeName(it.server, it.name)
 		if spec.uri {
