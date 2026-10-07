@@ -139,8 +139,15 @@ type doctorRun struct {
 func (d *doctorRun) run(configPath string) []doctor.Result {
 	var rs []doctor.Result
 	add := func(r ...doctor.Result) { rs = append(rs, r...) }
+	// With -server, only that server is checked: the configuration and
+	// role data are read for it and shown only when they fail.
+	need := func(r doctor.Result) {
+		if d.only == "" || r.Status == doctor.Fail || r.Status == doctor.Warn {
+			add(r)
+		}
+	}
 
-	add(d.configuration(configPath))
+	need(d.configuration(configPath))
 	if d.gw == nil {
 		return rs
 	}
@@ -148,30 +155,38 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 		add(doctor.Result{Check: "server " + d.only, Status: doctor.Fail, Summary: "not in the registry"})
 		return rs
 	}
-	add(d.roleData())
-	add(d.services()...)
-	add(d.stateFiles())
+	need(d.roleData())
 	if d.only == "" {
+		add(d.services()...)
+		add(d.stateFiles())
 		add(d.tls()...)
 		add(d.firewall()...)
-	}
-	if d.isolated {
-		add(doctor.Result{Check: "policy", Status: doctor.Skip,
-			Summary: "servers cannot reach OPA (mcp-gateway-admin doctor as root asks it; explain_decision evaluates the policy files)"})
-	} else {
-		add(d.opa())
+		if d.isolated {
+			add(doctor.Result{Check: "policy", Status: doctor.Skip,
+				Summary: "servers cannot reach OPA (mcp-gateway-admin doctor as root asks it; explain_decision evaluates the policy files)"})
+		} else {
+			add(d.opa())
+		}
 	}
 	add(d.servers()...)
 	add(d.selinux()...)
 	if supervisor.SELinuxEnabled() {
 		add(doctor.SELinuxTypes(d.selected(), supervisor.ContextValid)...)
-		add(doctor.ProgramLabels(d.selected(), fileType, policyType, readOnly)...)
+		helpers := doctor.TypedPrograms
+		if d.only != "" {
+			helpers = doctor.HelpersOf(d.selected())
+		}
+		add(doctor.ProgramLabels(d.selected(), helpers, fileType, policyType, readOnly)...)
 	}
-	add(doctor.ReadOnlyRoot(d.selected(), readOnly("/usr"))...)
+	if d.only == "" || d.backends[d.only].Privileged {
+		add(doctor.ReadOnlyRoot(d.selected(), readOnly("/usr"))...)
+	}
 	add(doctor.Polkit(d.selected(), d.versions, nil)...)
 	add(doctor.Snapper(d.selected(), doctor.SnapperConfigsDir, userGroups)...)
-	add(d.principals())
-	add(d.approverGroups()...)
+	if d.only == "" {
+		add(d.principals())
+		add(d.approverGroups()...)
+	}
 	return rs
 }
 
@@ -543,6 +558,12 @@ func (d *doctorRun) selinux() []doctor.Result {
 	}
 	from, label := denialWindow(time.Now(), d.since, bootTime(), d.allBoots)
 	denials, errs := profile.Parse(raw, from)
+	if d.only != "" {
+		// The server's domain only (shared by the servers of that type).
+		dom := d.backends[d.only].SELinuxType
+		denials = slices.DeleteFunc(denials, func(x profile.Denial) bool { return x.Source != dom && x.Target != dom })
+		errs = nil
+	}
 	return doctor.Denials(denials, errs, label)
 }
 
