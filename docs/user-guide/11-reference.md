@@ -55,8 +55,10 @@ mcp-gateway-admin inspect [options] --name NAME -- COMMAND [ARG...]
 ```
 
 Starts an MCP server, reports its tools, prompts and resource templates
-with a classification of the tools, drafts roles, and checks role data
-against the server (chapter 4, "Inspecting a server"). Exit status 1 if
+with a classification of the tools, drafts roles, suggests tool notes
+for arguments the schema leaves unclear (times without a format,
+arguments without a description) and checks the definition's notes,
+and checks role data against the server (chapter 4, "Inspecting a server"). Exit status 1 if
 the server cannot be inspected or a role check finds errors, 2 on usage
 errors.
 
@@ -67,9 +69,9 @@ errors.
 | `--config FILE` | gateway configuration, for the registry and the supervisor |
 | `--exec` | start a `--server` definition as a plain child process, without sandbox (refused as root) |
 | `--roles FILE` | role data or a setup's roles to check against the server; repeatable |
-| `--out DIR` | write the drafts there: `roles.json`, and `NAME.yaml` for a command (existing files are kept) |
+| `--out DIR` | write the drafts there: `roles.json`, and `NAME.yaml` for a command, with the suggested tool notes as comments (existing files are kept) |
 | `--read-by-name` | also put tools that read by their name alone into the reader role |
-| `--json` | print the result (server answers, classification, draft roles, findings) as JSON |
+| `--json` | print the result (server answers, classification, draft roles, findings, `note_hints`, `unknown_notes`) as JSON |
 | `--timeout D` | how long to wait for the server (default 60s) |
 
 ### mcp-gateway-admin profile

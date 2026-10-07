@@ -507,16 +507,7 @@ func (d *doctorRun) servers() []doctor.Result {
 // does not offer (a typo, or a tool of another version): such a note is
 // never shown.
 func toolNotesResult(name string, notes map[string]string, tools []inspect.Tool) *doctor.Result {
-	have := map[string]bool{}
-	for _, t := range tools {
-		have[t.Name] = true
-	}
-	var unknown []string
-	for _, tool := range slices.Sorted(maps.Keys(notes)) {
-		if !have[tool] {
-			unknown = append(unknown, tool)
-		}
-	}
+	unknown := inspect.UnknownNotes(tools, notes)
 	if len(unknown) == 0 {
 		return nil
 	}
