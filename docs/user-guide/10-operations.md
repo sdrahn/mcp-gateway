@@ -266,7 +266,8 @@ section.
 
 For the configuration in force on the machine, the agent needs the
 `gateway-admin` server (role `gateway-admin`): its `show_config` shows
-`gateway.yaml`, the server definitions and the role data with secrets
+`gateway.yaml`, the server definitions, the exec servers' command files
+(`exec.d`) and the role data with secrets
 masked (each call with an approval, out of band), `check_config` and
 `doctor` check them without one. The other servers cannot
 read these files, by design: the file server sees the user's home only,
@@ -303,7 +304,7 @@ main package installs: the gateway's diagnostics as tools.
 | `doctor` | the checks of `mcp-gateway-admin doctor` (above), without starting servers and without asking OPA | allowed |
 | `check_config` | whether `gateway.yaml`, the server definitions and the role data are valid | allowed |
 | `explain_decision` | what the policy decides when a user calls a tool, with the user's roles and the permissions that match | approval |
-| `show_config` | the configuration files, values of keys that look like secrets (`token`, `secret`, `password`, `private`, `api_key`) masked | approval |
+| `show_config` | the configuration files (also the exec servers' command files in `exec.d`), values of keys that look like secrets (`token`, `secret`, `password`, `private`, `api_key`) masked | approval |
 | `recent_audit` | the gateway's audit records from its journal, filtered by user, server and effect | approval |
 | `selinux_denials` | SELinux denials for the gateway and its servers | approval |
 

@@ -16,6 +16,21 @@ checks of it, come from the `gateway-admin` server: `show_config`,
 `check_config`, `doctor` (chapter 10, "Asking an agent"). The other
 servers cannot read the gateway's files.
 
+For an agent, which server to ask:
+
+- the gateway's configuration (`gateway.yaml`, server definitions in
+  `servers.d`, the exec server's commands in `exec.d`, role data):
+  `gateway-admin` `show_config`, after an approval; secrets are masked;
+- whether it works, SELinux denials, what the policy decides and why,
+  recent decisions: `gateway-admin` `doctor` and `check_config`
+  (no approval), `selinux_denials`, `explain_decision`, `recent_audit`
+  (after an approval);
+- not through the file server (`fs`, which reaches only the user's
+  home: "outside the allowed directories") nor the systemd server's
+  `get_file` (its shipped roles allow only `/etc/systemd` and
+  `/usr/lib/systemd`). Paths outside all of these, such as `/run/netns`,
+  no shipped server reads.
+
 ## Where to find what
 
 | Question | Where |
