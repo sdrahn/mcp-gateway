@@ -7,6 +7,20 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v0.16.1 — 2026-10-07
+
+Fixes for the systemd server's program label, the doctor's hints and
+its scope with `--server`, and the health check agents run through the
+`gateway-admin` server. Upgrading from 0.16.0 needs no changes. After
+the update, restart the gateway (`systemctl restart
+mcp-gateway.service`); the SELinux module is updated with the package,
+and `/usr/bin/mcp-server-systemd` gets its label at the next relabel
+(`restorecon -v /usr/bin/mcp-server-systemd`, on a transactional system
+`transactional-update run restorecon -v /usr/bin/mcp-server-systemd`
+and a reboot). The README, the user guide and the package description
+now say that the gateway serves servers that speak Streamable HTTP as
+well as stdio.
+
 ### Fixed
 
 - The SELinux policy labels `/usr/bin/mcp-server-systemd` as the
