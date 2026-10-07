@@ -18,6 +18,9 @@ servers cannot read the gateway's files.
 
 For an agent, which server to ask:
 
+- what the user may do here, on which server, within which limits:
+  the gateway's own tool `gateway_capabilities` (aggregated endpoint);
+
 - the gateway's configuration (`gateway.yaml`, server definitions in
   `servers.d`, the exec server's commands in `exec.d`, role data):
   `gateway-admin` `show_config`, after an approval; secrets are masked;

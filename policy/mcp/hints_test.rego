@@ -101,3 +101,31 @@ test_reason_unchanged_otherwise if {
 		with data.mcp.profiles as {}
 	a.effect == "allow"
 }
+
+capabilities(principal) := {
+	"principal": principal,
+	"action": "tools.call",
+	"resource": {"server": "mcp-gateway", "kind": "tool", "name": "capabilities", "builtin": true},
+	"args": {},
+	"grants": [],
+}
+
+# gateway_capabilities: allowed to a principal holding a permission
+# without approval, denied to one without any.
+test_capabilities_tool if {
+	d := data.mcp.authz.decision with input as capabilities(bob)
+		with data.mcp.rbac as rbac
+		with data.mcp.profiles as {}
+	d.effect == "allow"
+
+	n := data.mcp.authz.decision with input as capabilities({"sub": "nobody", "session_id": "s2"})
+		with data.mcp.rbac as rbac
+		with data.mcp.profiles as {}
+	n.effect == "deny"
+
+	# Not for a resource of a server that is not marked builtin.
+	r := data.mcp.authz.decision with input as call("mcp-gateway", "capabilities", {})
+		with data.mcp.rbac as rbac
+		with data.mcp.profiles as {}
+	r.effect == "deny"
+}

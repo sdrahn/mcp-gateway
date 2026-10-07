@@ -306,7 +306,13 @@ Reads a file.
 
 The agent can then pick a call its roles allow instead of finding out by
 trying. Only role data is described, not custom policy rules, and only
-the user's own; every call is still decided.
+the user's own; every call is still decided. On the aggregated endpoint,
+the gateway's tool `gateway_capabilities` gathers these descriptions for
+all servers, with each server's instructions (chapter 5).
+
+A denied call says why: "no matching permission: the arguments are
+outside what your roles allow (path: ^/home/alice/)" (chapter 10,
+"Calls fail").
 
 ## What an instance gets
 

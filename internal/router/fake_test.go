@@ -29,6 +29,13 @@ func (fakePDP) Decide(_ context.Context, in pep.Input) (pep.Decision, error) {
 	deny := pep.Decision{Effect: pep.Deny, Reason: "not yours"}
 	switch in.Action {
 	case "tools.call":
+		// gateway_capabilities (builtin.rego): not for "nobody".
+		if in.Resource.Builtin {
+			if in.Principal.Sub == "nobody" {
+				return deny, nil
+			}
+			return allow, nil
+		}
 		// A token with scopes but without mcp:write: writes lie outside
 		// its ceiling (§6.7).
 		if p := in.Principal; p.Transport == principal.TransportHTTP && len(p.Scopes) > 0 && !slices.Contains(p.Scopes, "mcp:write") &&
@@ -285,6 +292,7 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 				"protocolVersion": "2025-06-18",
 				"capabilities":    caps,
 				"serverInfo":      map[string]any{"name": "fake-" + f.name},
+				"instructions":    "The " + f.name + " server serves files. Paths are absolute.",
 			})
 		case "tools/list":
 			if p.Cursor == "" {

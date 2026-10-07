@@ -21,7 +21,7 @@ trees into one policy:
 
 | Directory | Contents |
 |---|---|
-| `/usr/share/mcp-gateway/policy/` | the shipped logic: `mcp/authz.rego` (with `mcp/reasons.rego`, the reasons of denials), `mcp/filter.rego`, `mcp/approvals.rego`, `mcp/log.rego` |
+| `/usr/share/mcp-gateway/policy/` | the shipped logic: `mcp/authz.rego` (with `mcp/reasons.rego`, the reasons of denials, and `mcp/builtin.rego`, the gateway's own tools), `mcp/filter.rego`, `mcp/approvals.rego`, `mcp/log.rego` |
 | `/etc/mcp-gateway/policy/` | your files: `rbac/data.json`, and any `.rego` and `data.json` files you add |
 
 - A `.rego` file defines rules in the package it declares
@@ -143,6 +143,7 @@ not enforce.
 | `resource.server` | the MCP server |
 | `resource.kind`, `name` | `tool`/tool name, `prompt`/prompt name, `resource`/URI, `resource_template`/URI template (completions), `client`/request method |
 | `resource.privileged` | `true` for privileged servers (no sandbox, chapter 4); the shipped policy then allows only through permissions naming server and target exactly |
+| `resource.builtin` | `true` for a tool of the gateway itself: `{"server": "mcp-gateway", "kind": "tool", "name": "capabilities", "builtin": true}` is `gateway_capabilities` (chapter 5). The shipped policy allows it to principals holding a permission that is not a deny and needs no approval; without a rule allowing it, agents neither see nor call it |
 | `resource.annotations` | the tool's annotations (`readOnlyHint`, `destructiveHint`, …) as the MCP server declared them: **untrusted**, use them only to deny more |
 | `args` | tool or prompt arguments; for `elicitation.create`: `mode`, `fields`, `sensitive` (the gateway's guess whether secrets are asked for), `url` |
 | `grants` | the principal's unexpired grants for this server and tool (for calls only) |

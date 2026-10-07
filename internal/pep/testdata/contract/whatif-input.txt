@@ -25,6 +25,7 @@ principals[].principal.uid
 proposed
 resources
 resources[].annotations
+resources[].builtin
 resources[].kind
 resources[].name
 resources[].privileged

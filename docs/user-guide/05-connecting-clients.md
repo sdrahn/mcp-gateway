@@ -32,6 +32,26 @@ In both cases the agent sees only what policy lets the principal use
 (items needing approval included), and it is told to list again when
 the policy changes (`notifications/tools/list_changed` and friends).
 
+On the aggregated endpoint the agent is also told what the principal
+may do, so it need not find out by trying:
+
+- the **instructions** (`initialize`) tell the agent to call the tool
+  below to see what the user's roles allow. They are a fixed text,
+  short since clients put instructions into every request, and
+  connecting asks no server;
+- the gateway's own tool **`gateway_capabilities`** (no arguments; one
+  underscore, so no server's tool has its name) returns everything: per
+  server, its instructions and its tools with their descriptions, which
+  carry the limits of the principal's roles (chapter 4, "What agents
+  see about their limits"), then where the gateway's own configuration
+  and documentation are. The agent calls it when unsure which server
+  or tool to use. Policy decides on it like on any tool (chapter 12,
+  `resource.builtin`): the shipped policy offers it to everyone holding
+  a role.
+
+A server endpoint has neither: there the server's own instructions
+apply.
+
 ## Local agents
 
 ### Prerequisites

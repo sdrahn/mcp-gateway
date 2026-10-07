@@ -1523,6 +1523,18 @@ channel; the `args` constraints, expanded, when every covering
 permission has some), which the gateway adds to the tools' descriptions
 (roadmap step 29). Advice for the agent only: every call is decided.
 
+On the aggregated endpoint the gateway has one tool of its own,
+`gateway_capabilities` (one underscore: no `<server>__<tool>` name can
+equal it). Policy decides on it as on any tool, as the resource
+`{server: "mcp-gateway", kind: "tool", name: "capabilities", builtin:
+true}`; the shipped `mcp/builtin.rego` covers it for principals holding
+a permission that is not a deny and needs no approval. It returns the
+principal's servers (from the filtered `tools/list`), each with its
+instructions (from shared discovery) and its tools with their
+descriptions and hints, and where the gateway's own files are. The
+instructions of an aggregated session point to it; they stay a fixed
+text, so that connecting asks neither servers nor policy.
+
 ### 6.4 RBAC data
 
 A permission names a backend (`server` glob) and exactly one target: a
@@ -2828,8 +2840,9 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       reads the docs through the gateway by outline (outline, then the
       section).
 
-29. **Tools that tell the agent what it may do** (0.17; parts 1 and 2
-    done: descriptions and `tool_notes`, denials):
+29. **Tools that tell the agent what it may do** (0.17; done:
+    descriptions and `tool_notes`, denials, `gateway_capabilities`
+    with a pointer in the instructions, §6.3):
     - the problem: an agent learns what a user may do only by trying.
       The gateway's instructions are a fixed text (name prefixes, where
       the gateway's configuration and documentation are); a backend's
@@ -2862,14 +2875,17 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       instructions), after the fixed text of today. Within a budget
       (about 600 tokens; longer server instructions are cut, with a
       pointer to the capabilities tool), since clients put instructions
-      into every request;
-    - a capabilities tool: `gateway__capabilities` (offered to every
+      into every request. (Not done: the instructions only point to the
+      capabilities tool. A per-principal list at connect would have
+      cost each first connect up to the discovery of every server, for
+      what the tool gives on demand);
+    - a capabilities tool: `gateway_capabilities` (offered to every
       principal, decided by policy like any tool) returns the
       principal's servers, tools, argument limits and approval rules in
       full, and the paths and services no visible server reaches. Pulled
-      when the agent is unsure, so it costs nothing until then. A
-      resource (`gateway://capabilities`) with the same content for
-      clients that read resources;
+      when the agent is unsure, so it costs nothing until then. (A
+      resource with the same content was left out: every client calls
+      tools, fewer read resources);
     - notes per tool from the administrator: `tool_notes` in a server
       definition (`list_log: "from: RFC 3339, e.g.
       2026-10-07T11:00:00+02:00; relative times are refused"`), appended
