@@ -151,6 +151,12 @@ name: systemd
 command: ["/usr/bin/systemd-mcp"]
 run_as: mcp-sysmgmt
 selinux_type: mcpsrv_systemd_t
+tool_notes:
+  list_log: >-
+    from and to are RFC 3339 times with a time zone, e.g.
+    2026-10-07T11:00:00+02:00 or 2026-10-07T09:00:00Z. Relative times
+    (-1h) and other formats (2026-10-07 11:00:00) are refused: compute
+    the time first.
 ```
 
 ```yaml
@@ -187,6 +193,13 @@ Notes:
   `readlog` is no longer needed when it reports 0.3.5 or later. The `--allow-read` and
   `--allow-write` options have no effect in version 0.3.5; do not use
   `--noauth`, which is meant for its HTTP mode.
+- `tool_notes` (chapter 4) tell agents what a tool's schema does not:
+  `systemd-mcp`'s `list_log` takes `from` and `to` as Go times, which
+  accept RFC 3339 only, and refuses "-1h" or "2026-10-07 11:00:00" with
+  "json: cannot unmarshal … of type time.Time". The setup package's
+  definition has this note. A definition of the same name in
+  `/etc/mcp-gateway/servers.d` replaces the package's whole definition:
+  copy its `tool_notes` into yours.
 - `firewalld-mcp` (0.1.0) only reads: `get_default_zone`,
   `get_active_zones`, `get_services_for_zone`, `get_service_info` and
   `is_default_zone`. It needs polkit's `…FirewallD1.info` (runtime

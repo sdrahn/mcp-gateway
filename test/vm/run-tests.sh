@@ -697,6 +697,15 @@ END
 
 	stool alice systemd list_log '{"unit":["mcp-gateway.service"],"exact_unit":true,"count":50,"pattern":"configuration valid"}'
 	check "systemd: list_log reads the system journal" succeeded_with "configuration valid"
+	# The definition's tool note: in the description, and the format it
+	# names is the one list_log takes.
+	out=$(runuser -u alice -- /usr/local/bin/mcpcall --server systemd --method tools/list --params '{}' 2>&1)
+	rc=$?
+	check "systemd: list_log's description has the tool note" succeeded_with "Administrator's note: from and to are RFC 3339 times"
+	stool alice systemd list_log "{\"from\":\"$(date -Is -d '-1 hour')\",\"count\":5}"
+	check "systemd: list_log takes from as the note says" test "$rc" = 0
+	mcp-gateway-admin doctor --server systemd >/root/vmtest/doctor-systemd.txt 2>&1
+	check "doctor: the systemd tool notes name its tools" bash -c '! grep -q "tool_notes name tools" /root/vmtest/doctor-systemd.txt'
 	stool_approved alice systemd change_unit_state '{"name":"mcpgw-vmtest.service","action":"start","timeout":30}'
 	check "systemd: change_unit_state after an approval" test "$rc" = 0
 	# systemd-mcp reports the start job finished; the unit's state may

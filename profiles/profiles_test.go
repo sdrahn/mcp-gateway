@@ -163,3 +163,16 @@ func TestGatewayServerRoles(t *testing.T) {
 		}
 	}
 }
+
+// The systemd definition's tool note reaches the definition (the VM test
+// checks it against the server's tools and the format list_log takes).
+func TestToolNotes(t *testing.T) {
+	bs, err := config.LoadBackends(vendorDir(t, "systemd"), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	note := bs["systemd"].ToolNotes["list_log"]
+	if !strings.HasPrefix(note, "from and to are RFC 3339 times") || strings.Contains(note, "\n") || len(note) > config.MaxToolNote {
+		t.Errorf("list_log note %q", note)
+	}
+}

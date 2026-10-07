@@ -9,6 +9,12 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- The `systemd` setup package's definition has a tool note for
+  `list_log`: `from` and `to` are RFC 3339 times with a time zone;
+  relative times and other formats are refused. Agents no longer guess
+  "-1h" or "2026-10-07 11:00:00". A definition of your own in
+  `/etc/mcp-gateway/servers.d` replaces the package's: copy the note.
+
 - Denials say why and what instead (roadmap step 29, part 2). A call a
   role allows, but not with these arguments, is denied with "no matching
   permission: the arguments are outside what your roles allow (path:
