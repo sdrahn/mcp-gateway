@@ -7,6 +7,19 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Changed
+
+- Denials say why and what instead (roadmap step 29, part 2). A call a
+  role allows, but not with these arguments, is denied with "no matching
+  permission: the arguments are outside what your roles allow (path:
+  ^/home/alice/)" (the patterns of each such permission; the values sent
+  are not repeated). An `arg_constraints` obligation names the pattern
+  too ("argument "path" violates a constraint: it must match ^/srv/").
+  A denied call that names the gateway's own files through another
+  server adds where to look instead: the `gateway-admin` server's
+  `show_config`, or `gateway-docs` for the documentation. Reasons that
+  start with "no matching permission" keep that start.
+
 ### Added
 
 - Tool descriptions tell the agent what the user's roles allow (roadmap

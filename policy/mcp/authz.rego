@@ -489,4 +489,6 @@ decision := {"effect": "deny", "reason": "denied by policy"} if {
 	},
 } if {
 	count(approvable) > 0
+} else := {"effect": "deny", "reason": args_reason} if {
+	count(args_limits) > 0
 }

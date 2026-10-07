@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
@@ -112,4 +113,31 @@ func descriptions(t *testing.T, m *jsonrpc.Message) map[string]string {
 		out[tl.Name] = tl.Description
 	}
 	return out
+}
+
+// A denial of a call naming the gateway's files says where to look
+// instead, if that server is defined and is not the one called.
+func TestWithAdvice(t *testing.T) {
+	backends := map[string]*config.Backend{"fs": {}, "gateway-admin": {}, "gateway-docs": {}}
+	call := func(server string, args map[string]any) *callTarget {
+		return &callTarget{server: server, action: "tools.call", args: args}
+	}
+	for _, c := range []struct {
+		t        *callTarget
+		backends map[string]*config.Backend
+		want     string
+	}{
+		{call("fs", map[string]any{"path": "/etc/mcp-gateway/exec.d/x.yaml"}), backends,
+			"no matching permission; the gateway's configuration is shown by the gateway-admin server's show_config, not by other servers"},
+		{call("fs", map[string]any{"n": 3, "path": "/usr/share/mcp-gateway/docs/README.md"}), backends,
+			"no matching permission; the gateway's documentation is on the gateway-docs server (search_text, read_text_file)"},
+		{call("fs", map[string]any{"path": "/etc/passwd"}), backends, "no matching permission"},
+		{call("gateway-admin", map[string]any{"file": "/etc/mcp-gateway/gateway.yaml"}), backends, "no matching permission"},
+		{call("fs", map[string]any{"path": "/etc/mcp-gateway/x"}), map[string]*config.Backend{"fs": {}}, "no matching permission"},
+		{&callTarget{server: "fs", action: "resources.read", args: map[string]any{"uri": "/etc/mcp-gateway/x"}}, backends, "no matching permission"},
+	} {
+		if got := withAdvice("no matching permission", c.t, c.backends); got != c.want {
+			t.Errorf("%+v:\n got %q\nwant %q", c.t, got, c.want)
+		}
+	}
 }

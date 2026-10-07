@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -121,16 +123,15 @@ func ParseRate(s string) (Rate, error) {
 	return Rate{N: count, Per: per}, nil
 }
 
-// CheckArgs reports the first argument violating a constraint.
+// CheckArgs reports the first argument (by name) violating a constraint,
+// with the pattern it must match, so that the agent can correct the call;
+// the value is not repeated.
 func (c *Compiled) CheckArgs(args map[string]any) error {
-	for name, res := range c.ArgConstraints {
+	for _, name := range slices.Sorted(maps.Keys(c.ArgConstraints)) {
 		v, ok := args[name].(string)
-		if !ok {
-			return fmt.Errorf("argument %q violates a constraint", name)
-		}
-		for _, re := range res {
-			if !re.MatchString(v) {
-				return fmt.Errorf("argument %q violates a constraint", name)
+		for _, re := range c.ArgConstraints[name] {
+			if !ok || !re.MatchString(v) {
+				return fmt.Errorf("argument %q violates a constraint: it must match %s", name, re)
 			}
 		}
 	}

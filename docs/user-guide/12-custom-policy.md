@@ -21,7 +21,7 @@ trees into one policy:
 
 | Directory | Contents |
 |---|---|
-| `/usr/share/mcp-gateway/policy/` | the shipped logic: `mcp/authz.rego`, `mcp/filter.rego`, `mcp/approvals.rego`, `mcp/log.rego` |
+| `/usr/share/mcp-gateway/policy/` | the shipped logic: `mcp/authz.rego` (with `mcp/reasons.rego`, the reasons of denials), `mcp/filter.rego`, `mcp/approvals.rego`, `mcp/log.rego` |
 | `/etc/mcp-gateway/policy/` | your files: `rbac/data.json`, and any `.rego` and `data.json` files you add |
 
 - A `.rego` file defines rules in the package it declares
