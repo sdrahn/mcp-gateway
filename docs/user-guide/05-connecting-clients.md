@@ -35,14 +35,10 @@ the policy changes (`notifications/tools/list_changed` and friends).
 On the aggregated endpoint the agent is also told what the principal
 may do, so it need not find out by trying:
 
-- the **instructions** (`initialize`) name the servers the principal may
-  use, each with its number of tools and the first sentence of its own
-  instructions ("Servers you may use: fs (8 tools: Files below
-  /home/alice); …"), within about 600 tokens, since clients put
-  instructions into every request. Servers whose tools depend on the
-  user's account (instance discovery, sign-in) are named without them.
-  If that takes longer than 2 seconds, only the pointer to the tool
-  below is given;
+- the **instructions** (`initialize`) tell the agent to call the tool
+  below to see what the user's roles allow. They are a fixed text,
+  short since clients put instructions into every request, and
+  connecting asks no server;
 - the gateway's own tool **`gateway_capabilities`** (no arguments; one
   underscore, so no server's tool has its name) returns everything: per
   server, its instructions and its tools with their descriptions, which

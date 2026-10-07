@@ -1532,10 +1532,8 @@ a permission that is not a deny and needs no approval. It returns the
 principal's servers (from the filtered `tools/list`), each with its
 instructions (from shared discovery) and its tools with their
 descriptions and hints, and where the gateway's own files are. The
-instructions of an aggregated session add a short form of the same:
-the servers with visible tools (shared discovery and one `visible`
-query, bounded to 2 seconds), servers whose tools depend on the account
-by name only, within 2,400 characters.
+instructions of an aggregated session point to it; they stay a fixed
+text, so that connecting asks neither servers nor policy.
 
 ### 6.4 RBAC data
 
@@ -2843,8 +2841,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       section).
 
 29. **Tools that tell the agent what it may do** (0.17; done:
-    descriptions and `tool_notes`, denials, per-principal instructions
-    and `gateway_capabilities`, §6.3):
+    descriptions and `tool_notes`, denials, `gateway_capabilities`
+    with a pointer in the instructions, §6.3):
     - the problem: an agent learns what a user may do only by trying.
       The gateway's instructions are a fixed text (name prefixes, where
       the gateway's configuration and documentation are); a backend's
@@ -2877,7 +2875,10 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       instructions), after the fixed text of today. Within a budget
       (about 600 tokens; longer server instructions are cut, with a
       pointer to the capabilities tool), since clients put instructions
-      into every request;
+      into every request. (Not done: the instructions only point to the
+      capabilities tool. A per-principal list at connect would have
+      cost each first connect up to the discovery of every server, for
+      what the tool gives on demand);
     - a capabilities tool: `gateway_capabilities` (offered to every
       principal, decided by policy like any tool) returns the
       principal's servers, tools, argument limits and approval rules in

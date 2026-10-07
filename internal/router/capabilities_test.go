@@ -73,53 +73,17 @@ func instructions(t *testing.T, c *client) string {
 	return res.Instructions
 }
 
-// An aggregated session's instructions name the servers the principal
-// may use, with the first sentence of their instructions where shared
-// discovery has them, and point to gateway_capabilities.
-func TestOverviewInInstructions(t *testing.T) {
-	r, _ := sharedRouter(t)
-	got := instructions(t, connect(t, r, alice(), "", nil))
-	for _, want := range []string{
-		"Servers you may use: fs (3 tools: The fs server serves files); git (tools depend on your account); " +
-			"tmp (tools depend on your account).",
-		capabilitiesTool + " lists what your roles allow",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("missing %q in %q", want, got)
-		}
+// An aggregated session's instructions point to gateway_capabilities, a
+// fixed text that asks no server; a server endpoint's are the server's.
+func TestInstructionsPointToCapabilities(t *testing.T) {
+	r, l := sharedRouter(t)
+	if got := instructions(t, connect(t, r, alice(), "", nil)); !strings.Contains(got, "Call "+capabilitiesTool+" to see what your roles allow") {
+		t.Errorf("instructions %q", got)
 	}
-
-}
-
-func TestOverviewBudget(t *testing.T) {
-	r, _ := sharedRouter(t)
-	for _, b := range r.Backends {
-		b.Discovery = config.DiscoveryInstance
+	if n := len(l.started("fs")); n != 0 {
+		t.Errorf("initialize started %d fs instances", n)
 	}
-	for i := range 200 {
-		name := "server" + strings.Repeat("x", 20) + string(rune('a'+i%26)) + string(rune('a'+i/26))
-		r.Backends[name] = &config.Backend{Name: name, Discovery: config.DiscoveryInstance}
-	}
-	got := instructions(t, connect(t, r, alice(), "", nil))
-	if !strings.Contains(got, " more."+" ") || !strings.Contains(got, capabilitiesTool) {
-		t.Errorf("not cut: %q", got)
-	}
-	if len(got) > len(aggregatedInstructions(aggregatedEndpoint(r.Backends)))+overviewBudget {
-		t.Errorf("over budget: %d", len(got))
-	}
-}
-
-func TestFirstSentence(t *testing.T) {
-	for in, want := range map[string]string{
-		"":                                 "",
-		"Reads files.":                     "Reads files",
-		"Reads files. Paths are absolute.": "Reads files",
-		"Reads\n  files. x":                "Reads files",
-		"v1.2 reads files":                 "v1.2 reads files",
-		strings.Repeat("é", 200):           strings.Repeat("é", 159) + "…",
-	} {
-		if got := firstSentence(in); got != want {
-			t.Errorf("firstSentence(%q) = %q, want %q", in, got, want)
-		}
+	if got := instructions(t, connect(t, r, alice(), "fs", nil)); strings.Contains(got, capabilitiesTool) {
+		t.Errorf("server endpoint instructions %q", got)
 	}
 }

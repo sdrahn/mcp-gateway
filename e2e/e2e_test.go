@@ -519,8 +519,7 @@ func TestAggregatedEndpoint(t *testing.T) {
 	})
 
 	t.Run("the instructions and gateway_capabilities say what the roles allow", func(t *testing.T) {
-		if !strings.Contains(string(init.Result), "Servers you may use: fs (8 tools: ") ||
-			!strings.Contains(string(init.Result), "notes (4 tools: ") {
+		if !strings.Contains(string(init.Result), "Call gateway_capabilities to see what your roles allow") {
 			t.Errorf("initialize: %s", init.Result)
 		}
 		text, isErr := toolResult(t, c.call(20, "gateway_capabilities", map[string]any{}))

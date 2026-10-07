@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/audit"
 	"github.com/sdrahn/mcp-gateway/internal/config"
@@ -13,9 +12,10 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 )
 
-// The gateway's own tool gateway_capabilities, and the per-principal
-// overview in an aggregated session's instructions, tell the agent what
-// the principal's roles allow (docs/architecture.md, roadmap step 29).
+// The gateway's own tool gateway_capabilities tells the agent of an
+// aggregated session what the principal's roles allow
+// (docs/architecture.md, roadmap step 29); the session's instructions
+// point to it.
 // Its name has no "__", so no server's tool can have it.
 
 const capabilitiesTool = "gateway_capabilities"
@@ -23,16 +23,8 @@ const capabilitiesTool = "gateway_capabilities"
 // capabilitiesResource is the tool as policy sees it (policy/mcp/builtin.rego).
 var capabilitiesResource = pep.Resource{Server: "mcp-gateway", Kind: "tool", Name: "capabilities", Builtin: true}
 
-const (
-	// overviewWait bounds the per-principal overview at initialize; a
-	// slower one gives way to the fixed instructions.
-	overviewWait = 2 * time.Second
-	// overviewBudget bounds the overview: clients put instructions into
-	// every request (about 600 tokens).
-	overviewBudget = 2400
-	// maxCapabilities bounds the tool's text.
-	maxCapabilities = 64 << 10
-)
+// maxCapabilities bounds the tool's text.
+const maxCapabilities = 64 << 10
 
 func capabilitiesItem() map[string]json.RawMessage {
 	raw := map[string]json.RawMessage{}
@@ -136,88 +128,4 @@ func (s *Session) serverInstructions(ctx context.Context, b *config.Backend) str
 		return ""
 	}
 	return init.Instructions
-}
-
-// overview is the per-principal part of an aggregated session's
-// instructions: the servers whose tools (from shared discovery) the
-// principal may see, each with the first sentence of its instructions,
-// within overviewBudget, and a pointer to gateway_capabilities. If that
-// cannot be had within overviewWait, only the pointer.
-func (s *Session) overview(ctx context.Context) string {
-	pointer := " " + capabilitiesTool + " lists what your roles allow on each server, with each server's instructions; " +
-		"each tool's description says the limits your roles set on it."
-	ctx, cancel := context.WithTimeout(ctx, overviewWait)
-	defer cancel()
-	ep := s.endpoint()
-	spec := listSpecs["tools/list"]
-	var resources []pep.Resource
-	userDependent := map[string]bool{}
-	for _, server := range ep.order {
-		b := ep.backends[server]
-		if b == nil || b.Discovery != config.DiscoveryShared || s.mustSignIn(b) {
-			userDependent[server] = true
-			continue
-		}
-		items, err := s.r.sharedList(ctx, b, "tools/list", spec)
-		if err != nil {
-			if ctx.Err() != nil {
-				return pointer
-			}
-			continue
-		}
-		for _, it := range items {
-			resources = append(resources, pep.Resource{Server: server, Kind: "tool", Name: it.name, Privileged: s.r.privileged(server)})
-		}
-	}
-	visible := map[string]int{}
-	if len(resources) > 0 {
-		vs, err := s.r.PDP.Visible(ctx, s.snapshotPrincipal(), resources)
-		if err != nil {
-			return pointer
-		}
-		for _, r := range vs {
-			visible[r.Server]++
-		}
-	}
-	var parts []string
-	for _, server := range ep.order {
-		switch {
-		case visible[server] > 0:
-			part := fmt.Sprintf("%s (%d tools", server, visible[server])
-			if first := firstSentence(s.serverInstructions(ctx, ep.backends[server])); first != "" {
-				part += ": " + first
-			}
-			parts = append(parts, part+")")
-		case userDependent[server]:
-			parts = append(parts, server+" (tools depend on your account)")
-		}
-	}
-	if len(parts) == 0 {
-		return pointer
-	}
-	out := " Servers you may use: "
-	for i, part := range parts {
-		if len(out)+len(part)+len(pointer) > overviewBudget {
-			out += fmt.Sprintf("and %d more", len(parts)-i)
-			break
-		}
-		if i > 0 {
-			out += "; "
-		}
-		out += part
-	}
-	return out + "." + pointer
-}
-
-// firstSentence is the first sentence of s, at most 160 characters.
-func firstSentence(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if i := strings.Index(s, ". "); i >= 0 {
-		s = s[:i]
-	}
-	s = strings.TrimSuffix(s, ".")
-	if r := []rune(s); len(r) > 160 {
-		s = string(r[:159]) + "…"
-	}
-	return s
 }
