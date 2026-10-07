@@ -5,6 +5,19 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Fixed
+
+- The doctor run through the `gateway-admin` server (an agent's health
+  check) now compares the programs' SELinux labels with the policy's:
+  it looked for `matchpathcon` and `restorecon` only in the server's
+  `PATH`, which has no `/usr/sbin`, and reported "install selinux-tools"
+  although the package was installed. It now looks in `/usr/sbin` and
+  `/sbin` too, likewise for `ausearch` (SELinux denials from the audit
+  log instead of the journal) and `semanage`, and says why when the
+  tools cannot be run. The SELinux package recommends `selinux-tools`.
+
 ## v0.15.0 — 2026-10-06
 
 Token scopes can now narrow what a remote user's roles allow. An
