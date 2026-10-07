@@ -179,7 +179,7 @@ func TestReadText(t *testing.T) {
 			t.Errorf("%v: %q, want %q", tc.args, got, tc.want)
 		}
 	}
-	mustFail(t, call(t, s, "read_text_file", map[string]any{"path": "lines", "head": 1, "tail": 1}), "not both")
+	mustFail(t, call(t, s, "read_text_file", map[string]any{"path": "lines", "head": 1, "tail": 1}), "one of head, tail")
 	mustFail(t, call(t, s, "read_text_file", map[string]any{"path": "bin"}), "read_media_file")
 	mustFail(t, call(t, s, "read_text_file", map[string]any{"path": "."}), "is a directory")
 	mustFail(t, call(t, s, "read_text_file", map[string]any{"path": "missing"}), "no such file")
@@ -384,7 +384,7 @@ func TestReadOnlyAndAnnotations(t *testing.T) {
 	for _, tl := range s.toolList() {
 		names[tl["name"].(string)] = tl["annotations"].(map[string]any)
 	}
-	if len(names) != 16 {
+	if len(names) != 17 {
 		t.Errorf("%d tools", len(names))
 	}
 	for name, ann := range names {

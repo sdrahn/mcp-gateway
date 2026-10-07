@@ -255,7 +255,11 @@ agent connected to the gateway can look up how something is configured
 or what an error means ("the snapper tools do not show up: what does the
 gateway need for that?"). The server tells the agent where
 troubleshooting and the reference are; it has the reading tools of the
-file server (chapter 4).
+file server (chapter 4). Its instructions tell the agent to search
+first (`search_text`) and read only the lines around a match
+(`read_text_file` with `offset` and `limit`): a lookup costs a few
+thousand tokens instead of whole chapters (`architecture.md` alone is
+about 40,000).
 
 For the configuration in force on the machine, the agent needs the
 `gateway-admin` server (role `gateway-admin`): its `show_config` shows

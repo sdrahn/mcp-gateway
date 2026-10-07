@@ -734,16 +734,19 @@ sandbox:
 ```
 
 Its tools have the names and arguments of the MCP project's reference
-filesystem server, which agents know:
+filesystem server, which agents know, and two additions (`search_text`,
+line ranges in `read_text_file`) that let an agent read only what it
+needs:
 
 | Tool | Does |
 |---|---|
-| `read_text_file` | a text file, whole or its first (`head`) or last (`tail`) lines |
+| `read_text_file` | a text file, whole, its first (`head`) or last (`tail`) lines, or `limit` lines from line `offset` (ending with `[lines 120-160 of 3021]`) |
 | `read_media_file` | an image, audio or other binary file, base64 with its MIME type |
 | `read_multiple_files` | several text files; one that fails does not fail the others |
 | `list_directory`, `list_directory_with_sizes` | a directory's entries (`[DIR]`, `[FILE]`, `[LINK]`), with sizes |
 | `directory_tree` | the tree below a directory as JSON, without following links |
 | `search_files` | paths matching a glob: `*.go` at any depth, `src/**/*.go` relative to the start; `excludePatterns` |
+| `search_text` | lines of text files below a path, or in one file, containing `query` (case-insensitive unless `caseSensitive`; a regular expression with `regexp: true`, RE2 syntax), with file, line number and `context` lines (2); at most `maxResults` (50) matching lines and `--max-read` bytes; skips binary files and files larger than `--max-read`, follows no links; `excludePatterns` |
 | `get_file_info` | type, size, permissions, times, MIME type |
 | `list_allowed_directories` | the directories the server works in |
 | `write_file` | creates or replaces a file, at once (temporary file renamed over it) |
@@ -762,7 +765,7 @@ Options, for a copy of the definition in `/etc/mcp-gateway/servers.d`:
 | `--root DIR` | current directory | a directory the tools work in; repeatable; relative paths are relative to the first |
 | `--read-only` | off | offer only the reading tools |
 | `--instructions TEXT` | | what the files are, for the client's model (the `gateway-docs` server uses it; chapter 10, "Asking an agent") |
-| `--max-read BYTES` | 10 MiB | what one call reads (summed over `read_multiple_files`); larger files are read with `head`/`tail` |
+| `--max-read BYTES` | 10 MiB | what one call reads (summed over `read_multiple_files`); larger files are read with `head`/`tail` or `offset`/`limit`, and not searched |
 | `--max-write BYTES` | 10 MiB | what one call writes |
 | `--max-entries N` | 10000 | entries a listing, tree or search returns |
 
@@ -772,7 +775,7 @@ anywhere else. A `--root` on the read-only root file system (`/usr`,
 server's instructions; changes there are refused with "read-only file
 system (on a transactional system, … change only through
 transactional-update …)", also where a path below a writable root reaches
-a read-only mount. `search_files` and `directory_tree` do not enter
+a read-only mount. `search_files`, `search_text` and `directory_tree` do not enter
 btrfs `.snapshots` directories (a copy of the tree per snapper snapshot)
 unless the path given is inside one.
 
