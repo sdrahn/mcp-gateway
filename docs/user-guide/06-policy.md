@@ -149,7 +149,9 @@ For a request, all permissions of all the principal's roles whose
    ("once" and "session" by default; with several such permissions, only
    the scopes all of them offer, and "once" always), with out-of-band as
    fallback;
-5. otherwise → **deny** ("no matching permission").
+5. otherwise → **deny** ("no matching permission"; when a permission
+   names the tool but its `args` do not match, the reason adds the
+   patterns it allows, so that the agent can correct the call).
 
 Everything not explicitly allowed is denied. If OPA does not answer
 within `policy.timeout`, or answers something invalid, the request is

@@ -61,11 +61,12 @@ with placeholders.
 | Message | Meaning | Where |
 |---|---|---|
 | `no matching permission` | no role of the principal allows the call | [10, "Calls fail"](user-guide/10-operations.md#calls-fail) |
+| `no matching permission: the arguments are outside what your roles allow (…)` | a role allows the tool, but not with these arguments; the allowed patterns follow | [10, "Calls fail"](user-guide/10-operations.md#calls-fail) |
 | `denied by policy` | a permission with `effect: "deny"` matched | [10, "Calls fail"](user-guide/10-operations.md#calls-fail) |
 | `policy evaluation failed` | OPA did not answer: everything is denied | [10, "Calls fail"](user-guide/10-operations.md#calls-fail) |
 | `approval via url required but not available` | no usable approval channel | [7, "Channels"](user-guide/07-approvals.md#channels) |
 | `declined by user`, `approval failed` | the approver denied, or the approval timed out | [7, "The flow"](user-guide/07-approvals.md#the-flow) |
-| `rate limit exceeded`, `output withheld: …`, `argument "x" violates a constraint` | an obligation of the permission | [6, "Obligations"](user-guide/06-policy.md#obligations) |
+| `rate limit exceeded`, `output withheld: …`, `argument "x" violates a constraint: it must match …` | an obligation of the permission | [6, "Obligations"](user-guide/06-policy.md#obligations) |
 | `backend unavailable; retry in …` | the server's instance crashed or does not start | [10, "Instances do not start"](user-guide/10-operations.md#instances-do-not-start) |
 | `unknown server "x"` | no server of that name is defined | [10, "The agent cannot connect"](user-guide/10-operations.md#the-agent-cannot-connect) |
 | `session limit reached (64)`, `instance limit reached (32)` | a limit of the principal | [3, "Limits"](user-guide/03-configuration.md#limits) |

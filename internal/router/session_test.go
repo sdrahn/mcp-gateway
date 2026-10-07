@@ -574,7 +574,7 @@ func TestObligations(t *testing.T) {
 	if _, isErr := call(6, "read_path", map[string]any{"path": "/ok/a"}); isErr {
 		t.Error("constrained call with a valid argument refused")
 	}
-	if text, isErr := call(7, "read_path", map[string]any{"path": "/etc/passwd"}); !isErr || !strings.Contains(text, "violates a constraint") {
+	if text, isErr := call(7, "read_path", map[string]any{"path": "/etc/passwd"}); !isErr || !strings.Contains(text, `violates a constraint: it must match ^/ok/`) || strings.Contains(text, "/etc/passwd") {
 		t.Errorf("arg constraint: %q %v", text, isErr)
 	}
 	if _, isErr := call(8, "read_audited", map[string]any{"q": "visible"}); isErr {

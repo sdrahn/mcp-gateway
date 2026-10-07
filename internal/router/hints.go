@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 )
 
@@ -135,4 +136,39 @@ func describe(desc, text string) string {
 		return text
 	}
 	return desc + "\n\n" + text
+}
+
+// gatewayFiles are where the gateway's configuration and documentation
+// lie; agents try to read them through other servers' file tools.
+var gatewayFiles = []struct{ prefix, server, advice string }{
+	{"/etc/mcp-gateway", "gateway-admin", "the gateway's configuration is shown by the gateway-admin server's show_config, not by other servers"},
+	{"/usr/etc/mcp-gateway", "gateway-admin", "the gateway's configuration is shown by the gateway-admin server's show_config, not by other servers"},
+	{"/usr/share/mcp-gateway/docs", "gateway-docs", "the gateway's documentation is on the gateway-docs server (search_text, read_text_file)"},
+	{"/usr/share/mcp-gateway", "gateway-admin", "the gateway's configuration is shown by the gateway-admin server's show_config, not by other servers"},
+}
+
+// withAdvice adds to a denial's reason where to look instead, when a
+// string argument names the gateway's own files and the server for them
+// is defined (and is not the one called), whether or not the session
+// reaches it.
+func withAdvice(reason string, t *callTarget, backends map[string]*config.Backend) string {
+	if t == nil || t.action != "tools.call" {
+		return reason
+	}
+	for _, name := range slices.Sorted(maps.Keys(t.args)) {
+		v, ok := t.args[name].(string)
+		if !ok {
+			continue
+		}
+		for _, f := range gatewayFiles {
+			if !strings.HasPrefix(v, f.prefix) || t.server == f.server || backends[f.server] == nil {
+				continue
+			}
+			if reason == "" {
+				reason = "denied by policy"
+			}
+			return reason + "; " + f.advice
+		}
+	}
+	return reason
 }

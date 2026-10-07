@@ -55,4 +55,12 @@ func TestToolHints(t *testing.T) {
 	if _, ok := desc["delete_file"]; ok {
 		t.Errorf("delete_file listed: %v", desc)
 	}
+
+	// A call outside the constraint is denied with what the roles allow,
+	// without the value sent.
+	text, isErr := toolResult(t, c.call(3, "read_text_file", map[string]any{"path": "/etc/hostname"}))
+	want := "no matching permission: the arguments are outside what your roles allow (path: ^" + root + "/docs/)"
+	if !isErr || !strings.Contains(text, want) || strings.Contains(text, "/etc/hostname") {
+		t.Errorf("denial: %q, want %q", text, want)
+	}
 }

@@ -922,7 +922,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		if dec.OutsideScopes {
 			return s.scopeDenial(ctx, m.Method, dec)
 		}
-		return s.denial(m.Method, dec.Reason)
+		return s.denial(m.Method, withAdvice(dec.Reason, t, s.r.backends()))
 	}
 	if len(reidentified) > 0 {
 		if err := setArguments(params, t.args, reidentified); err != nil {

@@ -2828,8 +2828,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       reads the docs through the gateway by outline (outline, then the
       section).
 
-29. **Tools that tell the agent what it may do** (0.17; part 1 done:
-    descriptions and `tool_notes`):
+29. **Tools that tell the agent what it may do** (0.17; parts 1 and 2
+    done: descriptions and `tool_notes`, denials):
     - the problem: an agent learns what a user may do only by trying.
       The gateway's instructions are a fixed text (name prefixes, where
       the gateway's configuration and documentation are); a backend's

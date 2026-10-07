@@ -58,3 +58,46 @@ test_hints_none if {
 		with data.mcp.profiles as {}
 	count(h) == 0
 }
+
+call(server, name, args) := {
+	"principal": bob,
+	"action": "tools.call",
+	"resource": tool(server, name),
+	"args": args,
+	"grants": [],
+}
+
+# A denial for arguments outside the roles' constraints names them
+# (expanded, one per permission), never the arguments sent.
+test_reason_names_arg_limits if {
+	d := data.mcp.authz.decision with input as call("systemd", "get_file", {"path": "/run/netns/x"})
+		with data.mcp.rbac as rbac
+		with data.mcp.profiles as {}
+	d.effect == "deny"
+	d.reason == "no matching permission: the arguments are outside what your roles allow (path: ^/(etc|usr/lib)/systemd/)"
+	not contains(d.reason, "/run/netns")
+
+	w := data.mcp.authz.decision with input as call("fs", "write_file", {"path": "/etc/x"})
+		with data.mcp.rbac as rbac
+		with data.mcp.profiles as {}
+	w.reason == "no matching permission: the arguments are outside what your roles allow (path: ^/home/bob/; or path: ^/srv/share/)"
+}
+
+# Without a permission naming the tool, and for an explicit deny, the
+# reasons stay as they were; arguments within the limits are allowed.
+test_reason_unchanged_otherwise if {
+	d := data.mcp.authz.decision with input as call("systemd", "stop_unit", {})
+		with data.mcp.rbac as rbac
+		with data.mcp.profiles as {}
+	d.reason == "no matching permission"
+
+	x := data.mcp.authz.decision with input as call("fs", "delete_file", {"path": "/home/bob/x"})
+		with data.mcp.rbac as rbac
+		with data.mcp.profiles as {}
+	x.reason == "denied by policy"
+
+	a := data.mcp.authz.decision with input as call("systemd", "get_file", {"path": "/etc/systemd/system.conf"})
+		with data.mcp.rbac as rbac
+		with data.mcp.profiles as {}
+	a.effect == "allow"
+}

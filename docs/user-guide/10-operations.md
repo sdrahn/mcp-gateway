@@ -347,6 +347,8 @@ for tool calls) says why; the audit record has the same reason.
 | Reason | Meaning and fix |
 |---|---|
 | `no matching permission` | no role of the principal allows this; add a permission or binding |
+| `no matching permission: the arguments are outside what your roles allow (path: ^/home/alice/)` | a role allows the tool, but not with these arguments: its `args` patterns follow (one per permission, joined with "; or "), so the agent can correct the call. The values sent are not repeated |
+| `…; the gateway's configuration is shown by the gateway-admin server's show_config, not by other servers` | the call named the gateway's own files (`/etc/mcp-gateway`, `/usr/share/mcp-gateway`) through another server; added when `gateway-admin` (or `gateway-docs`, for the documentation) is defined |
 | `denied by policy` | a permission with `effect: "deny"` matched |
 | `policy evaluation failed` | OPA did not answer in time or is down: `systemctl status mcp-opa.service`, `journalctl -u mcp-opa.service`; with a signed bundle, check that it verifies |
 | `invalid policy decision` / `invalid obligations` | custom policy produced something the gateway cannot use; see the gateway log |
@@ -355,7 +357,7 @@ for tool calls) says why; the audit record has the same reason.
 | `approval failed` | the approval timed out (`approval_timeout`) or the agent's client failed the elicitation |
 | `policy did not accept the approval` | a grant was created but policy still asks (custom policy) |
 | `rate limit exceeded` | a `rate_limit` obligation; wait |
-| `argument "x" violates a constraint` | an `arg_constraints` obligation |
+| `argument "x" violates a constraint: it must match …` | an `arg_constraints` obligation; the pattern the argument must match follows |
 | `output withheld: result of N bytes exceeds the limit of M` | a `max_output_bytes` obligation |
 | `backend unavailable; retry in 8s` | the instance crashed or could not start and is backing off; read its journal (`journalctl -u 'mcp-<server>-*'`) |
 | `backend unavailable` | the instance died during the call |
