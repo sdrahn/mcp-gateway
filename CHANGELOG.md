@@ -21,6 +21,12 @@ minor release (with a warning) and removed in the next.
   written by hand) now gets "set selinux_type: mcpsrv_systemd_t" instead
   of "relabel it: restorecon", which would have let the program start
   in the generic domain without the system bus.
+- `mcp-gateway-admin doctor --server NAME` (and the `doctor` tool of the
+  `gateway-admin` server with `server`) checks only that server: the
+  gateway's own checks (services, state files, policy, TLS, firewall,
+  principals, approver groups) are left out, the configuration and the
+  role data are shown only when they fail, SELinux denials only of the
+  server's domain, and program labels only of its program and helpers.
 
 ## v0.16.0 — 2026-10-07
 

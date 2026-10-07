@@ -448,8 +448,9 @@ func otherServersProgram(r Result, path, cur, exp, owner, domain string, readOnl
 	return r
 }
 
-// ProgramLabels checks that each server's program, and the other
-// TypedPrograms that are installed, carry the SELinux type the loaded
+// ProgramLabels checks that each server's program, and the helpers
+// (TypedPrograms, or with doctor -server those of the server, HelpersOf)
+// that are installed, carry the SELinux type the loaded
 // policy gives their path (current: the file's type,
 // expected: the policy's, as matchpathcon tells; readOnly: whether the
 // path is on a read-only file system). A program installed or copied
@@ -457,7 +458,7 @@ func otherServersProgram(r Result, path, cur, exp, owner, domain string, readOnl
 // cannot start it in the server's domain (entrypoint denied), and the
 // server shows no tools. On a transactional system /usr is read-only and
 // the fix needs a new snapshot.
-func ProgramLabels(backends map[string]*config.Backend, current, expected func(path string) (string, error), readOnly func(path string) bool) []Result {
+func ProgramLabels(backends map[string]*config.Backend, helpers []string, current, expected func(path string) (string, error), readOnly func(path string) bool) []Result {
 	var out []Result
 	checked := 0
 	for _, name := range sortedKeys(backends) {
@@ -507,8 +508,8 @@ func ProgramLabels(backends map[string]*config.Backend, current, expected func(p
 			seen[b.Command[0]] = true
 		}
 	}
-	helpers := 0
-	for _, path := range TypedPrograms {
+	others := 0
+	for _, path := range helpers {
 		if seen[path] {
 			continue
 		}
@@ -519,7 +520,7 @@ func ProgramLabels(backends map[string]*config.Backend, current, expected func(p
 		exp, err := expected(path)
 		if err != nil || exp == "" || strings.HasPrefix(exp, "<<") || cur == exp {
 			if err == nil && cur == exp {
-				helpers++
+				others++
 			}
 			continue
 		}
@@ -531,9 +532,12 @@ func ProgramLabels(backends map[string]*config.Backend, current, expected func(p
 			Summary: fmt.Sprintf("%s is labeled %s, the policy says %s: it does not run in its domain", path, cur, exp),
 			Details: []string{"relabel it: " + fix}})
 	}
-	if len(out) == 0 && checked+helpers > 0 {
-		out = append(out, Result{Check: "program labels", Status: OK,
-			Summary: fmt.Sprintf("the %d servers' programs and %d other programs are labeled as the policy says", checked, helpers)})
+	if len(out) == 0 && checked+others > 0 {
+		sum := fmt.Sprintf("the %d servers' programs and %d other programs are labeled as the policy says", checked, others)
+		if len(helpers) == 0 {
+			sum = fmt.Sprintf("the %d servers' programs are labeled as the policy says", checked)
+		}
+		out = append(out, Result{Check: "program labels", Status: OK, Summary: sum})
 	}
 	return out
 }
@@ -561,6 +565,23 @@ var TypedPrograms = []string{
 	"/usr/lib/mcp-servers/mcp-server-fs",
 	"/usr/libexec/mcp-servers/mcp-server-fs",
 	"/usr/libexec/mcp-server-zypp/zypp-mcp-tool",
+}
+
+// serverHelpers are the TypedPrograms a server's program starts, by that
+// program: checked with the server alone (doctor -server).
+var serverHelpers = map[string][]string{
+	"/usr/bin/mcp-server-zypp": {"/usr/libexec/mcp-server-zypp/zypp-mcp-tool"},
+}
+
+// HelpersOf returns the helper programs of backends' programs.
+func HelpersOf(backends map[string]*config.Backend) []string {
+	var out []string
+	for _, name := range sortedKeys(backends) {
+		if b := backends[name]; len(b.Command) > 0 {
+			out = append(out, serverHelpers[b.Command[0]]...)
+		}
+	}
+	return out
 }
 
 // ReadOnlyRoot reports privileged servers on a system whose /usr is

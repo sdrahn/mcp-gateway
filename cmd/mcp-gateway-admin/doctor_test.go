@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -78,6 +79,36 @@ func TestDoctorOffline(t *testing.T) {
 	}
 	if r := got["polkit mcp-nobody-has-rules"]; r.Status != doctor.Warn || r.ID != "polkit" || r.Subject != "mcp-nobody-has-rules" {
 		t.Errorf("polkit: %+v", r)
+	}
+
+	// -server checks only that server: no gateway, OPA, state or
+	// principal checks; the configuration and the role data only if
+	// they fail (here the role data does).
+	out.Reset()
+	if rc := runDoctor([]string{"-config", cfg, "-policy-data", rbac, "-shipped-policy", "", "-no-start", "-json", "-server", "sys"}, &out, &errb); rc != 1 {
+		t.Errorf("-server sys: rc %d, want 1 (the role data fails)", rc)
+	}
+	rs = nil
+	if err := json.Unmarshal(out.Bytes(), &rs); err != nil {
+		t.Fatalf("-server: %v: %s", err, out.String())
+	}
+	var checks []string
+	for _, r := range rs {
+		checks = append(checks, r.Check)
+		switch {
+		case r.Check == "configuration", r.Check == "gateway status", r.Check == "policy", r.Check == "state files",
+			r.Check == "principals", strings.HasSuffix(r.Check, ".service"):
+			t.Errorf("-server sys ran %q: %+v", r.Check, r)
+		}
+	}
+	if !slices.Contains(checks, "role data") || !slices.Contains(checks, "polkit mcp-nobody-has-rules") {
+		t.Errorf("-server sys: %v", checks)
+	}
+	write("data.json", `{"roles": {"r": {"permissions": []}}, "bindings": {"users": {}}}`)
+	out.Reset()
+	runDoctor([]string{"-config", cfg, "-policy-data", rbac, "-shipped-policy", "", "-no-start", "-json", "-server", "sys"}, &out, &errb)
+	if strings.Contains(out.String(), `"role data"`) {
+		t.Errorf("-server sys shows valid role data: %s", out.String())
 	}
 
 	// An unknown -server stops after the configuration.
