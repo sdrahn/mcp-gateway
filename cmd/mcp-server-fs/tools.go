@@ -101,10 +101,13 @@ func (s *fileServer) tools() []tool {
 		"description": "glob patterns of paths to leave out (\"node_modules\", \"**/.git\")"}
 	return []tool{
 		{name: "read_text_file", title: "Read a text file",
-			description: "Read a text file whole, or its first (head) or last (tail) lines. Binary files: read_media_file.",
+			description: "Read a text file whole, its first (head) or last (tail) lines, or the lines from offset " +
+				"(limit of them), e.g. around a match of search_text. Binary files: read_media_file.",
 			input: obj(map[string]any{"path": pathArg,
-				"head": map[string]any{"type": "integer", "minimum": 1, "description": "only the first N lines"},
-				"tail": map[string]any{"type": "integer", "minimum": 1, "description": "only the last N lines"}}, "path"),
+				"head":   map[string]any{"type": "integer", "minimum": 1, "description": "only the first N lines"},
+				"tail":   map[string]any{"type": "integer", "minimum": 1, "description": "only the last N lines"},
+				"offset": map[string]any{"type": "integer", "minimum": 1, "description": "the first line to read (from 1)"},
+				"limit":  map[string]any{"type": "integer", "minimum": 1, "description": "how many lines from offset (default: to the end)"}}, "path"),
 			readOnly: true, idempotent: true, run: readTextFile},
 		{name: "read_file", alias: "read_text_file", title: "Read a file",
 			description: "Read a text file (older name of read_text_file).",
@@ -142,6 +145,7 @@ func (s *fileServer) tools() []tool {
 			output: obj(map[string]any{"matches": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 				"truncated": map[string]any{"type": "boolean"}}, "matches", "truncated"),
 			readOnly: true, idempotent: true, run: searchFiles},
+		searchTextTool(),
 		{name: "get_file_info", title: "File information",
 			description: "Type, size, permissions and times of a file or directory.",
 			input:       obj(map[string]any{"path": pathArg}, "path"),
@@ -256,16 +260,25 @@ func (s *fileServer) target(args json.RawMessage, v any, p *string) (target, err
 
 func readTextFile(s *fileServer, _ context.Context, args json.RawMessage) (*result, error) {
 	var a struct {
-		Path string `json:"path"`
-		Head int    `json:"head"`
-		Tail int    `json:"tail"`
+		Path   string `json:"path"`
+		Head   int    `json:"head"`
+		Tail   int    `json:"tail"`
+		Offset int    `json:"offset"`
+		Limit  int    `json:"limit"`
 	}
 	t, err := s.target(args, &a, &a.Path)
 	if err != nil {
 		return nil, err
 	}
-	if a.Head < 0 || a.Tail < 0 || (a.Head > 0 && a.Tail > 0) {
-		return nil, errors.New("give head or tail (a positive number of lines), not both")
+	if a.Head < 0 || a.Tail < 0 || a.Offset < 0 || a.Limit < 0 {
+		return nil, errors.New("head, tail, offset and limit are positive numbers of lines")
+	}
+	ranged := a.Offset > 0 || a.Limit > 0
+	if (a.Head > 0 && a.Tail > 0) || (ranged && (a.Head > 0 || a.Tail > 0)) {
+		return nil, errors.New("give one of head, tail, or offset and limit")
+	}
+	if ranged {
+		return s.readRange(t, max(a.Offset, 1), a.Limit)
 	}
 	b, err := s.readText(t, a.Head, a.Tail, s.maxRead)
 	if err != nil {
@@ -316,6 +329,58 @@ func (s *fileServer) readText(t target, head, tail int, max int64) ([]byte, erro
 		return nil, fmt.Errorf("%s: not a text file (%s): read it with read_media_file", t.full, mimeType(t.rel, b))
 	}
 	return b, nil
+}
+
+// readRange reads limit lines (0: to the end) of t from line offset,
+// up to maxRead bytes, and says which lines it holds of how many.
+func (s *fileServer) readRange(t target, offset, limit int) (*result, error) {
+	root, err := t.dir.open()
+	if err != nil {
+		return nil, explain(t, err)
+	}
+	f, err := root.Open(t.rel)
+	if err != nil {
+		return nil, explain(t, err)
+	}
+	defer func() { _ = f.Close() }()
+	if fi, err := f.Stat(); err != nil {
+		return nil, explain(t, err)
+	} else if fi.IsDir() {
+		return nil, fmt.Errorf("%s: is a directory (list_directory lists it)", t.full)
+	}
+	br := bufio.NewReader(f)
+	var out []byte
+	n, last := 0, 0
+	for {
+		line, err := br.ReadBytes('\n')
+		if len(line) > 0 {
+			n++
+			if n >= offset && (limit == 0 || n < offset+limit) {
+				out = append(out, line...)
+				last = n
+				if int64(len(out)) > s.maxRead {
+					return nil, fmt.Errorf("%s: the lines asked for exceed the %s one call may read: give a smaller limit", t.full, size(s.maxRead))
+				}
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, explain(t, err)
+		}
+	}
+	if offset > n {
+		return nil, fmt.Errorf("%s: has %d lines, offset %d is past its end", t.full, n, offset)
+	}
+	if isBinary(out) {
+		return nil, fmt.Errorf("%s: not a text file (%s): read it with read_media_file", t.full, mimeType(t.rel, out))
+	}
+	body := string(out)
+	if body != "" && !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+	return text(body + fmt.Sprintf("[lines %d-%d of %d]", offset, last, n)), nil
 }
 
 func headLines(r io.Reader, n int, max int64) ([]byte, error) {

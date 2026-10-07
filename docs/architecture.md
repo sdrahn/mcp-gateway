@@ -2741,7 +2741,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       general, but tasks would need policy and obligations on their
       results, which the gateway does not offer yet).
 
-27. **Documentation that costs fewer tokens** (0.16):
+27. **Documentation that costs fewer tokens** (0.16; done):
     - the problem: agents read the gateway's documentation through the
       `gateway-docs` server (`mcp-server-fs --read-only` on the docs
       directory). Its only search, `search_files`, matches file names,

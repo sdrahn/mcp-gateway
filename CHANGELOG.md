@@ -7,6 +7,22 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- The file server (`mcp-server-fs`, and with it `gateway-docs`) finds
+  text: `search_text` returns the matching lines below a path or in one
+  file, with file, line number and context, capped (`maxResults`,
+  `--max-read`). `read_text_file` reads a range of lines (`offset`,
+  `limit`) and says which lines of how many it returned. The
+  `gateway-docs` instructions tell agents to search first and read only
+  around a match, so looking something up in the documentation costs a
+  few thousand tokens instead of whole files (roadmap step 27).
+  `search_text` is a new tool: the shipped roles `gateway-docs-reader`
+  and `viewer` allow it for `gateway-docs`, and the shipped role data's
+  `developer` for `fs`. An installed `/etc/mcp-gateway/policy/rbac/data.json`
+  is kept on update; to let users search their files with `fs`, add
+  `{"server": "fs", "tool": "search_text"}` to their role.
+
 ## v0.15.0 — 2026-10-06
 
 Token scopes can now narrow what a remote user's roles allow. An

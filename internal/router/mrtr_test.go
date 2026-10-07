@@ -103,6 +103,19 @@ func TestAgentApprovalForm(t *testing.T) {
 	}
 }
 
+// tampered returns state with one bit of its sealed bytes changed. (Not
+// its text: the decoder ignores the unused bits of the last character,
+// so changed text may decode to the same bytes.)
+func tampered(t *testing.T, state string) string {
+	t.Helper()
+	raw, err := base64.RawURLEncoding.DecodeString(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw[len(raw)/2] ^= 0x01
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
 // The gateway's state is bound to the principal, the endpoint, the call
 // and its parameters; anything else is invalid params.
 func TestAgentRequestState(t *testing.T) {
@@ -120,7 +133,7 @@ func TestAgentRequestState(t *testing.T) {
 		c      *client
 		params map[string]any
 	}{
-		"tampered":        {c, retry(call, ir.RequestState[:len(ir.RequestState)-2]+"AA", accept, formCaps)},
+		"tampered":        {c, retry(call, tampered(t, ir.RequestState), accept, formCaps)},
 		"garbage":         {c, retry(call, "s1", accept, formCaps)},
 		"other arguments": {c, retry(map[string]any{"name": "write_file", "arguments": map[string]any{"path": "/b"}}, ir.RequestState, accept, formCaps)},
 		"other principal": {other, retry(call, ir.RequestState, accept, formCaps)},
