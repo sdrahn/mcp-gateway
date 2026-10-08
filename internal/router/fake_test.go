@@ -292,7 +292,7 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 				"protocolVersion": "2025-06-18",
 				"capabilities":    caps,
 				"serverInfo":      map[string]any{"name": "fake-" + f.name},
-				"instructions":    "The " + f.name + " server serves files. Paths are absolute.",
+				"instructions":    "The " + f.name + " server serves files of " + f.p.Sub + ". Paths are absolute.",
 			})
 		case "tools/list":
 			if p.Cursor == "" {

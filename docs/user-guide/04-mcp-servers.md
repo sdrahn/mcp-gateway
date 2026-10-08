@@ -807,6 +807,16 @@ only what it needs:
 
 The last five change files; all tools carry MCP annotations (read-only,
 destructive), which `mcp-gateway-admin inspect` uses for its draft roles.
+
+The server's instructions tell the agent where the files are (the roots;
+nothing outside them can be reached), which tool to use for what (search
+with `search_text`, `search_files` or `outline_file` before reading whole
+files, then read the lines with `read_text_file`), and the limits of one
+call (`--max-read`, `--max-write`, `--max-entries`), which the tool
+descriptions repeat; `--instructions` text goes before them. On the
+aggregated endpoint, `gateway_capabilities` (chapter 5) passes them on
+from the user's own instance, since the shared discovery instance runs
+with the home `/`.
 Options, for a copy of the definition in `/etc/mcp-gateway/servers.d`:
 
 | Option | Default | Meaning |
@@ -883,12 +893,25 @@ commands:
 | `args.NAME.pattern` | — (required) | a regular expression the whole value must match |
 | `args.NAME.default` | none (required argument) | the value when the caller gives none |
 | `args.NAME.allow_dash` | `false` | let a value start with `-`; otherwise refused, so that it cannot become an option of the program |
-| `description` | the command line | what the tool does, for the agent |
+| `description` | | what the tool does, for the agent |
 | `timeout` | `60s` | then the program and everything it started are killed (at most `1h`) |
 | `max_output` | 1 MiB | bytes of stdout and stderr kept (at most 16 MiB); the rest is cut |
 | `read_only` | `false` | the MCP annotation (`readOnlyHint`); a hint for clients, never a permission |
 | `env` | none | variables beyond `PATH=/usr/sbin:/usr/bin:/sbin:/bin` and `LANG=C.UTF-8`; nothing else is passed on |
 | `dir` | `/` | the working directory |
+
+What the agent sees of a command: its `description`, then a line the
+server adds from the definition ("Runs: /usr/bin/journalctl --no-pager
+-u {unit} -n {lines}. Ends after 30 s; output (stdout and stderr
+together) up to 1 MiB."), the arguments with their patterns and
+descriptions, a title from the name (`unit_log`: "Unit log") and the
+structure of the result (`argv`, `exit_code`, `stdout`, `stderr`,
+`seconds`, `truncated`, `timed_out`). The server's instructions list the
+commands with the first line of each description, and say that there are
+no others; the shipped definition's `--instructions` adds how they run
+(as the user, without network, in `mcpsrv_exec_t`, so reading beyond
+`/etc`, `/usr` and the system's state may be refused). A definition of
+your own with other settings should say so in its own `--instructions`.
 
 There is no shell: `argv` is passed to the program as it is, one element
 one argument, so `;`, `$(…)`, quotes or globs in a value are just

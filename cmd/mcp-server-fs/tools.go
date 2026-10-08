@@ -46,11 +46,26 @@ func (s *fileServer) instructions() string {
 		mode = " On a read-only file system, so nothing there can be changed: " + strings.Join(ro, ", ") + "."
 	}
 	out := "Files below " + strings.Join(s.dirPaths(), ", ") + ". Paths are absolute, or relative to " +
-		s.dirs[0].path + "." + mode
+		s.dirs[0].path + "; nothing outside these directories can be reached (\"outside the allowed directories\")." +
+		mode + "\n\n" + s.guide()
 	if s.about != "" {
 		out = s.about + "\n\n" + out
 	}
 	return out
+}
+
+// guide says which tools to use for what, and the limits of one call:
+// agents otherwise read whole files to find one line, and learn the
+// limits from errors.
+func (s *fileServer) guide() string {
+	out := "To find something, search before reading whole files: search_text finds lines of text (with file and " +
+		"line number), search_files finds names, outline_file lists a Markdown file's headings; then read_text_file " +
+		"with offset and limit reads just those lines. Binary files: read_media_file. One call reads at most " +
+		size(s.maxRead) + " (read larger files in parts: head, tail, or offset and limit)"
+	if !s.readOnly {
+		out += ", writes at most " + size(s.maxWrite)
+	}
+	return out + fmt.Sprintf(" and lists or finds at most %d entries.", s.maxEntries)
 }
 
 // readOnlyDirs lists the allowed directories on read-only file systems.
@@ -102,7 +117,8 @@ func (s *fileServer) tools() []tool {
 	return []tool{
 		{name: "read_text_file", title: "Read a text file",
 			description: "Read a text file whole, its first (head) or last (tail) lines, or the lines from offset " +
-				"(limit of them), e.g. around a match of search_text. Binary files: read_media_file.",
+				"(limit of them), e.g. around a match of search_text. Give one of head, tail, or offset and limit. " +
+				"At most " + size(s.maxRead) + " per call. Binary files: read_media_file.",
 			input: obj(map[string]any{"path": pathArg,
 				"head":   map[string]any{"type": "integer", "minimum": 1, "description": "only the first N lines"},
 				"tail":   map[string]any{"type": "integer", "minimum": 1, "description": "only the last N lines"},
@@ -116,30 +132,33 @@ func (s *fileServer) tools() []tool {
 			description: "Read a file as base64 with its MIME type: images and audio as such, other files as a binary resource.",
 			input:       obj(map[string]any{"path": pathArg}, "path"), readOnly: true, idempotent: true, run: readMediaFile},
 		{name: "read_multiple_files", title: "Read several text files",
-			description: "Read several text files at once; a file that cannot be read does not fail the others.",
+			description: "Read several text files at once, at most " + size(s.maxRead) + " together; a file that " +
+				"cannot be read does not fail the others.",
 			input: obj(map[string]any{"paths": map[string]any{"type": "array", "minItems": 1,
 				"items": map[string]any{"type": "string"}, "description": "the files"}}, "paths"),
 			readOnly: true, idempotent: true, run: readMultipleFiles},
 		{name: "list_directory", title: "List a directory",
-			description: "List a directory's entries, each marked [DIR], [FILE] or [LINK].",
+			description: fmt.Sprintf("List a directory's entries, each marked [DIR], [FILE] or [LINK] (at most %d).", s.maxEntries),
 			input:       obj(map[string]any{"path": pathArg}, "path"), readOnly: true, idempotent: true, run: listDirectory},
 		{name: "list_dir", alias: "list_directory", title: "List a directory",
 			description: "List a directory's entry names, one per line (older form of list_directory).",
 			input:       obj(map[string]any{"path": pathArg}, "path"), readOnly: true, idempotent: true, run: listDir},
 		{name: "list_directory_with_sizes", title: "List a directory with sizes",
-			description: "List a directory's entries with their sizes and the total.",
+			description: fmt.Sprintf("List a directory's entries with their sizes and the total (at most %d entries).", s.maxEntries),
 			input: obj(map[string]any{"path": pathArg, "sortBy": map[string]any{"type": "string",
 				"enum": []string{"name", "size"}, "description": "order: name (default) or size, largest first"}}, "path"),
 			readOnly: true, idempotent: true, run: listDirectoryWithSizes},
 		{name: "directory_tree", title: "Directory tree",
-			description: "The directory tree below a path as JSON: [{name, type, children}]; symbolic links are not " +
-				"followed, btrfs .snapshots directories not entered (give a path inside one to look there).",
+			description: fmt.Sprintf("The directory tree below a path as JSON: [{name, type, children}], at most %d "+
+				"entries; symbolic links are not followed, btrfs .snapshots directories not entered (give a path "+
+				"inside one to look there). For a large tree, search_files or list_directory.", s.maxEntries),
 			input:    obj(map[string]any{"path": pathArg, "excludePatterns": excludes}, "path"),
 			readOnly: true, idempotent: true, run: directoryTree},
 		{name: "search_files", title: "Find files",
-			description: "Find files and directories below a path whose path matches a glob pattern: \"*.go\" " +
-				"matches names at any depth, \"src/**/*.go\" paths relative to the start. btrfs .snapshots " +
-				"directories are not searched unless the path is inside one.",
+			description: fmt.Sprintf("Find files and directories below a path whose path matches a glob pattern: \"*.go\" "+
+				"matches names at any depth, \"src/**/*.go\" paths relative to the start; at most %d matches. "+
+				"btrfs .snapshots directories are not searched unless the path is inside one. Text inside "+
+				"files: search_text.", s.maxEntries),
 			input: obj(map[string]any{"path": pathArg, "pattern": str("glob pattern"), "excludePatterns": excludes},
 				"path", "pattern"),
 			output: obj(map[string]any{"matches": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
@@ -165,8 +184,8 @@ func (s *fileServer) tools() []tool {
 				"directories", "readOnly"),
 			readOnly: true, idempotent: true, run: listAllowed},
 		{name: "write_file", title: "Write a file",
-			description: "Create a file, or replace its contents. The file is replaced at once (a temporary file renamed " +
-				"over it); its directory must exist.",
+			description: "Create a file, or replace its contents (at most " + size(s.maxWrite) + "). The file is " +
+				"replaced at once (a temporary file renamed over it); its directory must exist (create_directory).",
 			input:       obj(map[string]any{"path": pathArg, "content": str("the new contents")}, "path", "content"),
 			destructive: true, idempotent: true, run: writeFile},
 		{name: "edit_file", title: "Edit a file",
