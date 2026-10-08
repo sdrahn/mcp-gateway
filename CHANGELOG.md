@@ -7,6 +7,19 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v0.17.1 — 2026-10-08
+
+The gateway's own file and command servers tell agents how to use them,
+and `gateway_capabilities` shows each user the instructions of their own
+`fs`: in 0.17.0 it showed those of the shared discovery instance,
+"Files below /". Upgrading from 0.17.0 needs no changes. After the
+update, restart the gateway (`systemctl restart mcp-gateway.service`);
+running `fs` and `exec` instances get the new texts when they next
+start. A copy of the `exec` definition in
+`/etc/mcp-gateway/servers.d/exec.yaml` keeps working, without the new
+`--instructions` text; copy the shipped one
+(`/usr/share/mcp-gateway/servers.d/exec.yaml`) again to get it.
+
 ### Changed
 
 - `mcp-server-fs` tells agents how to use it: its instructions say which
