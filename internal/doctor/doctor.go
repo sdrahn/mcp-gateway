@@ -60,6 +60,7 @@ var checkIDs = map[string]string{
 	"principals":          "principals",
 	"program labels":      "program-labels",
 	"read-only /usr":      "read-only-usr",
+	"landlock":            "landlock",
 	"SELinux":             "selinux-denials",
 	"SELinux types":       "selinux-types",
 	"SELinux transitions": "selinux-transitions",
@@ -561,6 +562,8 @@ var TypedPrograms = []string{
 	"/usr/libexec/mcp-gateway/mcp-http-connector",
 	"/usr/lib/mcp-gateway/mcp-oauth-helper",
 	"/usr/libexec/mcp-gateway/mcp-oauth-helper",
+	"/usr/lib/mcp-gateway/mcp-landlock",
+	"/usr/libexec/mcp-gateway/mcp-landlock",
 	"/usr/lib/mcp-servers/mcp-server-exec",
 	"/usr/libexec/mcp-servers/mcp-server-exec",
 	"/usr/lib/mcp-servers/mcp-server-fs",
@@ -607,6 +610,49 @@ func ReadOnlyRoot(backends map[string]*config.Backend, readOnly bool) []Result {
 		// warning.
 		r.Summary = fmt.Sprintf("a transactional system: privileged servers %s cannot change /usr (e.g. install packages)", strings.Join(priv, ", "))
 		r.Details = []string{"install with transactional-update pkg install and reboot; see the user guide, chapter 13"}
+	}
+	return []Result{r}
+}
+
+// Landlock reports the kernel's Landlock (abi 0: none, or not in the
+// kernel's LSM list) for the servers whose definitions have landlock
+// (roadmap step 30), and whether their launcher is installed.
+func Landlock(backends map[string]*config.Backend, abi int, launcher bool) []Result {
+	var with, required []string
+	for _, name := range sortedKeys(backends) {
+		if l := backends[name].Landlock; l != nil {
+			with = append(with, name)
+			if l.Required {
+				required = append(required, name)
+			}
+		}
+	}
+	r := Result{Check: "landlock"}
+	switch {
+	case len(with) == 0:
+		r.Status = OK
+		r.Summary = fmt.Sprintf("Landlock ABI %d; no server definition restricts its instances with it", abi)
+		if abi == 0 {
+			r.Summary = "no Landlock in this kernel; no server definition asks for it"
+		}
+	case !launcher:
+		r.Status = Fail
+		r.Summary = fmt.Sprintf("%s is missing: instances of %s cannot start", config.LandlockLauncher, strings.Join(with, ", "))
+		r.Details = []string{"reinstall the package mcp-gateway"}
+	case abi == 0 && len(required) > 0:
+		r.Status = Fail
+		r.Summary = fmt.Sprintf("no Landlock in this kernel: instances of %s cannot start (landlock: required)", strings.Join(required, ", "))
+		r.Details = []string{"add landlock to the kernel's lsm= list (cat /sys/kernel/security/lsm), or drop required from those definitions"}
+	case abi == 0:
+		r.Status = Warn
+		r.Summary = fmt.Sprintf("no Landlock in this kernel: instances of %s start without the restriction their definitions ask for", strings.Join(with, ", "))
+		r.Details = []string{"add landlock to the kernel's lsm= list (cat /sys/kernel/security/lsm) and reboot"}
+	default:
+		r.Status = OK
+		r.Summary = fmt.Sprintf("Landlock ABI %d: instances of %s start restricted", abi, strings.Join(with, ", "))
+		if abi < 6 {
+			r.Details = []string{"before ABI 6 signals and abstract unix sockets are not scoped to an instance"}
+		}
 	}
 	return []Result{r}
 }

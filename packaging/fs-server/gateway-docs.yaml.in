@@ -14,3 +14,7 @@ command: ["@LIBEXECDIR@/mcp-servers/mcp-server-fs", "--read-only", "--root", "@D
 selinux_type: mcpsrv_docs_t
 run_as: dynamic
 network: false
+# Landlock: the documentation, the system's programs and configuration;
+# no home directory.
+landlock:
+  read: ["@DATADIR@/mcp-gateway/docs"]

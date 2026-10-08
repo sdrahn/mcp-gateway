@@ -18,7 +18,7 @@ install, configure and run it is the [user guide](user-guide/README.md);
 | 6 | policy model: packages, input and decision documents, role data, policy lifecycle |
 | 7 | key flows: a call needing approval, remote session setup, discovery |
 | 8 | threat model (summary) |
-| 9 | decisions D1–D14, each with its rationale |
+| 9 | decisions D1–D19, each with its rationale |
 | 10 | repository layout |
 | 11 | roadmap: the steps by release, with what each delivered |
 | 12 | open items |
@@ -1836,12 +1836,12 @@ either says about itself (client info, tool annotations).
 | Agent auto-approves its own elicitation | URL / OOB approvals authenticated outside the agent; `form` only for low-risk | `form` approvals are answered by the agent's client |
 | Prompt-injected agent exfiltrates via allowed tool | argument constraints, rate limits, output limits, approvals on destructive/egress tools, pseudonymization, audit | what an allowed tool returns reaches the model |
 | Parser differential: policy decides on parameters the server reads differently | requests whose objects repeat a key or have keys differing only in case, and keys differing only in case from one the gateway reads or from an argument the tool or prompt declares, are refused (`invalid params`); found and checked by fuzzing (step 14) | a server with its own notion of argument names (e.g. aliases) |
-| Path arguments leaving an allowed tree through symbolic links | path constraints are on the string (D13); servers confine their own file access (`os.Root`, `openat2` `RESOLVE_BENEATH`; the file server does), and account, sandbox and SELinux domain bound what any path reaches | servers that follow links without confining themselves, within what their account and domain may access |
+| Path arguments leaving an allowed tree through symbolic links | path constraints are on the string (D13); servers confine their own file access (`os.Root`, `openat2` `RESOLVE_BENEATH`; the file server does), and account, sandbox and SELinux domain bound what any path reaches; with `landlock` (D19), the kernel bounds the instance to its trees, following the real hierarchy | servers that follow links without confining themselves, within what their account, domain and (with `landlock`) ruleset may access |
 | Access revoked while activity goes on | grants and decisions apply when a call starts (D12); updates of subscribed resources are decided again; instances can be stopped (Cockpit, control API) | a call in progress runs to its end; a privileged call is not stopped halfway |
 | Malicious/compromised backend | per-backend SELinux domain, no access to gateway/OPA sockets, systemd sandboxing (memory and task limits), no network by default, per-session MCS | what its own domain allows (a profile drafted too wide) |
 | Compromised privileged backend (D9) | admin-only definitions, `run_as: root` explicitly, approval for every call not explicitly allowed, kernel audit, the MCP-facing part confined | root while it runs |
 | Backend phishing the user via elicitation | policy on `elicitation.create`, origin labelling, secret-field blocking | the user's judgement |
-| Cross-tenant data leakage | instance per principal (or session), MCS categories, separate Unix users where possible | principals sharing a dynamic user rely on MCS and the instance split |
+| Cross-tenant data leakage | instance per principal (or session), MCS categories, separate Unix users where possible; with `landlock` (D19), an instance's trees per principal (the shipped `fs`: the user's home only, even for another user's world-readable files) | principals sharing a dynamic user rely on MCS and the instance split; without `landlock`, files another user made readable |
 | Token theft / confused deputy | audience-bound tokens, optional certificate binding (mTLS), no token passthrough, backend creds via systemd credentials | a stolen token until it expires; an open SSE stream outlives its token (§12) |
 | Approval spoofing | approval ids from 128 random bits; decisions only over the control socket with kernel-identified approvers and approver rules, or the Cockpit page (Cockpit login) | an approver tricked into approving |
 | Policy tampering | signed bundles verified by OPA (file or bundle server; never with `--watch`), OPA in own domain, config/bundle dirs writable only by admin | root |
@@ -2220,6 +2220,44 @@ each id an instance of its own): the only per-conversation isolation for
 modern agents, kept for later (§12), since it means the gateway changes
 servers' tool schemas.
 
+**D19 — Landlock as a second wall around instances.**
+*Decision (accepted 2026-10-08, roadmap step 30):* a server definition
+may restrict its instances with Landlock (`landlock`: trees to read,
+write and execute, `${HOME}` and `${USER}` expanded per instance; TCP
+ports to connect to and bind; `required`). Such an instance starts
+through `mcp-landlock`, which restricts itself to the rules and a fixed
+base (the system's programs and configuration, `/proc`, `/sys`, a few
+devices, the private temporary directories, the unit's credentials),
+scopes signals and abstract unix sockets to the instance (ABI 6), and
+executes the server, which keeps the restriction. What the kernel cannot
+apply is left out and logged, unless `required`, which refuses to start.
+In SELinux, `mcp-landlock` (`mcp_landlock_exec_t`) is an entry point of
+every server domain, which executes its own program from it. The
+shipped definitions restrict `fs` to the user's home, `gateway-docs` to
+the documentation, `exec` to reading the system and its state; a tree
+that expands to `/` (the discovery instance's home) is read, never
+written.
+*Rationale:* the domain and the unit's sandbox work on types and whole
+trees, and home files carry no MCS categories that tell users apart:
+what kept one user's `fs` instance out of another's home was DAC alone.
+Landlock adds the per-instance tree, binds root too, follows the real
+hierarchy (a link leads nowhere else), and stacks with SELinux (both
+must allow). On the 6.12 kernels of SLES 16 and Leap 16 (ABI 6) it
+covers file access, TCP and scoping, without audit records of denials.
+A launcher in front of the command is the only way to apply it to
+servers the gateway does not write; restricting before the exec, on the
+thread that executes, is the only way to apply it to a multi-threaded
+Go launcher. Best effort by default keeps definitions working on
+kernels without Landlock, where the doctor warns.
+*Considered:* rules derived from the principal's roles (they change with
+the policy, while a ruleset is fixed for the life of an instance, and
+argument patterns are not trees); systemd's mount-namespace options
+(`InaccessiblePaths`, `TemporaryFileSystem`) per instance (they need the
+paths at unit creation as well, but bind only what a mount namespace
+can hide, and nothing outside systemd); a seccomp-unotify broker
+(heavier, and a broker in the gateway's path); waiting for audit
+records of denials (later kernels; diagnosis without them is stage D).
+
 ## 10. Repository layout
 
 ```
@@ -2230,6 +2268,7 @@ cmd/
   mcp-connect/            # stdio ↔ unix-socket shim
   mcp-http-connector/     # instances of servers defined with url (D15)
   mcp-oauth-helper/       # the requests of principals' sign-ins (D16)
+  mcp-landlock/           # starts instances of definitions with landlock (D19)
 internal/
   transport/              # unix, http (streamable), shim protocol
   authn/                  # peercred/peersec, OAuth resource server
@@ -2245,6 +2284,7 @@ internal/
   profile/                # mcp-gateway-admin profile: permissive run, denials, drafted module
   review/                 # mcp-gateway-admin review: source scan for what a server does to the system
   supervisor/             # systemd transient units, instance pool, MCS allocator
+  landlock/               # Landlock rulesets: ABI, restricting a thread before exec (D19)
   egress/                 # HTTP clients of the connector and the helper: -resolve, proxy
   oauth/                  # OAuth 2.1 client side: metadata, PKCE, the helper's steps
   signin/                 # principals' sign-ins, token store, tokens for instances (D16)
@@ -2907,7 +2947,9 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       that reads a limit from the description does not make the call
       that would be denied.
 
-30. **Landlock as a second wall** (0.18):
+30. **Landlock as a second wall** (0.18, D19; stage A done: the
+    launcher, `landlock`, the rulesets of the shipped `fs`,
+    `gateway-docs` and `exec`, the doctor's check):
     - the problem: an instance's isolation works on types and whole
       trees. Its SELinux domain allows a type (`mcpsrv_fs_t` reads any
       `user_home_t`; home files carry no MCS categories that tell users

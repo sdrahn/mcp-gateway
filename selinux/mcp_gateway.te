@@ -114,11 +114,20 @@ corecmd_bin_entry_type(mcpopa_t)
 type mcpopa_sock_t;
 mcp_gateway_runtime_file(mcpopa_sock_t)
 
+# mcp-landlock (roadmap step 30): the entry point of every backend
+# domain for definitions with landlock (mcp_gateway_backend_template);
+# systemd executes it and enters the domain.
+type mcp_landlock_exec_t;
+corecmd_executable_file(mcp_landlock_exec_t)
+allow init_t mcp_landlock_exec_t:file { getattr open read execute map };
+
 # Fallback domain for backends without a dedicated type. Their binaries
 # keep their usual label (e.g. bin_t); systemd enters the domain through
 # SELinuxContext= in the transient unit.
 mcp_gateway_backend_template(generic)
 corecmd_bin_entry_type(mcpsrv_generic_t)
+# Through mcp-landlock: the server program, with its usual label.
+corecmd_exec_bin(mcpsrv_generic_t)
 
 # The file server's domain (cmd/mcp-server-fs, package
 # mcp-gateway-fs-server; config/servers.d/fs.yaml).
@@ -129,6 +138,7 @@ mcp_gateway_backend_home_rw(mcpsrv_fs_t)
 # read-only, in a domain that reads /usr and nothing of the users'.
 mcp_gateway_backend_template(docs)
 domain_entry_file(mcpsrv_docs_t, mcpsrv_fs_exec_t)
+can_exec(mcpsrv_docs_t, mcpsrv_fs_exec_t)
 files_read_usr_files(mcpsrv_docs_t)
 fs_getattr_xattr_fs(mcpsrv_docs_t)
 

@@ -286,6 +286,7 @@ Server names must be unique across all files.
 | `discovery` | `shared` (`instance` with `sign_in`) | where tool and prompt lists come from: `shared` (one gateway-owned instance per server, cached; listing starts no per-user instances), `instance` (each principal's own instance, for servers whose tools depend on the user) |
 | `credentials` | none | secrets handed to the server by systemd, see [Secrets](#secrets) |
 | `tool_notes` | none | notes on tools, by tool name (up to 500 characters each), added to the tools' descriptions after "Administrator's note:": what the server's own description does not say, such as an argument's format. The doctor warns about a note for a tool the server does not offer |
+| `landlock` | none | restrict each instance with the Landlock LSM, a second wall behind the domain and the sandbox: `read`, `write`, `exec` (lists of trees; `${HOME}` and `${USER}` are the principal's), `tcp_connect`, `tcp_bind` (ports; an empty list allows none, unset leaves TCP to the sandbox), `required` (refuse to start where the kernel cannot apply all of it). See "Landlock" below |
 | `sandbox.protect_home` | `read-only` | access to home directories: `yes` (none), `read-only`, `read-write` |
 | `sandbox.read_write_paths` | none | existing absolute paths the instance may write despite `ProtectSystem=strict` (systemd `ReadWritePaths=`); paths of the gateway itself, and directories containing them, are refused |
 | `sandbox.state_directory` | none | a directory below `/var/lib` (a relative name, e.g. `my-server`) that systemd creates for the instance, owned by its user, mode 0700, writable and kept across instances (systemd `StateDirectory=`) |
@@ -333,6 +334,55 @@ A denied call says why: "no matching permission: the arguments are
 outside what your roles allow (path: ^/home/alice/)" (chapter 10,
 "Calls fail").
 
+### Landlock
+
+With `landlock` in its definition, an instance starts through
+`/usr/libexec/mcp-gateway/mcp-landlock`, which restricts itself with the
+kernel's Landlock LSM and then executes the server. The restriction is
+for good: neither the server nor anything it starts can lift it, root
+included, and it follows the real file hierarchy, so a symbolic link
+leads nowhere else. It stacks with the SELinux domain and the unit's
+sandbox: an access needs all of them.
+
+```yaml
+landlock:
+  write: ["${HOME}"]              # the user's home: read and change
+  read: ["/srv/shared"]           # read only
+  exec: ["/opt/tool"]             # read and execute
+  tcp_connect: [443]              # only this TCP port (empty list: none)
+  required: false                 # true: refuse to start without Landlock
+```
+
+Every ruleset also allows a base: the system's programs and libraries
+(`/usr`, read and execute), its configuration and state as the sandbox
+shows them (`/etc`, `/proc`, `/sys`, read), `/dev/null` and the random
+devices, the instance's private `/tmp` and `/var/tmp`, and its
+credentials. Anything else, such as another user's home or `/var`, is
+out of reach unless the rules name it. A tree that does not exist is
+left out (the journal line says so); a tree that expands to `/` (the
+home of the shared discovery instance, which runs for no one) is read,
+never written. Signals and abstract unix sockets reach only the
+instance's own processes (Landlock ABI 6). Connecting to the system bus
+and other named sockets is not restricted by Landlock; that stays with
+SELinux and polkit.
+
+The shipped definitions use it: `fs` writes the user's home and nothing
+else of `/home`, even where another user's files are world-readable;
+`gateway-docs` reads the documentation; `exec` reads `/var` and `/run`
+(the system's state) besides the base. The rules are fixed for the life
+of an instance: a changed definition takes effect with new instances,
+as any other change does.
+
+The instance's journal starts with what the kernel applied
+(`mcp-landlock: Landlock ABI 6, scoped`). On a kernel without Landlock,
+or where `landlock` is not in the LSM list
+(`cat /sys/kernel/security/lsm`), the instance runs without the
+restriction and the doctor warns; with `required: true` it does not
+start. Landlock denials are not in the audit log of the 6.12 kernels:
+a denied access is an `EACCES` ("permission denied") the server reports,
+with no SELinux denial next to it. Widen the rules, or check them with
+`mcp-landlock -version` (the kernel's ABI).
+
 ## What an instance gets
 
 Each instance runs as a transient systemd service named
@@ -355,7 +405,9 @@ Each instance runs as a transient systemd service named
 - **limits**: 512 MiB memory, 64 tasks, 8 hours runtime;
 - with SELinux: the definition's domain and a unique **MCS category
   pair**, so instances running as the same account (for example dynamic
-  users of different remote principals) cannot touch each other.
+  users of different remote principals) cannot touch each other;
+- with `landlock`: the instance's trees and ports, enforced by the kernel
+  ("Landlock" above).
 
 ### Writable paths and state
 

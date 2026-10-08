@@ -205,6 +205,9 @@ reached_server() { [ "$rc" != 1 ]; }
 section "System"
 grep PRETTY_NAME /etc/os-release
 uname -r
+# Landlock (roadmap step 30): the LSMs, and the ABI once mcp-landlock is
+# installed (section Start).
+echo "LSMs: $(cat /sys/kernel/security/lsm)"
 check "SELinux is enforcing" test "$(getenforce)" = Enforcing
 sestatus | grep -E 'policy name|mode'
 
@@ -310,6 +313,17 @@ tool bob read_file '{"path":"/home/bob/secret.txt"}'
 check "bob reads his own file" succeeded_with "bob secret"
 tool alice read_file '{"path":"/home/bob/secret.txt"}'
 check "alice cannot read bob's file" failed_without "bob secret"
+# Landlock (step 30): a file in bob's home that alice's account may read
+# (world-readable) is still out of her fs instance's reach.
+chmod 755 /home/bob
+runuser -u bob -- sh -c "echo 'bob public' > /home/bob/public.txt; chmod 644 /home/bob/public.txt"
+echo "  $(/usr/libexec/mcp-gateway/mcp-landlock -version)"
+check "landlock: the kernel has Landlock" bash -c '/usr/libexec/mcp-gateway/mcp-landlock -version | grep -qE "ABI [1-9]"'
+check "landlock: alice's account can read bob's public file" runuser -u alice -- cat /home/bob/public.txt
+tool alice read_file '{"path":"/home/bob/public.txt"}'
+check "landlock: alice's fs instance cannot read bob's public file" failed_without "bob public"
+check "landlock: the fs instance started through mcp-landlock" \
+	bash -c 'journalctl -q --no-pager -u "mcp-fs-*" | grep -q "mcp-landlock: Landlock ABI"'
 tool alice delete_file '{"path":"/home/alice/secret.txt"}'
 check "delete is denied by policy" tool_error_with "denied by policy"
 check "the file was not deleted" test -f /home/alice/secret.txt
@@ -1183,6 +1197,8 @@ if [ -d "$dir/servers" ]; then
 	check "doctor: a polkit rule names mcp-sysmgmt" doctor_says '^OK +polkit mcp-sysmgmt: '
 fi
 check "doctor: every server's SELinux type is in the policy" doctor_says '^OK +SELinux types: '
+check "doctor: instances of fs, gateway-docs and exec start under Landlock" \
+	doctor_says '^OK +landlock: Landlock ABI [0-9]+: instances of .*exec.*fs.*gateway-docs.* start restricted'
 check "doctor: the servers' programs are labeled as the policy says" doctor_says '^OK +program labels: '
 # A program that lost its label (installed before its module): the doctor
 # names it and the fix.

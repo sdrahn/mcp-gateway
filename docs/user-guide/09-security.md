@@ -114,8 +114,18 @@ Account choices, from most to least isolated:
 - `run_as: <account>`: a fixed service account shared by all instances,
   separated only by MCS.
 
-`supervisor.mode: exec` disables all of this; the gateway logs a
-warning. Use it for development only.
+With `landlock` in a definition (chapter 4, "Landlock"), the kernel
+also bounds each instance to its trees: the shipped `fs` reaches its
+user's home and nothing else of `/home`, so a file another user made
+world-readable stays out of reach, which neither SELinux (home files
+share a type and carry no MCS categories) nor the sandbox (`ProtectHome`
+shows all of `/home`) prevents. Landlock binds root too and cannot be
+lifted by the server; it adds to the domain and the sandbox, it does
+not replace them.
+
+`supervisor.mode: exec` disables the sandbox and SELinux confinement
+(`landlock` still applies); the gateway logs a warning. Use it for
+development only.
 
 ## Secrets
 
@@ -170,6 +180,8 @@ rest: SELinux and the sandbox limit what the server can reach at all,
 and a server that serves a directory should open paths beneath it so
 that links cannot lead out (Go's `os.Root`, Linux's `openat2` with
 `RESOLVE_BENEATH`; chapter 4). The file server `mcp-server-fs` does so.
+With `landlock`, the kernel enforces the trees whatever the server does
+with links.
 Decision D13 in the architecture document has the reasoning.
 
 ## Revoked access and running calls
@@ -311,7 +323,9 @@ personal data under the GDPR.
       servers.
 - [ ] Each server with its own `selinux_type`, `network: false` unless
       needed, `protect_home: read-only` or `yes` unless needed,
-      `run_as: dynamic` where it need not act as the user.
+      `run_as: dynamic` where it need not act as the user; `landlock`
+      with the trees it works on, `required: true` where the kernel
+      must apply it.
 - [ ] Secrets only through `credentials:`, never in `command` or `env`.
 - [ ] Servers returning personal or confidential data pseudonymized for
       agents that use external models; `reidentify` only on the tools

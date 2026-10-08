@@ -379,6 +379,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/run/mcp-gateway/opa.sock` | OPA (gateway only) |
 | `/run/mcp-gateway/credentials/` | an instance's access token (`sign_in`) until systemd has read it (0700, `mcpgw_cred_run_t`) |
 | `/usr/libexec/mcp-gateway/mcp-http-connector`, `mcp-oauth-helper` | the instances of servers defined with `url`; the requests of sign-ins |
+| `/usr/libexec/mcp-gateway/mcp-landlock` | starts the instances of definitions with `landlock`: restricts itself with Landlock, then executes the server; `-version` shows the kernel's Landlock ABI |
 | `/usr/lib/systemd/system/mcp-gateway.service`, `mcp-opa.service` | units |
 | `/usr/lib/sysusers.d/mcp-gateway.conf` | accounts |
 | `/usr/share/polkit-1/rules.d/50-mcp-gateway.rules` | lets the gateway manage `mcp-*.service` |
@@ -396,6 +397,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcpsrv_generic_t`, `mcpsrv_fs_t`, `mcpsrv_docs_t`, `mcpsrv_exec_t`, `mcpsrv_<name>_t` | MCP server instances (chapter 9, "SELinux") |
 | `mcpsrv_http_t`, `mcpsrv_http_exec_t` | `mcp-http-connector`, the instances of servers defined with `url` |
 | `mcpsrv_oauth_t`, `mcpsrv_oauth_exec_t` | `mcp-oauth-helper`, the requests of principals' sign-ins to servers with `sign_in` |
+| `mcp_landlock_exec_t` | `mcp-landlock`, an entry point of every server domain |
 | `mcpsrv_admin_t`, `mcpsrv_admin_exec_t` | `mcp-gateway-admin` and the server `gateway-admin` |
 | `mcpsrv_systemd_t`, `mcpsrv_firewalld_t`, `mcpsrv_zypp_t`, `mcpsrv_suseconnect_t`, `mcpsrv_snapper_t` | the system management servers (chapter 13) |
 | `mcpgw_etc_t` | `/etc/mcp-gateway`, `/usr/etc/mcp-gateway` |

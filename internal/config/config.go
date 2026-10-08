@@ -21,6 +21,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
 
@@ -375,6 +376,11 @@ type Backend struct {
 	// appended to the tools' descriptions (what an upstream server's
 	// schema does not say, such as an argument's format).
 	ToolNotes map[string]string `yaml:"tool_notes"`
+	// Landlock, if set, restricts each instance to these trees and ports
+	// (and landlock.Base) with the Landlock LSM, a second wall behind the
+	// domain and the sandbox: the instance starts through mcp-landlock
+	// (roadmap step 30). ${HOME} and ${USER} are expanded per instance.
+	Landlock *landlock.Rules `yaml:"landlock"`
 
 	// Warnings are the deprecated keys the file uses (see deprecation).
 	Warnings []string `yaml:"-"`
@@ -1016,6 +1022,14 @@ func (b *Backend) Validate() error {
 			return fmt.Errorf("tool_notes: %s: longer than %d characters", tool, MaxToolNote)
 		}
 	}
+	if b.Landlock != nil {
+		if b.URL != "" {
+			return errors.New("landlock: only for servers with a command (the connector of a url server is confined by its domain and IPAddressAllow)")
+		}
+		if err := b.Landlock.Validate(); err != nil {
+			return err
+		}
+	}
 	if b.URL != "" {
 		if err := b.validateURL(); err != nil {
 			return err
@@ -1138,6 +1152,10 @@ func hasKey(n *yaml.Node, path []string) bool {
 // HTTPConnector is the program that runs each instance of a server
 // defined with url (cmd/mcp-http-connector).
 var HTTPConnector = filepath.Join(version.LibexecDir, "mcp-gateway", "mcp-http-connector")
+
+// LandlockLauncher restricts an instance with Landlock and executes its
+// command (cmd/mcp-landlock).
+var LandlockLauncher = filepath.Join(version.LibexecDir, "mcp-gateway", "mcp-landlock")
 
 // OAuthHelper is the program that makes the requests of principals'
 // sign-ins (cmd/mcp-oauth-helper), and OAuthSELinuxType its domain.

@@ -2,13 +2,16 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"sort"
 	"strings"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 )
 
@@ -40,13 +43,35 @@ func expandVars(s string, p principal.Principal) string {
 	})
 }
 
-// command returns the backend's command line for p.
+// command returns the backend's command line for p: through
+// mcp-landlock with the definition's rules, if it has landlock.
 func command(b *config.Backend, p principal.Principal) []string {
 	out := make([]string, len(b.Command))
 	for i, a := range b.Command {
 		out[i] = expandVars(a, p)
 	}
-	return out
+	if b.Landlock == nil {
+		return out
+	}
+	rules, _ := json.Marshal(landlockRules(*b.Landlock, p))
+	return append([]string{config.LandlockLauncher, "-rules", string(rules), "--"}, out...)
+}
+
+// landlockRules are the definition's rules for p. A tree that expands
+// to / (the home of the discovery instance, which runs for no one) is
+// read, never written.
+func landlockRules(r landlock.Rules, p principal.Principal) landlock.Rules {
+	r = r.Expand(func(s string) string { return expandVars(s, p) })
+	var write []string
+	for _, w := range r.Write {
+		if path.Clean(w) == "/" {
+			r.Read = append(r.Read, "/")
+			continue
+		}
+		write = append(write, w)
+	}
+	r.Write = write
+	return r
 }
 
 // environment returns the backend's environment for p: a minimal base plus

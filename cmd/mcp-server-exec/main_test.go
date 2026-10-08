@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -312,6 +313,9 @@ func TestDefinition(t *testing.T) {
 		len(b.Command) != 5 || strings.Join(b.Command[:3], " ") != "/usr/libexec/mcp-servers/mcp-server-exec --commands "+defaultCommands ||
 		b.Command[3] != "--instructions" {
 		t.Fatalf("%+v", b)
+	}
+	if b.Landlock == nil || !slices.Equal(b.Landlock.Read, []string{"/var", "/run"}) || b.Landlock.Write != nil {
+		t.Errorf("landlock %+v", b.Landlock)
 	}
 	// The instructions say what the definition sets, which the server
 	// cannot know: as the user, without network, in its domain.
