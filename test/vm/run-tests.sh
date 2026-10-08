@@ -354,6 +354,14 @@ check "landlock: the exec server restricts itself" grep -q "mcp-server-exec: 1 c
 check "landlock: ... its command reads the system" grep -q "NAME=" <<<"$out"
 out=$(ll_exec /home/bob/public.txt); echo "  ${out:0:300}"
 check "landlock: ... and is refused bob's public file" bash -c 'grep -q "public.txt: Permission denied" <<<"$1" && ! grep -q "bob public" <<<"$1"' _ "$out"
+# Stage C: inspect runs a server started by command under Landlock,
+# with a home of its own that is removed afterwards.
+out=$(cd /tmp && runuser -u alice -- mcp-gateway-admin inspect -name llx -- \
+	/usr/libexec/mcp-servers/mcp-server-exec --commands /etc/ll-exec-test.yaml 2>&1); echo "  ${out:0:400}"
+check "landlock: inspect runs a command under Landlock" grep -q "llx runs without systemd and SELinux, under Landlock" <<<"$out"
+check "landlock: ... and lists its tools" grep -q "show" <<<"$out"
+ll_dir=$(grep -o '/tmp/mcp-inspect-[0-9]*' <<<"$out" | head -1)
+check "landlock: ... and removes its home afterwards" test -n "$ll_dir" -a ! -e "${ll_dir:-/nonexistent}"
 rm -f /etc/ll-exec-test.yaml
 check "landlock: an fs instance restricts itself too" \
 	bash -c 'journalctl -q --no-pager -u "mcp-fs-*" -o cat | grep -q "mcp-server-fs: serving /home/alice; Landlock ABI"'

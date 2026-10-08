@@ -2966,7 +2966,9 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     `gateway-docs` and `exec`, the doctor's check; stage B done: `fs`,
     `exec`, the connector and the sign-in helper restrict themselves,
     `exec` to the trees its commands name, widened by a command file's
-    `landlock`):
+    `landlock`; stage C done: `inspect` with a command or `--exec` runs
+    the server under Landlock, `--home`, `--network`, `--allow`;
+    `profile` runs through systemd and `review` runs no server):
     - the problem: an instance's isolation works on types and whole
       trees. Its SELinux domain allows a type (`mcpsrv_fs_t` reads any
       `user_home_t`; home files carry no MCS categories that tell users

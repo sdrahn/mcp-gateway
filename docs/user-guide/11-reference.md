@@ -65,9 +65,12 @@ errors.
 | Flag | Meaning |
 |---|---|
 | `--server NAME` | a server of the registry, started as for shared discovery (through the configured supervisor; with systemd as root) |
-| `--name NAME -- COMMAND…` | a server started by command, as a plain child process of the caller, without sandbox (refused as root) |
+| `--name NAME -- COMMAND…` | a server started by command, as a child process of the caller, without systemd and SELinux, under Landlock (refused as root) |
 | `--config FILE` | gateway configuration, for the registry and the supervisor |
-| `--exec` | start a `--server` definition as a plain child process, without sandbox (refused as root) |
+| `--exec` | start a `--server` definition as a child process, without systemd and SELinux, under Landlock (refused as root) |
+| `--home` | with a command or `--exec`: the server reads and writes your home (otherwise it gets a directory of its own, removed afterwards) |
+| `--network` | with a command or `--exec`: the server may use TCP (otherwise none) |
+| `--allow DIR` | with a command or `--exec`: a tree the server may read and execute, such as its package; repeatable |
 | `--roles FILE` | role data or a setup's roles to check against the server; repeatable |
 | `--out DIR` | write the drafts there: `roles.json`, and `NAME.yaml` for a command, with the suggested tool notes as comments (existing files are kept) |
 | `--read-by-name` | also put tools that read by their name alone into the reader role |

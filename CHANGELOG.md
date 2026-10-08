@@ -33,6 +33,13 @@ minor release (with a warning) and removed in the next.
   CA certificates and the TCP ports of their server or proxy. A command
   file's new `landlock` key (`read`, `write`, `exec`) widens the trees
   for its commands. The journal line at start says what was applied.
+- `mcp-gateway-admin inspect` runs a server started by command, or a
+  registered one with `--exec`, under Landlock (step 30, stage C): the
+  system read-only, a directory of its own (removed afterwards) as its
+  home and `TMPDIR`, its program and the paths on its command line
+  readable and executable, no TCP. `--home` gives it your home,
+  `--network` TCP, `--allow DIR` another tree. It needs
+  `/usr/libexec/mcp-gateway/mcp-landlock` (package mcp-gateway).
 
 ## v0.17.1 — 2026-10-08
 

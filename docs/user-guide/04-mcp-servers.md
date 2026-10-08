@@ -75,11 +75,23 @@ mcp-gateway-admin inspect --server git
 # Check role data against the tools the server really has:
 mcp-gateway-admin inspect --server git --roles /etc/mcp-gateway/policy/rbac/data.json
 
-# A server not registered yet, as a plain child process of yours (no
-# sandbox: only for servers you trust; refused as root). Writes the
+# A server not registered yet, as a child process of yours (without
+# systemd and SELinux, under Landlock; refused as root). Writes the
 # drafts git.yaml and roles.json to ./git-drafts:
 mcp-gateway-admin inspect --name git --out ./git-drafts -- /usr/libexec/mcp-servers/mcp-git
 ```
+
+A server started by command (or a registered one with `--exec`) runs
+under Landlock (see [Landlock](#landlock)): it reads the system, writes
+a directory of its own that is its home and `TMPDIR` (removed
+afterwards), may read and execute its program and the existing
+absolute paths on its command line, and has no TCP. `--home` gives it
+your home instead, `--network` TCP, `--allow DIR` another tree to read
+and execute (a server's package beside its script, for example). A
+server that fails with "permission denied" may need one of them; a
+definition's own `landlock` applies as well. Landlock is a second wall,
+not systemd's sandbox or an SELinux domain: start servers you do not
+trust with `--server`, as root, through systemd.
 
 The report shows for each tool its class and why: the MCP annotations
 the server gives (`readOnlyHint`, `destructiveHint`) and the first word
