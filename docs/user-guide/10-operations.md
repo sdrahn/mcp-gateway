@@ -380,6 +380,7 @@ system service it asked, refused it.
 | `calling method was canceled by user` | `systemd` | systemd-mcp's own authorization refused the call: its polkit check found no rule for the account it runs as (chapter 13, "Service permissions"; systemd-mcp 0.3.4 checks reads too, as `com.suse.gatekeeper.readlog`), or it cannot read the file `get_file` names. The gateway's own files are closed to it by SELinux (chapter 9) |
 | `Interactive authentication required`, `NOT_AUTHORIZED` | `systemd`, `firewalld` | polkit refused the server's account: the setup's polkit rule is missing or names another account (chapter 13) |
 | `D-Bus call failed: org.freedesktop.DBus.Error.Failed` | `snapper` | snapperd refused the account: it is not in the config's `ALLOW_USERS`, or the tool needs root (chapter 13) |
+| `…: permission denied`, `Permission denied` with no SELinux denial (`ausearch -m AVC` shows none) | any server with `landlock`, and `fs`, `exec`, the connector | the kernel's Landlock refused a path outside the instance's trees; it leaves no audit record. The doctor names the ruleset (`landlock` *name*); widen the definition's `landlock` with the tree the server needs (chapter 4, "Landlock"), for `exec` the command file's `landlock` |
 
 ### Instances do not start
 
@@ -395,6 +396,8 @@ ausearch -m AVC -ts recent | grep mcpsrv
 | SELinux denies the program as entry point | label it with the domain's `_exec_t` type or add `corecmd_bin_entry_type` (chapter 4) |
 | SELinux denies what the server does | extend the server's module (permissive + `audit2allow`) |
 | the server needs the network / a writable home | `network: true`, `sandbox.protect_home: read-write` |
+| the server fails with "permission denied" and SELinux denied nothing | its `landlock` (or, for `fs`, `exec` and the connector, their own restriction) leaves out a tree it needs: the journal's first line says what was applied (`mcp-landlock: Landlock ABI 6, scoped`), the doctor names the ruleset (`landlock` *name*); widen the definition's `landlock` (chapter 4, "Landlock") |
+| `landlock: required, but the kernel cannot apply every restriction` | the definition says `landlock: {required: true}` and the kernel lacks Landlock or a right the rules need (the doctor's `landlock` check names it): another kernel, or drop `required` |
 | the server cannot create or write its state (`Read-only file system`, e.g. below `/var/lib`) | `sandbox.state_directory`, or `sandbox.read_write_paths` for other existing paths (chapter 4) |
 | "Interactive authentication required" / polkit denial | the polkit rule `50-mcp-gateway.rules` is missing, or the unit name does not start with `mcp-` |
 | out of memory, killed after 8 hours | the fixed limits (512 MiB, 8 h); split the work or restart |
@@ -415,4 +418,4 @@ gateway may reach the issuer).
 | `libvirt picks MCS categories from the gateway's range; …` | install the libvirt drop-in (chapter 9) |
 | `kernel audit not available` | events go only to the journal; set `audit.kernel: off` to silence, `on` to require |
 | `approvals.url_template is set but the control socket is disabled; …` | URL approvals cannot be decided; enable the control socket |
-| `supervisor mode exec: backends run unconfined …` | development mode is on |
+| `supervisor mode exec: backends run as child processes without systemd's sandbox and SELinux …` | development mode is on |

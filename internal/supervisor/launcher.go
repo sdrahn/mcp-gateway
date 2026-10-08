@@ -11,7 +11,7 @@ import (
 func NewLauncher(log *slog.Logger, s config.Supervisor) (Launcher, error) {
 	switch s.Mode {
 	case "exec":
-		log.Warn("supervisor mode exec: backends run unconfined as child processes (development only)")
+		log.Warn("supervisor mode exec: backends run as child processes without systemd's sandbox and SELinux, under their landlock only (development only)")
 		return &Exec{Log: log}, nil
 	case "systemd":
 		useSELinux := s.SELinux == "on" || (s.SELinux == "auto" && SELinuxEnabled())

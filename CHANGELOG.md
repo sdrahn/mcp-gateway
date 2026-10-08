@@ -64,6 +64,13 @@ minor release (with a warning) and removed in the next.
   report lists them. The run goes without the definition's own
   `landlock`; `--verify` with the drafted definition runs under it.
 
+### Changed
+
+- The gateway's warning in development mode (`supervisor.mode: exec`)
+  now reads "backends run as child processes without systemd's sandbox
+  and SELinux, under their landlock only": definitions' `landlock`
+  applies in that mode too.
+
 ## v0.17.1 — 2026-10-08
 
 The gateway's own file and command servers tell agents how to use them,

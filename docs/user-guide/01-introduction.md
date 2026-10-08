@@ -45,7 +45,10 @@ mcp-gateway sits between agents and MCP servers:
   values back.
 - **Confinement.** Each server runs as a transient systemd service, as the
   requesting user (or a throwaway user), in a hardened sandbox, in its own
-  SELinux domain with a unique MCS category pair per instance.
+  SELinux domain with a unique MCS category pair per instance. Behind
+  these, the kernel's Landlock keeps an instance to the trees its
+  definition names: the shipped file server to its user's home, even
+  where another user's files are world-readable.
 - **Audit.** Every decision is logged; security-relevant events also go
   to the kernel audit subsystem, next to SELinux denials.
 
@@ -71,6 +74,7 @@ mcp-gateway sits between agents and MCP servers:
 | `mcp-gateway` | `mcp-gateway` | The daemon (`mcp-gateway.service`): transports, authentication, routing, policy enforcement, approvals, instance supervision, audit, control API. |
 | `mcp-opa.service` | `mcp-gateway` (requires `opa`) | The policy engine: the distribution's OPA, in its own SELinux domain, on a unix socket. |
 | `mcp-connect` | `mcp-gateway` | stdio ↔ socket shim for local agents that can only spawn a command. |
+| `mcp-landlock` | `mcp-gateway` | Starts each instance of a server whose definition has `landlock`: restricts itself with the kernel's Landlock to the definition's trees, then executes the server (chapter 4). |
 | `mcp-gateway-admin` | `mcp-gateway`; `inspect`, `profile`, `review` in `mcp-gateway-tools` | Commands for administrators: the self-check (`doctor`), the diagnostics server `gateway-admin` (`serve`), and tools for adding MCP servers (chapter 4). |
 | `mcp-policy-bundle` | `mcp-gateway` | Builds and signs policy bundles. |
 | SELinux module `mcp_gateway` | `mcp-gateway-selinux` | Domains for the gateway, OPA and MCP servers; isolation rules. |
@@ -106,7 +110,9 @@ mcp-gateway sits between agents and MCP servers:
   informational only.
 - MCP servers are **not trusted** by default: they run with no network,
   a read-only home, no capabilities and the most restricted SELinux
-  domain unless their definition and policy say otherwise.
+  domain unless their definition and policy say otherwise; with
+  `landlock`, the kernel also keeps each instance to its trees, root
+  included.
 - The gateway **fails closed**: without an answer from OPA, everything is
   denied.
 - Policy logic comes from the package; roles and bindings from the

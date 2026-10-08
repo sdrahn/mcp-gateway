@@ -42,13 +42,14 @@ For an agent, which server to ask:
 | Which packages, first start, transactional systems (MicroOS, SLE Micro) | [2. Installation](user-guide/02-installation.md) |
 | Every key of `gateway.yaml`, which file is in force (`/etc` or `/usr/etc`), which keys apply without a restart | [3. Configuration](user-guide/03-configuration.md) |
 | Adding an MCP server: definition keys, sandbox, secrets, SELinux domain; `inspect`, `profile`, `review`; the file server `fs` and the command server `exec` | [4. MCP servers](user-guide/04-mcp-servers.md) |
+| Landlock: what an instance may reach (`landlock`), the shipped rulesets, servers that restrict themselves, drafting a ruleset with `profile`, a refusal with no audit record | [4. MCP servers, "Landlock"](user-guide/04-mcp-servers.md#landlock) |
 | Servers that speak HTTP (`url`), through a proxy, or that each user signs in to (`sign_in`, OAuth) | [4. MCP servers, "Servers that speak HTTP"](user-guide/04-mcp-servers.md#servers-that-speak-http), ["Signing in for each user"](user-guide/04-mcp-servers.md#signing-in-for-each-user) |
 | Changing server definitions while the gateway runs | [4. MCP servers, "Changing definitions while the gateway runs"](user-guide/04-mcp-servers.md#changing-definitions-while-the-gateway-runs) |
 | Connecting an agent: `mcp-connect`, the aggregated endpoint and `server__tool` names, remote access with OAuth, Claude Code, Kit | [5. Connecting clients](user-guide/05-connecting-clients.md) |
 | Roles, permissions, bindings, approver rules, obligations, pseudonymization, the shipped roles | [6. Policy](user-guide/06-policy.md) |
 | Approval channels, scopes ("once", "session", durations), desktop and mail notifications | [7. Approvals](user-guide/07-approvals.md) |
 | The Cockpit page | [8. Cockpit](user-guide/08-cockpit.md) |
-| Threat model, SELinux domains, MCS, sandbox, audit trail, hardening checklist | [9. Security](user-guide/09-security.md) |
+| Threat model, SELinux domains, MCS, sandbox, Landlock, audit trail, hardening checklist | [9. Security](user-guide/09-security.md) |
 | What to do after a change, logs, metrics, upgrades, the self-check, troubleshooting | [10. Operations](user-guide/10-operations.md) |
 | Command-line options, control API, audit record fields, file paths, SELinux types, limits | [11. Reference](user-guide/11-reference.md) |
 | Writing Rego: the policy's inputs and decisions, adding to or replacing the shipped logic, testing | [12. Custom policy](user-guide/12-custom-policy.md) |
@@ -74,6 +75,8 @@ with placeholders.
 | `unknown server "x"` | no server of that name is defined | [10, "The agent cannot connect"](user-guide/10-operations.md#the-agent-cannot-connect) |
 | `session limit reached (64)`, `instance limit reached (32)` | a limit of the principal | [3, "Limits"](user-guide/03-configuration.md#limits) |
 | `…: outside the allowed directories (…)` (file server) | the file server works below its `--root` only, the user's home | [10, "Errors from servers"](user-guide/10-operations.md#errors-from-servers) |
+| `permission denied` from a server, with no SELinux denial | the kernel's Landlock refused a path outside the instance's trees (no audit record) | [10, "Errors from servers"](user-guide/10-operations.md#errors-from-servers), [4, "Landlock"](user-guide/04-mcp-servers.md#landlock) |
+| `landlock: required, but the kernel cannot apply every restriction` | a definition with `required: true` on a kernel without Landlock or a right it needs | [10, "Instances do not start"](user-guide/10-operations.md#instances-do-not-start) |
 | `calling method was canceled by user` (systemd-mcp) | systemd-mcp's own authorization refused the call | [10, "Errors from servers"](user-guide/10-operations.md#errors-from-servers), [13](user-guide/13-system-management-servers.md#checking-and-troubleshooting) |
 | `Interactive authentication required`, `NOT_AUTHORIZED` | polkit refused the server's account | [13, "Service permissions"](user-guide/13-system-management-servers.md#service-permissions) |
 | `read-only file system (on a transactional system, …)` | `/usr` cannot be changed on a transactional system | [2, "Transactional systems"](user-guide/02-installation.md#transactional-systems) |

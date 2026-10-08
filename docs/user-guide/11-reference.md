@@ -85,8 +85,10 @@ mcp-gateway-admin profile [options] --server NAME --verify
 ```
 
 Runs a registered server with its SELinux domain permissive, calls its
-tools and drafts a policy module and definition from the denials
-(chapter 4, "Profiling a server"). Needs root, the systemd supervisor,
+tools and drafts a policy module and definition from the denials, the
+definition's `landlock` from what the instance had open (chapter 4,
+"Profiling a server"; the run goes without the definition's own
+`landlock`, `--verify` runs under it). Needs root, the systemd supervisor,
 SELinux and selinux-policy-devel. Exit status 1 if the run fails (or,
 with `--verify`, on a denial), 2 on usage errors.
 
@@ -243,6 +245,27 @@ mcp-connect [--server NAME|all] [--socket PATH] [--version]
 stdio ↔ unix socket bridge for local agents; `--server` defaults to
 `all` (aggregated endpoint), `--socket` to `/run/mcp-gateway/mcp.sock`.
 Chapter 5.
+
+### mcp-landlock
+
+```
+/usr/libexec/mcp-gateway/mcp-landlock [-rules JSON] [--] PROGRAM [ARG...]
+/usr/libexec/mcp-gateway/mcp-landlock -version
+```
+
+Restricts itself with the kernel's Landlock to `-rules` (the
+definition's `landlock` as JSON, `${HOME}` and `${USER}` expanded) and
+a fixed base, then executes the program, which keeps the restriction.
+The gateway puts it in front of the command of every instance whose
+definition has `landlock`; it is not meant to be run by hand, except to
+try a ruleset. It logs what the kernel applied on stderr (the
+instance's journal): `mcp-landlock: Landlock ABI 6, scoped`, with the
+trees left out (missing, or not open to the instance). `-version` prints
+its version and the kernel's Landlock ABI. Exit status 127 if the
+program cannot be found or executed, 1 if the kernel refuses the rules
+(with `required`, when it cannot apply them in full), 2 on usage errors
+and invalid `-rules`. Chapter 4,
+"Landlock".
 
 ### mcp-gateway-notify
 
