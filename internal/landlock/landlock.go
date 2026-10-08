@@ -225,7 +225,10 @@ func isBase(p string) bool {
 }
 
 // addPath adds a rule for the tree (or file) at p; missing reports a
-// path that does not exist, which is left out.
+// path that does not exist, which is left out. It does not stat p: a
+// server's SELinux domain may not get the attributes of a device such as
+// /dev/random. The kernel refuses directory rights on a file (EINVAL),
+// and then the rule is added again with file rights.
 func addPath(ruleset int, p string, rights uint64) (missing bool, err error) {
 	fd, err := unix.Open(p, unix.O_PATH|unix.O_CLOEXEC, 0)
 	if errors.Is(err, unix.ENOENT) || errors.Is(err, unix.ENOTDIR) {
@@ -235,19 +238,20 @@ func addPath(ruleset int, p string, rights uint64) (missing bool, err error) {
 		return false, fmt.Errorf("landlock: %s: %w", p, err)
 	}
 	defer func() { _ = unix.Close(fd) }()
-	var st unix.Stat_t
-	if err := unix.Fstat(fd, &st); err != nil {
-		return false, fmt.Errorf("landlock: %s: %w", p, err)
+	add := func(rights uint64) unix.Errno {
+		a := unix.LandlockPathBeneathAttr{Allowed_access: rights, Parent_fd: int32(fd)}
+		_, _, errno := unix.Syscall6(unix.SYS_LANDLOCK_ADD_RULE, uintptr(ruleset), unix.LANDLOCK_RULE_PATH_BENEATH,
+			uintptr(unsafe.Pointer(&a)), 0, 0, 0)
+		return errno
 	}
-	if st.Mode&unix.S_IFMT != unix.S_IFDIR {
-		rights &= fileRights
+	errno := add(rights)
+	if errno == unix.EINVAL && rights&^fileRights != 0 {
+		if rights &= fileRights; rights == 0 {
+			return false, nil
+		}
+		errno = add(rights)
 	}
-	if rights == 0 {
-		return false, nil
-	}
-	a := unix.LandlockPathBeneathAttr{Allowed_access: rights, Parent_fd: int32(fd)}
-	if _, _, errno := unix.Syscall6(unix.SYS_LANDLOCK_ADD_RULE, uintptr(ruleset), unix.LANDLOCK_RULE_PATH_BENEATH,
-		uintptr(unsafe.Pointer(&a)), 0, 0, 0); errno != 0 {
+	if errno != 0 {
 		return false, fmt.Errorf("landlock: %s: %w", p, errno)
 	}
 	return false, nil
