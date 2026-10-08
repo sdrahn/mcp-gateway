@@ -294,7 +294,7 @@ func TestGlobMatch(t *testing.T) {
 
 func TestDefinition(t *testing.T) {
 	res := &Result{Server: ServerInfo{Name: "fake", Version: "1"}}
-	y := Definition("my-srv", []string{"/usr/bin/my-srv", "--stdio"}, res)
+	y := Definition("my-srv", []string{"/usr/bin/my-srv", "--stdio"}, res, nil)
 	var b config.Backend
 	dec := yaml.NewDecoder(strings.NewReader(y))
 	dec.KnownFields(true)

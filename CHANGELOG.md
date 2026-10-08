@@ -28,6 +28,15 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- `mcp-gateway-admin inspect` suggests tool notes: it lists string
+  arguments that look like times but whose schema does not say the
+  format (a Go `time.Time` has the schema `{"type": "string"}` and
+  accepts RFC 3339 only), and string arguments without a description,
+  with a draft note to complete; the draft definition of `--out` has
+  them as comments. For a `--server`, it marks the tools that have a
+  note already and lists notes for tools the server does not offer.
+  Only the schemas are read; no tool is called.
+
 - Agents on the aggregated endpoint are told what the user may do
   (roadmap step 29, part 3). The gateway's own tool
   `gateway_capabilities` returns, per server, its instructions and its

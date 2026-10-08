@@ -692,6 +692,12 @@ END
 		sed -n '1p;/^Tools/,$p' "/root/vmtest/inspect-$s.txt" | sed "s/^/  [$s] /"
 		check "inspect: the $s roles name only tools the server has" test "$rc" = 0
 	done
+	# systemd-mcp's list_log times are plain strings in its schema: inspect
+	# flags them, and the shipped definition's note covers them.
+	check "inspect: list_log's times are flagged, and noted" \
+		grep -qF "list_log: times without a format: from, to (has a note)" /root/vmtest/inspect-systemd.txt
+	check "inspect: the systemd tool notes name its tools" \
+		bash -c '! grep -q "Tool notes for tools the server does not offer" /root/vmtest/inspect-systemd.txt'
 	systemctl restart mcp-gateway.service
 	wait_socket
 

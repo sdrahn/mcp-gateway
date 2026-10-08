@@ -95,6 +95,25 @@ server and prove nothing. Review the report, move tools you have checked
 into the reader role (or use `--read-by-name`), and copy the roles into
 your role data or a setup package.
 
+The report also lists tool arguments whose schema leaves agents
+guessing, as candidates for `tool_notes` ("What agents see about their
+limits", below):
+
+- **times without a format**: string arguments that look like times or
+  dates (names such as `since`, `start_time`, `createdAt`, or a
+  description with "time" or "date") whose description does not say how
+  to write them. A Go `time.Time` argument has the schema
+  `{"type": "string"}` and accepts RFC 3339 only; systemd-mcp's
+  `list_log` (`from`, `to`) is one;
+- **no description**: string arguments without description, enum,
+  pattern or format, for which agents have only the name.
+
+Each comes with a draft note to complete, after finding out what the
+server takes (its documentation or source); the draft definition of
+`--out` has them as comments. A tool the definition already has a note
+for is marked "has a note"; notes for tools the server does not offer
+are listed. Only the schemas are read: no tool is called to try values.
+
 The role check reports a permission that names a tool or prompt the
 server does not have as an error (exit status 1), a pattern that matches
 none as a warning, and tools no permission names as information. A

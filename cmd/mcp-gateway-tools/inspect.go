@@ -162,9 +162,11 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	draftRoles := inspect.Roles(b.Name, verdicts)
+	hints := inspect.NoteHints(res.Tools, b.ToolNotes)
+	unknownNotes := inspect.UnknownNotes(res.Tools, b.ToolNotes)
 
 	if *outDir != "" {
-		if err := writeDrafts(*outDir, b.Name, command, b, res, draftRoles); err != nil {
+		if err := writeDrafts(*outDir, b.Name, command, b, res, draftRoles, hints); err != nil {
 			say(stderr, err)
 			return 1
 		}
@@ -175,6 +177,12 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 			"result":   res,
 			"verdicts": verdicts,
 			"roles":    draftRoles,
+		}
+		if len(hints) > 0 {
+			out["note_hints"] = hints
+		}
+		if len(unknownNotes) > 0 {
+			out["unknown_notes"] = unknownNotes
 		}
 		if findings != nil {
 			out["findings"] = findings
@@ -190,6 +198,10 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 			say(stderr, err)
 			return 1
 		}
+		if err := inspect.NotesReport(stdout, hints, unknownNotes); err != nil {
+			say(stderr, err)
+			return 1
+		}
 		if *outDir != "" {
 			sayf(stdout, "\nDrafts written to %s; review them before use.", *outDir)
 		}
@@ -202,7 +214,7 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 
 // writeDrafts writes roles.json and, for a server started by command, a
 // draft definition. Existing files are not overwritten.
-func writeDrafts(dir, name string, command []string, b *config.Backend, res *inspect.Result, roles map[string]any) error {
+func writeDrafts(dir, name string, command []string, b *config.Backend, res *inspect.Result, roles map[string]any, hints []inspect.NoteHint) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -212,7 +224,7 @@ func writeDrafts(dir, name string, command []string, b *config.Backend, res *ins
 	}
 	files := map[string][]byte{"roles.json": append(data, '\n')}
 	if len(command) > 0 {
-		files[name+".yaml"] = []byte(inspect.Definition(name, b.Command, res))
+		files[name+".yaml"] = []byte(inspect.Definition(name, b.Command, res, hints))
 	}
 	for f, content := range files {
 		path := filepath.Join(dir, f)

@@ -194,8 +194,9 @@ func globEscape(s string) string { return globMeta.ReplaceAllString(s, `\$0`) }
 var globMeta = regexp.MustCompile(`[*?\[\]{}\\]`)
 
 // Definition drafts a server definition (YAML, with comments) for a
-// server started by command.
-func Definition(server string, command []string, res *Result) string {
+// server started by command, with the tool notes hints suggest (as
+// comments).
+func Definition(server string, command []string, res *Result, hints []NoteHint) string {
 	cmd, _ := json.Marshal(command)
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Draft by mcp-gateway-admin inspect from %s", res.Server.Name)
@@ -220,5 +221,6 @@ command: ` + string(cmd) + `
 # network: true      # if it talks to the network
 # discovery: instance   # if its lists depend on the user
 `)
+	b.WriteString(draftNotes(hints))
 	return b.String()
 }
