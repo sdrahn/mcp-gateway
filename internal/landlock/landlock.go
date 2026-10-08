@@ -44,6 +44,27 @@ type Rules struct {
 	Required bool `yaml:"required" json:"required,omitempty"`
 }
 
+// MarshalYAML writes r as a definition has it: unset port lists are left
+// out (an empty one, which allows no port, is kept), as are empty trees.
+func (r Rules) MarshalYAML() (any, error) {
+	type rules struct {
+		Read       []string `yaml:"read,omitempty"`
+		Write      []string `yaml:"write,omitempty"`
+		Exec       []string `yaml:"exec,omitempty"`
+		TCPConnect *[]int   `yaml:"tcp_connect,omitempty"`
+		TCPBind    *[]int   `yaml:"tcp_bind,omitempty"`
+		Required   bool     `yaml:"required,omitempty"`
+	}
+	out := rules{Read: r.Read, Write: r.Write, Exec: r.Exec, Required: r.Required}
+	if r.TCPConnect != nil {
+		out.TCPConnect = &r.TCPConnect
+	}
+	if r.TCPBind != nil {
+		out.TCPBind = &r.TCPBind
+	}
+	return out, nil
+}
+
 // Base are the trees every ruleset allows: the system's programs and
 // libraries, its configuration and state as the unit's sandbox shows
 // them, a few devices, the instance's private temporary directories and

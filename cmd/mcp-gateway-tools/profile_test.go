@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 	"github.com/sdrahn/mcp-gateway/internal/profile"
 )
 
@@ -26,7 +28,8 @@ func TestProfileDefinition(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := profile.NewDomain("fwprof", backends["fwprof"].SELinuxType, config.DefaultSELinuxType, "/usr/libexec/mcpgw-fwprof")
-	out, err := definition(backends["fwprof"], d, []string{"network: it connects to http_port_t ports"})
+	out, err := definition(backends["fwprof"], d, []string{"network: it connects to http_port_t ports"},
+		&landlock.Rules{Read: []string{"/srv/data"}, Write: []string{"/var/lib/fwprof"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,6 +47,10 @@ func TestProfileDefinition(t *testing.T) {
 	b := again["fwprof"]
 	if b.SELinuxType != "mcpsrv_fwprof_t" || !b.Network || b.RunAs != "mcp-sysmgmt" || b.Env["A"] != "b" || len(b.Command) != 2 {
 		t.Errorf("definition %+v\n%s", b, out)
+	}
+	if l := b.Landlock; l == nil || !slices.Equal(l.Read, []string{"/srv/data"}) || !slices.Equal(l.Write, []string{"/var/lib/fwprof"}) ||
+		l.TCPConnect != nil || l.TCPBind != nil {
+		t.Errorf("landlock %+v (TCP must stay unset)\n%s", b.Landlock, out)
 	}
 	if !strings.HasPrefix(string(out), "# Draft by mcp-gateway-admin profile") {
 		t.Errorf("no header:\n%s", out)
