@@ -16,8 +16,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 )
 
 // CredentialRef is a reference to a credential in a header value,
@@ -133,4 +137,54 @@ func Loopback(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// Landlock returns the trees and ports of a program that connects for
+// the gateway (docs/architecture.md D19): beyond landlock.Base, the CA
+// certificates and resolver configuration (landlock.Network) and its
+// credentials; TCP to the ports it may connect to: o.Proxy's when it
+// tunnels, else those of target and of o.Resolve, and 53 for a name it
+// resolves itself. Without any port known (no target, resolve or
+// proxy), TCP is left to the unit.
+func Landlock(o Options, target *url.URL, credDir string) landlock.Rules {
+	r := landlock.Rules{Read: slices.Clone(landlock.Network)}
+	if credDir != "" {
+		r.Read = append(r.Read, credDir)
+	}
+	var ports []int
+	add := func(port string) {
+		if n, err := strconv.Atoi(port); err == nil && n > 0 && n < 65536 && !slices.Contains(ports, n) {
+			ports = append(ports, n)
+		}
+	}
+	switch {
+	case o.Proxy != nil:
+		add(urlPort(o.Proxy))
+	default:
+		if target != nil {
+			add(urlPort(target))
+		}
+		for _, e := range o.Resolve {
+			if parts := strings.SplitN(e, ":", 3); len(parts) == 3 {
+				add(parts[1])
+			}
+		}
+	}
+	if len(ports) > 0 {
+		add("53")
+		slices.Sort(ports)
+		r.TCPConnect = ports
+	}
+	return r
+}
+
+// urlPort is the port of u, or its scheme's.
+func urlPort(u *url.URL) string {
+	if p := u.Port(); p != "" {
+		return p
+	}
+	if u.Scheme == "http" {
+		return "80"
+	}
+	return "443"
 }

@@ -121,10 +121,14 @@ world-readable stays out of reach, which neither SELinux (home files
 share a type and carry no MCS categories) nor the sandbox (`ProtectHome`
 shows all of `/home`) prevents. Landlock binds root too and cannot be
 lifted by the server; it adds to the domain and the sandbox, it does
-not replace them.
+not replace them. The gateway's own programs (`mcp-server-fs`,
+`mcp-server-exec`, `mcp-http-connector`, `mcp-oauth-helper`) restrict
+themselves at startup in any case, to their directories, the trees
+their commands name, or their credentials and the ports they reach.
 
 `supervisor.mode: exec` disables the sandbox and SELinux confinement
-(`landlock` still applies); the gateway logs a warning. Use it for
+(`landlock` still applies, and our own programs still restrict
+themselves); the gateway logs a warning. Use it for
 development only.
 
 ## Secrets

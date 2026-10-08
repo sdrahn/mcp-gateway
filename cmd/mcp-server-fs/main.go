@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 	"github.com/sdrahn/mcp-gateway/internal/mcpserver"
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
@@ -80,6 +81,17 @@ func main() {
 		}
 		s.dirs = append(s.dirs, &allowed{path: abs})
 	}
+	// Beyond os.Root, the kernel keeps the server in its directories
+	// (Landlock, docs/architecture.md D19), whatever starts it.
+	rules := landlock.Rules{Write: s.dirPaths()}
+	if s.readOnly {
+		rules = landlock.Rules{Read: s.dirPaths()}
+	}
+	ll, err := landlock.Self(rules)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, serverName+":", err)
+		os.Exit(1)
+	}
 	// A log line on stderr, which goes to the journal, never on the MCP
 	// connection.
 	mode := ""
@@ -89,7 +101,7 @@ func main() {
 	if ro := s.readOnlyDirs(); len(ro) > 0 && !s.readOnly {
 		mode += " (on a read-only file system: " + strings.Join(ro, ", ") + ")"
 	}
-	fmt.Fprintf(os.Stderr, "%s: serving %s%s\n", serverName, strings.Join(s.dirPaths(), ", "), mode)
+	fmt.Fprintf(os.Stderr, "%s: serving %s%s; %s\n", serverName, strings.Join(s.dirPaths(), ", "), mode, ll)
 
 	// A message carries at most a write's content, JSON-escaped (up to
 	// 6 bytes per byte for control characters), and some envelope.

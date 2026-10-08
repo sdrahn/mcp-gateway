@@ -24,6 +24,15 @@ minor release (with a warning) and removed in the next.
   reads the system and its state. Without Landlock in the kernel,
   instances run as before and the doctor warns (new check `landlock`);
   `required: true` refuses to start instead.
+- The gateway's own programs restrict themselves with Landlock at
+  startup, whatever starts them (step 30, stage B): `mcp-server-fs` to
+  its `--root` directories, `mcp-server-exec` to the trees its commands
+  name (the system read, their programs executed, the paths in `dir`
+  and `argv` written, or read for `read_only` commands), and
+  `mcp-http-connector` and `mcp-oauth-helper` to their credentials, the
+  CA certificates and the TCP ports of their server or proxy. A command
+  file's new `landlock` key (`read`, `write`, `exec`) widens the trees
+  for its commands. The journal line at start says what was applied.
 
 ## v0.17.1 — 2026-10-08
 

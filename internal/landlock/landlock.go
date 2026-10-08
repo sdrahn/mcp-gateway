@@ -7,7 +7,9 @@
 //
 // Landlock restricts a thread: callers lock their OS thread
 // (runtime.LockOSThread), call Restrict and execute the program from
-// that thread, which carries the restriction into it.
+// that thread, which carries the restriction into it. Our own programs
+// restrict themselves with Self, which does the same with the program
+// itself (stage B).
 package landlock
 
 import (
@@ -213,8 +215,10 @@ func Restrict(r Rules) (Result, error) {
 	return res, nil
 }
 
+// isBase reports whether p is a tree of Base or Network, which systems
+// have in part: not reported missing.
 func isBase(p string) bool {
-	for _, l := range [][]string{Base.Read, Base.Exec, Base.Write} {
+	for _, l := range [][]string{Base.Read, Base.Exec, Base.Write, Network} {
 		for _, b := range l {
 			if p == b {
 				return true

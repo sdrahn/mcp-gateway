@@ -2236,7 +2236,16 @@ every server domain, which executes its own program from it. The
 shipped definitions restrict `fs` to the user's home, `gateway-docs` to
 the documentation, `exec` to reading the system and its state; a tree
 that expands to `/` (the discovery instance's home) is read, never
-written.
+written. Our own programs restrict themselves at startup (stage B):
+each restricts a thread locked to it and executes itself again from
+that thread (`landlock.Self`), so that every thread of the program
+shares one restriction; `mcp-server-fs` to its `--root` trees,
+`mcp-server-exec` to the trees its commands name (the system read,
+their programs executed, the paths in `dir` and `argv` written, or
+read for `read_only` commands), widened by a command file's `landlock`,
+`mcp-http-connector` and `mcp-oauth-helper` to their credentials, the
+CA certificates and the resolver configuration, and TCP to the ports
+of their server or proxy (and 53).
 *Rationale:* the domain and the unit's sandbox work on types and whole
 trees, and home files carry no MCS categories that tell users apart:
 what kept one user's `fs` instance out of another's home was DAC alone.
@@ -2247,7 +2256,12 @@ covers file access, TCP and scoping, without audit records of denials.
 A launcher in front of the command is the only way to apply it to
 servers the gateway does not write; restricting before the exec, on the
 thread that executes, is the only way to apply it to a multi-threaded
-Go launcher. Best effort by default keeps definitions working on
+Go launcher, and for our own programs, executing themselves again: the
+6.12 kernels restrict one thread at a time, and with scoping, threads
+of one process left in different domains may be refused the signals
+the Go runtime sends between them. A command
+file widening the derived trees keeps an administrator able to run
+what the derivation cannot foresee, within the definition's ruleset. Best effort by default keeps definitions working on
 kernels without Landlock, where the doctor warns.
 *Considered:* rules derived from the principal's roles (they change with
 the policy, while a ruleset is fixed for the life of an instance, and
@@ -2284,7 +2298,7 @@ internal/
   profile/                # mcp-gateway-admin profile: permissive run, denials, drafted module
   review/                 # mcp-gateway-admin review: source scan for what a server does to the system
   supervisor/             # systemd transient units, instance pool, MCS allocator
-  landlock/               # Landlock rulesets: ABI, restricting a thread before exec (D19)
+  landlock/               # Landlock rulesets: ABI, restricting a thread before exec, a program itself (D19)
   egress/                 # HTTP clients of the connector and the helper: -resolve, proxy
   oauth/                  # OAuth 2.1 client side: metadata, PKCE, the helper's steps
   signin/                 # principals' sign-ins, token store, tokens for instances (D16)
@@ -2949,7 +2963,10 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
 
 30. **Landlock as a second wall** (0.18, D19; stage A done: the
     launcher, `landlock`, the rulesets of the shipped `fs`,
-    `gateway-docs` and `exec`, the doctor's check):
+    `gateway-docs` and `exec`, the doctor's check; stage B done: `fs`,
+    `exec`, the connector and the sign-in helper restrict themselves,
+    `exec` to the trees its commands name, widened by a command file's
+    `landlock`):
     - the problem: an instance's isolation works on types and whole
       trees. Its SELinux domain allows a type (`mcpsrv_fs_t` reads any
       `user_home_t`; home files carry no MCS categories that tell users

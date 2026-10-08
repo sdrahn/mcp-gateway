@@ -332,6 +332,31 @@ check "landlock: alice's own file, under the fs ruleset" \
 	runuser -u alice -- /usr/libexec/mcp-gateway/mcp-landlock -rules "$ll_rules" -- cat /home/alice/secret.txt
 check "landlock: ... and the kernel refuses bob's public file" \
 	bash -c "runuser -u alice -- /usr/libexec/mcp-gateway/mcp-landlock -rules '$ll_rules' -- cat /home/bob/public.txt 2>&1 | grep -q 'public.txt: Permission denied'"
+# Stage B: our own servers restrict themselves, whatever starts them.
+# The exec server run by alice herself (no gateway, systemd or launcher)
+# with a command that names no tree: bob's public file is refused.
+cat >/etc/ll-exec-test.yaml <<'END'
+version: 1
+commands:
+  show:
+    argv: [/usr/bin/cat, "{path}"]
+    args: {path: {pattern: "/[a-z0-9/._-]+"}}
+    read_only: true
+END
+chmod 644 /etc/ll-exec-test.yaml
+ll_exec() {
+	{ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
+		"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"show\",\"arguments\":{\"path\":\"$1\"}}}"
+		sleep 2; } | runuser -u alice -- /usr/libexec/mcp-servers/mcp-server-exec --commands /etc/ll-exec-test.yaml 2>&1
+}
+out=$(ll_exec /etc/os-release); echo "  ${out:0:300}"
+check "landlock: the exec server restricts itself" grep -q "mcp-server-exec: 1 commands from /etc/ll-exec-test.yaml; Landlock ABI" <<<"$out"
+check "landlock: ... its command reads the system" grep -q "NAME=" <<<"$out"
+out=$(ll_exec /home/bob/public.txt); echo "  ${out:0:300}"
+check "landlock: ... and is refused bob's public file" bash -c 'grep -q "public.txt: Permission denied" <<<"$1" && ! grep -q "bob public" <<<"$1"' _ "$out"
+rm -f /etc/ll-exec-test.yaml
+check "landlock: an fs instance restricts itself too" \
+	bash -c 'journalctl -q --no-pager -u "mcp-fs-*" -o cat | grep -q "mcp-server-fs: serving /home/alice; Landlock ABI"'
 tool alice delete_file '{"path":"/home/alice/secret.txt"}'
 check "delete is denied by policy" tool_error_with "denied by policy"
 check "the file was not deleted" test -f /home/alice/secret.txt
@@ -886,6 +911,8 @@ check "the instance may reach the server's address" sh -c "systemctl show -p IPA
 check "the instance may reach no other address" sh -c "systemctl show -p IPAddressDeny --value '${h_unit:-none}' | grep -qE 'any|0\.0\.0\.0/0'"
 http_secret_hidden() { ! tr '\0' ' ' <"/proc/${h_pid:-1}/cmdline" | grep -q vmtest-token; }
 check "the credential is not on the instance's command line" http_secret_hidden
+check "landlock: the connector restricts itself" \
+	bash -c "journalctl -q --no-pager -u '${h_unit:-none}' -o cat | grep -q 'msg=restricted landlock=\"Landlock ABI'"
 rm -f /etc/mcp-gateway/servers.d/httpecho.yaml /etc/mcp-gateway/credentials/httptoken
 kill "$http_pid" 2>/dev/null
 wait "$http_pid" 2>/dev/null

@@ -16,11 +16,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 	"github.com/sdrahn/mcp-gateway/internal/mcpserver"
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
@@ -35,7 +37,11 @@ type pathFlags []string
 func (p *pathFlags) String() string     { return strings.Join(*p, ",") }
 func (p *pathFlags) Set(v string) error { *p = append(*p, v); return nil }
 
+// restrict is landlock.Self in the program, nil in tests that call run.
+var restrict func(landlock.Rules) (landlock.Result, error)
+
 func main() {
+	restrict = landlock.Self
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
@@ -86,11 +92,30 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stdout, "%d commands\n", len(cmds))
 		return 0
 	}
+	// The kernel keeps the server and its commands to the trees they
+	// name (Landlock, D19), whatever starts it. Before any output: the
+	// program runs again restricted.
+	ll := "not restricted"
+	if restrict != nil {
+		rules := landlockRules(cmds)
+		// The command files, which the program reads again.
+		for _, p := range paths {
+			if abs, err := filepath.Abs(p); err == nil {
+				rules.Read = append(rules.Read, abs)
+			}
+		}
+		res, err := restrict(rules)
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, serverName+":", err)
+			return 1
+		}
+		ll = res.String()
+	}
 	for _, w := range warns {
 		_, _ = fmt.Fprintln(stderr, serverName+": warning:", w)
 	}
 	// A log line on stderr, which goes to the journal.
-	_, _ = fmt.Fprintf(stderr, "%s: %d commands from %s\n", serverName, len(cmds), strings.Join(paths, ", "))
+	_, _ = fmt.Fprintf(stderr, "%s: %d commands from %s; %s\n", serverName, len(cmds), strings.Join(paths, ", "), ll)
 	s := &server{cmds: cmds, about: *about}
 	// Requests carry only arguments, which are short.
 	if err := mcpserver.New(s.handle, stdout).Serve(stdin, 1<<20); err != nil {

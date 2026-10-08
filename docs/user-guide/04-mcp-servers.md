@@ -383,6 +383,19 @@ a denied access is an `EACCES` ("permission denied") the server reports,
 with no SELinux denial next to it. Widen the rules, or check them with
 `mcp-landlock -version` (the kernel's ABI).
 
+The gateway's own programs restrict themselves at startup as well,
+without configuration and whatever starts them (the gateway, the
+supervisor's `exec` mode, `inspect`, or a shell): `mcp-server-fs` to its
+`--root` directories (read only with `--read-only`), `mcp-server-exec`
+to the trees its commands name (see
+[Commands an administrator allows](#commands-an-administrator-allows)),
+`mcp-http-connector` and `mcp-oauth-helper` to their credentials, the
+CA certificates and the resolver configuration, and to the TCP ports of
+the server or proxy they reach. The restriction stacks with the
+definition's `landlock`: both apply. The journal says what was applied
+(`mcp-server-fs: serving /home/alice; Landlock ABI 6, scoped`; the
+connector: `msg=restricted landlock="Landlock ABI 6, scoped"`).
+
 ## What an instance gets
 
 Each instance runs as a transient systemd service named
@@ -948,7 +961,7 @@ commands:
 | `description` | | what the tool does, for the agent |
 | `timeout` | `60s` | then the program and everything it started are killed (at most `1h`) |
 | `max_output` | 1 MiB | bytes of stdout and stderr kept (at most 16 MiB); the rest is cut |
-| `read_only` | `false` | the MCP annotation (`readOnlyHint`); a hint for clients, never a permission |
+| `read_only` | `false` | the MCP annotation (`readOnlyHint`), a hint for clients and never a permission in the policy; the paths the command names are only read (Landlock, below) |
 | `env` | none | variables beyond `PATH=/usr/sbin:/usr/bin:/sbin:/bin` and `LANG=C.UTF-8`; nothing else is passed on |
 | `dir` | `/` | the working directory |
 
@@ -992,6 +1005,36 @@ Roles for every server reach commands too: the shipped `viewer` allows
 `list_*`, `read_*` and `get_*` on all servers, so avoid such names
 (`--check` warns). Add `"audit": "full"` to a permission to record the
 arguments in the audit log instead of their digest (chapter 6).
+
+The server and its commands also keep to the trees the command files
+name (Landlock, [above](#landlock)): the system read (`/etc`, `/usr`,
+`/proc`, `/sys`, `/var`, `/run`), each command's program executed, and
+the paths a command names written, or only read when it is
+`read_only`: its `dir` and the absolute paths in its `argv`, a whole
+element (`/etc/os-release`), the value of an option
+(`--directory=/var/log/journal`), or the directory before a placeholder
+(`/var/log/app` for `/var/log/app/{name}.log`). A value the caller
+gives (`{path}`) names no tree: `cat {path}` reads the system, not a
+home. A command that needs other trees gets them from its file's
+`landlock` (trees only; TCP ports belong in the server's definition),
+which applies to the commands of that file:
+
+```yaml
+version: 1
+landlock:
+  write: [/srv/spool]     # read and change
+  read: [/srv/shared]
+  exec: [/opt/tool]       # programs and libraries the commands run
+commands:
+  ...
+```
+
+The definition's `landlock` still applies on top: the shipped one reads
+`/var` and `/run` and writes nothing beyond the base, so a command that
+writes, say, `/var/lib/app` needs both the file's `landlock` and a
+copy of the definition that writes it. The journal line at start says
+what the kernel applied (`mcp-server-exec: 2 commands from
+/etc/mcp-gateway/exec.d; Landlock ABI 6, scoped`).
 
 Commands run with the calling user's rights and the domain's: they read
 `/etc`, `/usr`, system state, mounts and the rpm database, and change
