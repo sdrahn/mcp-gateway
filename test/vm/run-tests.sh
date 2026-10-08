@@ -1286,6 +1286,28 @@ rm -f /etc/mcp-gateway/servers.d/notype.yaml
 systemctl restart mcp-gateway.service
 wait_socket
 
+# Landlock refuses what SELinux allows (step 30, stage D): the exec
+# server reads its command file below /opt (usr_t, which mcpsrv_exec_t
+# reads), which the definition's landlock leaves out. It does not start;
+# with no SELinux denial, the doctor names the ruleset.
+mkdir -p /opt/ll-test
+printf 'version: 1\ncommands:\n  up:\n    argv: [/usr/bin/uptime]\n    read_only: true\n' >/opt/ll-test/c.yaml
+restorecon -R /opt/ll-test
+cat >/etc/mcp-gateway/servers.d/llfail.yaml <<'END'
+name: llfail
+command: ["/usr/libexec/mcp-servers/mcp-server-exec", "--commands", "/opt/ll-test/c.yaml"]
+selinux_type: mcpsrv_exec_t
+landlock:
+  read: ["/var"]
+END
+mcp-gateway-admin doctor --server llfail >/root/doctor-llfail.txt 2>&1
+sed 's/^/  /' /root/doctor-llfail.txt | grep -iE 'llfail|landlock' | head -8
+check "doctor: names Landlock for a server it keeps from starting" \
+	grep -qE '^WARN +landlock llfail: does not start, and SELinux denied mcpsrv_exec_t nothing: Landlock is the likely cause' /root/doctor-llfail.txt
+check "doctor: ... with its rules" grep -q "its definition's landlock (read /var)" /root/doctor-llfail.txt
+rm -f /etc/mcp-gateway/servers.d/llfail.yaml /opt/ll-test/c.yaml
+rmdir /opt/ll-test
+
 # Run by hand as root, the gateway would leave state files the service
 # cannot read: it refuses, and a root-owned file in the state directory
 # is named by the doctor and at start.

@@ -135,6 +135,11 @@ type doctorRun struct {
 	rbac     []byte // the role data, if read
 	// versions are what the servers that started reported, by name.
 	versions map[string]string
+	// failed are the servers that did not start; denials the SELinux
+	// denials of the window, if read (denialsRead): for LandlockSuspects.
+	failed      []string
+	denials     []profile.Denial
+	denialsRead bool
 }
 
 func (d *doctorRun) run(configPath string) []doctor.Result {
@@ -171,6 +176,7 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 	}
 	add(d.servers()...)
 	add(d.selinux()...)
+	add(doctor.LandlockSuspects(d.backends, d.failed, d.denials, d.denialsRead)...)
 	if supervisor.SELinuxEnabled() {
 		add(doctor.SELinuxTypes(d.selected(), supervisor.ContextValid)...)
 		helpers := doctor.TypedPrograms
@@ -183,7 +189,8 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 		add(doctor.ReadOnlyRoot(d.selected(), readOnly("/usr"))...)
 	}
 	_, launcherErr := os.Stat(config.LandlockLauncher)
-	add(doctor.Landlock(d.selected(), landlock.ABI(), launcherErr == nil)...)
+	abi, disabled := landlock.Support()
+	add(doctor.Landlock(d.selected(), doctor.LandlockKernel{ABI: abi, Disabled: disabled}, launcherErr == nil)...)
 	add(doctor.Polkit(d.selected(), d.versions, nil)...)
 	add(doctor.Snapper(d.selected(), doctor.SnapperConfigsDir, userGroups)...)
 	if d.only == "" {
@@ -464,6 +471,7 @@ func (d *doctorRun) servers() []doctor.Result {
 		res, err := inspect.Start(ctx, launcher, b, principal.Discovery)
 		cancel()
 		if err != nil {
+			d.failed = append(d.failed, name)
 			r.Status, r.Summary = doctor.Fail, "does not start: "+err.Error()
 			r.Details = []string{fmt.Sprintf("journalctl -u 'mcp-%s-*' shows its output; mcp-gateway-admin inspect --server %s for more", name, name)}
 			rs = append(rs, r)
@@ -577,6 +585,7 @@ func (d *doctorRun) selinux() []doctor.Result {
 	}
 	from, label := denialWindow(time.Now(), d.since, bootTime(), d.allBoots)
 	denials, errs := profile.Parse(raw, from)
+	d.denials, d.denialsRead = denials, true
 	if d.only != "" {
 		// The server's domain only (shared by the servers of that type).
 		dom := d.backends[d.only].SELinuxType

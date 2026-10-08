@@ -310,6 +310,9 @@ type serverInfo struct {
 	Privileged  bool             `json:"privileged,omitempty"`
 	// SignIn marks a server each principal signs in to (sign_in).
 	SignIn bool `json:"sign_in,omitempty"`
+	// Landlock marks a server whose definition restricts its instances
+	// with Landlock (landlock).
+	Landlock bool `json:"landlock,omitempty"`
 	// Removed marks a server whose definition went away while instances
 	// of it still run (they stop once their calls are answered).
 	Removed   bool                  `json:"removed,omitempty"`
@@ -336,7 +339,8 @@ func (s *Server) servers(w http.ResponseWriter, r *http.Request, a broker.Approv
 			insts = []router.InstanceInfo{}
 		}
 		out = append(out, serverInfo{Name: name, SELinuxType: b.SELinuxType, Isolation: b.Isolation,
-			Network: b.Network, RunAs: b.RunAs, Privileged: b.Privileged, SignIn: b.SignIn != nil, Instances: insts})
+			Network: b.Network, RunAs: b.RunAs, Privileged: b.Privileged, SignIn: b.SignIn != nil,
+			Landlock: b.Landlock != nil, Instances: insts})
 	}
 	for name, insts := range byServer {
 		if _, ok := backends[name]; !ok {

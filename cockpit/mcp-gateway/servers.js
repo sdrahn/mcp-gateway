@@ -25,7 +25,14 @@ async function stopInstance(inst, button) {
     tabs.servers.refresh();
 }
 
-async function instanceLog(inst, box) {
+/* landlockHint follows an instance's journal that reports a refused
+ * access when its server runs under Landlock, whose refusals leave no
+ * audit record: the server's own "permission denied" is all there is. */
+const landlockHint = "\n\n“Permission denied” and no SELinux denial (mcp-gateway-admin doctor): " +
+    "the server's Landlock rules (landlock in its definition) are the likely cause; " +
+    "widen them with the tree it needs (user guide, chapter 4, Landlock).";
+
+async function instanceLog(inst, box, landlock) {
     box.textContent = logText.get(inst.id) || "Loading…";
     let text;
     try {
@@ -33,6 +40,7 @@ async function instanceLog(inst, box) {
                                          "--output", "short-iso"],
                                         { superuser: "try", err: "message" });
         text = out.trim() || "No journal entries for " + inst.unit + ".";
+        if (landlock && /permission denied/i.test(text)) text += landlockHint;
     } catch (ex) {
         text = "Reading the journal failed: " + (ex.message || ex.problem || ex);
     }
@@ -40,7 +48,7 @@ async function instanceLog(inst, box) {
     box.textContent = text;
 }
 
-function instanceRow(inst) {
+function instanceRow(inst, landlock) {
     const stop = el("button", { class: "danger" }, "Stop");
     stop.addEventListener("click", () => stopInstance(inst, stop));
     // A privileged instance is not stopped while a call runs (it may be
@@ -59,10 +67,10 @@ function instanceRow(inst) {
             openLogs.delete(inst.id);
         } else {
             openLogs.add(inst.id);
-            instanceLog(inst, log);
+            instanceLog(inst, log, landlock);
         }
     });
-    if (!log.hidden) instanceLog(inst, log);
+    if (!log.hidden) instanceLog(inst, log, landlock);
     const definition = {
         previous: "previous definition: runs until no session uses it",
         removed: "server removed: stops once its calls end",
@@ -153,6 +161,7 @@ function renderServers(servers, signIns) {
             s.network ? "network" : "no network", "runs as " + s.run_as];
         if (s.privileged) facts.push("privileged: no sandbox, every call by policy and approval");
         if (s.sign_in) facts.push("each user signs in");
+        if (s.landlock) facts.push("Landlock");
         if (s.removed) facts = ["removed from the configuration; its instances stop once their calls end"];
         const card = el("div", { class: "card" },
                         el("h3", null, s.name),
@@ -161,7 +170,7 @@ function renderServers(servers, signIns) {
         if (s.instances.length === 0) {
             card.append(el("div", { class: "muted" }, "No running instances you may manage."));
         }
-        for (const inst of s.instances) card.append(instanceRow(inst));
+        for (const inst of s.instances) card.append(instanceRow(inst, s.landlock));
         box.append(card);
     }
 }

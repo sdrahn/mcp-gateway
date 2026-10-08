@@ -56,7 +56,9 @@ network access and account, and the running instances you may manage:
 principal, unit name, sessions, start time. For each instance:
 
 - **Show log** shows the last 50 lines of the instance's journal (the
-  server's stderr);
+  server's stderr); for a server under Landlock, a "permission denied"
+  in it gets a line naming the rules as the likely cause (chapter 4,
+  "Landlock");
 - **Stop** ends it (calls in flight fail; the next call starts a new
   instance).
 

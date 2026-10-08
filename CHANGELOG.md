@@ -40,6 +40,15 @@ minor release (with a warning) and removed in the next.
   readable and executable, no TCP. `--home` gives it your home,
   `--network` TCP, `--allow DIR` another tree. It needs
   `/usr/libexec/mcp-gateway/mcp-landlock` (package mcp-gateway).
+- Diagnosis of Landlock (step 30, stage D): the doctor's `landlock`
+  check tells a kernel built without Landlock from one that has it but
+  not in its `lsm=` list, and names per server what the kernel leaves
+  out of its rules (`required` rules it cannot apply in full fail). A
+  server that does not start, runs restricted and was denied nothing by
+  SELinux gets `landlock NAME`: Landlock is the likely cause, since its
+  refusals leave no audit record. Cockpit shows "Landlock" among a
+  server's facts and adds the hint under an instance's log that says
+  "permission denied"; `GET /v1/servers` has `landlock`.
 
 ## v0.17.1 — 2026-10-08
 
