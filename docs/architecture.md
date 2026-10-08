@@ -2907,6 +2907,92 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       that reads a limit from the description does not make the call
       that would be denied.
 
+30. **Landlock as a second wall** (0.18):
+    - the problem: an instance's isolation works on types and whole
+      trees. Its SELinux domain allows a type (`mcpsrv_fs_t` reads any
+      `user_home_t`; home files carry no MCS categories that tell users
+      apart), its unit's sandbox shows whole trees (`ProtectHome=read-write`
+      shows all of `/home`), and what keeps alice's `fs` instance out of
+      `/home/bob` is DAC alone: a world-readable file in bob's home, or a
+      group set too wide, is readable through the gateway. The policy
+      checks path arguments as strings (D13, §8); a server that follows a
+      link without confining itself leaves the allowed tree within what
+      its account and domain allow. And the tools that run servers
+      without systemd (`inspect`, `profile` and `review` with a command or
+      `--exec`, the supervisor's `exec` mode) have no sandbox at all;
+    - Landlock (in the kernels of SLES 16, Leap 16 and Tumbleweed) lets a
+      process restrict itself and its children to file hierarchies, for
+      good: unprivileged, stacked with SELinux (both must allow), binding
+      root too (capabilities do not bypass it), following the real
+      hierarchy rather than path strings. It is a second wall, not a
+      replacement: no labels, no D-Bus or other IPC, TCP ports but no
+      addresses, per process and not per call;
+    - first, the facts: the Landlock ABI and the `lsm=` list of the CI
+      VMs (Leap 16, Tumbleweed) and of a SLES 16 system, recorded in the
+      VM test log; what the 6.12 kernels of SLES 16 and Leap 16 cover
+      (expected: ABI 6, file access, TCP bind and connect, signal and
+      abstract unix socket scoping; no audit records of denials, which
+      later kernels add); a decision (D19) records the design;
+    - stage A, a launcher: `mcp-landlock` (in `/usr/libexec/mcp-gateway`)
+      applies a ruleset and executes the server; the supervisor puts it
+      in front of the command of every instance with a ruleset. The
+      definition gets `landlock` (`read`, `write`, `exec`: lists of
+      trees, `${HOME}` and `${USER}` expanded per instance as in
+      `command`; `tcp_connect`: ports), and every instance is scoped
+      (signals, abstract unix sockets) whether or not it has rules.
+      Rulesets for the shipped definitions: `fs` the user's home
+      (read-write) and the system trees it needs to run (read, exec);
+      `gateway-docs` the documentation (read); `exec` the system trees
+      (read, exec), as its instructions already say; the setup packages'
+      servers the trees they work on (the systemd profile: `/etc/systemd`,
+      `/usr/lib/systemd`, the journal, `/run/systemd`; zypp's privileged
+      variant what an installation writes). Best effort by ABI: on a
+      kernel without Landlock, or without a right a ruleset names, the
+      instance starts with what the kernel has and the doctor says so;
+      `landlock: {required: true}` refuses to start instead. The rules
+      cannot be relaxed while an instance runs: a changed definition gets
+      new instances, as today (step 18);
+    - stage B, our own programs restrict themselves at startup, without
+      configuration: `mcp-server-fs` to its `--root` trees (beyond
+      `os.Root`), `mcp-server-exec` to the trees its commands name,
+      `mcp-http-connector` and `mcp-oauth-helper` to their credentials
+      and nothing else of the file system, the connector's TCP to the
+      ports of its URL and proxy. This also holds in the supervisor's
+      `exec` mode and under `inspect`;
+    - stage C, the commands that run untrusted servers without systemd
+      (`inspect`, `profile`, `review` with a command or `--exec`) run
+      them under Landlock: the system read-only, a private writable
+      temporary directory, the caller's home only with `--home`, no TCP
+      unless `--network`. "Without sandbox" becomes "without systemd and
+      SELinux, under Landlock";
+    - stage D, diagnosis: without audit records a denial is an `EACCES`
+      the server reports in its own words. The doctor reports the kernel's
+      Landlock ABI, whether `landlock` is in the LSM list, and per server
+      whether its instances run with a ruleset and which rights the kernel
+      left out; for a server failing with "permission denied" and no
+      SELinux denial, the doctor and Cockpit name the ruleset as a
+      likely cause. `profile` drafts `landlock` trees from the files a
+      server opens in its test run, as it drafts SELinux rules from AVC
+      denials (how it observes them, without audit records, is part of
+      D19);
+    - not in this step: rules from the principal's roles (the permitted
+      paths of a server per principal): they change with the policy,
+      while a ruleset is fixed for the life of an instance, and argument
+      patterns are regular expressions, not trees; Landlock for the
+      gateway daemon and OPA, whose file access is broad and already
+      confined by their domains; network rules where `IPAddressAllow`
+      already bounds addresses;
+    - §8 (threat model): the residual risks of "path arguments leaving an
+      allowed tree" and "cross-tenant data leakage" narrow to what the
+      instance's ruleset allows;
+    - tests: the launcher (rulesets, `${HOME}` expansion, best effort and
+      `required` on a kernel lacking a right, scoping); in the VMs, alice's
+      `fs` instance cannot read a world-readable file in bob's home (it
+      could before), cannot follow a link out of her home, cannot signal
+      another instance; the systemd server reads outside its trees no
+      more; `inspect --exec` of a server that writes to `$HOME` fails
+      under Landlock; the doctor's report on both distributions.
+
 ## 12. Open items
 
 - Per-conversation state for modern agents (D18): servers marked
