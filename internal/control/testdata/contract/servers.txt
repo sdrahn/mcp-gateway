@@ -16,6 +16,7 @@
 [].instances[].uid
 [].instances[].unit
 [].isolation
+[].landlock
 [].name
 [].network
 [].privileged

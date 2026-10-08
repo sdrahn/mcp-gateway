@@ -470,26 +470,68 @@ func TestLandlock(t *testing.T) {
 	with := map[string]*config.Backend{"git": {Name: "git"},
 		"fs":   {Name: "fs", Landlock: &landlock.Rules{Write: []string{"${HOME}"}}},
 		"docs": {Name: "docs", Landlock: &landlock.Rules{Required: true}}}
+	fs := map[string]*config.Backend{"fs": with["fs"]}
+	tcp := map[string]*config.Backend{"web": {Name: "web", Landlock: &landlock.Rules{TCPConnect: []int{443}}}}
 	for _, c := range []struct {
 		backends map[string]*config.Backend
-		abi      int
+		k        LandlockKernel
 		launcher bool
 		status   Status
 		summary  string
 	}{
-		{none, 6, true, OK, "Landlock ABI 6; no server definition"},
-		{none, 0, false, OK, "no Landlock in this kernel; no server definition asks for it"},
-		{with, 6, true, OK, "Landlock ABI 6: instances of docs, fs start restricted"},
-		{with, 6, false, Fail, "mcp-landlock is missing: instances of docs, fs cannot start"},
-		{with, 0, true, Fail, "instances of docs cannot start (landlock: required)"},
-		{map[string]*config.Backend{"fs": with["fs"]}, 0, true, Warn, "instances of fs start without the restriction"},
+		{none, LandlockKernel{ABI: 6}, true, OK, "Landlock ABI 6; no server definition"},
+		{none, LandlockKernel{}, false, OK, "no Landlock in this kernel; no server definition asks for it"},
+		{with, LandlockKernel{ABI: 6}, true, OK, "Landlock ABI 6: instances of docs, fs start restricted"},
+		{with, LandlockKernel{ABI: 6}, false, Fail, "mcp-landlock is missing: instances of docs, fs cannot start"},
+		{with, LandlockKernel{}, true, Fail, "instances of docs cannot start (landlock: required)"},
+		{with, LandlockKernel{ABI: 5}, true, Fail, "Landlock ABI 5 cannot apply all the rules of docs"},
+		{fs, LandlockKernel{}, true, Warn, "no Landlock in this kernel: instances of fs start without the restriction"},
+		{fs, LandlockKernel{Disabled: true}, true, Warn, "Landlock is in the kernel but not in its LSM list: instances of fs"},
 	} {
-		rs := Landlock(c.backends, c.abi, c.launcher)
+		rs := Landlock(c.backends, c.k, c.launcher)
 		if len(rs) != 1 || rs[0].Status != c.status || !strings.Contains(rs[0].Summary, c.summary) {
-			t.Errorf("%v abi %d launcher %v: %+v", sortedKeys(c.backends), c.abi, c.launcher, rs)
+			t.Errorf("%v %+v launcher %v: %+v", sortedKeys(c.backends), c.k, c.launcher, rs)
 		}
 	}
-	if rs := Landlock(with, 5, true); len(rs[0].Details) != 1 || !strings.Contains(rs[0].Details[0], "scoped") {
+	if rs := Landlock(fs, LandlockKernel{ABI: 5}, true); rs[0].Status != OK || len(rs[0].Details) != 1 ||
+		!strings.Contains(rs[0].Details[0], "fs: left out by the kernel: scoping") {
 		t.Errorf("ABI 5: %+v", rs)
+	}
+	if rs := Landlock(tcp, LandlockKernel{ABI: 3}, true); rs[0].Status != OK || !strings.Contains(rs[0].Details[0], "web: left out by the kernel: TCP ports (ABI 4)") {
+		t.Errorf("ABI 3, TCP: %+v", rs)
+	}
+	if rs := Landlock(fs, LandlockKernel{Disabled: true}, true); !strings.Contains(rs[0].Details[0], "lsm= boot parameter") {
+		t.Errorf("disabled: %+v", rs)
+	}
+}
+
+// A server that does not start and runs restricted, with no SELinux
+// denial for its domain: Landlock is named. With a denial, SELinux is
+// the suspect; a server without restriction is not named.
+func TestLandlockSuspects(t *testing.T) {
+	backends := map[string]*config.Backend{
+		"fs":    {Name: "fs", SELinuxType: "mcpsrv_fs_t", Command: []string{"/usr/libexec/mcp-servers/mcp-server-fs"}},
+		"tool":  {Name: "tool", Command: []string{"/opt/tool"}, Landlock: &landlock.Rules{Read: []string{"/srv"}}},
+		"plain": {Name: "plain", Command: []string{"/opt/plain"}},
+		"web":   {Name: "web", URL: "https://x/mcp", SELinuxType: "mcpsrv_http_t", Command: []string{"/usr/libexec/mcp-gateway/mcp-http-connector"}},
+	}
+	denials := []profile.Denial{{Source: "mcpsrv_http_t", Target: "cert_t"}}
+	rs := LandlockSuspects(backends, []string{"fs", "plain", "tool", "web", "gone"}, denials, true)
+	var got []string
+	for _, r := range rs {
+		got = append(got, r.Check)
+		if r.Status != Warn || !strings.Contains(r.Summary, "Landlock is the likely cause") {
+			t.Errorf("%+v", r)
+		}
+	}
+	if strings.Join(got, ",") != "landlock fs,landlock tool" {
+		t.Errorf("suspects %v", got)
+	}
+	if !strings.Contains(rs[1].Details[0], "read /srv") || !strings.Contains(rs[0].Details[0], "mcp-server-fs") ||
+		!strings.Contains(rs[1].Summary, "mcpsrv_generic_t") {
+		t.Errorf("details %+v", rs)
+	}
+	if rs := LandlockSuspects(backends, []string{"web"}, nil, false); len(rs) != 1 || !strings.Contains(rs[0].Summary, "if SELinux denied") {
+		t.Errorf("denials unknown: %+v", rs)
 	}
 }

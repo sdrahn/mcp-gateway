@@ -90,11 +90,20 @@ var ErrRequired = errors.New("landlock: required, but the kernel cannot apply ev
 
 // ABI returns the kernel's Landlock ABI version, 0 without Landlock.
 func ABI() int {
+	abi, _ := Support()
+	return abi
+}
+
+// Support returns the kernel's Landlock ABI version and, without
+// Landlock (0), whether the kernel has it but does not run it: not in
+// its LSM list (the lsm= boot parameter), which the kernel tells apart
+// from a kernel built without it (EOPNOTSUPP rather than ENOSYS).
+func Support() (abi int, disabled bool) {
 	v, _, errno := unix.Syscall(unix.SYS_LANDLOCK_CREATE_RULESET, 0, 0, unix.LANDLOCK_CREATE_RULESET_VERSION)
 	if errno != 0 {
-		return 0
+		return 0, errno == unix.EOPNOTSUPP
 	}
-	return int(v)
+	return int(v), false
 }
 
 const (

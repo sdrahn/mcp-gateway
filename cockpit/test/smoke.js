@@ -68,6 +68,9 @@ function site() {
     await page.click("#servers button:has-text('Show log')");
     await page.waitForFunction(() => document.querySelector("pre.log").textContent.includes("started"));
     check(true, "instance log shown");
+    check((await page.textContent("pre.log")).includes("Landlock rules (landlock in its definition) are the likely cause"),
+          "a refused access under Landlock names the rules");
+    check((await page.textContent("#servers .card:first-child")).includes("· Landlock"), "a server under Landlock says so");
     await page.click("#servers button:has-text('Stop'):not([disabled])");
     await page.waitForFunction(() => !document.querySelector("#servers").textContent.includes("mcp-fs-i1.service"));
     check((await page.evaluate(() => __calls)).some(c => c[0] === "DELETE" && c[1] === "/v1/instances/i1"), "stop instance");

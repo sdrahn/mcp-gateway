@@ -38,7 +38,8 @@
             { id: "a2", channel: "oob", principal: { sub: "alice", transport: "unix" }, action: "tools.call", server: "fs",
               name: "delete_file", args: {}, scopes: ["once"], expires: new Date(Date.now() + 60000).toISOString(), waiting: false }],
         "/v1/grants": () => [],
-        "/v1/servers": () => [{ name: "fs", selinux_type: "mcpsrv_fs_t", isolation: "principal", network: false, run_as: "principal", instances },
+        "/v1/servers": () => [{ name: "fs", selinux_type: "mcpsrv_fs_t", isolation: "principal", network: false, run_as: "principal",
+                                landlock: true, instances },
                               { name: "git", selinux_type: "", isolation: "principal", network: true, run_as: "principal", instances: [] },
                               { name: "zypp", selinux_type: "mcpsrv_zypp_t", isolation: "principal", network: true, run_as: "root", privileged: true,
                                 instances: [{ id: "i2", server: "zypp", unit: "mcp-zypp-i2.service", sub: "alice", uid: 1001, transport: "unix",
@@ -133,7 +134,8 @@
             if (args[0] === "mcp-policy-bundle") {
                 return Promise.resolve("wrote /etc/mcp-gateway/bundle/policy.tar.gz (revision " + args[2] + ")\n");
             }
-            return Promise.resolve("2026-09-27T08:00:00 host mcp-fs[1]: started\n");
+            return Promise.resolve("2026-09-27T08:00:00 host mcp-fs[1]: started\n" +
+                                   "2026-09-27T08:00:01 host mcp-fs[1]: /srv/x: permission denied\n");
         },
         file(path, opts) {
             return {

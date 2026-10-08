@@ -15,11 +15,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 	"github.com/sdrahn/mcp-gateway/internal/profile"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 )
@@ -614,47 +616,165 @@ func ReadOnlyRoot(backends map[string]*config.Backend, readOnly bool) []Result {
 	return []Result{r}
 }
 
-// Landlock reports the kernel's Landlock (abi 0: none, or not in the
-// kernel's LSM list) for the servers whose definitions have landlock
-// (roadmap step 30), and whether their launcher is installed.
-func Landlock(backends map[string]*config.Backend, abi int, launcher bool) []Result {
-	var with, required []string
+// LandlockKernel is what the kernel offers of Landlock: its ABI (0:
+// none), and without one whether the kernel has Landlock but does not
+// run it (not in its LSM list).
+type LandlockKernel struct {
+	ABI      int
+	Disabled bool
+}
+
+// unsupported are the restrictions of r that a kernel of ABI abi leaves
+// out, as landlock.Restrict does.
+func unsupported(r *landlock.Rules, abi int) []string {
+	var out []string
+	if (r.TCPConnect != nil || r.TCPBind != nil) && abi < 4 {
+		out = append(out, "TCP ports (ABI 4)")
+	}
+	if abi < 6 {
+		out = append(out, "scoping of signals and abstract unix sockets (ABI 6)")
+	}
+	return out
+}
+
+// Landlock reports the kernel's Landlock for the servers whose
+// definitions have landlock (roadmap step 30): whether their launcher is
+// installed, and per server what the kernel leaves out of its rules;
+// with required, a server whose rules the kernel cannot apply in full
+// does not start.
+func Landlock(backends map[string]*config.Backend, k LandlockKernel, launcher bool) []Result {
+	var with, refused, details []string
 	for _, name := range sortedKeys(backends) {
-		if l := backends[name].Landlock; l != nil {
-			with = append(with, name)
+		l := backends[name].Landlock
+		if l == nil {
+			continue
+		}
+		with = append(with, name)
+		if k.ABI == 0 {
 			if l.Required {
-				required = append(required, name)
+				refused = append(refused, name)
+			}
+			continue
+		}
+		if u := unsupported(l, k.ABI); len(u) > 0 {
+			details = append(details, name+": left out by the kernel: "+strings.Join(u, ", "))
+			if l.Required {
+				refused = append(refused, name)
 			}
 		}
+	}
+	missing := "no Landlock in this kernel"
+	fix := "a kernel with Landlock (CONFIG_SECURITY_LANDLOCK)"
+	if k.Disabled {
+		missing = "Landlock is in the kernel but not in its LSM list"
+		fix = "add landlock to the kernel's lsm= boot parameter (cat /sys/kernel/security/lsm shows the list) and reboot"
 	}
 	r := Result{Check: "landlock"}
 	switch {
 	case len(with) == 0:
 		r.Status = OK
-		r.Summary = fmt.Sprintf("Landlock ABI %d; no server definition restricts its instances with it", abi)
-		if abi == 0 {
-			r.Summary = "no Landlock in this kernel; no server definition asks for it"
+		r.Summary = fmt.Sprintf("Landlock ABI %d; no server definition restricts its instances with it", k.ABI)
+		if k.ABI == 0 {
+			r.Summary = missing + "; no server definition asks for it"
 		}
 	case !launcher:
 		r.Status = Fail
 		r.Summary = fmt.Sprintf("%s is missing: instances of %s cannot start", config.LandlockLauncher, strings.Join(with, ", "))
 		r.Details = []string{"reinstall the package mcp-gateway"}
-	case abi == 0 && len(required) > 0:
+	case len(refused) > 0:
 		r.Status = Fail
-		r.Summary = fmt.Sprintf("no Landlock in this kernel: instances of %s cannot start (landlock: required)", strings.Join(required, ", "))
-		r.Details = []string{"add landlock to the kernel's lsm= list (cat /sys/kernel/security/lsm), or drop required from those definitions"}
-	case abi == 0:
+		r.Summary = fmt.Sprintf("%s: instances of %s cannot start (landlock: required)", missing, strings.Join(refused, ", "))
+		if k.ABI > 0 {
+			r.Summary = fmt.Sprintf("Landlock ABI %d cannot apply all the rules of %s: their instances cannot start (landlock: required)",
+				k.ABI, strings.Join(refused, ", "))
+			fix = "a newer kernel, or drop required from those definitions"
+		} else {
+			fix += ", or drop required from those definitions"
+		}
+		r.Details = append(details, fix)
+	case k.ABI == 0:
 		r.Status = Warn
-		r.Summary = fmt.Sprintf("no Landlock in this kernel: instances of %s start without the restriction their definitions ask for", strings.Join(with, ", "))
-		r.Details = []string{"add landlock to the kernel's lsm= list (cat /sys/kernel/security/lsm) and reboot"}
+		r.Summary = fmt.Sprintf("%s: instances of %s start without the restriction their definitions ask for", missing, strings.Join(with, ", "))
+		r.Details = []string{fix}
 	default:
 		r.Status = OK
-		r.Summary = fmt.Sprintf("Landlock ABI %d: instances of %s start restricted", abi, strings.Join(with, ", "))
-		if abi < 6 {
-			r.Details = []string{"before ABI 6 signals and abstract unix sockets are not scoped to an instance"}
-		}
+		r.Summary = fmt.Sprintf("Landlock ABI %d: instances of %s start restricted", k.ABI, strings.Join(with, ", "))
+		r.Details = details
 	}
 	return []Result{r}
+}
+
+// selfRestricting are the programs that restrict themselves with
+// Landlock whatever starts them (roadmap step 30, stage B), by name.
+var selfRestricting = []string{"mcp-server-fs", "mcp-server-exec"}
+
+// LandlockSuspects names Landlock as the likely cause for the servers
+// that did not start (failed) and run restricted (their definition's
+// landlock, a program that restricts itself, the connector of a url
+// server), where SELinux denied their domain nothing. A Landlock
+// refusal leaves no audit record on the 6.12 kernels: it is an EACCES
+// the server reports in its own words. denials are the SELinux denials
+// of the doctor's window, nil when it could not read them (known false).
+func LandlockSuspects(backends map[string]*config.Backend, failed []string, denials []profile.Denial, known bool) []Result {
+	var out []Result
+	for _, name := range failed {
+		b := backends[name]
+		if b == nil {
+			continue
+		}
+		var why []string
+		if l := b.Landlock; l != nil {
+			why = append(why, "its definition's landlock ("+describeRules(l)+")")
+		}
+		switch {
+		case b.URL != "":
+			why = append(why, "its connector, which keeps to its credentials and the server's port")
+		case len(b.Command) > 0 && slices.Contains(selfRestricting, filepath.Base(b.Command[0])):
+			why = append(why, filepath.Base(b.Command[0])+", which keeps to the trees its options name")
+		}
+		if len(why) == 0 {
+			continue
+		}
+		dom := b.SELinuxType
+		if dom == "" {
+			dom = "mcpsrv_generic_t"
+		}
+		if known && slices.ContainsFunc(denials, func(d profile.Denial) bool { return d.Source == dom || d.Target == dom }) {
+			continue // SELinux is the first suspect, reported above
+		}
+		r := Result{Check: "landlock " + name, Status: Warn,
+			Summary: "does not start, and SELinux denied " + dom + " nothing: Landlock is the likely cause"}
+		if !known {
+			r.Summary = "does not start; if SELinux denied " + dom + " nothing (reading the audit log needs root), Landlock is the likely cause"
+		}
+		r.Details = []string{
+			"restricted by " + strings.Join(why, " and "),
+			"a Landlock refusal is not in the audit log: it is a \"permission denied\" (EACCES) in the server's own output, journalctl -u 'mcp-" + name + "-*'",
+			"widen the definition's landlock with the tree the server needs (user guide, chapter 4, Landlock)",
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// describeRules is a one-line account of r's trees and ports.
+func describeRules(r *landlock.Rules) string {
+	var parts []string
+	for _, l := range []struct {
+		key   string
+		paths []string
+	}{{"read", r.Read}, {"write", r.Write}, {"exec", r.Exec}} {
+		if len(l.paths) > 0 {
+			parts = append(parts, l.key+" "+strings.Join(l.paths, " "))
+		}
+	}
+	if r.TCPConnect != nil {
+		parts = append(parts, fmt.Sprintf("tcp_connect %v", r.TCPConnect))
+	}
+	if len(parts) == 0 {
+		return "the base only"
+	}
+	return strings.Join(parts, "; ")
 }
 
 // SnapperConfigsDir holds snapper's configs (KEY="value" lines).

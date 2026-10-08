@@ -393,7 +393,11 @@ restriction and the doctor warns; with `required: true` it does not
 start. Landlock denials are not in the audit log of the 6.12 kernels:
 a denied access is an `EACCES` ("permission denied") the server reports,
 with no SELinux denial next to it. Widen the rules, or check them with
-`mcp-landlock -version` (the kernel's ABI).
+`mcp-landlock -version` (the kernel's ABI). The doctor names Landlock
+as the likely cause for a server that does not start and runs
+restricted while SELinux denied it nothing (`landlock` *name*, chapter
+10); Cockpit adds the same hint under an instance's log that says
+"permission denied", and shows "Landlock" among a server's facts.
 
 The gateway's own programs restrict themselves at startup as well,
 without configuration and whatever starts them (the gateway, the
