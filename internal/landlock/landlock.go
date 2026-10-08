@@ -61,6 +61,9 @@ type Result struct {
 	ABI int
 	// Missing are trees of the rules that do not exist (left out).
 	Missing []string
+	// Refused are trees of the rules the instance may not open (SELinux,
+	// permissions): it could not reach them anyway, and they are left out.
+	Refused []string
 	// Unsupported are restrictions the kernel cannot apply.
 	Unsupported []string
 	// Scoped: signals and abstract unix sockets are limited to the
@@ -81,6 +84,9 @@ func (r Result) String() string {
 	}
 	if len(r.Missing) > 0 {
 		out += "; missing, left out: " + strings.Join(r.Missing, ", ")
+	}
+	if len(r.Refused) > 0 {
+		out += "; not open to the instance (SELinux or permissions), left out: " + strings.Join(r.Refused, ", ")
 	}
 	return out
 }
@@ -198,12 +204,15 @@ func Restrict(r Rules) (Result, error) {
 		{r.Read, readRights}, {r.Exec, execRights}, {r.Write, write},
 	} {
 		for _, p := range t.paths {
-			missing, err := addPath(ruleset, p, t.rights&handled)
+			left, err := addPath(ruleset, p, t.rights&handled)
 			if err != nil {
 				return res, err
 			}
-			if missing && !isBase(p) {
+			switch {
+			case left == leftMissing && !isBase(p):
 				res.Missing = append(res.Missing, p)
+			case left == leftRefused && !isBase(p):
+				res.Refused = append(res.Refused, p)
 			}
 		}
 	}
@@ -217,6 +226,7 @@ func Restrict(r Rules) (Result, error) {
 		}
 	}
 	sort.Strings(res.Missing)
+	sort.Strings(res.Refused)
 
 	if err := restrictSelf(ruleset); err != nil {
 		return res, err
@@ -237,18 +247,30 @@ func isBase(p string) bool {
 	return false
 }
 
-// addPath adds a rule for the tree (or file) at p; missing reports a
-// path that does not exist, which is left out. It does not stat p: a
+// Why addPath left a path out.
+const (
+	leftNot     = iota // added
+	leftMissing        // does not exist
+	leftRefused        // the instance may not open it (EACCES: SELinux, permissions)
+)
+
+// addPath adds a rule for the tree (or file) at p, or says why it left p
+// out: it does not exist, or the instance may not open it, which it could
+// not reach anyway (such as a link SELinux keeps it from following). It
+// does not stat p: a
 // server's SELinux domain may not get the attributes of a device such as
 // /dev/random. The kernel refuses directory rights on a file (EINVAL),
 // and then the rule is added again with file rights.
-func addPath(ruleset int, p string, rights uint64) (missing bool, err error) {
+func addPath(ruleset int, p string, rights uint64) (left int, err error) {
 	fd, err := unix.Open(p, unix.O_PATH|unix.O_CLOEXEC, 0)
 	if errors.Is(err, unix.ENOENT) || errors.Is(err, unix.ENOTDIR) {
-		return true, nil
+		return leftMissing, nil
+	}
+	if errors.Is(err, unix.EACCES) {
+		return leftRefused, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("landlock: %s: %w", p, err)
+		return leftNot, fmt.Errorf("landlock: %s: %w", p, err)
 	}
 	defer func() { _ = unix.Close(fd) }()
 	add := func(rights uint64) unix.Errno {
@@ -260,14 +282,14 @@ func addPath(ruleset int, p string, rights uint64) (missing bool, err error) {
 	errno := add(rights)
 	if errno == unix.EINVAL && rights&^fileRights != 0 {
 		if rights &= fileRights; rights == 0 {
-			return false, nil
+			return leftNot, nil
 		}
 		errno = add(rights)
 	}
 	if errno != 0 {
-		return false, fmt.Errorf("landlock: %s: %w", p, errno)
+		return leftNot, fmt.Errorf("landlock: %s: %w", p, errno)
 	}
-	return false, nil
+	return leftNot, nil
 }
 
 // restrictSelf enforces the ruleset on the calling thread. Without

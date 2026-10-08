@@ -370,8 +370,9 @@ Every ruleset also allows a base: the system's programs and libraries
 shows them (`/etc`, `/proc`, `/sys`, read), `/dev/null` and the random
 devices, the instance's private `/tmp` and `/var/tmp`, and its
 credentials. Anything else, such as another user's home or `/var`, is
-out of reach unless the rules name it. A tree that does not exist is
-left out (the journal line says so); a tree that expands to `/` (the
+out of reach unless the rules name it. A tree that does not exist, or
+that the instance may not open anyway (SELinux, permissions, such as a
+link its domain may not follow), is left out (the journal line says so); a tree that expands to `/` (the
 home of the shared discovery instance, which runs for no one) is read,
 never written. Signals and abstract unix sockets reach only the
 instance's own processes (Landlock ABI 6). Connecting to the system bus

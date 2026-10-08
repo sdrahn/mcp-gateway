@@ -54,7 +54,7 @@ minor release (with a warning) and removed in the next.
   programs, the logs and the journal, `/run/systemd` and man's cache
   (`get_file` reads within these trees only); `firewalld` the
   configuration and programs; the unprivileged `zypp` also the
-  repositories' caches, zypp's state and the rpm database. snapper, the
+  repositories' caches and zypp's state. snapper, the
   privileged zypp and suseconnect have none (see the notes in their
   definitions).
 

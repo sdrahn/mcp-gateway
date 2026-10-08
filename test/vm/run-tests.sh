@@ -448,6 +448,11 @@ check "gateway-admin: not for bob, who holds no role for it" failed_without "con
 # user, no shell, patterns, the timeout; not for bob.
 stool alice exec system_info '{}'
 check "exec: system_info" succeeded_with "Linux"
+if ! succeeded_with "Linux"; then
+	# Why the instance did not start: its own output, and the gateway's.
+	journalctl -q --no-pager -u 'mcp-exec-*' -o cat | tail -20 | sed 's/^/  [exec] /'
+	journalctl -q --no-pager -u mcp-gateway.service -o cat | grep -E '"server":"exec"|server=exec' | tail -5 | cut -c1-400 | sed 's/^/  [gateway] /'
+fi
 stool alice exec os_release '{}'
 check "exec: os_release" succeeded_with "openSUSE"
 stool alice exec uptime '{}'

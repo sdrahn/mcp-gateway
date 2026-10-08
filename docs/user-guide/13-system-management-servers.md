@@ -219,8 +219,8 @@ Notes:
   `/usr`, `/proc`, `/sys`), the logs and the journal (`/var/log`,
   `/run/log/journal`), `/run/systemd` and `/var/cache/man`;
   `firewalld` the configuration and programs only; `zypp` also the
-  repositories' caches, zypp's state and the rpm database
-  (`/var/cache/zypp`, `/var/lib/zypp`, `/var/lib/rpm`, `/var/log/zypp`).
+  repositories' caches and zypp's state (`/var/cache/zypp`,
+  `/var/lib/zypp`, `/var/log/zypp`; the rpm database is below `/usr`).
   None of them writes beyond its private temporary directories. snapper
   lists the root directory itself, which Landlock allows only with
   everything below, and the privileged zypp and suseconnect install
@@ -336,7 +336,7 @@ command: ["/usr/bin/mcp-server-zypp"]
 run_as: mcp-sysmgmt
 selinux_type: mcpsrv_zypp_t
 landlock:
-  read: ["/var/cache/zypp", "/var/lib/zypp", "/var/lib/rpm", "/var/log/zypp", "/run/zypp.pid"]
+  read: ["/var/cache/zypp", "/var/lib/zypp", "/var/log/zypp", "/run/zypp.pid"]
 ```
 
 - `confirm_install` and `confirm_remove` change the system and refuse to
