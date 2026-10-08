@@ -6,6 +6,8 @@ import (
 	"io"
 	"regexp"
 	"strings"
+
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 )
 
 // Outcome is what a call did.
@@ -56,6 +58,12 @@ type Report struct {
 	DontauditOff bool
 	// SessionFailed: the server could not be started or exercised.
 	SessionFailed bool
+	// Landlock is the drafted landlock (nil in a verification), from
+	// Samples samples of what the instance had open; HadLandlock: the
+	// definition has one, which the run went without.
+	Landlock    *landlock.Rules
+	Samples     int
+	HadLandlock bool
 }
 
 // Write writes the report as text.
@@ -105,6 +113,26 @@ func (r *Report) Write(out io.Writer) error {
 	}
 	for _, e := range r.Errs {
 		fmt.Fprintf(w, "  SELINUX_ERR %s\n", trimRecord(e.Text))
+	}
+
+	if l := r.Landlock; l != nil && !r.Verify {
+		fmt.Fprintf(w, "\nLandlock: trees beyond the base the instance had open (%d samples):\n", r.Samples)
+		for _, t := range []struct {
+			key   string
+			trees []string
+		}{{"read", l.Read}, {"write", l.Write}, {"exec", l.Exec}} {
+			if len(t.trees) > 0 {
+				fmt.Fprintf(w, "  %-5s %s\n", t.key, strings.Join(t.trees, " "))
+			}
+		}
+		if len(l.Read)+len(l.Write)+len(l.Exec) == 0 {
+			w.WriteString("  none: the base is enough (landlock: {})\n")
+		}
+		w.WriteString("  Files opened and closed between two samples are missed: run --verify with\n")
+		w.WriteString("  the drafted definition installed, and widen it where the server refuses.\n")
+		if r.HadLandlock {
+			w.WriteString("  The run went without the definition's landlock, which the draft replaces.\n")
+		}
 	}
 
 	if len(r.Hints) > 0 {

@@ -197,9 +197,23 @@ The drafts directory then holds:
 | File | Content |
 |---|---|
 | `mcp_git.te`, `mcp_git.fc` | the module: the template and one allow rule per kind of access seen, with paths and programs as comments; already compiled to `mcp_git.pp` |
-| `git.yaml` | the definition with `selinux_type: mcpsrv_git_t` (and `network: true` if the server connected to the network) |
+| `git.yaml` | the definition with `selinux_type: mcpsrv_git_t` (and `network: true` if the server connected to the network), and a `landlock` of the trees it used (below) |
 | `report.txt` | the calls and their answers, the denials, and hints |
 | `calls.json` | the calls and their answers, for scripts |
+
+Landlock refuses without an audit record, so the run drafts the
+definition's `landlock` from what the server's processes have open: it
+samples their files (with the mode they were opened in), working
+directories and mapped programs and libraries every 50 ms, adds the
+paths of the run's SELinux denials, and keeps the trees beyond the base
+(chapter "Landlock" above): a file stands for its directory, `/` for
+nothing, nested trees fold into the outer one. `report.txt` lists them
+under "Landlock". The run goes without the definition's own `landlock`
+so that the server reaches what it needs; the draft replaces it. A
+file opened and closed between two samples is missed: `--verify` with
+the drafted definition installed runs under its `landlock`, and a tool
+failing with "permission denied" there (no SELinux denial) names a tree
+to add.
 
 The hints say what allow rules cannot: a helper the server runs that
 belongs in its own domain (zypper: `rpm_t`, see

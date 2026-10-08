@@ -881,12 +881,17 @@ END
 	semodule -i "$prof/mcp_fwprof.pp" && restorecon -F /usr/libexec/mcpgw-fwprof
 	echo "  $(file_label /usr/libexec/mcpgw-fwprof) /usr/libexec/mcpgw-fwprof"
 	check "profile: the program has the new domain's label" file_has_type /usr/libexec/mcpgw-fwprof mcpsrv_fwprof_exec_t
+	grep -A6 '^landlock:' "$prof/fwprof.yaml" | sed 's/^/  | /'
+	check "profile: the drafted definition has a landlock" grep -q '^landlock:' "$prof/fwprof.yaml"
+	check "profile: the report lists the Landlock trees" grep -q '^Landlock: trees beyond the base' "$prof.txt"
 	cp "$prof/fwprof.yaml" /etc/mcp-gateway/servers.d/fwprof.yaml
 	check "profile: the drafted definition is valid" mcp-gateway --check --policy-data=
 	mcp-gateway-admin profile -server fwprof -verify >"$prof-verify.txt" 2>&1
 	rc=$?
 	sed 's/^/  /' "$prof-verify.txt" | head -40
 	check "profile: with the drafted module the server runs enforcing without denials" test "$rc" = 0
+	check "profile: ... and under the drafted landlock" \
+		bash -c "journalctl -q --no-pager -u 'mcp-fwprof-*' -o cat | grep -q 'mcp-landlock: Landlock ABI'"
 	[ "$rc" = 0 ] || journalctl -u 'mcp-fwprof-*' --no-pager -o cat 2>/dev/null | tail -15 | sed 's/^/  [fwprof] /'
 else
 	echo "  no servers given (test/vm/run-vm.sh <...> <servers dir>); skipped"

@@ -19,6 +19,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/inspect"
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/profile"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
@@ -32,8 +33,11 @@ domain), calls its tools and records the SELinux denials of the run.
 From them it drafts a policy module (a new domain mcpsrv_NAME_t for a
 server that has none yet, or additions to its domain) and a definition,
 with a report of what else the run suggests (network, polkit, programs
-it runs). The drafts are proposals to review; they cover what the run
-reached and nothing else.
+it runs). The definition's landlock comes from what the instance's
+processes had open during the run, sampled, and the paths of its
+denials (the run goes without the definition's own landlock). The
+drafts are proposals to review; they cover what the run reached and
+nothing else.
 
 Without --calls, only tools that read (by their annotations or names)
 are called, with arguments made up from their schemas. --call-all calls
@@ -126,6 +130,9 @@ func runProfile(args []string, stdout, stderr io.Writer) int {
 	b := *orig
 	d := profile.Domain{Server: b.Name, Type: b.SELinuxType, Exec: b.Command[0]}
 	if !*verify {
+		// Without its landlock, the server reaches what it needs: the
+		// run drafts the trees (Landlock refuses without a record).
+		b.Landlock = nil
 		d = profile.NewDomain(b.Name, b.SELinuxType, config.DefaultSELinuxType, b.Command[0])
 		if err := os.MkdirAll(*outDir, 0o755); err != nil {
 			say(stderr, err)
@@ -183,7 +190,8 @@ func runProfile(args []string, stdout, stderr io.Writer) int {
 	}
 	since := time.Now()
 	failed := false
-	if err := exercise(ctx, launcher, &b, given, *callAll, rep); err != nil {
+	sampler := profile.NewSampler()
+	if err := exercise(ctx, launcher, &b, given, *callAll, rep, sampler); err != nil {
 		sayf(stderr, "%s: %v", b.Name, err)
 		failed = true
 	}
@@ -210,6 +218,12 @@ func runProfile(args []string, stdout, stderr io.Writer) int {
 	rep.Denials, rep.Errs = profile.Involving(all, errs, d.Type)
 	draft := profile.DraftModule(d, rep.Denials, rep.Errs)
 	rep.Hints = append(draft.Hints, profile.CallHints(rep.Calls)...)
+	used := sampler.Seen()
+	for p, u := range profile.DenialUses(rep.Denials) {
+		used[p] |= u
+	}
+	rules := profile.DraftLandlock(used, isDir)
+	rep.Landlock, rep.Samples, rep.HadLandlock = &rules, sampler.Samples, orig.Landlock != nil
 
 	if !*verify {
 		if _, err := profile.Build(cleanup, *outDir, draft.Module, draft.TE, draft.FC); err != nil {
@@ -219,7 +233,7 @@ func runProfile(args []string, stdout, stderr io.Writer) int {
 		if draft.FC != "" {
 			rep.Files = append(rep.Files, draft.Module+".fc")
 		}
-		def, err := definition(orig, d, draft.Hints)
+		def, err := definition(orig, d, draft.Hints, rep.Landlock)
 		if err == nil {
 			err = os.WriteFile(filepath.Join(*outDir, b.Name+".yaml"), def, 0o644)
 		}
@@ -263,12 +277,17 @@ func runProfile(args []string, stdout, stderr io.Writer) int {
 
 // exercise starts an instance of b, lists what it offers and makes the
 // planned calls, recording them in rep.
-func exercise(ctx context.Context, l supervisor.Launcher, b *config.Backend, given map[string][]map[string]any, all bool, rep *profile.Report) error {
+func exercise(ctx context.Context, l supervisor.Launcher, b *config.Backend, given map[string][]map[string]any, all bool, rep *profile.Report, sampler *profile.Sampler) error {
 	inst, err := l.Start(ctx, b, principal.Discovery, randomID())
 	if err != nil {
 		return fmt.Errorf("starting: %w", err)
 	}
 	defer func() { _ = inst.Close() }()
+	// What the instance's processes have open, while the calls run.
+	sctx, stopSampling := context.WithCancel(ctx)
+	sampled := make(chan struct{})
+	go func() { sampler.Run(sctx, inst.Name(), 50*time.Millisecond); close(sampled) }()
+	defer func() { stopSampling(); <-sampled }()
 	sess, res, err := inspect.Open(ctx, inst)
 	if err != nil {
 		return err
@@ -296,10 +315,13 @@ func exercise(ctx context.Context, l supervisor.Launcher, b *config.Backend, giv
 }
 
 // definition drafts the server's definition with the profiled domain and
-// what the run suggests (network).
-func definition(orig *config.Backend, d profile.Domain, hints []string) ([]byte, error) {
+// what the run suggests (network, landlock).
+func definition(orig *config.Backend, d profile.Domain, hints []string, rules *landlock.Rules) ([]byte, error) {
 	b := *orig
 	b.SELinuxType = d.Type
+	if rules != nil {
+		b.Landlock = rules
+	}
 	for _, h := range hints {
 		if strings.HasPrefix(h, "network:") {
 			b.Network = true
@@ -310,8 +332,10 @@ func definition(orig *config.Backend, d profile.Domain, hints []string) ([]byte,
 		return nil, err
 	}
 	head := fmt.Sprintf("# Draft by mcp-gateway-admin profile: the definition of %s with selinux_type %s\n"+
-		"# (and network: true if the run connected to the network). Compare it with the\n"+
-		"# definition in use before installing it in /etc/mcp-gateway/servers.d.\n", b.Name, d.Type)
+		"# (and network: true if the run connected to the network), and a landlock of the\n"+
+		"# trees its processes had open during the run beyond the base (files opened only\n"+
+		"# between two samples are missed: widen it where the server needs more). Compare\n"+
+		"# it with the definition in use before installing it in /etc/mcp-gateway/servers.d.\n", b.Name, d.Type)
 	return append([]byte(head), body...), nil
 }
 
@@ -321,4 +345,10 @@ func oneLineErr(err error) string {
 		s = s[:300] + "…"
 	}
 	return s
+}
+
+// isDir reports whether p is a directory.
+func isDir(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }

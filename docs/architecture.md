@@ -2261,7 +2261,16 @@ Go launcher, and for our own programs, executing themselves again: the
 of one process left in different domains may be refused the signals
 the Go runtime sends between them. A command
 file widening the derived trees keeps an administrator able to run
-what the derivation cannot foresee, within the definition's ruleset. Best effort by default keeps definitions working on
+what the derivation cannot foresee, within the definition's ruleset.
+`profile` drafts a definition's trees by sampling, every 50 ms, what
+the instance's processes (its unit's cgroup) have open: file
+descriptors with their mode, working directories and mapped files,
+with the paths of the run's SELinux denials; files open only between
+two samples are missed, which `--verify` under the drafted ruleset
+shows. Sampling needs nothing of the kernel or the server; fanotify
+would see every open but takes a mount mark and CAP_SYS_ADMIN over the
+whole system for the run, ptrace slows the server and stops at its
+setuid helpers, and audit watch rules need every path in advance. Best effort by default keeps definitions working on
 kernels without Landlock, where the doctor warns.
 *Considered:* rules derived from the principal's roles (they change with
 the policy, while a ruleset is fixed for the life of an instance, and
@@ -2969,10 +2978,10 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     `landlock`; stage C done: `inspect` with a command or `--exec` runs
     the server under Landlock, `--home`, `--network`, `--allow`;
     `profile` runs through systemd and `review` runs no server; stage D
-    in part: the doctor and Cockpit name the ruleset as the likely
-    cause; `profile` drafting trees is open; the setups' rulesets done:
-    `systemd`, `firewalld`, the unprivileged `zypp`; snapper, the
-    privileged zypp and suseconnect have none):
+    done: the doctor and Cockpit name the ruleset as the likely cause,
+    `profile` drafts the trees from what the instance had open; the
+    setups' rulesets done: `systemd`, `firewalld`, the unprivileged
+    `zypp`; snapper, the privileged zypp and suseconnect have none):
     - the problem: an instance's isolation works on types and whole
       trees. Its SELinux domain allows a type (`mcpsrv_fs_t` reads any
       `user_home_t`; home files carry no MCS categories that tell users
@@ -3042,8 +3051,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       SELinux denial, the doctor and Cockpit name the ruleset as a
       likely cause. `profile` drafts `landlock` trees from the files a
       server opens in its test run, as it drafts SELinux rules from AVC
-      denials (how it observes them, without audit records, is part of
-      D19);
+      denials (by sampling what its processes have open, D19);
     - not in this step: rules from the principal's roles (the permitted
       paths of a server per principal): they change with the policy,
       while a ruleset is fixed for the life of an instance, and argument

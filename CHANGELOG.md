@@ -57,6 +57,12 @@ minor release (with a warning) and removed in the next.
   repositories' caches and zypp's state. snapper, the
   privileged zypp and suseconnect have none (see the notes in their
   definitions).
+- `mcp-gateway-admin profile` drafts the definition's `landlock` (step
+  30, stage D): it samples the files, working directories and mapped
+  programs of the instance's processes during the run, adds the paths
+  of its SELinux denials, and keeps the trees beyond the base; the
+  report lists them. The run goes without the definition's own
+  `landlock`; `--verify` with the drafted definition runs under it.
 
 ## v0.17.1 — 2026-10-08
 

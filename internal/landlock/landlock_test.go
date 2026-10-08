@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"golang.org/x/sys/unix"
+	"gopkg.in/yaml.v3"
 )
 
 // A restriction cannot be undone: each case runs in a child, the test
@@ -294,5 +295,24 @@ func TestResultString(t *testing.T) {
 	if s := (Result{ABI: 6, Scoped: true, Refused: []string{"/var/lib/rpm"}}).String(); s !=
 		"Landlock ABI 6, scoped; not open to the instance (SELinux or permissions), left out: /var/lib/rpm" {
 		t.Error(s)
+	}
+}
+
+// A definition written back keeps unset ports unset and an empty list
+// empty (no port).
+func TestMarshalYAML(t *testing.T) {
+	for _, r := range []Rules{{Read: []string{"/srv"}}, {TCPConnect: []int{}}, {TCPConnect: []int{443}, Required: true}} {
+		out, err := yaml.Marshal(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var back Rules
+		if err := yaml.Unmarshal(out, &back); err != nil {
+			t.Fatal(err)
+		}
+		if (back.TCPConnect == nil) != (r.TCPConnect == nil) || len(back.TCPConnect) != len(r.TCPConnect) ||
+			back.TCPBind != nil || back.Required != r.Required || len(back.Read) != len(r.Read) {
+			t.Errorf("%+v -> %q -> %+v", r, out, back)
+		}
 	}
 }
