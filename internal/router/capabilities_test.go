@@ -33,8 +33,10 @@ func TestCapabilitiesTool(t *testing.T) {
 		t.Fatalf("error: %s", text)
 	}
 	for _, want := range []string{
-		"## fs (3 tools)\nThe fs server serves files. Paths are absolute.\n- fs__read_file",
-		"## git (3 tools)\n- git__read_file", // instance discovery: no instructions
+		// Shared discovery: the discovery instance's instructions.
+		"## fs (3 tools)\nThe fs server serves files of mcp-discovery. Paths are absolute.\n- fs__read_file",
+		// Instance discovery: those of alice's own instance.
+		"## git (3 tools)\nThe git server serves files of alice. Paths are absolute.\n- git__read_file",
 		"- /usr/share/mcp-gateway/docs: ", "Anything no tool above reaches",
 	} {
 		if !strings.Contains(text, want) {
@@ -43,6 +45,20 @@ func TestCapabilitiesTool(t *testing.T) {
 	}
 	if strings.Contains(text, "## gateway_capabilities") || strings.Contains(text, "/usr/etc") {
 		t.Errorf("lists itself or /usr/etc:\n%s", text)
+	}
+}
+
+// A server whose command names the principal (${HOME}) tells each
+// principal about its own files: its instructions come from the
+// principal's instance, not from the shared discovery instance, which
+// runs for no one (home /).
+func TestCapabilitiesPerPrincipal(t *testing.T) {
+	r, _ := sharedRouter(t)
+	r.Backends["fs"].Command = []string{"/usr/libexec/mcp-servers/mcp-server-fs", "--root", "${HOME}"}
+	c := connect(t, r, alice(), "", nil)
+	text, isErr := toolText(t, c.roundTrip(1, "tools/call", map[string]any{"name": capabilitiesTool}))
+	if isErr || !strings.Contains(text, "## fs (3 tools)\nThe fs server serves files of alice.") || strings.Contains(text, "mcp-discovery") {
+		t.Fatalf("got %q", text)
 	}
 }
 

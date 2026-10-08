@@ -575,4 +575,23 @@ func TestInstructions(t *testing.T) {
 	if !strings.HasPrefix(got, "The documentation of mcp-gateway.\n\nFiles below "+root) {
 		t.Errorf("instructions: %q", got)
 	}
+	// Which tool for what, and the limits of a call, as the server has them.
+	for _, want := range []string{"outside the allowed directories", "search_text finds lines", "outline_file",
+		"read_text_file with offset and limit", "One call reads at most " + size(s.maxRead), "writes at most",
+		fmt.Sprintf("at most %d entries", s.maxEntries)} {
+		if !strings.Contains(got, want) {
+			t.Errorf("instructions without %q: %q", want, got)
+		}
+	}
+	s.readOnly = true
+	if strings.Contains(s.instructions(), "writes at most") {
+		t.Errorf("read-only instructions name a write limit: %q", s.instructions())
+	}
+	// The descriptions carry the limits.
+	for _, tl := range s.tools() {
+		if tl.name == "read_text_file" && !strings.Contains(tl.description, "At most "+size(s.maxRead)) ||
+			tl.name == "search_files" && !strings.Contains(tl.description, fmt.Sprintf("at most %d matches", s.maxEntries)) {
+			t.Errorf("%s: %q", tl.name, tl.description)
+		}
+	}
 }

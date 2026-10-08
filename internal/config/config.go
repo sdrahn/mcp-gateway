@@ -941,6 +941,24 @@ func duplicateName(name, a, b string, dirs []string) error {
 		name, mine, theirs, admin, filepath.Join(admin, filepath.Base(theirs)))
 }
 
+// PerPrincipal reports whether the backend's command or environment names
+// the principal (${HOME}, ${USER}): its instances differ by principal,
+// and so may what they say about themselves (their instructions).
+func (b *Backend) PerPrincipal() bool {
+	names := func(s string) bool { return strings.Contains(s, "${HOME}") || strings.Contains(s, "${USER}") }
+	for _, a := range b.Command {
+		if names(a) {
+			return true
+		}
+	}
+	for _, v := range b.Env {
+		if names(v) {
+			return true
+		}
+	}
+	return false
+}
+
 // ApplyDefaults fills in the defaults of a definition built in code (a
 // file's are filled in by LoadBackends).
 func (b *Backend) ApplyDefaults() { b.setDefaults() }

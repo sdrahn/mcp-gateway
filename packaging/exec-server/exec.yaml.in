@@ -9,6 +9,7 @@
 # disables it.
 version: 1
 name: exec
-command: ["@LIBEXECDIR@/mcp-servers/mcp-server-exec", "--commands", "/etc/mcp-gateway/exec.d"]
+command: ["@LIBEXECDIR@/mcp-servers/mcp-server-exec", "--commands", "/etc/mcp-gateway/exec.d",
+  "--instructions", "Commands run as you (the user the agent acts for), without network, confined by SELinux (mcpsrv_exec_t): reading or changing more than /etc, /usr and the system's state may be refused even where your account could. The administrator chooses the commands (/etc/mcp-gateway/exec.d); the gateway's policy decides who may run which, some only after an approval."]
 selinux_type: mcpsrv_exec_t
 network: false

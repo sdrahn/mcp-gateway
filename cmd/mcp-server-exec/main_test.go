@@ -204,6 +204,28 @@ commands:
 	if tools[0]["annotations"].(map[string]any)["readOnlyHint"] != true || tools[1]["annotations"].(map[string]any)["destructiveHint"] != true {
 		t.Errorf("annotations: %v %v", tools[0]["annotations"], tools[1]["annotations"])
 	}
+	// What the tool runs and its limits follow the administrator's
+	// description; without one, they are the description.
+	if d := tools[0]["description"]; d != "Say hello\n\nRuns: /bin/echo \"hello {name}\". Ends after 1 min; output (stdout and stderr together) up to 1 MiB." {
+		t.Errorf("greet description: %q", d)
+	}
+	if d := tools[1]["description"]; d != `Runs: /bin/sh -c "exit 1". Ends after 1 min; output (stdout and stderr together) up to 1 MiB.` {
+		t.Errorf("status description: %q", d)
+	}
+	if a := tools[0]["annotations"].(map[string]any); tools[0]["title"] != "Greet" || a["title"] != "Greet" || a["idempotentHint"] != true {
+		t.Errorf("greet title, annotations: %v %v", tools[0]["title"], a)
+	}
+	if _, ok := tools[1]["annotations"].(map[string]any)["idempotentHint"]; ok || tools[0]["outputSchema"] == nil {
+		t.Errorf("status annotations %v, outputSchema %v", tools[1]["annotations"], tools[0]["outputSchema"])
+	}
+	instr := s.instructions()
+	if !strings.Contains(instr, "The commands: greet: Say hello; status.") || !strings.Contains(instr, "ask the administrator") {
+		t.Errorf("instructions: %q", instr)
+	}
+	s.about = "Commands run as you."
+	if got := s.instructions(); !strings.HasPrefix(got, "Commands run as you.\n\nRuns commands") {
+		t.Errorf("instructions with -instructions: %q", got)
+	}
 	call := func(name, args string) map[string]any {
 		res, err := s.handle(context.Background(), "tools/call", json.RawMessage(`{"name":"`+name+`","arguments":`+args+`}`))
 		if err != nil {
@@ -226,6 +248,23 @@ commands:
 	}
 	if _, err := s.handle(context.Background(), "tools/call", json.RawMessage(`{"name":"rm"}`)); err == nil {
 		t.Error("unknown tool accepted")
+	}
+}
+
+func TestFormats(t *testing.T) {
+	for d, want := range map[time.Duration]string{time.Minute: "1 min", 15 * time.Second: "15 s", 2 * time.Hour: "2 h",
+		1500 * time.Millisecond: "1.5s"} {
+		if got := duration(d); got != want {
+			t.Errorf("duration(%v) = %q, want %q", d, got, want)
+		}
+	}
+	for n, want := range map[int]string{1 << 20: "1 MiB", 64 << 10: "64 KiB", 1000: "1000 bytes"} {
+		if got := bytesize(n); got != want {
+			t.Errorf("bytesize(%d) = %q, want %q", n, got, want)
+		}
+	}
+	if title("package_version") != "Package version" || firstLine("Disk use.\nMore.") != "Disk use" {
+		t.Error("title, firstLine")
 	}
 }
 
@@ -270,7 +309,15 @@ func TestDefinition(t *testing.T) {
 	}
 	b := backends["exec"]
 	if b == nil || b.RunAs != "principal" || b.Privileged || b.Network || b.SELinuxType != "mcpsrv_exec_t" ||
-		strings.Join(b.Command, " ") != "/usr/libexec/mcp-servers/mcp-server-exec --commands "+defaultCommands {
+		len(b.Command) != 5 || strings.Join(b.Command[:3], " ") != "/usr/libexec/mcp-servers/mcp-server-exec --commands "+defaultCommands ||
+		b.Command[3] != "--instructions" {
 		t.Fatalf("%+v", b)
+	}
+	// The instructions say what the definition sets, which the server
+	// cannot know: as the user, without network, in its domain.
+	for _, want := range []string{"run as you", "without network", b.SELinuxType, defaultCommands} {
+		if !strings.Contains(b.Command[4], want) {
+			t.Errorf("instructions without %q: %q", want, b.Command[4])
+		}
 	}
 }

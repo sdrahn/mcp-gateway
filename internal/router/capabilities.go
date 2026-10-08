@@ -117,11 +117,24 @@ func (s *Session) capabilitiesText(ctx context.Context) (string, error) {
 	return b.String(), nil
 }
 
-// serverInstructions are a server's own instructions, from the shared
-// discovery instance where there is one ("" otherwise, or on error).
+// serverInstructions are a server's own instructions ("" on error): from
+// the shared discovery instance, or from the principal's own instance for
+// a server without shared discovery or whose instances differ by
+// principal (config.Backend.PerPrincipal).
 func (s *Session) serverInstructions(ctx context.Context, b *config.Backend) string {
-	if b == nil || b.Discovery != config.DiscoveryShared || s.mustSignIn(b) {
+	if b == nil || s.mustSignIn(b) {
 		return ""
+	}
+	if b.Discovery != config.DiscoveryShared || b.PerPrincipal() {
+		// The shared discovery instance runs for no one (home /): what
+		// it says about its files is not what the principal's instance
+		// works on. The principal's own instance answers, started if
+		// need be, as a call of its tools would.
+		u, err := s.upstream(ctx, b.Name)
+		if err != nil {
+			return ""
+		}
+		return u.init.Instructions
 	}
 	init, err := s.r.sharedInit(ctx, b)
 	if err != nil {
