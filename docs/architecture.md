@@ -2927,12 +2927,16 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       hierarchy rather than path strings. It is a second wall, not a
       replacement: no labels, no D-Bus or other IPC, TCP ports but no
       addresses, per process and not per call;
-    - first, the facts: the Landlock ABI and the `lsm=` list of the CI
-      VMs (Leap 16, Tumbleweed) and of a SLES 16 system, recorded in the
-      VM test log; what the 6.12 kernels of SLES 16 and Leap 16 cover
-      (expected: ABI 6, file access, TCP bind and connect, signal and
-      abstract unix socket scoping; no audit records of denials, which
-      later kernels add); a decision (D19) records the design;
+    - first, the facts. On a 16.1 system (kernel 6.12.0-160100.7) the
+      LSM list is `lockdown,capability,landlock,yama,selinux,bpf,ima,evm`
+      (Landlock active, stacked with SELinux: each must allow) and the
+      Landlock ABI is 6: file access (ABI 1 to 3, 5: refer, truncate,
+      device ioctls), TCP bind and connect (4), and scoping of signals and
+      abstract unix sockets (6); no audit records of denials, which later
+      kernels add. The VM tests record the same for Leap 16 and
+      Tumbleweed (`/sys/kernel/security/lsm`, the ABI from
+      `landlock_create_ruleset` with `LANDLOCK_CREATE_RULESET_VERSION`);
+      a decision (D19) records the design;
     - stage A, a launcher: `mcp-landlock` (in `/usr/libexec/mcp-gateway`)
       applies a ruleset and executes the server; the supervisor puts it
       in front of the command of every instance with a ruleset. The
