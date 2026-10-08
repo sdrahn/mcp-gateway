@@ -324,6 +324,20 @@ tool alice read_file '{"path":"/home/bob/public.txt"}'
 check "landlock: alice's fs instance cannot read bob's public file" failed_without "bob public"
 check "landlock: the fs instance started through mcp-landlock" \
 	bash -c 'journalctl -q --no-pager -u "mcp-fs-*" | grep -q "mcp-landlock: Landlock ABI"'
+# The fs server keeps to its --root itself. With --root /home, only the
+# kernel stands between alice's instance and bob's public file: DAC and
+# SELinux allow the read, the ruleset (write: ${HOME}) does not.
+jq '.roles.tester.permissions += [{"server": "fswide", "tool": "read_*"}]' \
+	/etc/mcp-gateway/policy/rbac/data.json >/root/ll-data.json &&
+	cat /root/ll-data.json >/etc/mcp-gateway/policy/rbac/data.json
+sed -e 's/^name: fs$/name: fswide/' -e 's|"--root", "${HOME}"|"--root", "/home"|' \
+	/usr/share/mcp-gateway/servers.d/fs-demo.yaml >/etc/mcp-gateway/servers.d/fswide.yaml
+restorecon /etc/mcp-gateway/servers.d/fswide.yaml
+ll_own() { stool alice fswide read_file '{"path":"/home/alice/secret.txt"}' && succeeded_with "alice secret"; }
+check "landlock: an fs instance with --root /home reads alice's file" eventually 40 ll_own
+stool alice fswide read_file '{"path":"/home/bob/public.txt"}'
+check "landlock: ... and the kernel refuses bob's public file" tool_error_with "permission denied"
+rm -f /etc/mcp-gateway/servers.d/fswide.yaml
 tool alice delete_file '{"path":"/home/alice/secret.txt"}'
 check "delete is denied by policy" tool_error_with "denied by policy"
 check "the file was not deleted" test -f /home/alice/secret.txt
