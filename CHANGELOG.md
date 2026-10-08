@@ -5,7 +5,50 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.18.0 — 2026-10-08
+
+Server instances get a second wall: the kernel's Landlock keeps each
+one to the files and ports its definition names, beside SELinux and
+systemd's sandbox. The shipped `fs` reaches its user's home and nothing
+else of `/home`, so another user's world-readable files are out of
+reach; `gateway-docs`, `exec` and the `systemd`, `firewalld` and `zypp`
+setup packages keep to the trees they need. The gateway's own servers
+and its connector restrict themselves at startup, whatever starts them.
+`mcp-gateway-admin inspect` runs new servers under Landlock,
+`mcp-gateway-admin profile` drafts a definition's `landlock`, and the
+doctor and Cockpit name Landlock when it is the likely reason a server
+fails, since its refusals leave no audit record.
+
+Upgrading from 0.17.x needs no changes to `gateway.yaml`, server
+definitions or role data; from 0.16.x, read the notes of v0.17.0 as
+well. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. Things
+to know:
+
+- **The kernel.** Leap 16 and SLES 16 (Landlock ABI 6) and Tumbleweed
+  apply every restriction. A kernel without Landlock, or with it left
+  out of its `lsm=` list, runs instances as before and the doctor warns
+  (check `landlock`); a definition with `required: true` refuses to
+  start there instead.
+- **Commands of `exec` that use paths they do not name.**
+  `mcp-server-exec` now writes only the paths a command's `dir` and
+  `argv` name (or reads them, for `read_only` commands) and reads the
+  system. A command whose program writes elsewhere (a cache, a state
+  directory) fails with "permission denied"; add the trees to the
+  command file's new `landlock` key (`write: [/var/cache/app]`).
+- **Copied definitions** in `/etc/mcp-gateway/servers.d` replace the
+  package's and have no `landlock`: they run as before, without the new
+  restriction. Copy the `landlock` key from the shipped definition in
+  `/usr/share/mcp-gateway/servers.d` to get it.
+- **`get_file` of the `systemd` setup package** reads within the
+  system's configuration and programs, the logs and the journal,
+  `/run/systemd` and man's cache only.
+- **A server that stops starting** after the update with "permission
+  denied" and no SELinux denial: `mcp-gateway-admin doctor` names it
+  (`landlock NAME`); widen its definition's `landlock` (chapter 10 of
+  the user guide), or draft one with `mcp-gateway-admin profile`.
+- **Going back to 0.17** refuses server definitions and `exec` command
+  files with `landlock` (an unknown key); remove it first.
 
 ### Added
 
