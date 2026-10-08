@@ -3,6 +3,7 @@ package supervisor
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -13,12 +14,38 @@ import (
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 )
 
 func alice() principal.Principal {
 	uid := uint32(1001)
 	return principal.Principal{Sub: "alice", UID: &uid, Home: "/home/alice", SessionID: "0123456789abcdef"}
+}
+
+// With landlock, an instance starts through mcp-landlock with the rules
+// expanded for its principal; the discovery instance (home /) reads /
+// where the rules would let it write the home.
+func TestCommandLandlock(t *testing.T) {
+	b := &config.Backend{Name: "fs", Command: []string{"/usr/bin/fs", "--root", "${HOME}"},
+		Landlock: &landlock.Rules{Write: []string{"${HOME}"}, Read: []string{"/srv/${USER}"}, TCPConnect: []int{}}}
+	got := command(b, alice())
+	if len(got) != 7 || got[0] != config.LandlockLauncher || got[1] != "-rules" || got[3] != "--" ||
+		!slices.Equal(got[4:], []string{"/usr/bin/fs", "--root", "/home/alice"}) {
+		t.Fatalf("command = %q", got)
+	}
+	var r landlock.Rules
+	if err := json.Unmarshal([]byte(got[2]), &r); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(r.Write, []string{"/home/alice"}) || !slices.Equal(r.Read, []string{"/srv/alice"}) || r.TCPConnect == nil {
+		t.Errorf("rules %s", got[2])
+	}
+	var d landlock.Rules
+	_ = json.Unmarshal([]byte(command(b, principal.Discovery)[2]), &d)
+	if len(d.Write) != 0 || !slices.Contains(d.Read, "/") {
+		t.Errorf("discovery rules %+v", d)
+	}
 }
 
 func TestCommandAndEnvironment(t *testing.T) {

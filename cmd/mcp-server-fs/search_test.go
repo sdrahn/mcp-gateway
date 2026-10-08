@@ -4,8 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/sdrahn/mcp-gateway/internal/config"
 )
 
 // search_text finds lines by text or regular expression, case-insensitive
@@ -143,5 +146,31 @@ func TestGatewayDocsInstructions(t *testing.T) {
 				t.Errorf("%s: the instructions do not mention %s", file, want)
 			}
 		}
+	}
+}
+
+// The shipped definitions load and restrict their instances with
+// Landlock: fs to the user's home, gateway-docs to the documentation.
+func TestShippedLandlock(t *testing.T) {
+	dir := t.TempDir()
+	for _, f := range []string{"fs.yaml.in", "gateway-docs.yaml.in"} {
+		b, err := os.ReadFile("../../packaging/fs-server/" + f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		def := strings.NewReplacer("@LIBEXECDIR@", "/usr/libexec", "@DATADIR@", "/usr/share").Replace(string(b))
+		if err := os.WriteFile(filepath.Join(dir, strings.TrimSuffix(f, ".in")), []byte(def), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bs, err := config.LoadBackends(dir, filepath.Join(dir, "none"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := bs["fs"].Landlock; l == nil || !slices.Equal(l.Write, []string{"${HOME}"}) || l.Read != nil {
+		t.Errorf("fs landlock %+v", l)
+	}
+	if l := bs["gateway-docs"].Landlock; l == nil || !slices.Equal(l.Read, []string{"/usr/share/mcp-gateway/docs"}) || l.Write != nil {
+		t.Errorf("gateway-docs landlock %+v", l)
 	}
 }

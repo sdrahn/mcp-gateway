@@ -15,3 +15,8 @@ network: false
 run_as: principal
 sandbox:
   protect_home: read-write
+# Landlock (a second wall behind the domain and the sandbox): each
+# instance writes its user's home and nothing else of /home, even where
+# another user's files are world-readable.
+landlock:
+  write: ["${HOME}"]

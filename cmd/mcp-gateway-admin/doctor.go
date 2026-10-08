@@ -24,6 +24,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/doctor"
 	"github.com/sdrahn/mcp-gateway/internal/inspect"
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 	"github.com/sdrahn/mcp-gateway/internal/notify"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/policydata"
@@ -181,6 +182,8 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 	if d.only == "" || d.backends[d.only].Privileged {
 		add(doctor.ReadOnlyRoot(d.selected(), readOnly("/usr"))...)
 	}
+	_, launcherErr := os.Stat(config.LandlockLauncher)
+	add(doctor.Landlock(d.selected(), landlock.ABI(), launcherErr == nil)...)
 	add(doctor.Polkit(d.selected(), d.versions, nil)...)
 	add(doctor.Snapper(d.selected(), doctor.SnapperConfigsDir, userGroups)...)
 	if d.only == "" {

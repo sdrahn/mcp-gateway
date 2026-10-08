@@ -59,12 +59,19 @@ template(`mcp_gateway_backend_template',`
 		type cgroup_t;
 		type sysfs_t;
 		type init_var_run_t;
+		type mcp_landlock_exec_t;
 		class process2 { nnp_transition nosuid_transition };
 	')
 
 	type mcpsrv_$1_t, mcpsrv_domain;
 	type mcpsrv_$1_exec_t;
 	init_system_domain(mcpsrv_$1_t, mcpsrv_$1_exec_t)
+
+	# Definitions with landlock: systemd enters the domain through
+	# mcp-landlock, which restricts itself and then executes the server
+	# program in the same domain (roadmap step 30).
+	domain_entry_file(mcpsrv_$1_t, mcp_landlock_exec_t)
+	can_exec(mcpsrv_$1_t, mcpsrv_$1_exec_t)
 
 	# systemd enters the domain through SELinuxContext= as well.
 	allow init_t mcpsrv_$1_t:process transition;

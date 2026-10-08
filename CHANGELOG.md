@@ -7,6 +7,24 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Landlock as a second wall around server instances (roadmap step 30,
+  D19). A server definition's new `landlock` key (`read`, `write`,
+  `exec` trees with `${HOME}` and `${USER}`; `tcp_connect`, `tcp_bind`
+  ports; `required`) restricts each instance with the kernel's Landlock
+  LSM: it starts through the new `/usr/libexec/mcp-gateway/mcp-landlock`,
+  which restricts itself (and a base: the system's programs and
+  configuration, a few devices, private temporary directories,
+  credentials), scopes signals and abstract unix sockets to the
+  instance, and executes the server. It binds root too and stacks with
+  SELinux and the sandbox. The shipped `fs` reaches its user's home and
+  nothing else of `/home`, so another user's world-readable files are
+  out of reach; `gateway-docs` reads only the documentation; `exec`
+  reads the system and its state. Without Landlock in the kernel,
+  instances run as before and the doctor warns (new check `landlock`);
+  `required: true` refuses to start instead.
+
 ## v0.17.1 — 2026-10-08
 
 The gateway's own file and command servers tell agents how to use them,

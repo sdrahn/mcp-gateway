@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 	"github.com/sdrahn/mcp-gateway/internal/profile"
 )
 
@@ -461,5 +462,34 @@ func TestHelpersOf(t *testing.T) {
 		if !slices.Contains(TypedPrograms, p) {
 			t.Errorf("helper %s is not in TypedPrograms", p)
 		}
+	}
+}
+
+func TestLandlock(t *testing.T) {
+	none := map[string]*config.Backend{"git": {Name: "git"}}
+	with := map[string]*config.Backend{"git": {Name: "git"},
+		"fs":   {Name: "fs", Landlock: &landlock.Rules{Write: []string{"${HOME}"}}},
+		"docs": {Name: "docs", Landlock: &landlock.Rules{Required: true}}}
+	for _, c := range []struct {
+		backends map[string]*config.Backend
+		abi      int
+		launcher bool
+		status   Status
+		summary  string
+	}{
+		{none, 6, true, OK, "Landlock ABI 6; no server definition"},
+		{none, 0, false, OK, "no Landlock in this kernel; no server definition asks for it"},
+		{with, 6, true, OK, "Landlock ABI 6: instances of docs, fs start restricted"},
+		{with, 6, false, Fail, "mcp-landlock is missing: instances of docs, fs cannot start"},
+		{with, 0, true, Fail, "instances of docs cannot start (landlock: required)"},
+		{map[string]*config.Backend{"fs": with["fs"]}, 0, true, Warn, "instances of fs start without the restriction"},
+	} {
+		rs := Landlock(c.backends, c.abi, c.launcher)
+		if len(rs) != 1 || rs[0].Status != c.status || !strings.Contains(rs[0].Summary, c.summary) {
+			t.Errorf("%v abi %d launcher %v: %+v", sortedKeys(c.backends), c.abi, c.launcher, rs)
+		}
+	}
+	if rs := Landlock(with, 5, true); len(rs[0].Details) != 1 || !strings.Contains(rs[0].Details[0], "scoped") {
+		t.Errorf("ABI 5: %+v", rs)
 	}
 }
