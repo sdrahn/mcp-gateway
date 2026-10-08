@@ -11,6 +11,12 @@ configuration itself is chapter 3.
 - **OPA** (`/usr/bin/opa`), the Open Policy Agent binary.
 - **SELinux** in enforcing mode is recommended (the gateway also runs
   without it, with less isolation).
+- **Landlock** in the kernel's list of security modules, as the kernels
+  of SLES 16, Leap 16 and Tumbleweed have it (`cat
+  /sys/kernel/security/lsm` names `landlock`): the shipped servers'
+  definitions restrict their instances with it. Without it, instances
+  start without that restriction and `mcp-gateway-admin doctor` warns
+  (chapter 4, "Landlock").
 - For the web console: **Cockpit** (`cockpit`, `cockpit-bridge`).
 - For remote agents: an OAuth 2.1 / OpenID Connect identity provider and
   a TLS certificate for the gateway.
@@ -221,7 +227,9 @@ examples/dev/run-dev.sh            # OPA + gateway in exec mode, file server on 
 ```
 
 `supervisor.mode: exec` starts MCP servers as plain child processes of the
-gateway, **without any confinement**. Use it for development only.
+gateway, **without systemd's sandbox and SELinux**; only the definitions'
+`landlock`, and the gateway's own servers' restriction of themselves,
+still apply. Use it for development only.
 
 ## Uninstalling
 

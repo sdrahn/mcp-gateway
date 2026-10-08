@@ -13,7 +13,9 @@ through a proxy, optionally with each user's own OAuth sign-in), with:
   and the gateway's own tool `gateway_capabilities`,
 - [OPA](https://www.openpolicyagent.org/) as the policy engine,
 - pseudonymization of personal data before it reaches external LLMs,
-- SELinux confinement of the gateway, the policy engine and every MCP server.
+- SELinux confinement of the gateway, the policy engine and every MCP server,
+  and Landlock as a second wall that keeps each server instance to its
+  trees (a user's file server to that user's home).
 
 Target distributions: SLES 16 and openSUSE Leap 16 (openSUSE Tumbleweed
 for development), packaged with the Open Build Service; see

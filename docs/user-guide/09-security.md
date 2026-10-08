@@ -320,6 +320,8 @@ personal data under the GDPR.
 
 - [ ] SELinux enforcing, `mcp-gateway-selinux` installed, no AVC denials
       in normal use.
+- [ ] Landlock active in the kernel (the doctor's `landlock` check is
+      OK), so that the shipped servers' rulesets apply.
 - [ ] Only the intended users in `mcp-users`.
 - [ ] Role bindings reviewed; the shipped `dev`/`wheel` bindings adapted.
 - [ ] Destructive tools denied or approval-gated; approvals on `url` or

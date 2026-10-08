@@ -4,7 +4,7 @@ mcp-gateway makes the MCP (Model Context Protocol) servers installed on a
 Linux host available to AI agents, locally and over the network, under
 central control: every request is authorized by policy (OPA), sensitive
 calls can require a human's approval, each server runs confined by
-systemd and SELinux, and everything is audited.
+systemd, SELinux and the kernel's Landlock, and everything is audited.
 
 This guide is for administrators who deploy and run the gateway, for
 people who write policy and add MCP servers, and for users who connect
@@ -18,12 +18,12 @@ message is explained.
 | [1. Introduction](01-introduction.md) | What the gateway does, concepts, components, security model |
 | [2. Installation](02-installation.md) | Packages for openSUSE/SLES, first start, installing from source, development mode |
 | [3. Configuration](03-configuration.md) | `gateway.yaml` reference, file layout |
-| [4. MCP servers](04-mcp-servers.md) | Registering MCP servers, isolation, sandbox, secrets, SELinux domains, packaging |
+| [4. MCP servers](04-mcp-servers.md) | Registering MCP servers, isolation, sandbox, Landlock, secrets, SELinux domains, packaging |
 | [5. Connecting clients](05-connecting-clients.md) | Local agents (`mcp-connect`), endpoints and naming, remote agents over HTTPS with OAuth and mTLS |
 | [6. Policy](06-policy.md) | Roles, permissions, bindings, approver rules, obligations, testing, signed bundles |
 | [7. Approvals](07-approvals.md) | Approval channels, scopes and grants, persistence, desktop and e-mail notifications |
 | [8. Cockpit](08-cockpit.md) | The web console page: approvals, servers, policy, audit |
-| [9. Security](09-security.md) | SELinux, MCS isolation, sandboxing, credentials, audit trail, hardening checklist |
+| [9. Security](09-security.md) | SELinux, MCS isolation, sandboxing, Landlock, credentials, audit trail, hardening checklist |
 | [10. Operations](10-operations.md) | Logs, monitoring, state, upgrades, troubleshooting |
 | [11. Reference](11-reference.md) | Commands, control API, audit records, paths, SELinux types and booleans |
 | [12. Custom policy (Rego)](12-custom-policy.md) | The policy contract (queries, inputs, decisions), extending or replacing the shipped logic, writing policy from scratch, testing and deploying |

@@ -220,7 +220,7 @@ supervisor:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `supervisor.mode` | `systemd` | `systemd`: each instance is a confined transient unit. `exec`: plain child processes without any confinement (development only). |
+| `supervisor.mode` | `systemd` | `systemd`: each instance is a confined transient unit. `exec`: plain child processes without systemd's sandbox and SELinux, under their definitions' `landlock` only (development only). |
 | `supervisor.selinux` | `auto` | set each instance's SELinux domain and MCS pair: `auto` (when SELinux is enabled), `on`, `off` |
 | `supervisor.idle_timeout` | `15m` | stop an instance this long after its last session ended |
 | `supervisor.mcs_range` | `c768.c1023` | the MCS categories instances get their pairs from (at least 8 categories within `c0.c1023`); see chapter 9 on coordinating with libvirt |

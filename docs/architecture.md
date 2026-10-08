@@ -585,7 +585,12 @@ Approvers learn about pending approvals without watching the inbox:
   LoadCredential=github-token:/etc/mcp-gateway/credentials/github-token
   ```
   `MemoryDenyWriteExecute=` is deliberately not set: it breaks JIT
-  runtimes such as Node.js, which many MCP servers use.
+  runtimes such as Node.js, which many MCP servers use. For a
+  definition with `landlock`, the unit's command is
+  `mcp-landlock -rules <JSON> -- <command>`: the launcher restricts
+  itself with Landlock to the definition's trees and ports (`${HOME}`
+  and `${USER}` expanded for the principal) and executes the server
+  (D19).
   stdio is wired by passing one end of a gateway-owned socketpair to
   systemd through the transient-unit properties
   `StandardInputFileDescriptor` / `StandardOutputFileDescriptor`
@@ -1838,7 +1843,7 @@ either says about itself (client info, tool annotations).
 | Parser differential: policy decides on parameters the server reads differently | requests whose objects repeat a key or have keys differing only in case, and keys differing only in case from one the gateway reads or from an argument the tool or prompt declares, are refused (`invalid params`); found and checked by fuzzing (step 14) | a server with its own notion of argument names (e.g. aliases) |
 | Path arguments leaving an allowed tree through symbolic links | path constraints are on the string (D13); servers confine their own file access (`os.Root`, `openat2` `RESOLVE_BENEATH`; the file server does), and account, sandbox and SELinux domain bound what any path reaches; with `landlock` (D19), the kernel bounds the instance to its trees, following the real hierarchy | servers that follow links without confining themselves, within what their account, domain and (with `landlock`) ruleset may access |
 | Access revoked while activity goes on | grants and decisions apply when a call starts (D12); updates of subscribed resources are decided again; instances can be stopped (Cockpit, control API) | a call in progress runs to its end; a privileged call is not stopped halfway |
-| Malicious/compromised backend | per-backend SELinux domain, no access to gateway/OPA sockets, systemd sandboxing (memory and task limits), no network by default, per-session MCS | what its own domain allows (a profile drafted too wide) |
+| Malicious/compromised backend | per-backend SELinux domain, no access to gateway/OPA sockets, systemd sandboxing (memory and task limits), no network by default, per-session MCS; with `landlock` (D19) the instance's trees and ports, our own servers restricting themselves in any case | what its own domain and ruleset allow (a profile drafted too wide) |
 | Compromised privileged backend (D9) | admin-only definitions, `run_as: root` explicitly, approval for every call not explicitly allowed, kernel audit, the MCP-facing part confined | root while it runs |
 | Backend phishing the user via elicitation | policy on `elicitation.create`, origin labelling, secret-field blocking | the user's judgement |
 | Cross-tenant data leakage | instance per principal (or session), MCS categories, separate Unix users where possible; with `landlock` (D19), an instance's trees per principal (the shipped `fs`: the user's home only, even for another user's world-readable files) | principals sharing a dynamic user rely on MCS and the instance split; without `landlock`, files another user made readable |
@@ -1851,7 +1856,7 @@ either says about itself (client info, tool annotations).
 | Rate limits reset by a restart | counters in memory (D11); a restart needs root or a crash, both audited | an agent that can crash the gateway; no such crash is known |
 | Theft of principals' upstream tokens (§5.7.3) | tokens encrypted in `state_dir` under a key only the gateway reads, bound to server and principal; refresh tokens never leave the gateway and the helper; a connector gets the access token for its own server and principal only, as a credential | root; a compromised connector uses its access token until it expires |
 | Sign-in link forwarded to someone else (login confusion: another person's account bound to the principal) | the link goes only to the principal's client or their own Cockpit view; its `state` is single-use and expires (10 min); PKCE; the authorization server's consent page names the client | a principal who passes their link on, and someone who signs in with it |
-| Compromised sign-in helper | own domain, a dynamic user, reaches one host per run, no access to the token store | the tokens of the one exchange or refresh it runs |
+| Compromised sign-in helper | own domain, a dynamic user, reaches one host per run, no access to the token store; Landlock keeps it to its credentials and that host's port (D19) | the tokens of the one exchange or refresh it runs |
 | Telemetry disclosure | metrics only for root on the control socket; the HTTP listener is opt-in and carries counts, no names or arguments | counts per server and action to whoever reaches the listener |
 | Local user spoofing identity | kernel-provided peer credentials; `clientInfo` never trusted | — |
 
