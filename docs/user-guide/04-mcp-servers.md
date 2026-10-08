@@ -381,7 +381,8 @@ SELinux and polkit.
 The shipped definitions use it: `fs` writes the user's home and nothing
 else of `/home`, even where another user's files are world-readable;
 `gateway-docs` reads the documentation; `exec` reads `/var` and `/run`
-(the system's state) besides the base. The rules are fixed for the life
+(the system's state) besides the base; the setup packages' `systemd`,
+`firewalld` and `zypp` read what their tools need (chapter 13). The rules are fixed for the life
 of an instance: a changed definition takes effect with new instances,
 as any other change does.
 

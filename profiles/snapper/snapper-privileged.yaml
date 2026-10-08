@@ -10,3 +10,6 @@ command: ["/usr/bin/mcp-server-snapper"]
 run_as: root
 selinux_type: mcpsrv_snapper_t
 privileged: true
+# No landlock: snapper lists the root directory itself (and the
+# snapshots below it), which a Landlock rule allows only together with
+# everything beneath.

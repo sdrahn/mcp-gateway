@@ -10,3 +10,4 @@ run_as: root
 network: true
 selinux_type: mcpsrv_zypp_t
 privileged: true
+# No landlock: installing packages writes wherever they put files.

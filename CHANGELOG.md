@@ -49,6 +49,14 @@ minor release (with a warning) and removed in the next.
   refusals leave no audit record. Cockpit shows "Landlock" among a
   server's facts and adds the hint under an instance's log that says
   "permission denied"; `GET /v1/servers` has `landlock`.
+- The setup packages' definitions restrict their instances with
+  Landlock (step 30): `systemd` reads the system's configuration and
+  programs, the logs and the journal, `/run/systemd` and man's cache
+  (`get_file` reads within these trees only); `firewalld` the
+  configuration and programs; the unprivileged `zypp` also the
+  repositories' caches, zypp's state and the rpm database. snapper, the
+  privileged zypp and suseconnect have none (see the notes in their
+  definitions).
 
 ## v0.17.1 — 2026-10-08
 

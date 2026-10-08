@@ -7,3 +7,6 @@ name: firewalld
 command: ["/usr/bin/firewalld-mcp"]
 run_as: mcp-sysmgmt
 selinux_type: mcpsrv_firewalld_t
+# Landlock (a second wall, chapter 4): the system's configuration and
+# programs only; it asks firewalld over D-Bus.
+landlock: {}

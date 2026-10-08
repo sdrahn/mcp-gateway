@@ -8,6 +8,12 @@ name: systemd
 command: ["/usr/bin/systemd-mcp"]
 run_as: mcp-sysmgmt
 selinux_type: mcpsrv_systemd_t
+# Landlock (a second wall, chapter 4): besides the system's configuration
+# and programs, it reads the journal and the logs, systemd's runtime
+# state and man's cache; it changes units over D-Bus, which Landlock
+# does not restrict. get_file reads within these trees only.
+landlock:
+  read: ["/var/log", "/run/log/journal", "/run/systemd", "/var/cache/man"]
 # What the tools' schemas do not tell the agent, added to their
 # descriptions (tool_notes, chapter 4). Checked against systemd-mcp
 # 0.3.5 (test/vm/build-servers.sh): check them again when it changes.

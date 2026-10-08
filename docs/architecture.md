@@ -2970,7 +2970,9 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     the server under Landlock, `--home`, `--network`, `--allow`;
     `profile` runs through systemd and `review` runs no server; stage D
     in part: the doctor and Cockpit name the ruleset as the likely
-    cause; `profile` drafting trees is open):
+    cause; `profile` drafting trees is open; the setups' rulesets done:
+    `systemd`, `firewalld`, the unprivileged `zypp`; snapper, the
+    privileged zypp and suseconnect have none):
     - the problem: an instance's isolation works on types and whole
       trees. Its SELinux domain allows a type (`mcpsrv_fs_t` reads any
       `user_home_t`; home files carry no MCS categories that tell users

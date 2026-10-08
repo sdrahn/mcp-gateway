@@ -786,6 +786,11 @@ END
 
 	stool alice zypp search_packages '{"pattern":"bash"}'
 	check "zypp: search_packages" succeeded_with "bash"
+	# The setups' rulesets (step 30): the servers above ran under them.
+	for s in systemd firewalld zypp; do
+		check "landlock: the $s server starts restricted" \
+			bash -c "journalctl -q --no-pager -u 'mcp-$s-*' -o cat | grep -q 'mcp-landlock: Landlock ABI'"
+	done
 
 	# Without a registration it may report an error, but from the server.
 	stool alice suseconnect RegistrationStatus '{}'
