@@ -5,6 +5,43 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## v0.17.1 — 2026-10-08
+
+The gateway's own file and command servers tell agents how to use them,
+and `gateway_capabilities` shows each user the instructions of their own
+`fs`: in 0.17.0 it showed those of the shared discovery instance,
+"Files below /". Upgrading from 0.17.0 needs no changes. After the
+update, restart the gateway (`systemctl restart mcp-gateway.service`);
+running `fs` and `exec` instances get the new texts when they next
+start. A copy of the `exec` definition in
+`/etc/mcp-gateway/servers.d/exec.yaml` keeps working, without the new
+`--instructions` text; copy the shipped one
+(`/usr/share/mcp-gateway/servers.d/exec.yaml`) again to get it.
+
+### Changed
+
+- `mcp-server-fs` tells agents how to use it: its instructions say which
+  tool to use for what (search before reading whole files, then read the
+  lines with `read_text_file`), that nothing outside its roots can be
+  reached, and the limits of one call (read, write, entries), which the
+  tool descriptions repeat.
+- `mcp-server-exec` says what each tool runs and within which limits:
+  after the administrator's description, a line from the definition
+  ("Runs: /usr/bin/rpm -q {package}. Ends after 1 min; output … up to
+  1 MiB."); tools have a title, `idempotentHint` when read-only, and an
+  `outputSchema` for their structured result. Its instructions list the
+  commands and say there are no others. A new `--instructions` option
+  adds what the definition knows; the shipped one says the commands run
+  as the user, without network, confined by SELinux.
+
+### Fixed
+
+- `gateway_capabilities` showed, for a server whose command names the
+  user (`fs`: `--root ${HOME}`), the instructions of the shared discovery
+  instance, which runs with the home `/`: "Files below /". It now asks
+  the user's own instance, as it does for servers without shared
+  discovery, which before had no instructions there at all.
+
 ## v0.17.0 — 2026-10-08
 
 Agents learn what the user may do instead of finding out by trying.

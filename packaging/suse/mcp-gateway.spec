@@ -12,7 +12,7 @@
 %{!?_distconfdir: %global _distconfdir %{_sysconfdir}}
 
 Name:           mcp-gateway
-Version:        0.17.0
+Version:        0.17.1
 Release:        0
 Summary:        Policy-enforcing gateway for MCP servers
 # MIT for mcp-gateway; the others for the vendored Go modules linked in.
