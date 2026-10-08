@@ -8,6 +8,9 @@ through a proxy, optionally with each user's own OAuth sign-in), with:
 
 - access control / RBAC,
 - permission elicitation (human approval of sensitive actions),
+- agents told what the user may do: tool descriptions with the limits of
+  the user's roles and the administrator's notes, denials that say why,
+  and the gateway's own tool `gateway_capabilities`,
 - [OPA](https://www.openpolicyagent.org/) as the policy engine,
 - pseudonymization of personal data before it reaches external LLMs,
 - SELinux confinement of the gateway, the policy engine and every MCP server.
@@ -49,7 +52,7 @@ checkout.
 | `examples/` | running the gateway from a checkout (`examples/dev`) |
 | `e2e/` | end-to-end tests: OPA + gateway + mcp-connect or an HTTPS client with a test IdP + the file server |
 | `test/` | reference-client compatibility suite (`clients/`: Go, Python, TypeScript), compatibility with earlier releases' files (`compat/`), VM tests on Leap 16 and Tumbleweed (`vm/`) |
-| `policy/` | default OPA policy bundle (`data.mcp.authz.decision`, `data.mcp.filter.visible`), RBAC data and tests |
+| `policy/` | default OPA policy bundle (`data.mcp.authz.decision`, `data.mcp.filter.visible`, `data.mcp.filter.hints`), RBAC data and tests |
 | `selinux/` | `mcp_gateway` SELinux policy module (domains, types, isolation invariants) and the modules of the server setups |
 | `profiles/` | server setups for system management (zypp, systemd, firewalld, snapper, SUSEConnect): definitions and roles, packaged as `mcp-gateway-profile-<name>` |
 | `systemd/` | `mcp-gateway.service`, `mcp-opa.service` |
