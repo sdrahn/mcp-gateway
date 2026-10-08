@@ -1530,7 +1530,9 @@ equal it). Policy decides on it as on any tool, as the resource
 true}`; the shipped `mcp/builtin.rego` covers it for principals holding
 a permission that is not a deny and needs no approval. It returns the
 principal's servers (from the filtered `tools/list`), each with its
-instructions (from shared discovery) and its tools with their
+instructions (from shared discovery, or from the principal's own
+instance for a server without it or whose command names the principal:
+`${HOME}`, `${USER}`) and its tools with their
 descriptions and hints, and where the gateway's own files are. The
 instructions of an aggregated session point to it; they stay a fixed
 text, so that connecting asks neither servers nor policy.

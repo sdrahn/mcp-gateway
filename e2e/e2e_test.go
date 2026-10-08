@@ -524,6 +524,7 @@ func TestAggregatedEndpoint(t *testing.T) {
 		}
 		text, isErr := toolResult(t, c.call(20, "gateway_capabilities", map[string]any{}))
 		if isErr || !strings.Contains(text, "## fs (8 tools)") || !strings.Contains(text, "- notes__read_file: ") ||
+			!strings.Contains(text, "search_text finds lines") || !strings.Contains(text, "One call reads at most") ||
 			strings.Contains(text, "write_file") {
 			t.Fatalf("got %q isError=%v", text, isErr)
 		}
