@@ -54,7 +54,7 @@ Build targets: SLES 16 and Leap 16 (supported), openSUSE Tumbleweed
 | `mcp-gateway-selinux` | SELinux module `mcp_gateway` (installed with the `%selinux_*` macros); pulled in automatically where `selinux-policy-targeted` is installed |
 | `mcp-gateway-cockpit` | the Cockpit page (`/usr/share/cockpit/mcp-gateway`): approvals and grants, servers and instances, role bindings, audit records |
 | `mcp-gateway-desktop` | `mcp-gateway-notify`: desktop notifications for approvals the logged-in user may decide on (XDG autostart) |
-| `mcp-gateway-fs-server` | the file server `mcp-server-fs`, registered as server `fs` (replaces `mcp-gateway-demo-server`) |
+| `mcp-gateway-fs-server` | the file server `mcp-server-fs`, registered as server `fs` (replaces `mcp-gateway-demo-server`), and as `gateway-docs` on the documentation; `profiles/gateway-docs-mcp-docs.yaml` runs `gateway-docs` on mcp-docs instead (Suggests: `mcp-docs`) |
 
 `mcp-gateway` requires `opa` (the Open Policy Agent binary at
 `/usr/bin/opa`). If your target repositories do not provide it, build it in

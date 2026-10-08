@@ -135,7 +135,10 @@ mcp_gateway_backend_template(fs)
 mcp_gateway_backend_home_rw(mcpsrv_fs_t)
 
 # The gateway's documentation (the server gateway-docs): mcp-server-fs,
-# read-only, in a domain that reads /usr and nothing of the users'.
+# read-only, in a domain that reads /usr and nothing of the users'; or
+# mcp-docs (/usr/bin/mcp-docs, mcpsrv_docs_exec_t, the template's entry
+# point; profiles/gateway-docs-mcp-docs.yaml), which also executes
+# itself again to apply Landlock (can_exec, from the template).
 mcp_gateway_backend_template(docs)
 domain_entry_file(mcpsrv_docs_t, mcpsrv_fs_exec_t)
 can_exec(mcpsrv_docs_t, mcpsrv_fs_exec_t)

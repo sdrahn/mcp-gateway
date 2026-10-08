@@ -299,6 +299,26 @@ It runs as a throwaway user in the domain `mcpsrv_docs_t`, which reads
 `/usr` and nothing of the users'. An empty
 `/etc/mcp-gateway/servers.d/gateway-docs.yaml` disables it.
 
+With the package `mcp-docs` (https://github.com/sdrahn/mcp-docs), the
+same server can run on mcp-docs, a server made for documentation: an
+outline with section ids, search that answers with the section of each
+match, and reads of one section, each call at most 32 KiB, beside the
+file server's tools (`--fs-compat`, so roles and agents need no change).
+`mcp-gateway-fs-server` ships the definition for the administrator to
+enable:
+
+```bash
+zypper in mcp-docs
+cp /usr/share/mcp-gateway/profiles/gateway-docs-mcp-docs.yaml /etc/mcp-gateway/servers.d/gateway-docs.yaml
+```
+
+It runs in the same domain (`mcp-gateway-selinux` labels
+`/usr/bin/mcp-docs` as its entry point), account and Landlock rules;
+removing the file returns to `mcp-server-fs`. An agent that runs
+mcp-docs itself, without the gateway, finds the documentation as the
+collection `mcp-gateway`
+(`/usr/share/mcp-docs/collections.d/mcp-gateway.yaml`).
+
 The documentation tells an agent how things should be, not how they are
 on this machine. For that there is the server `gateway-admin`, which the
 main package installs: the gateway's diagnostics as tools.

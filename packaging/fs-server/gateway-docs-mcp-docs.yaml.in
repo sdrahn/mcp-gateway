@@ -1,0 +1,24 @@
+# The gateway's documentation (the server gateway-docs) served by
+# mcp-docs (package mcp-docs, https://github.com/sdrahn/mcp-docs) instead
+# of mcp-server-fs: besides the file server's reading tools
+# (--fs-compat), agents get an outline with section ids, search that
+# answers with the section of each match, and reads of one section, each
+# call bounded to 32 KiB. Same domain, account, network and Landlock
+# rules as the shipped definition; the role gateway-docs-reader allows
+# its tools. To use it, with mcp-docs installed:
+#
+#   cp @DATADIR@/mcp-gateway/profiles/gateway-docs-mcp-docs.yaml /etc/mcp-gateway/servers.d/gateway-docs.yaml
+#
+# Removing that file returns to mcp-server-fs.
+version: 1
+name: gateway-docs
+command: ["@BINDIR@/mcp-docs", "--fs-compat",
+  "--collection", "mcp-gateway=@DATADIR@/mcp-gateway/docs:The documentation of mcp-gateway, the MCP gateway this server and the others run behind, for the installed version",
+  "--instructions", "Start with mcp-gateway/README.md: which file answers which question, and where each common error message is explained. user-guide/ has 13 chapters (chapter N is user-guide/NN-*.md; 10-operations has the troubleshooting and the self-check, 11-reference the options, files and limits), architecture.md the design and its decisions, CHANGELOG.md what changed and how to upgrade. Read architecture.md and CHANGELOG.md by section, never whole. The configuration on this machine is not here: the server gateway-admin shows it (show_config) and checks it (check_config, doctor)."]
+selinux_type: mcpsrv_docs_t
+run_as: dynamic
+network: false
+# Landlock: the documentation, the system's programs and configuration;
+# no home directory. mcp-docs restricts itself to its collection as well.
+landlock:
+  read: ["@DATADIR@/mcp-gateway/docs"]

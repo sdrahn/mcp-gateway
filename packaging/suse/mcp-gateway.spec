@@ -101,6 +101,8 @@ users without access to the gateway.
 Summary:        File MCP server for mcp-gateway
 Group:          System/Management
 Requires:       %{name} = %{version}
+# gateway-docs on mcp-docs: %{_datadir}/mcp-gateway/profiles/gateway-docs-mcp-docs.yaml.
+Suggests:       mcp-docs
 # The demo server it replaces (0.5).
 Provides:       %{name}-demo-server = %{version}-%{release}
 Obsoletes:      %{name}-demo-server < %{version}-%{release}
@@ -113,7 +115,8 @@ reference filesystem server. It stays inside its directories also
 through symbolic links, replaces files atomically and bounds what one
 call reads and writes. Also registers the server "gateway-docs": the
 gateway's documentation, read-only, for agents to consult offline (role
-gateway-docs-reader).
+gateway-docs-reader), and a definition of it on mcp-docs for the
+administrator to enable.
 
 %package exec-server
 Summary:        Allowlisted command MCP server for mcp-gateway
@@ -321,6 +324,9 @@ fi
 %{_datadir}/mcp-gateway/mcs
 %{_datadir}/mcp-gateway/schema
 %{_datadir}/mcp-gateway/docs
+%dir %{_datadir}/mcp-docs
+%dir %{_datadir}/mcp-docs/collections.d
+%{_datadir}/mcp-docs/collections.d/mcp-gateway.yaml
 %{_datadir}/mcp-gateway/servers.d/gateway-admin.yaml
 %{_datadir}/mcp-gateway/policy/mcp/profiles/gateway-admin
 %{_unitdir}/mcp-gateway.service
@@ -353,6 +359,8 @@ fi
 %{_datadir}/mcp-gateway/servers.d/fs-demo.yaml
 %{_datadir}/mcp-gateway/servers.d/gateway-docs.yaml
 %{_datadir}/mcp-gateway/policy/mcp/profiles/gateway-docs
+%dir %{_datadir}/mcp-gateway/profiles
+%{_datadir}/mcp-gateway/profiles/gateway-docs-mcp-docs.yaml
 
 %files exec-server
 %dir %{_libexecdir}/mcp-servers

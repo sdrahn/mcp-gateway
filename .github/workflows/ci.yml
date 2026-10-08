@@ -235,6 +235,11 @@ jobs:
           test -d /etc/mcp-gateway/exec.d
           test -f /usr/share/mcp-gateway/policy/mcp/profiles/gateway-admin/data.json
           test -f /usr/share/mcp-gateway/docs/user-guide/10-operations.md
+          grep -q '^root: /usr/share/mcp-gateway/docs$' /usr/share/mcp-docs/collections.d/mcp-gateway.yaml
+          # gateway-docs on mcp-docs, as the administrator enables it.
+          cp /usr/share/mcp-gateway/profiles/gateway-docs-mcp-docs.yaml /etc/mcp-gateway/servers.d/gateway-docs.yaml
+          mcp-gateway --check 2>&1 | grep -q 'backends=4'
+          rm /etc/mcp-gateway/servers.d/gateway-docs.yaml
           test -f /usr/share/mcp-gateway/policy/mcp/approvals.rego
           test -f /usr/share/mcp-gateway/policy/mcp/log.rego
           test -f /usr/share/mcp-gateway/schema/rbac.schema.json

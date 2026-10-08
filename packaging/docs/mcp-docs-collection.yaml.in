@@ -1,0 +1,17 @@
+# The gateway's documentation as a collection of mcp-docs
+# (https://github.com/sdrahn/mcp-docs): an agent that runs mcp-docs
+# itself, without the gateway, reads it as the collection mcp-gateway.
+# Installed with the documentation; it does nothing without mcp-docs. To
+# change it, copy it to /etc/mcp-docs/collections.d/mcp-gateway.yaml; an
+# empty file of that name disables it.
+title: mcp-gateway documentation
+root: @DATADIR@/mcp-gateway/docs
+description: >
+  The MCP gateway, for the installed version: user guide (13 chapters),
+  architecture and decisions, changelog with upgrade notes.
+index: README.md
+instructions: >
+  Read architecture.md and CHANGELOG.md by section, never whole. The
+  configuration on this machine is not here: through the gateway, the
+  server gateway-admin shows it (show_config) and checks it
+  (check_config, doctor); on the machine, mcp-gateway-admin doctor.

@@ -423,8 +423,9 @@ func execDomain(fileType string) string {
 }
 
 // entersDomain reports whether systemd can start a program of a server
-// type in domain: each mcpsrv_X_t from mcpsrv_X_exec_t, mcpsrv_docs_t also
-// from mcpsrv_fs_exec_t (gateway-docs is the file server), as the modules
+// type in domain: each mcpsrv_X_t from mcpsrv_X_exec_t (mcpsrv_docs_t from
+// mcp-docs' mcpsrv_docs_exec_t), mcpsrv_docs_t also from mcpsrv_fs_exec_t
+// (gateway-docs is the file server unless mcp-docs serves it), as the modules
 // say (mcp_gateway_backend_template, mcp_gateway.te).
 func entersDomain(fileType, domain string) bool {
 	return execDomain(fileType) == domain || (fileType == "mcpsrv_fs_exec_t" && domain == "mcpsrv_docs_t")
@@ -571,6 +572,7 @@ var TypedPrograms = []string{
 	"/usr/lib/mcp-servers/mcp-server-fs",
 	"/usr/libexec/mcp-servers/mcp-server-fs",
 	"/usr/libexec/mcp-server-zypp/zypp-mcp-tool",
+	"/usr/bin/mcp-docs",
 }
 
 // serverHelpers are the TypedPrograms a server's program starts, by that
@@ -705,8 +707,9 @@ func Landlock(backends map[string]*config.Backend, k LandlockKernel, launcher bo
 }
 
 // selfRestricting are the programs that restrict themselves with
-// Landlock whatever starts them (roadmap step 30, stage B), by name.
-var selfRestricting = []string{"mcp-server-fs", "mcp-server-exec"}
+// Landlock whatever starts them (roadmap step 30, stage B; mcp-docs of
+// its own), by name.
+var selfRestricting = []string{"mcp-server-fs", "mcp-server-exec", "mcp-docs"}
 
 // LandlockSuspects names Landlock as the likely cause for the servers
 // that did not start (failed) and run restricted (their definition's
