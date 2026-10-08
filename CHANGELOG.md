@@ -7,6 +7,43 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v0.17.0 — 2026-10-08
+
+Agents learn what the user may do instead of finding out by trying.
+Tool descriptions say what the user's roles allow (argument limits,
+approvals) and carry the administrator's notes (`tool_notes`); denials
+say which argument is outside the roles and where to look instead; and
+on the aggregated endpoint the gateway's own tool `gateway_capabilities`
+lists, per server, its instructions and its tools with those limits.
+The `systemd` setup package notes the time format `list_log` takes,
+and `mcp-gateway-admin inspect` suggests notes for arguments a server's
+schema leaves unclear.
+
+Upgrading from 0.16.x needs no changes to `gateway.yaml`, server
+definitions or role data. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. Things
+to know:
+
+- **A new tool on the aggregated endpoint.** `gateway_capabilities` is
+  listed for every principal holding a permission that is not a deny
+  and needs no approval; agents that count or allow-list tools see one
+  more. Policy decides on it as on any tool (`resource.builtin`).
+- **A custom policy** (chapter 12, approaches B and C) gets none of
+  this until it adds it: without `data.mcp.filter.hints` the
+  descriptions have no "According to your roles" line, without a rule
+  allowing `resource.builtin` the capabilities tool is hidden, and its
+  own denial reasons stay as they are. The input contract stays at
+  version 1; `resource.builtin` is a new field.
+- **Denial texts changed.** Reasons that start with "no matching
+  permission" keep that start; anything matching the whole text (log
+  filters, scripts) needs a look.
+- **A copied `systemd` definition** in
+  `/etc/mcp-gateway/servers.d/systemd.yaml` replaces the package's and
+  has no `tool_notes`; copy them from
+  `/usr/share/mcp-gateway/servers.d/systemd.yaml`.
+- **Going back to 0.16** refuses server definitions with `tool_notes`
+  (an unknown key); remove them first.
+
 ### Changed
 
 - The `systemd` setup package's definition has a tool note for
@@ -14,7 +51,6 @@ minor release (with a warning) and removed in the next.
   relative times and other formats are refused. Agents no longer guess
   "-1h" or "2026-10-07 11:00:00". A definition of your own in
   `/etc/mcp-gateway/servers.d` replaces the package's: copy the note.
-
 - Denials say why and what instead (roadmap step 29, part 2). A call a
   role allows, but not with these arguments, is denied with "no matching
   permission: the arguments are outside what your roles allow (path:
@@ -36,15 +72,13 @@ minor release (with a warning) and removed in the next.
   them as comments. For a `--server`, it marks the tools that have a
   note already and lists notes for tools the server does not offer.
   Only the schemas are read; no tool is called.
-
 - Agents on the aggregated endpoint are told what the user may do
   (roadmap step 29, part 3). The gateway's own tool
   `gateway_capabilities` returns, per server, its instructions and its
   tools with the limits of the user's roles, and where the gateway's
   configuration and documentation are; the instructions point to it.
-  Policy decides on it as on any
-  tool (`resource.builtin`, the shipped `mcp/builtin.rego`): everyone
-  holding a role gets it. A custom policy without such a rule hides it.
+  Policy decides on it as on any tool (`resource.builtin`, the shipped
+  `mcp/builtin.rego`): everyone holding a role gets it. A custom policy without such a rule hides it.
 - Tool descriptions tell the agent what the user's roles allow (roadmap
   step 29, part 1). In `tools/list`, a tool limited by the user's roles
   gets a line such as "[mcp-gateway] According to your roles, calls need
