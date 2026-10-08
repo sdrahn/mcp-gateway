@@ -151,6 +151,8 @@ name: systemd
 command: ["/usr/bin/systemd-mcp"]
 run_as: mcp-sysmgmt
 selinux_type: mcpsrv_systemd_t
+landlock:
+  read: ["/var/log", "/run/log/journal", "/run/systemd", "/var/cache/man"]
 tool_notes:
   list_log: >-
     from and to are RFC 3339 times with a time zone, e.g.
@@ -165,6 +167,7 @@ name: firewalld
 command: ["/usr/bin/firewalld-mcp"]
 run_as: mcp-sysmgmt
 selinux_type: mcpsrv_firewalld_t
+landlock: {}
 ```
 
 ```yaml
@@ -206,9 +209,25 @@ Notes:
   state) and, for `get_services_for_zone` and `get_service_info`,
   `…FirewallD1.config.info` (reading the permanent configuration), and
   nothing more (rule below).
-- `get_file` reads any file or directory the account can read, and
-  `get_file`, `get_man_page` and `list_log` run `getfacl`, `man` and
-  `rpm`; the SELinux domain needs rules for those (see below).
+- `get_file` reads any file or directory the account can read, within
+  the definition's Landlock trees, and `get_file`, `get_man_page` and
+  `list_log` run `getfacl`, `man` and `rpm`; the SELinux domain needs
+  rules for those (see below).
+- The setup packages' definitions restrict their instances with
+  Landlock (chapter 4, "Landlock"), a second wall behind the domain:
+  `systemd` reads the system's configuration and programs (`/etc`,
+  `/usr`, `/proc`, `/sys`), the logs and the journal (`/var/log`,
+  `/run/log/journal`), `/run/systemd` and `/var/cache/man`;
+  `firewalld` the configuration and programs only; `zypp` also the
+  repositories' caches and zypp's state (`/var/cache/zypp`,
+  `/var/lib/zypp`, `/var/log/zypp`; the rpm database is below `/usr`).
+  None of them writes beyond its private temporary directories. snapper
+  lists the root directory itself, which Landlock allows only with
+  everything below, and the privileged zypp and suseconnect install
+  packages: those definitions have no ruleset. To read more with
+  `get_file`, copy the definition to `/etc/mcp-gateway/servers.d` and
+  widen its `landlock`. A tool failing with "permission denied" and no
+  SELinux denial points at these rules (`mcp-gateway-admin doctor`).
 - None of these servers needs `network: true`: the system bus is a unix
   socket.
 - The servers speak MCP on stdin/stdout. A server that also writes log
@@ -316,6 +335,8 @@ name: zypp
 command: ["/usr/bin/mcp-server-zypp"]
 run_as: mcp-sysmgmt
 selinux_type: mcpsrv_zypp_t
+landlock:
+  read: ["/var/cache/zypp", "/var/lib/zypp", "/var/log/zypp", "/run/zypp.pid"]
 ```
 
 - `confirm_install` and `confirm_remove` change the system and refuse to

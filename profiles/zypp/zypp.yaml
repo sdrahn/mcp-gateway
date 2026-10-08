@@ -10,3 +10,9 @@ name: zypp
 command: ["/usr/bin/mcp-server-zypp"]
 run_as: mcp-sysmgmt
 selinux_type: mcpsrv_zypp_t
+# Landlock (a second wall, chapter 4): besides the system's configuration
+# and programs (the rpm database is below /usr), it reads the
+# repositories' caches and zypp's state, and writes nothing. The privileged variant has no
+# ruleset: installing packages writes wherever they put files.
+landlock:
+  read: ["/var/cache/zypp", "/var/lib/zypp", "/var/log/zypp", "/run/zypp.pid"]

@@ -291,4 +291,8 @@ func TestResultString(t *testing.T) {
 	if s != "Landlock ABI 5; not supported by the kernel: x; missing, left out: /m" {
 		t.Error(s)
 	}
+	if s := (Result{ABI: 6, Scoped: true, Refused: []string{"/var/lib/rpm"}}).String(); s !=
+		"Landlock ABI 6, scoped; not open to the instance (SELinux or permissions), left out: /var/lib/rpm" {
+		t.Error(s)
+	}
 }
