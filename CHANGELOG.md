@@ -16,6 +16,18 @@ minor release (with a warning) and removed in the next.
   browser profiles stay out of reach. The user guide (chapter 4, "A file
   server on the user's home") now says which parts of the home the
   server reaches.
+- `gateway-docs` can run on mcp-docs (package `mcp-docs`,
+  https://github.com/sdrahn/mcp-docs), a server for documentation:
+  outlines with section ids, search that answers with sections, reads of
+  one section, each call bounded. `mcp-gateway-fs-server` ships the
+  definition, `/usr/share/mcp-gateway/profiles/gateway-docs-mcp-docs.yaml`,
+  for the administrator to enable (chapter 10, "Asking an agent"); the
+  default stays `mcp-server-fs`. `mcp-gateway-selinux` labels
+  `/usr/bin/mcp-docs` as the entry point of `mcpsrv_docs_t`, and the
+  doctor checks its label.
+- The documentation is also an mcp-docs collection,
+  `/usr/share/mcp-docs/collections.d/mcp-gateway.yaml`, for agents that
+  run mcp-docs themselves.
 
 ## v1.1.1 — 2026-10-15
 
