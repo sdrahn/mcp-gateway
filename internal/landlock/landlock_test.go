@@ -23,6 +23,8 @@ type childCase struct {
 	Rules Rules
 	Root  string
 	Port  int // a listening port to connect to
+	// Self: restrict with Self rather than Restrict.
+	Self bool
 }
 
 type childResult struct {
@@ -61,7 +63,11 @@ func child(cc childCase) childResult {
 	// The checkout may lie below /tmp, which Base allows: only what the
 	// test needs to run.
 	Base = Rules{Exec: []string{"/usr", "/bin", "/lib", "/lib64"}, Write: []string{"/dev/null"}}
-	res, err := Restrict(cc.Rules)
+	restrict := Restrict
+	if cc.Self {
+		restrict = Self
+	}
+	res, err := restrict(cc.Rules)
 	out := childResult{Result: res, Outcome: map[string]string{}}
 	if err != nil {
 		out.Err = err.Error()
@@ -79,6 +85,24 @@ func child(cc childCase) childResult {
 	out.Outcome["write docs"] = outcome(w("docs/x"))
 	out.Outcome["exec /bin/true"] = outcome(exec.Command("/bin/true").Run())
 	out.Outcome["signal parent"] = outcome(unix.Kill(os.Getppid(), 0))
+	if cc.Self {
+		// Every thread, not only the one that restricted.
+		out.Outcome["mark left"] = os.Getenv(selfEnv)
+		done := make(chan string)
+		for range 8 {
+			go func() {
+				runtime.LockOSThread()
+				done <- outcome(r("theirs/g"))
+			}()
+		}
+		threads := "EACCES"
+		for range 8 {
+			if o := <-done; o != "EACCES" {
+				threads = o
+			}
+		}
+		out.Outcome["read theirs, other threads"] = threads
+	}
 	if cc.Port != 0 {
 		c, err := net.Dial("tcp", "127.0.0.1:"+strconv.Itoa(cc.Port))
 		if err == nil {
@@ -155,6 +179,28 @@ func TestRestrict(t *testing.T) {
 	// ABI 6: signals to processes outside the instance's domain.
 	if abi >= 6 && (res.Outcome["signal parent"] != "EPERM" || !res.Result.Scoped) {
 		t.Errorf("scoping: %s, %+v", res.Outcome["signal parent"], res.Result)
+	}
+}
+
+// Self restricts the whole program: it executes itself again from the
+// restricted thread.
+func TestSelf(t *testing.T) {
+	if ABI() == 0 {
+		t.Skip("no Landlock in this kernel")
+	}
+	root := tree(t)
+	res := runChild(t, childCase{Root: root, Self: true, Rules: Rules{Write: []string{filepath.Join(root, "mine")}}})
+	if res.Err != "" {
+		t.Fatal(res.Err)
+	}
+	for op, w := range map[string]string{"read mine": "ok", "write mine": "ok", "read theirs": "EACCES",
+		"read theirs, other threads": "EACCES", "exec /bin/true": "ok", "mark left": ""} {
+		if got := res.Outcome[op]; got != w {
+			t.Errorf("%s: %q, want %q", op, got, w)
+		}
+	}
+	if res.Result.ABI != ABI() {
+		t.Errorf("result %+v", res.Result)
 	}
 }
 

@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 )
 
 // Version is the format version of command files.
@@ -31,6 +33,9 @@ const (
 type file struct {
 	Version  int                 `yaml:"version"`
 	Commands map[string]*Command `yaml:"commands"`
+	// Landlock adds trees the file's commands use beyond those they name
+	// (see landlockRules).
+	Landlock *landlock.Rules `yaml:"landlock"`
 }
 
 // Command is an allowed command: a fixed program and argument vector,
@@ -48,6 +53,8 @@ type Command struct {
 	Name    string        `yaml:"-"`
 	File    string        `yaml:"-"`
 	timeout time.Duration // parsed Timeout, or the default
+	// landlock is the file's landlock, nil without.
+	landlock *landlock.Rules
 }
 
 // Arg is an argument the caller gives, substituted for {name} in argv.
@@ -121,11 +128,16 @@ func loadFile(path string) (map[string]*Command, error) {
 	if f.Version != Version && (f.Version != 0 || len(f.Commands) > 0) {
 		return nil, fmt.Errorf("%s: version: %d is not supported (this server reads %d)", path, f.Version, Version)
 	}
+	if l := f.Landlock; l != nil {
+		if err := validLandlock(*l); err != nil {
+			return nil, fmt.Errorf("%s: landlock: %v", path, err)
+		}
+	}
 	for name, c := range f.Commands {
 		if c == nil {
 			return nil, fmt.Errorf("%s: command %q: empty", path, name)
 		}
-		c.Name, c.File = name, path
+		c.Name, c.File, c.landlock = name, path, f.Landlock
 		if err := c.validate(); err != nil {
 			return nil, fmt.Errorf("%s: command %q: %v", path, name, err)
 		}

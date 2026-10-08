@@ -18,11 +18,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	neturl "net/url"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
+	"github.com/sdrahn/mcp-gateway/internal/egress"
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
 
@@ -33,7 +36,11 @@ type listFlag []string
 func (l *listFlag) String() string     { return strings.Join(*l, ", ") }
 func (l *listFlag) Set(v string) error { *l = append(*l, v); return nil }
 
+// restrict is landlock.Self in the program, nil in tests that call run.
+var restrict func(landlock.Rules) (landlock.Result, error)
+
 func main() {
+	restrict = landlock.Self
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
 	os.Exit(run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
@@ -65,12 +72,29 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return 0
 	}
 	log := slog.New(slog.NewTextHandler(stderr, nil))
+	credDir := os.Getenv("CREDENTIALS_DIRECTORY")
+	if restrict != nil {
+		// The kernel keeps the connector to its credentials and the
+		// ports of the server or proxy (Landlock, D19). Before any
+		// input or output: the program runs again restricted.
+		eo := egress.Options{Resolve: resolve}
+		if *proxy != "" {
+			eo.Proxy, _ = egress.ParseProxy(*proxy)
+		}
+		target, _ := neturl.Parse(*url)
+		res, err := restrict(egress.Landlock(eo, target, credDir))
+		if err != nil {
+			log.Error("cannot start", "err", err)
+			return 2
+		}
+		log.Info("restricted", "landlock", res.String())
+	}
 	c, err := newConnector(*url, options{
 		headers:      headers,
 		resolve:      resolve,
 		proxy:        *proxy,
 		proxyHeaders: proxyHeaders,
-		credDir:      os.Getenv("CREDENTIALS_DIRECTORY"),
+		credDir:      credDir,
 		signIn:       *signIn,
 	})
 	if err != nil {
