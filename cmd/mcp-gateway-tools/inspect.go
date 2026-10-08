@@ -14,10 +14,12 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/inspect"
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 )
@@ -33,8 +35,11 @@ tools the server has. The drafts are proposals to review, not policy.
 
 -server starts a server of the registry as the gateway would for shared
 discovery (through systemd, in its sandbox and SELinux domain; needs
-root). With a command, the server runs as a plain child process of yours,
-without sandbox: only for servers you trust.
+root). With a command, or -exec, the server runs as a child process of
+yours, without systemd and SELinux, under Landlock: the system read-only,
+a directory of its own (removed afterwards) as its home and TMPDIR, your
+home only with -home, no TCP unless -network. A definition's landlock
+applies too.
 
 Options:
 `
@@ -56,7 +61,11 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 	configPath := fs.String("config", "", "gateway configuration (for -server: registry and supervisor)")
 	serverName := fs.String("server", "", "server of the registry to start")
 	name := fs.String("name", "", "server name for a command (as in its definition)")
-	useExec := fs.Bool("exec", false, "start a -server definition as a plain child process, without sandbox")
+	useExec := fs.Bool("exec", false, "start a -server definition as a child process, without systemd and SELinux, under Landlock")
+	withHome := fs.Bool("home", false, "with a command or -exec: the server reads and writes your home")
+	withNetwork := fs.Bool("network", false, "with a command or -exec: the server may use TCP")
+	var allow stringList
+	fs.Var(&allow, "allow", "with a command or -exec: a tree the server may read and execute, such as its package (repeatable)")
 	var roles stringList
 	fs.Var(&roles, "roles", "role data or shipped roles to check against the server (repeatable)")
 	outDir := fs.String("out", "", "write the drafts to this directory (roles.json; NAME.yaml for a command)")
@@ -72,6 +81,10 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 	command := fs.Args()
 	if (*serverName == "") == (len(command) == 0) || (len(command) > 0 && *name == "") {
 		fs.Usage()
+		return 2
+	}
+	if (*withHome || *withNetwork || len(allow) > 0) && !*useExec && len(command) == 0 {
+		say(stderr, "-home, -network and -allow apply to a command or -exec; a server started through systemd has its definition's sandbox")
 		return 2
 	}
 	if (*useExec || len(command) > 0) && os.Geteuid() == 0 {
@@ -128,14 +141,20 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		launcher = &supervisor.Exec{Log: log}
-		// The server runs as you; give it your home, as a principal's
-		// instance would have (system accounts may have none).
+		// The server runs as you, with a home of its own or yours
+		// (underLandlock).
 		if u, err := user.Current(); err == nil {
-			p = principal.Principal{Sub: u.Username, Home: "/", Transport: principal.TransportInternal, SessionID: "inspect"}
-			if fi, err := os.Stat(u.HomeDir); err == nil && fi.IsDir() {
-				p.Home = u.HomeDir
-			}
+			p = principal.Principal{Sub: u.Username, Transport: principal.TransportInternal, SessionID: "inspect"}
 		}
+	}
+
+	if *useExec || len(command) > 0 {
+		cleanup, err := underLandlock(&b, &p, sandbox{home: *withHome, network: *withNetwork, allow: allow}, stderr)
+		if err != nil {
+			say(stderr, err)
+			return 1
+		}
+		defer cleanup()
 	}
 
 	res, err := inspect.Start(ctx, launcher, b, p)
@@ -210,6 +229,92 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// sandbox is what a server started without systemd may use beyond the
+// system, read-only, and a directory of its own.
+type sandbox struct {
+	home    bool     // the caller's home, read and written
+	network bool     // TCP
+	allow   []string // trees to read and execute (-allow)
+}
+
+// underLandlock prepares a server that runs without systemd and SELinux
+// (a command, or -exec): it starts through mcp-landlock (the supervisor
+// does so for a definition with landlock) with the system read-only, a
+// directory of its own as its home and TMPDIR, the caller's home with
+// sb.home, and no TCP without sb.network. Its program and the absolute
+// paths among its arguments that exist (a script, a package directory)
+// may be read and executed, as may sb.allow. A definition's own landlock
+// applies too. cleanup removes the directory.
+func underLandlock(b **config.Backend, p *principal.Principal, sb sandbox, stderr io.Writer) (cleanup func(), err error) {
+	home, network := sb.home, sb.network
+	if _, err := os.Stat(config.LandlockLauncher); err != nil {
+		return nil, fmt.Errorf("%s: %w (package mcp-gateway): servers without systemd start under Landlock only", config.LandlockLauncher, err)
+	}
+	dir, err := os.MkdirTemp("", "mcp-inspect-")
+	if err != nil {
+		return nil, err
+	}
+	bb := **b
+	bb.Env = map[string]string{}
+	for k, v := range (*b).Env {
+		bb.Env[k] = v
+	}
+	bb.Env["TMPDIR"] = dir
+	var r landlock.Rules
+	if def := (*b).Landlock; def != nil {
+		r = *def
+		r.Read, r.Write, r.Exec = slices.Clone(def.Read), slices.Clone(def.Write), slices.Clone(def.Exec)
+	} else {
+		r.Write = []string{"${HOME}"}
+	}
+	r.Write = append(r.Write, dir)
+	for _, a := range bb.Command {
+		if filepath.IsAbs(a) {
+			if _, err := os.Stat(a); err == nil {
+				r.Exec = append(r.Exec, filepath.Clean(a))
+			}
+		}
+	}
+	for _, a := range sb.allow {
+		abs, err := filepath.Abs(a)
+		if err != nil {
+			_ = os.RemoveAll(dir)
+			return nil, err
+		}
+		r.Exec = append(r.Exec, abs)
+	}
+	if !network {
+		if r.TCPConnect == nil {
+			r.TCPConnect = []int{}
+		}
+		if r.TCPBind == nil {
+			r.TCPBind = []int{}
+		}
+	}
+	bb.Landlock = &r
+	*b = &bb
+	what := "a directory of its own as home (" + dir + ")"
+	p.Home = dir
+	if home {
+		u, err := user.Current()
+		if err != nil {
+			_ = os.RemoveAll(dir)
+			return nil, err
+		}
+		p.Home, what = u.HomeDir, "your home ("+u.HomeDir+")"
+	}
+	net := "no TCP"
+	if network {
+		net = "TCP"
+	}
+	if landlock.ABI() == 0 {
+		say(stderr, "warning: no Landlock in this kernel (or not in the LSM list): the server runs unrestricted")
+	} else {
+		sayf(stderr, "%s runs without systemd and SELinux, under Landlock: the system read-only, %s, %s", bb.Name, what, net)
+	}
+	return func() { _ = os.RemoveAll(dir) }, nil
 }
 
 // writeDrafts writes roles.json and, for a server started by command, a
