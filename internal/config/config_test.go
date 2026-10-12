@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func writeFile(t *testing.T, dir, name, content string) string {
@@ -152,6 +152,20 @@ func TestLoadBackendsShippedExamples(t *testing.T) {
 		if b.Name != name {
 			t.Errorf("key %q != name %q", name, b.Name)
 		}
+	}
+}
+
+// A mapping with a complex key and a merge key made gopkg.in/yaml.v3
+// v3.0.1 panic (hash of unhashable type), and the gateway with it at
+// startup; go.yaml.in/yaml/v3 returns an error, which names the file.
+func TestLoadBackendsUnhashableMergeKey(t *testing.T) {
+	dir := t.TempDir()
+	body := "version: 1\ncommand: [/bin/true]\nenv:\n  ? [1]\n  : 1\n  <<: {c: 1}\n"
+	if err := os.WriteFile(filepath.Join(dir, "x.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadBackends(dir); err == nil || !strings.Contains(err.Error(), "x.yaml") {
+		t.Fatalf("err = %v, want one naming x.yaml", err)
 	}
 }
 

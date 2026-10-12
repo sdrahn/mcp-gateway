@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"syscall"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 )

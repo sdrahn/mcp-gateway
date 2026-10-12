@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"go.yaml.in/yaml/v3"
 	"golang.org/x/sys/unix"
-	"gopkg.in/yaml.v3"
 )
 
 // A restriction cannot be undone: each case runs in a child, the test
