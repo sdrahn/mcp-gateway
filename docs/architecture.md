@@ -1912,8 +1912,11 @@ hard to get right alone. Direct modules: `github.com/coreos/go-systemd`
 and `github.com/godbus/dbus` (transient units, the session bus of
 `mcp-gateway-notify`), `github.com/golang-jwt/jwt` (token
 verification), `github.com/santhosh-tekuri/jsonschema` (tool argument
-schemas), `gopkg.in/yaml.v3`, `golang.org/x/sys` (Landlock, inotify,
-extended attributes) and `golang.org/x/text`. OPA is not linked in: it
+schemas), `go.yaml.in/yaml/v3` (the YAML organization's continuation
+of `gopkg.in/yaml.v3`, unmaintained since April 2025; switched
+2026-10-12, as v3.0.1 panicked on a complex key beside a merge key),
+`golang.org/x/sys` (Landlock, inotify, extended attributes) and
+`golang.org/x/text`. OPA is not linked in: it
 runs as the distribution's `/usr/bin/opa` in its own domain (D7, §5.5).
 Written in this repository instead:
 - **JSON-RPC and MCP** (`internal/jsonrpc`, `internal/mcpserver`): the

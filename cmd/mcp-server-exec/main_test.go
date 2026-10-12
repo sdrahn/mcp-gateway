@@ -75,6 +75,18 @@ func TestLoadFiles(t *testing.T) {
 	}
 }
 
+// A complex key with a merge key: an error naming the file, not a panic
+// (gopkg.in/yaml.v3 v3.0.1 panicked).
+func TestLoadUnhashableMergeKey(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(p, []byte("version: 1\ncommands:\n  ? [1]\n  : 1\n  <<: {c: 1}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := load([]string{p}); err == nil || !strings.Contains(err.Error(), "c.yaml") {
+		t.Fatalf("err = %v, want one naming c.yaml", err)
+	}
+}
+
 // The examples the package installs are valid.
 func TestExamples(t *testing.T) {
 	cmds, err := load([]string{filepath.Join("..", "..", "packaging", "exec-server", "examples.yaml")})

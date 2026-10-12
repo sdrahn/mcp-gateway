@@ -7,6 +7,17 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Fixed
+
+- A server definition or `exec` command file with a complex key beside a
+  merge key (`? [1]` and `<<:` in one mapping) made the program reading
+  it crash (`hash of unhashable type`) instead of naming the file: the
+  gateway at startup, `mcp-gateway-admin doctor`, `inspect` and
+  `profile`, and `mcp-server-exec`. YAML is now read with
+  `go.yaml.in/yaml/v3` 3.0.5, the maintained continuation of
+  `gopkg.in/yaml.v3` (unmaintained since April 2025), which reports such
+  a file as an error.
+
 ## v0.18.0 — 2026-10-08
 
 Server instances get a second wall: the kernel's Landlock keeps each
