@@ -1942,7 +1942,19 @@ Written in this repository instead:
   `security.selinux` attribute and the system's tools (`matchpathcon`,
   `restorecon`, `ausearch`, `semanage`; `internal/syscmd`), not a
   library: the questions asked are few, and the tools answer them as
-  the administrator's own would.
+  the administrator's own would. Whether SELinux is on comes from the
+  mount table, not from selinuxfs, which a confined process may not be
+  allowed to look at. `github.com/opencontainers/selinux` (v1.15.1,
+  evaluated 2026-10-12) covers only the kernel calls (the context check,
+  `getxattr`, `SO_PEERSEC`; about 40 lines here), none of the tools'
+  work (file contexts, relabeling, port types, AVCs, policy modules),
+  and is made for container runtimes: it decides whether SELinux is on
+  with `statfs` on selinuxfs, which a policy may deny, and calls a
+  read-only selinuxfs off; and where it finds no selinuxfs,
+  `SecurityCheckContext` writes a file `context` into the current
+  directory and returns success (reproduced). Two modules, about 5,100
+  lines. To look at again if the gateway needs labeling or context
+  computation the tools do not give it.
 - **Landlock** (`internal/landlock`): system calls through `x/sys`. The
   launcher, self-restriction by executing the program again (so that
   every thread shares one domain) and opening paths without `stat`
