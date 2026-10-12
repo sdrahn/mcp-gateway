@@ -93,6 +93,36 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+// Ids go back exactly as sent: the router answers a client with its own
+// id, and ids that are equal as numbers (1, 1.0, 1e0) or past 64 bits
+// stay distinct. A request with the id null stays a request.
+func TestIDsKept(t *testing.T) {
+	ids := []string{`1`, `"1"`, `1.0`, `1e0`, `1e2`, `-3`, `12345678901234567890`, `12345678901234567891`, `"\u00e9"`, `null`}
+	keys := map[string]string{}
+	for _, id := range ids {
+		var out strings.Builder
+		c := NewConn(rwc{strings.NewReader(`{"jsonrpc":"2.0","id":` + id + `,"method":"tools/call","params":{"b":1,"a":2.50}}` + "\n"), &out})
+		m, err := c.Read()
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		if !m.IsRequest() || string(m.ID) != id {
+			t.Errorf("%s: read as id %s, request %v", id, m.ID, m.IsRequest())
+		}
+		if prev, dup := keys[m.Key()]; dup {
+			t.Errorf("ids %s and %s have the same key", prev, id)
+		}
+		keys[m.Key()] = id
+		if err := c.Write(m); err != nil {
+			t.Fatal(err)
+		}
+		want := `{"jsonrpc":"2.0","id":` + id + `,"method":"tools/call","params":{"b":1,"a":2.50}}` + "\n"
+		if out.String() != want {
+			t.Errorf("%s: wrote %s want %s", id, out.String(), want)
+		}
+	}
+}
+
 func TestCheckKeys(t *testing.T) {
 	for _, tc := range []struct {
 		raw, want string // want: substring of the error, "" for none

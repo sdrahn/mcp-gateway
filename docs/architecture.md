@@ -1918,14 +1918,26 @@ runs as the distribution's `/usr/bin/opa` in its own domain (D7, §5.5).
 Written in this repository instead:
 - **JSON-RPC and MCP** (`internal/jsonrpc`, `internal/mcpserver`): the
   proxy forwards messages it does not need to understand and must keep
-  ids, params and results byte-exact, so that what reaches a backend is
-  what policy decided on; an SDK decodes and encodes again. The router,
+  ids, params and results as sent (values, key order and the spelling
+  of ids; only whitespace between tokens is dropped), so that what
+  reaches a backend is what policy decided on and each client gets its
+  own id back; an SDK decodes and encodes again. The router,
   with the aggregated endpoint, works on that framing; the servers this
   project ships (`mcp-server-fs`, `mcp-server-exec` and the diagnostics
   server of `mcp-gateway-admin`) share a small server core on it. The
   client suite (step 15) checks the gateway against the official
   TypeScript and Python SDKs and mcp-go; fuzzing (step 14) covers the
-  parser.
+  parser. Libraries evaluated 2026-10-12, with the same request read and
+  encoded again: the go-sdk's `jsonrpc` package (v1.8.0) turns the id
+  `1.0` into `1` and `1e2` into `100`, folds every id past 64 bits into
+  one value (two requests in flight could swap answers) and makes a
+  request with the id `null` a notification; `sourcegraph/jsonrpc2`
+  (v0.2.3) refuses those ids, turns `-3` into `18446744073709551613`,
+  reorders the keys of params, reads without a size bound and is an RPC
+  endpoint with its own dispatch, not framing a proxy can use
+  (`golang.org/x/exp` no longer has `jsonrpc2`). `TestIDsKept` and
+  `TestClientIDsKept` hold what these lack. Not to look at again unless
+  a library keeps ids and params raw and leaves dispatch to its caller.
 - **SELinux**: through selinuxfs (`/sys/fs/selinux/context`), the
   `security.selinux` attribute and the system's tools (`matchpathcon`,
   `restorecon`, `ausearch`, `semanage`; `internal/syscmd`), not a

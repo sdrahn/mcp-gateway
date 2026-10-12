@@ -388,6 +388,35 @@ func TestBackendRequestDuringCall(t *testing.T) {
 	}
 }
 
+// Each client gets its own id back: the router gives the backend ids of
+// its own, and ids that are equal as numbers or past 64 bits, in flight
+// at once, stay apart.
+func TestClientIDsKept(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	c := connect(t, r, alice(), "fs", nil)
+	ids := []string{`1`, `1.0`, `"1"`, `1e0`, `12345678901234567890`, `12345678901234567891`, `-3`}
+	for _, id := range ids {
+		m, err := jsonrpc.NewRequest(json.RawMessage(id), "tools/call", map[string]any{"name": "read_file"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.write(m)
+	}
+	got := map[string]bool{}
+	for range ids {
+		m := c.read()
+		if text, isErr := toolText(t, m); isErr || text != "fs did read_file" {
+			t.Fatalf("id %s: %q %v", m.ID, text, isErr)
+		}
+		got[string(m.ID)] = true
+	}
+	for _, id := range ids {
+		if !got[id] {
+			t.Errorf("no answer with id %s; got %v", id, got)
+		}
+	}
+}
+
 func TestCancellation(t *testing.T) {
 	r, l := testRouter(t, 0)
 	c := connect(t, r, alice(), "fs", nil)
