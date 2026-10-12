@@ -527,3 +527,66 @@ check two things:
   longer, unless it asks for progress and lets progress extend the
   timeout. Raise the agent's timeout, or keep `approval_timeout` below
   it so that the agent at least gets the gateway's denial.
+
+## Agents in sandboxes (NVIDIA OpenShell)
+
+[NVIDIA OpenShell](https://docs.nvidia.com/openshell/) runs an agent
+(Claude Code, Codex, OpenCode and others) in a sandbox: Landlock keeps
+it to the paths its policy names, and every outbound connection goes
+through a proxy that decides, with OPA, by host, port and the program
+connecting. It confines the agent; the gateway decides what the agent
+may do on the systems it manages. Together, the gateway is the agent's
+only way to the system's tools:
+
+| | OpenShell | mcp-gateway |
+|---|---|---|
+| Confines | the agent's own process: files, programs, connections | the MCP servers (systemd's sandbox, SELinux, Landlock) |
+| Decides on | connections; with MCP inspection, the MCP method and tool name | the user, the server, the tool and its arguments (chapter 6) |
+| People | whoever writes the sandbox's policy | approvers deciding on single calls (chapter 7) |
+
+Not tested by this project: written against OpenShell 0.1 (alpha),
+whose policy format may change. Check the fields below against the
+policy schema of the version you run.
+
+**Connect the agent as a remote agent.** The sandbox does not reach the
+host's unix socket; the agent uses the HTTPS endpoint (above) with its
+own token, so the gateway knows the user and applies their roles.
+
+**Let the sandbox reach the gateway and nothing else it does not need.**
+A network policy entry pairs endpoints with the programs that may reach
+them; what no entry allows is refused. An entry for the gateway,
+alongside the ones for the agent's model API:
+
+```yaml
+version: 1
+network_policies:
+  mcp_gateway:
+    name: mcp-gateway
+    endpoints:
+      - host: gw.example.com
+        port: 8443
+    binaries:
+      - path: /usr/local/bin/claude    # the agent's program in the sandbox
+```
+
+An endpoint without `protocol` is passed through as TCP: TLS runs from
+the agent to the gateway, so a client certificate and a bound token
+(above) work, and the gateway sees the request as the agent sent it.
+Leave it so. OpenShell's MCP inspection (`protocol: mcp`, with rules
+naming methods and tools) has to see inside TLS, which ends mTLS and
+certificate-bound tokens at OpenShell. It also cannot see what the
+gateway decides on: who the user is, the arguments, approvals. Keep tool
+policy in the gateway's roles, where it applies to every agent, inside
+a sandbox or not.
+
+**Approvals and signing in.** The approval page and sign-in links
+(chapters 4 and 7) are opened by the user, in a browser outside the
+sandbox: the sandbox needs no rule for them. An agent with URL
+elicitation shows the link; others get out-of-band approvals.
+
+**Tokens.** OpenShell can keep credentials from the agent by adding
+them to requests it lets through, which needs it to see the request.
+With the gateway's endpoint passed through as TCP, the agent holds its
+own token, from the OAuth sign-in or the header as for any remote agent
+(above); give it a short lifetime at the identity provider, since the
+gateway refuses it once expired (`401 invalid token`).
