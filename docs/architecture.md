@@ -1935,7 +1935,20 @@ Written in this repository instead:
   launcher, self-restriction by executing the program again (so that
   every thread shares one domain) and opening paths without `stat`
   (SELinux denies getattr on some devices) are this project's needs
-  (D19).
+  (D19). `github.com/landlock-lsm/go-landlock` (v0.10.1, evaluated
+  2026-10-12) passed the same tests with `Restrict` on it, but is not
+  used: before ABI 8 (Linux 7.0) it restricts every thread through
+  libcap's `psx`, which with cgo (the default where gcc is installed)
+  links C code that wraps `pthread_create` into every program importing
+  the package, the gateway included; it gives each thread a domain of its
+  own, so `Self` would still execute the program again (6.12, on Leap 16
+  and SLES 16, may refuse signals between such threads); and it fails on
+  missing or refused paths and leaves file or directory rights to the
+  caller, which needed a pre-pass of our own. About 200 lines would have
+  given way to 125 lines of glue and two modules (3,500 lines, with C).
+  To look at again when the distributions' kernels have ABI 8: its
+  `landlocktsync` build tag then drops `psx`, and the kernel's
+  all-threads flag puts every thread in one domain.
 - **OAuth client, metrics, file watching**: one flow (D16), a few
   counters in Prometheus' text format, inotify on a few directories:
   narrower than the libraries for them.
