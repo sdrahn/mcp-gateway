@@ -1918,27 +1918,88 @@ runs as the distribution's `/usr/bin/opa` in its own domain (D7, §5.5).
 Written in this repository instead:
 - **JSON-RPC and MCP** (`internal/jsonrpc`, `internal/mcpserver`): the
   proxy forwards messages it does not need to understand and must keep
-  ids, params and results byte-exact, so that what reaches a backend is
-  what policy decided on; an SDK decodes and encodes again. The router,
+  ids, params and results as sent (values, key order and the spelling
+  of ids; only whitespace between tokens is dropped), so that what
+  reaches a backend is what policy decided on and each client gets its
+  own id back; an SDK decodes and encodes again. The router,
   with the aggregated endpoint, works on that framing; the servers this
   project ships (`mcp-server-fs`, `mcp-server-exec` and the diagnostics
   server of `mcp-gateway-admin`) share a small server core on it. The
   client suite (step 15) checks the gateway against the official
   TypeScript and Python SDKs and mcp-go; fuzzing (step 14) covers the
-  parser.
+  parser. Libraries evaluated 2026-10-12, with the same request read and
+  encoded again: the go-sdk's `jsonrpc` package (v1.8.0) turns the id
+  `1.0` into `1` and `1e2` into `100`, folds every id past 64 bits into
+  one value (two requests in flight could swap answers) and makes a
+  request with the id `null` a notification; `sourcegraph/jsonrpc2`
+  (v0.2.3) refuses those ids, turns `-3` into `18446744073709551613`,
+  reorders the keys of params, reads without a size bound and is an RPC
+  endpoint with its own dispatch, not framing a proxy can use
+  (`golang.org/x/exp` no longer has `jsonrpc2`). `TestIDsKept` and
+  `TestClientIDsKept` hold what these lack. Not to look at again unless
+  a library keeps ids and params raw and leaves dispatch to its caller.
 - **SELinux**: through selinuxfs (`/sys/fs/selinux/context`), the
   `security.selinux` attribute and the system's tools (`matchpathcon`,
   `restorecon`, `ausearch`, `semanage`; `internal/syscmd`), not a
   library: the questions asked are few, and the tools answer them as
-  the administrator's own would.
+  the administrator's own would. Whether SELinux is on comes from the
+  mount table, not from selinuxfs, which a confined process may not be
+  allowed to look at. `github.com/opencontainers/selinux` (v1.15.1,
+  evaluated 2026-10-12) covers only the kernel calls (the context check,
+  `getxattr`, `SO_PEERSEC`; about 40 lines here), none of the tools'
+  work (file contexts, relabeling, port types, AVCs, policy modules),
+  and is made for container runtimes: it decides whether SELinux is on
+  with `statfs` on selinuxfs, which a policy may deny, and calls a
+  read-only selinuxfs off; and where it finds no selinuxfs,
+  `SecurityCheckContext` writes a file `context` into the current
+  directory and returns success (reproduced). Two modules, about 5,100
+  lines. To look at again if the gateway needs labeling or context
+  computation the tools do not give it.
 - **Landlock** (`internal/landlock`): system calls through `x/sys`. The
   launcher, self-restriction by executing the program again (so that
   every thread shares one domain) and opening paths without `stat`
   (SELinux denies getattr on some devices) are this project's needs
-  (D19).
+  (D19). `github.com/landlock-lsm/go-landlock` (v0.10.1, evaluated
+  2026-10-12) passed the same tests with `Restrict` on it, but is not
+  used: before ABI 8 (Linux 7.0) it restricts every thread through
+  libcap's `psx`, which with cgo (the default where gcc is installed)
+  links C code that wraps `pthread_create` into every program importing
+  the package, the gateway included; it gives each thread a domain of its
+  own, so `Self` would still execute the program again (6.12, on Leap 16
+  and SLES 16, may refuse signals between such threads); and it fails on
+  missing or refused paths and leaves file or directory rights to the
+  caller, which needed a pre-pass of our own. About 200 lines would have
+  given way to 125 lines of glue and two modules (3,500 lines, with C).
+  To look at again when the distributions' kernels have ABI 8: its
+  `landlocktsync` build tag then drops `psx`, and the kernel's
+  all-threads flag puts every thread in one domain.
 - **OAuth client, metrics, file watching**: one flow (D16), a few
   counters in Prometheus' text format, inotify on a few directories:
-  narrower than the libraries for them.
+  narrower than the libraries for them. `golang.org/x/oauth2`
+  (evaluated 2026-10-12, v0.35.0, the last for Go 1.24) covers the
+  authorization URL with PKCE and the code exchange only, not discovery
+  (RFC 9728, 8414), registration (RFC 7591) or revocation (RFC 7009); it
+  refreshes without the resource indicator (RFC 8707) the MCP
+  specification asks for, with no way to add it; and it is built around
+  a token source refreshing in the calling process, where here the
+  gateway keeps the tokens and the helper makes one request at a time
+  (D16). It would replace about 80 lines and add a second way of making
+  token requests: not used, to look at again if it gains discovery,
+  registration and refresh with parameters.
+  `github.com/prometheus/client_golang` (v1.23.2, the last for Go 1.24)
+  brings ten modules (protobuf, `prometheus/common`, `procfs` and
+  others; about 76,000 lines) and makes `mcp-gateway` 23.2 MB instead
+  of 19.6 MB, for runtime and process metrics, OpenMetrics, exemplars
+  and native histograms the gateway does not use; a few gauges in
+  `internal/metrics` would give the runtime and process figures. To
+  look at again if those formats are needed.
+  `github.com/fsnotify/fsnotify` (v1.10.1; one module, about 3,500
+  lines) cannot be asked for "written and closed" (`IN_CLOSE_WRITE`):
+  in that version the choice of operations and that one are
+  unexported, so every write is reported and the gateway would read
+  files half-written without a debounce of its own. It would replace
+  about 60 lines; the diffing of watched directories, `Tree` and the
+  coalescing stay. To look at again when those options are exported.
 *Rationale:* the gateway is a policy enforcement point in front of
 servers that may run as root, and is packaged for SLES and Leap with
 OBS, which builds offline from a vendored tree (`vendor.tar.gz`): every
