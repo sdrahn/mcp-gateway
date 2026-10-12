@@ -1951,7 +1951,17 @@ Written in this repository instead:
   all-threads flag puts every thread in one domain.
 - **OAuth client, metrics, file watching**: one flow (D16), a few
   counters in Prometheus' text format, inotify on a few directories:
-  narrower than the libraries for them.
+  narrower than the libraries for them. `golang.org/x/oauth2`
+  (evaluated 2026-10-12, v0.35.0, the last for Go 1.24) covers the
+  authorization URL with PKCE and the code exchange only, not discovery
+  (RFC 9728, 8414), registration (RFC 7591) or revocation (RFC 7009); it
+  refreshes without the resource indicator (RFC 8707) the MCP
+  specification asks for, with no way to add it; and it is built around
+  a token source refreshing in the calling process, where here the
+  gateway keeps the tokens and the helper makes one request at a time
+  (D16). It would replace about 80 lines and add a second way of making
+  token requests: not used, to look at again if it gains discovery,
+  registration and refresh with parameters.
 *Rationale:* the gateway is a policy enforcement point in front of
 servers that may run as root, and is packaged for SLES and Leap with
 OBS, which builds offline from a vendored tree (`vendor.tar.gz`): every
