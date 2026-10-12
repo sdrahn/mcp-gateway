@@ -1902,16 +1902,68 @@ interfaces. Output inspection is an obligation hook: redaction and size
 limits are implemented; content-safety filtering (prompt-injection
 detection) is not.
 
-**D6 — Implementation language.**
-*Decision (accepted):* **Go**. Official MCP Go SDK, native OPA (sidecar now,
-embeddable later), mature SELinux (`github.com/opencontainers/selinux`)
-and systemd D-Bus (`github.com/coreos/go-systemd`) libraries, single
-static binary.
-*Implementation note:* the proxy core uses its own minimal JSON-RPC
-framing (`internal/jsonrpc`) instead of the SDK's server abstractions,
-because it forwards messages it does not need to understand and must keep
-ids, params and results byte-exact. The SDK remains an option for
-gateway-originated features (e.g. the aggregated endpoint).
+**D6 — Implementation language and dependencies.**
+*Decision (accepted):* **Go**: memory-safe, one compiled program per
+component without a runtime to install, and the language of OPA, of
+systemd's and D-Bus' client libraries and of the MCP servers the gateway
+fronts most (mcp-go, the official Go SDK).
+*Dependencies, as built (amended 2026-10-12):* few, and each for what is
+hard to get right alone. Direct modules: `github.com/coreos/go-systemd`
+and `github.com/godbus/dbus` (transient units, the session bus of
+`mcp-gateway-notify`), `github.com/golang-jwt/jwt` (token
+verification), `github.com/santhosh-tekuri/jsonschema` (tool argument
+schemas), `gopkg.in/yaml.v3`, `golang.org/x/sys` (Landlock, inotify,
+extended attributes) and `golang.org/x/text`. OPA is not linked in: it
+runs as the distribution's `/usr/bin/opa` in its own domain (D7, §5.5).
+Written in this repository instead:
+- **JSON-RPC and MCP** (`internal/jsonrpc`, `internal/mcpserver`): the
+  proxy forwards messages it does not need to understand and must keep
+  ids, params and results byte-exact, so that what reaches a backend is
+  what policy decided on; an SDK decodes and encodes again. The router,
+  with the aggregated endpoint, works on that framing; the servers this
+  project ships (`mcp-server-fs`, `mcp-server-exec` and the diagnostics
+  server of `mcp-gateway-admin`) share a small server core on it. The
+  client suite (step 15) checks the gateway against the official
+  TypeScript and Python SDKs and mcp-go; fuzzing (step 14) covers the
+  parser.
+- **SELinux**: through selinuxfs (`/sys/fs/selinux/context`), the
+  `security.selinux` attribute and the system's tools (`matchpathcon`,
+  `restorecon`, `ausearch`, `semanage`; `internal/syscmd`), not a
+  library: the questions asked are few, and the tools answer them as
+  the administrator's own would.
+- **Landlock** (`internal/landlock`): system calls through `x/sys`. The
+  launcher, self-restriction by executing the program again (so that
+  every thread shares one domain) and opening paths without `stat`
+  (SELinux denies getattr on some devices) are this project's needs
+  (D19).
+- **OAuth client, metrics, file watching**: one flow (D16), a few
+  counters in Prometheus' text format, inotify on a few directories:
+  narrower than the libraries for them.
+*Rationale:* the gateway is a policy enforcement point in front of
+servers that may run as root, and is packaged for SLES and Leap with
+OBS, which builds offline from a vendored tree (`vendor.tar.gz`): every
+module is code SUSE ships, declares in the spec's `License` and follows
+for security fixes. A short list keeps that reviewable.
+*Costs:* changes of the MCP specification are implemented here, not
+taken with an SDK update (the protocol work of steps 24 and 25), and
+the code above is this project's to get right; the client suite,
+fuzzing and the VM tests are what check it. Each program is a Go
+position-independent executable (`-buildmode=pie`) that links only the
+C library dynamically; there is no cgo.
+*The shipped servers stay on `internal/mcpserver` (evaluated
+2026-10-12):* `mcp-server-exec` ported to the official Go SDK (v1.8.0)
+answered tools/list and tools/call alike, but the SDK needs Go 1.25
+(the spec builds with 1.24), adds eight modules (15 instead of 7; the
+vendored tree 13 MB instead of 9 MB) and makes the program 12.8 MB
+instead of 4.7 MB. It also behaves worse where the gateway relies on
+the server: a message over the line limit ends the connection, and with
+it the instance, where the core answers "message too large" and goes on;
+a cancelled request is still answered. `mcp-server-fs` lists its files
+as resources live, page by page, which the SDK's registered resources do
+not do without middleware around them. To look at again when a server
+needs what the core lacks (requests to the client, the 2026-07-28
+protocol natively, an HTTP transport) and the distributions' Go has
+caught up.
 
 **D7 — OPA deployment.**
 *Decision (accepted):* sidecar over unix socket for v1 (§5.5).
