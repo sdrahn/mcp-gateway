@@ -1941,6 +1941,20 @@ Written in this repository instead:
   (`golang.org/x/exp` no longer has `jsonrpc2`). `TestIDsKept` and
   `TestClientIDsKept` hold what these lack. Not to look at again unless
   a library keeps ids and params raw and leaves dispatch to its caller.
+  The HTTP side (`internal/transport`, `mcp-http-connector`) was
+  evaluated the same day against the go-sdk's Streamable HTTP (v1.8.0):
+  its `StreamableServerTransport`, served alone, passed `1.0` on as `1`
+  and `1e2` as `100`, turned two different ids past 64 bits into one and
+  refused the second (`400 duplicate in-flight request ID
+  -9223372036854775808`), and refused the id `null`; its client
+  transport decodes the same way. Its bearer middleware checks fixed
+  scopes before the handler, where the gateway turns a call that policy
+  denied for a missing scope into `403 insufficient_scope` naming that
+  scope; and the connector's exit code on a refused token, token
+  refresh through the credential file and egress rules (D16, D19) are
+  this gateway's. Not used, besides Go 1.25 and eight modules; to look
+  at again if its transports gain a mode that leaves messages raw and a
+  way to set the status after the handler decided.
 - **SELinux**: through selinuxfs (`/sys/fs/selinux/context`), the
   `security.selinux` attribute and the system's tools (`matchpathcon`,
   `restorecon`, `ausearch`, `semanage`; `internal/syscmd`), not a
