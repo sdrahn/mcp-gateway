@@ -1962,6 +1962,20 @@ Written in this repository instead:
   (D16). It would replace about 80 lines and add a second way of making
   token requests: not used, to look at again if it gains discovery,
   registration and refresh with parameters.
+  `github.com/prometheus/client_golang` (v1.23.2, the last for Go 1.24)
+  brings ten modules (protobuf, `prometheus/common`, `procfs` and
+  others; about 76,000 lines) and makes `mcp-gateway` 23.2 MB instead
+  of 19.6 MB, for runtime and process metrics, OpenMetrics, exemplars
+  and native histograms the gateway does not use; a few gauges in
+  `internal/metrics` would give the runtime and process figures. To
+  look at again if those formats are needed.
+  `github.com/fsnotify/fsnotify` (v1.10.1; one module, about 3,500
+  lines) cannot be asked for "written and closed" (`IN_CLOSE_WRITE`):
+  in that version the choice of operations and that one are
+  unexported, so every write is reported and the gateway would read
+  files half-written without a debounce of its own. It would replace
+  about 60 lines; the diffing of watched directories, `Tree` and the
+  coalescing stay. To look at again when those options are exported.
 *Rationale:* the gateway is a policy enforcement point in front of
 servers that may run as root, and is packaged for SLES and Leap with
 OBS, which builds offline from a vendored tree (`vendor.tar.gz`): every
