@@ -1950,8 +1950,20 @@ the code above is this project's to get right; the client suite,
 fuzzing and the VM tests are what check it. Each program is a Go
 position-independent executable (`-buildmode=pie`) that links only the
 C library dynamically; there is no cgo.
-*Open:* whether the shipped servers move to the official Go SDK, where
-byte-exact forwarding does not apply (evaluation pending).
+*The shipped servers stay on `internal/mcpserver` (evaluated
+2026-10-12):* `mcp-server-exec` ported to the official Go SDK (v1.8.0)
+answered tools/list and tools/call alike, but the SDK needs Go 1.25
+(the spec builds with 1.24), adds eight modules (15 instead of 7; the
+vendored tree 13 MB instead of 9 MB) and makes the program 12.8 MB
+instead of 4.7 MB. It also behaves worse where the gateway relies on
+the server: a message over the line limit ends the connection, and with
+it the instance, where the core answers "message too large" and goes on;
+a cancelled request is still answered. `mcp-server-fs` lists its files
+as resources live, page by page, which the SDK's registered resources do
+not do without middleware around them. To look at again when a server
+needs what the core lacks (requests to the client, the 2026-07-28
+protocol natively, an HTTP transport) and the distributions' Go has
+caught up.
 
 **D7 — OPA deployment.**
 *Decision (accepted):* sidecar over unix socket for v1 (§5.5).
