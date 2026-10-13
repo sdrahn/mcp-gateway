@@ -544,9 +544,8 @@ only way to the system's tools:
 | Decides on | connections; with MCP inspection, the MCP method and tool name | the user, the server, the tool and its arguments (chapter 6) |
 | People | whoever writes the sandbox's policy | approvers deciding on single calls (chapter 7) |
 
-Not tested by this project: written against OpenShell 0.1 (alpha),
-whose policy format may change. Check the fields below against the
-policy schema of the version you run.
+Not tested by this project: written against the policy schema of
+OpenShell 0.1.3. Check the fields below against the version you run.
 
 **Connect the agent as a remote agent.** The sandbox does not reach the
 host's unix socket; the agent uses the HTTPS endpoint (above) with its
@@ -565,19 +564,25 @@ network_policies:
     endpoints:
       - host: gw.example.com
         port: 8443
+        tls: skip                      # relay TLS; do not terminate it
     binaries:
       - path: /usr/local/bin/claude    # the agent's program in the sandbox
 ```
 
-An endpoint without `protocol` is passed through as TCP: TLS runs from
-the agent to the gateway, so a client certificate and a bound token
-(above) work, and the gateway sees the request as the agent sent it.
-Leave it so. OpenShell's MCP inspection (`protocol: mcp`, with rules
-naming methods and tools) has to see inside TLS, which ends mTLS and
-certificate-bound tokens at OpenShell. It also cannot see what the
-gateway decides on: who the user is, the arguments, approvals. Keep tool
-policy in the gateway's roles, where it applies to every agent, inside
-a sandbox or not.
+`tls: skip` makes OpenShell relay the connection without terminating
+TLS. Without it, OpenShell terminates TLS on every endpoint, even one
+without `protocol`, and opens a TLS connection of its own to the
+gateway. With it, TLS runs from the agent to the gateway: a client
+certificate and a bound token (above) work, and the gateway sees the
+request as the agent sent it. Do not add a request protocol (`rest`,
+`mcp` and the like) to this endpoint: OpenShell's schema rules out
+`tls: skip` with one. OpenShell's MCP
+inspection (`protocol: mcp`, with rules naming methods and tools)
+terminates TLS, so it ends mTLS and certificate-bound tokens at
+OpenShell, and it matches no arguments, admits only MCP 2025-11-25
+unless `mcp.versions` lists others, and sees nothing of who the user
+is or of approvals. Keep tool policy in the gateway's roles, where it
+applies to every agent, inside a sandbox or not.
 
 **Approvals and signing in.** The approval page and sign-in links
 (chapters 4 and 7) are opened by the user, in a browser outside the
@@ -586,7 +591,7 @@ elicitation shows the link; others get out-of-band approvals.
 
 **Tokens.** OpenShell can keep credentials from the agent by adding
 them to requests it lets through, which needs it to see the request.
-With the gateway's endpoint passed through as TCP, the agent holds its
-own token, from the OAuth sign-in or the header as for any remote agent
+With `tls: skip` on the gateway's endpoint, the agent holds its own
+token, from the OAuth sign-in or the header as for any remote agent
 (above); give it a short lifetime at the identity provider, since the
 gateway refuses it once expired (`401 invalid token`).
