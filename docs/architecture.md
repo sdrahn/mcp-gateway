@@ -1393,9 +1393,15 @@ cancels its call as an agent's `notifications/cancelled` does. Task
 sessions run in the gateway's own context: a stopping gateway drains
 privileged calls first, then ends them. Recorded in the journal as
 `mcp-task` (`event`: `created`, `delivered`, `cancelled`, `expired`
-with `reason=result not fetched`; not in the kernel audit log). Not yet: status notifications
-(`notifications/tasks/status`, and `notifications/tasks` on
-`subscriptions/listen`); agents poll, at the suggested 2 s.
+with `reason=result not fetched`; not in the kernel audit log). Each
+change of a task's status or input requests is also sent (roadmap step
+32): `notifications/tasks/status` to the sessions of 2025-11-25 that
+started, listed or asked for the task, `notifications/tasks` (the
+detailed task) on the `subscriptions/listen` streams of 2026-07-28
+that ask for it in `notifications.taskIds`, accepted in the
+acknowledgement for the principal's own tasks only; a result there
+passes the delivery check for the stream's principal. Agents may still
+poll, at the suggested 2 s.
 
 **Errors and audit.** Error codes follow the request's era (a missing
 resource is `-32602` for modern requests, `-32002` for legacy ones).
@@ -3388,7 +3394,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       control API follows the approver rule of instances
       (`manage_instance`), so a policy cannot let helpdesk staff cancel
       a user's task without letting them stop the user's instances;
-    - stage A, status notifications: every change of a task's status
+    - stage A (done), status notifications: every change of a task's status
       (and of its input requests) is sent to its agent as the agent's
       era has it, besides polling, which stays. Agents of 2025-11-25
       get `notifications/tasks/status` (the task) on the session that
@@ -3401,8 +3407,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       accepted for the task ids of the principal only. A notification
       that carries a result passes the delivery check (stage B of
       step 31) for the stream's principal, as a fetch would; one
-      withheld is sent without the result (the agent's `tasks/get`
-      then answers why). The suggested polling interval stays 2 s;
+      withheld carries the withholding ("result withheld: …") as its
+      result. The suggested polling interval stays 2 s;
     - stage B, `data.mcp.approvals.manage_task`: who may see and cancel
       a task in the control API and Cockpit, with input `task` (server,
       tool, the principal's `sub`, `uid`, `iss`, `transport`). The

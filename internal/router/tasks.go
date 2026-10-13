@@ -71,6 +71,9 @@ type task struct {
 	created   time.Time
 	cancel    context.CancelFunc
 	s         *Session // the task session
+	r         *Router
+	// notifyMu orders the notifications of the task's changes.
+	notifyMu sync.Mutex
 
 	mu        sync.Mutex
 	status    taskStatus
@@ -90,6 +93,10 @@ type task struct {
 	// notify passes the call's notifications (progress, log messages)
 	// to the agent's session while it lasts (nil: dropped).
 	notify func(*jsonrpc.Message)
+	// watchers are the sessions of 2025-11-25 told of the task's changes
+	// (notifications/tasks/status): the one that started it, and those
+	// of the principal that listed it or asked for it.
+	watchers map[*Session]struct{}
 }
 
 // taskInput is a request of the call to the client, waiting for the
@@ -242,6 +249,7 @@ func (c taskConn) Write(m *jsonrpc.Message) error {
 		}
 		t.touch()
 		t.mu.Unlock()
+		t.report()
 	case m.Method == "notifications/cancelled":
 		// The call no longer waits for an input (it timed out).
 		var p struct {
@@ -255,6 +263,7 @@ func (c taskConn) Write(m *jsonrpc.Message) error {
 		}
 		t.touch()
 		t.mu.Unlock()
+		t.report()
 	case m.IsNotification():
 		t.mu.Lock()
 		notify := t.notify
@@ -264,6 +273,90 @@ func (c taskConn) Write(m *jsonrpc.Message) error {
 		}
 	}
 	return nil
+}
+
+// watch makes s, a session of 2025-11-25 that offers tasks, one told of
+// the task's changes.
+func (t *task) watch(s *Session) {
+	if !s.offersTasks() {
+		return
+	}
+	t.mu.Lock()
+	if t.watchers == nil {
+		t.watchers = map[*Session]struct{}{}
+	}
+	t.watchers[s] = struct{}{}
+	t.mu.Unlock()
+}
+
+// report tells the task's watchers and listeners of its state.
+func (t *task) report() {
+	if t.r != nil {
+		go t.r.notifyTask(t)
+	}
+}
+
+// notifyTask sends a task's state to its agents (roadmap step 32):
+// notifications/tasks/status to the sessions of 2025-11-25 that watch it,
+// notifications/tasks to the listen streams of 2026-07-28 that asked for
+// it, a result there only through the delivery check (D20) for the
+// stream's principal. Each sends the state as it is then, in order.
+func (r *Router) notifyTask(t *task) {
+	t.notifyMu.Lock()
+	defer t.notifyMu.Unlock()
+	retention := r.taskRetention()
+	t.mu.Lock()
+	watchers := make([]*Session, 0, len(t.watchers))
+	for s := range t.watchers {
+		if s.ctx == nil || s.ctx.Err() != nil {
+			delete(t.watchers, s) // the session ended
+			continue
+		}
+		watchers = append(watchers, s)
+	}
+	t.mu.Unlock()
+	if len(watchers) > 0 {
+		if n, err := jsonrpc.NewNotification("notifications/tasks/status", t.wire(retention)); err == nil {
+			for _, s := range watchers {
+				_ = s.client.Write(n)
+			}
+		}
+	}
+	for _, s := range r.listenersWhere(func(s *Session) bool { return s.listensTo(t) }) {
+		out := t.wireModern(retention, true)
+		if out["status"] == taskCompleted {
+			res, derr := t.outcome(s.ctx, s.snapshotPrincipal())
+			if derr != nil {
+				delete(out, "result")
+				out["status"], out["error"] = taskFailed, derr
+			} else {
+				out["result"] = taskResultOf(res)
+				r.deliver(t)
+			}
+		}
+		s.notifyListener("notifications/tasks", out)
+	}
+}
+
+// listensTo reports whether s is a listen stream of the task's principal
+// that asked for its changes.
+func (s *Session) listensTo(t *task) bool {
+	s.mu.Lock()
+	l := s.listening
+	s.mu.Unlock()
+	if l == nil || taskOwner(s.snapshotPrincipal()) != t.owner {
+		return false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Contains(l.filter.TaskIDs, t.id)
+}
+
+// taskByID returns the task id (nil: none).
+func (r *Router) taskByID(id string) *task {
+	r.tasks.mu.Lock()
+	defer r.tasks.mu.Unlock()
+	return r.tasks.tasks[id]
 }
 
 // answer gives the call the agent's answer to an input (resp carries the
@@ -281,6 +374,7 @@ func (t *task) answer(in *taskInput, resp *jsonrpc.Message) {
 	}
 	t.mu.Unlock()
 	if found {
+		t.report()
 		t.s.dispatch(resp)
 	}
 }
@@ -441,7 +535,8 @@ func (s *Session) startTask(m *jsonrpc.Message, params map[string]json.RawMessag
 	now := time.Now()
 	ctx, cancel := context.WithCancel(r.taskContext())
 	t := &task{id: rand.Text(), owner: taskOwner(p), principal: p, server: server, tool: tool,
-		created: now, updated: now, cancel: cancel, status: taskWorking, changed: make(chan struct{})}
+		created: now, updated: now, cancel: cancel, status: taskWorking, changed: make(chan struct{}), r: r}
+	t.watch(s)
 	if err := r.addTask(t); err != nil {
 		cancel()
 		return nil, limitError(err)
@@ -492,6 +587,7 @@ func (r *Router) finishTask(t *task, result any, rpcErr *jsonrpc.Error) {
 			rpcErr = rpcError(jsonrpc.CodeInternalError, "mcp-gateway: the result exceeds tasks.max_result_bytes ("+strconv.Itoa(max)+")")
 		}
 	}
+	defer t.report()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.status.terminal() {
@@ -600,6 +696,7 @@ func (r *Router) cancelTask(t *task, by string) *jsonrpc.Error {
 	t.status, t.message, t.inputs = taskCancelled, "cancelled by "+by, nil
 	r.ended(t)
 	t.mu.Unlock()
+	t.report()
 	t.cancel()
 	p := t.principal
 	r.Audit.Note("mcp-task", map[string]string{"event": "cancelled", "task": t.id,
@@ -614,6 +711,7 @@ func (s *Session) taskGet(_ context.Context, m *jsonrpc.Message) (any, *jsonrpc.
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
+	t.watch(s)
 	return t.wire(s.r.taskRetention()), nil
 }
 
@@ -630,6 +728,7 @@ func (s *Session) taskList(context.Context, *jsonrpc.Message) (any, *jsonrpc.Err
 	slices.SortFunc(ts, func(a, b *task) int { return a.created.Compare(b.created) })
 	out := make([]map[string]any, 0, len(ts))
 	for _, t := range ts {
+		t.watch(s)
 		out = append(out, t.wire(s.r.taskRetention()))
 	}
 	return map[string]any{"tasks": out}, nil
@@ -654,6 +753,7 @@ func (s *Session) taskResult(ctx context.Context, m *jsonrpc.Message) (any, *jso
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
+	t.watch(s)
 	for {
 		if in := t.claim(); in != nil {
 			params := withRelatedTask(in.params, t.id)
