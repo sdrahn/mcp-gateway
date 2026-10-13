@@ -2473,7 +2473,7 @@ can hide, and nothing outside systemd); a seccomp-unotify broker
 records of denials (later kernels; diagnosis without them is stage D).
 
 **D20 — A token's expiry ends delivery, never work.**
-*Decision (proposed 2026-10-13, roadmap step 31):* when the token of a
+*Decision (accepted 2026-10-13, roadmap step 31):* when the token of a
 call in progress expires, the call runs to its end (D12): the gateway
 never cancels work at a server because a token expired. Only the
 agent's cancellation, the call's own timeout or the instance's stop end
