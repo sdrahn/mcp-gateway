@@ -7,6 +7,16 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Task status notifications (roadmap step 32 stage A): each change of a
+  task's status is sent to its agent besides polling,
+  `notifications/tasks/status` to the sessions of MCP 2025-11-25 that
+  started, listed or asked for the task, `notifications/tasks` on the
+  `subscriptions/listen` streams of 2026-07-28 that name it in
+  `notifications.taskIds` (accepted for the user's own tasks only), the
+  result there decided again on delivery as a fetch is.
+
 ## v0.19.0 — 2026-10-13
 
 Long calls outlive the agent's connection and token, and their results

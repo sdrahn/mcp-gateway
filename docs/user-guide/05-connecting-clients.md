@@ -419,6 +419,13 @@ this: the gateway makes the call as any other and keeps the result.
   `tasks/update`. An out-of-band approval leaves the task `working`
   until an approver decides, within `approval_timeout`. A task's
   approval offers no "session" scope.
+- **Notifications:** besides polling, the gateway tells agents when a
+  task's status changes: 2025-11-25 sessions that started, listed or
+  asked for a task get `notifications/tasks/status`; a 2026-07-28 agent
+  gets `notifications/tasks` on a `subscriptions/listen` stream that
+  names the task in `notifications.taskIds` (the acknowledgement lists
+  those accepted: only the agent's user's own), with the result once
+  completed, decided as a fetch is.
 - **Cancelling:** `tasks/cancel` cancels the call at the server, as an
   agent's own cancellation does.
 - **Limits:** results are kept for `tasks.retention` (1 h) after the

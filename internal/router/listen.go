@@ -25,6 +25,9 @@ type listenFilter struct {
 	PromptsListChanged    bool     `json:"promptsListChanged,omitempty"`
 	ResourcesListChanged  bool     `json:"resourcesListChanged,omitempty"`
 	ResourceSubscriptions []string `json:"resourceSubscriptions,omitempty"`
+	// TaskIDs are the tasks whose changes the stream carries
+	// (notifications/tasks, the tasks extension; tasks.go).
+	TaskIDs []string `json:"taskIds,omitempty"`
 }
 
 // agentListen is the stream a listener session serves.
@@ -60,6 +63,13 @@ func (s *Session) listen(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc
 	l.filter.ToolsListChanged = p.Notifications.ToolsListChanged
 	l.filter.PromptsListChanged = p.Notifications.PromptsListChanged
 	l.filter.ResourcesListChanged = p.Notifications.ResourcesListChanged
+	// Only the principal's own tasks are accepted.
+	owner := taskOwner(s.snapshotPrincipal())
+	for _, id := range p.Notifications.TaskIDs {
+		if t := s.r.taskByID(id); t != nil && t.owner == owner && !slices.Contains(l.filter.TaskIDs, id) {
+			l.filter.TaskIDs = append(l.filter.TaskIDs, id)
+		}
+	}
 	var subscribed []func()
 	defer func() {
 		for _, unsubscribe := range subscribed {
