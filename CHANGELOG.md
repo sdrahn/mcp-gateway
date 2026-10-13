@@ -5,7 +5,59 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v0.19.0 — 2026-10-13
+
+Long calls outlive the agent's connection and token, and their results
+reach only principals who may still have them (decision D20). An agent
+that asks for a task gets its id at once; the gateway makes the call as
+any other, keeps it running whatever happens to the connection and the
+token, and holds the result for the user, to be fetched later with a
+fresh token, from any of the user's sessions. No server needs to
+support tasks; agents of MCP 2025-11-25 and of 2026-07-28 get the tasks
+of their version. Every result is decided again before it goes: a user
+whose role was removed meanwhile gets "result withheld" instead. A
+token's expiry now ends a response, never the call: an update or an
+installation is not stopped halfway because a token ran out. Cockpit
+lists the tasks and cancels them. The user guide asks authors of
+servers that change the system for changes that complete or do not
+happen, and recommends `snapper-zypp-plugin` with the privileged `zypp`
+server.
+
+Upgrading from 0.18.x needs no changes to `gateway.yaml`, server
+definitions or role data; from 0.17.x, read the notes of v0.18.0 as
+well. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. Things
+to know:
+
+- **A response at the token's expiry.** A request of an agent of MCP
+  2026-07-28, and a session's request answered as plain JSON, used to
+  be answered even after the token that made it expired. They now end
+  at the expiry with an error ("the token expired before the call
+  ended; the call goes on at the server and its result is withheld",
+  `data.reason` `token_expired`); the call runs on and its answer is
+  withheld. Agents with calls that may outlast their token should ask
+  for a task (chapter 5, "Long calls: tasks"). A session's SSE stream
+  ends at the expiry as before and resumes with a fresh token.
+- **Kit runs its calls as tasks.** Kit, capped at 2025-11-25 by
+  default, sees that the gateway offers tasks and, with its default
+  `tasksMode: auto`, makes each call a task and polls it (every 2 s, up
+  to 15 minutes). `tasksMode: never` in Kit's configuration keeps plain
+  calls.
+- **Twice as many policy decisions.** Each call's result is decided
+  again before it goes (`"phase": "delivery"` in the policy input), so
+  OPA's decision log and `mcp_gateway_decisions_total` grow by about as
+  many entries as there are calls. The shipped policy delivers while
+  the principal holds a permission for the tool. A custom policy
+  without a rule for `phase` decides as it did for the call, so its
+  results go as before; one that asks (`ask`) for a call does not ask
+  again on delivery (chapter 12, "Deciding again on delivery").
+- **Tasks are kept in memory** for `tasks.retention` (1 h) after their
+  call ended, at most `limits.tasks_per_principal` (32) per user, and
+  not across a restart of the gateway: restarting it ends the tasks'
+  calls as it ends all others.
+- **Going back to 0.18** refuses a `gateway.yaml` in `/etc` that sets
+  the new keys `tasks` or `limits.tasks_per_principal` (unknown keys);
+  remove them first. Agents that hold task ids lose them.
 
 ### Added
 
