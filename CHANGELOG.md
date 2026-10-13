@@ -7,6 +7,40 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v0.20.0 — 2026-10-13
+
+Tasks report (roadmap step 32, D20). Every change of a task's status,
+an approval it waits for and its end among them, reaches the agent at
+once instead of at its next poll: agents of MCP 2025-11-25 get
+`notifications/tasks/status` on the sessions that started, listed or
+asked for the task, agents of 2026-07-28 get `notifications/tasks` on
+the `subscriptions/listen` streams that name the task. A result in a
+notification is decided again on delivery, as a fetched one is.
+Polling keeps working as before. Who may see and cancel a task in the
+control API and Cockpit is now a policy rule of its own,
+`data.mcp.approvals.manage_task`, so a policy can let helpdesk staff
+cancel a user's task without letting them stop the user's instances.
+
+Upgrading from 0.19.x needs no changes to `gateway.yaml`, server
+definitions, role data or custom policies; from 0.18.x, read the notes
+of v0.19.0 as well. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. Things
+to know:
+
+- **Notifications agents did not ask for.** A session of MCP
+  2025-11-25 that started, listed or asked for a task now gets
+  `notifications/tasks/status` for it. The specification makes them
+  optional to handle, and agents ignore notifications they do not know;
+  the client suite runs a task with the TypeScript SDK, which handles
+  them.
+- **Custom approval policies.** A policy without `manage_task` decides
+  who may see and cancel tasks by `manage_instance`, as 0.19 did; the
+  shipped policy defines the rule with the same approver rules as for
+  instances, so nothing changes by default (chapter 12).
+- **Going back to 0.19** ignores a `manage_task` rule (the gateway asks
+  `manage_instance` again) and accepts no `notifications.taskIds` on
+  `subscriptions/listen`; agents fall back to polling.
+
 ### Added
 
 - Task status notifications (roadmap step 32 stage A): each change of a
