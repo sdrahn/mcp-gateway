@@ -156,7 +156,7 @@ func (o *OPA) Visible(ctx context.Context, p principal.Principal, rs []Resource)
 func (o *OPA) Hints(ctx context.Context, p principal.Principal, rs []Resource) ([]Hint, error) {
 	var out []Hint
 	if err := o.query(ctx, HintsPath, VisibleInput{p, rs}, &out); err != nil {
-		if errors.Is(err, errUndefined) {
+		if errors.Is(err, ErrUndefined) {
 			return nil, nil
 		}
 		return nil, err
@@ -358,13 +358,13 @@ func (o *OPA) queryWithin(ctx context.Context, timeout time.Duration, path strin
 		return fmt.Errorf("opa: %w", err)
 	}
 	if len(envelope.Result) == 0 {
-		return fmt.Errorf("%w for %s", errUndefined, path)
+		return fmt.Errorf("%w for %s", ErrUndefined, path)
 	}
 	return json.Unmarshal(envelope.Result, result)
 }
 
-// errUndefined is a query of a rule the policy does not define.
-var errUndefined = errors.New("opa: undefined result")
+// ErrUndefined is a query of a rule the policy does not define.
+var ErrUndefined = errors.New("opa: undefined result")
 
 // versioned returns input as JSON with "version" (InputVersion) added.
 // Every input is a JSON object; none has a "version" of its own.

@@ -48,3 +48,10 @@ request.server
 sign_in
 sign_in.server
 sign_in.uid
+task
+task.iss
+task.server
+task.sub
+task.tool
+task.transport
+task.uid

@@ -453,14 +453,19 @@ func (s *Server) stopInstance(w http.ResponseWriter, r *http.Request, a broker.A
 	writeError(w, http.StatusNotFound, "no such instance")
 }
 
-// tasks lists the tasks the caller may manage: as instances, by the
-// approver rules (their own; everyone's for the admin role), newest
-// first.
+// taskTarget is a task as approver rules see it.
+func taskTarget(t router.TaskInfo) broker.TaskTarget {
+	return broker.TaskTarget{Server: t.Server, Tool: t.Tool, Sub: t.Sub, Issuer: t.Issuer, UID: t.UID, Transport: t.Transport}
+}
+
+// tasks lists the tasks the caller may manage
+// (data.mcp.approvals.manage_task: by default their own, and everyone's
+// for the approvers named for the server), newest first.
 func (s *Server) tasks(w http.ResponseWriter, r *http.Request, a broker.Approver) {
 	out := []router.TaskInfo{}
 	if s.Tasks != nil {
 		for _, t := range s.Tasks.Tasks() {
-			if s.Broker.MayManageInstance(r.Context(), a, t.Server, t.UID) {
+			if s.Broker.MayManageTask(r.Context(), a, taskTarget(t)) {
 				out = append(out, t)
 			}
 		}
@@ -473,7 +478,7 @@ func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request, a broker.App
 	id := r.PathValue("id")
 	if s.Tasks != nil {
 		for _, t := range s.Tasks.Tasks() {
-			if t.ID != id || !s.Broker.MayManageInstance(r.Context(), a, t.Server, t.UID) {
+			if t.ID != id || !s.Broker.MayManageTask(r.Context(), a, taskTarget(t)) {
 				continue
 			}
 			switch err := s.Tasks.CancelTask(id, a.Name+" (control API)"); {

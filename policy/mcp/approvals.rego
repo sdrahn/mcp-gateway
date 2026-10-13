@@ -1,6 +1,7 @@
 # Who may decide on a pending approval (data.mcp.approvals.allow), see or
 # revoke a grant (data.mcp.approvals.manage_grant), see or stop a backend
-# instance (data.mcp.approvals.manage_instance) and see or end a
+# instance (data.mcp.approvals.manage_instance), see or cancel an agent's
+# task (data.mcp.approvals.manage_task) and see or end a
 # principal's sign-in to a server (data.mcp.approvals.manage_sign_in). The gateway queries
 # these from its control API; the approver is identified by the kernel
 # (uid, user and group names), never by the agent.
@@ -43,6 +44,18 @@ default manage_instance := false
 manage_instance if {
 	some rule in rules_for(input.instance.server)
 	grants(rule, input.instance)
+}
+
+# METADATA
+# description: >-
+#   May the caller see and cancel the agent's task? (Without this rule
+#   the gateway decides as for the principal's instances, manage_instance.)
+# entrypoint: true
+default manage_task := false
+
+manage_task if {
+	some rule in rules_for(input.task.server)
+	grants(rule, input.task)
 }
 
 # METADATA

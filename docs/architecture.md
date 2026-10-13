@@ -1071,7 +1071,9 @@ logged-in user, who has authenticated to Cockpit, not to the agent.
 Anything not the caller's is reported as not found. Who may see and stop
 an instance is policy (`data.mcp.approvals.manage_instance`, the same
 approver rules as for grants: by default the principal themself and the
-admin role).
+admin role), and so is who may see and cancel a task
+(`data.mcp.approvals.manage_task`, by default the same rules; a policy
+without it decides by `manage_instance`).
 
 The Cockpit page ships in this repository (`cockpit/mcp-gateway`,
 installed to `/usr/share/cockpit/mcp-gateway`), with four tabs:
@@ -3409,7 +3411,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       step 31) for the stream's principal, as a fetch would; one
       withheld carries the withholding ("result withheld: …") as its
       result. The suggested polling interval stays 2 s;
-    - stage B, `data.mcp.approvals.manage_task`: who may see and cancel
+    - stage B (done), `data.mcp.approvals.manage_task`: who may see and cancel
       a task in the control API and Cockpit, with input `task` (server,
       tool, the principal's `sub`, `uid`, `iss`, `transport`). The
       shipped rule is the instances' (the approver rules of the
