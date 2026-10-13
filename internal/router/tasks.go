@@ -432,7 +432,7 @@ func (s *Session) startTask(m *jsonrpc.Message, params map[string]json.RawMessag
 			}
 		}
 	}
-	r.Audit.Event("mcp-task", false, map[string]string{"event": "created", "task": t.id,
+	r.Audit.Note("mcp-task", map[string]string{"event": "created", "task": t.id,
 		"principal": p.Sub, "transport": string(p.Transport), "session": p.SessionID, "server": server, "tool": tool})
 
 	go func() {
@@ -487,7 +487,7 @@ func (r *Router) expireTask(t *task) {
 	unfetched := !t.delivered && t.status != taskCancelled
 	t.mu.Unlock()
 	if unfetched {
-		r.Audit.Event("mcp-task", false, map[string]string{"event": "expired", "task": t.id,
+		r.Audit.Note("mcp-task", map[string]string{"event": "expired", "task": t.id,
 			"principal": t.principal.Sub, "transport": string(t.principal.Transport), "server": t.server, "tool": t.tool,
 			"reason": "result not fetched"})
 	}
@@ -546,7 +546,7 @@ func (r *Router) deliver(t *task) {
 	t.mu.Unlock()
 	if first {
 		p := t.principal
-		r.Audit.Event("mcp-task", false, map[string]string{"event": "delivered", "task": t.id,
+		r.Audit.Note("mcp-task", map[string]string{"event": "delivered", "task": t.id,
 			"principal": p.Sub, "transport": string(p.Transport), "server": t.server, "tool": t.tool})
 	}
 }
@@ -565,7 +565,7 @@ func (r *Router) cancelTask(t *task, by string) *jsonrpc.Error {
 	t.mu.Unlock()
 	t.cancel()
 	p := t.principal
-	r.Audit.Event("mcp-task", false, map[string]string{"event": "cancelled", "task": t.id,
+	r.Audit.Note("mcp-task", map[string]string{"event": "cancelled", "task": t.id,
 		"principal": p.Sub, "transport": string(p.Transport), "server": t.server, "tool": t.tool, "reason": "cancelled by " + by})
 	return nil
 }

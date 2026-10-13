@@ -414,7 +414,8 @@ this: the gateway makes the call as any other and keeps the result.
 - **Limits:** results are kept for `tasks.retention` (1 h) after the
   call ended, up to `tasks.max_result_bytes` (4 MiB), at most
   `limits.tasks_per_principal` (32) per user, and not across a restart
-  of the gateway (chapter 3). Audited as `mcp-task` (chapter 11).
+  of the gateway (chapter 3). Recorded in the journal as `mcp-task`
+  (chapter 11).
 
 ## Client compatibility
 

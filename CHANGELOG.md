@@ -21,8 +21,8 @@ minor release (with a warning) and removed in the next.
   `tasks/cancel`), agents of 2026-07-28 the extension
   `io.modelcontextprotocol/tasks` (`tasks/get`, `tasks/update`,
   `tasks/cancel`). Approvals in the agent make the task
-  `input_required`. No server needs to support tasks. Audited as
-  `mcp-task`. Kit, at its default 2025-11-25, now runs its calls as
+  `input_required`. No server needs to support tasks. Recorded in the
+  journal as `mcp-task`. Kit, at its default 2025-11-25, now runs its calls as
   tasks (`tasksMode: auto`) and polls them; `tasksMode: never` in its
   configuration keeps plain calls.
 

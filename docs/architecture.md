@@ -1381,9 +1381,9 @@ reported to agents as the task's `ttl`), a principal has at most
 restart of the gateway (whose instances end with it). Cancelling a task
 cancels its call as an agent's `notifications/cancelled` does. Task
 sessions run in the gateway's own context: a stopping gateway drains
-privileged calls first, then ends them. Audited as `mcp-task`
-(`event`: `created`, `delivered`, `cancelled`, `expired` with
-`reason=result not fetched`). Not yet: status notifications
+privileged calls first, then ends them. Recorded in the journal as
+`mcp-task` (`event`: `created`, `delivered`, `cancelled`, `expired`
+with `reason=result not fetched`; not in the kernel audit log). Not yet: status notifications
 (`notifications/tasks/status`, and `notifications/tasks` on
 `subscriptions/listen`); agents poll, at the suggested 2 s.
 

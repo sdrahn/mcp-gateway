@@ -359,7 +359,12 @@ Event records carry `event` (the operation below), `ok` and fields of
 the event. The event `mcp-pseudonymize` is recorded in the journal only
 (not in the kernel audit log): `session`, `sub`, `server`, `name`
 (tool, prompt or `sampling/createMessage`), `decision_id` and `values`,
-the classes and counts replaced (`"EMAIL:2 PERSON:1"`).
+the classes and counts replaced (`"EMAIL:2 PERSON:1"`). So is
+`mcp-task`, an agent's task created, its result delivered, cancelled, or
+expired with its result not fetched (chapter 5, "Long calls: tasks"):
+`event` (`created`, `delivered`, `cancelled`, `expired`), `task`,
+`principal`, `transport`, `session` (at creation), `server`, `tool`,
+`reason`.
 
 Kernel audit (`TRUSTED_APP`) operations:
 
@@ -374,7 +379,6 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcp-mcs-collision` | an instance's MCS pair was taken by another workload | `instance`, `pair`, `foreign_pid`, `foreign_context` |
 | `mcp-limit` | a session or instance was refused at a limit (`res=failed`) | `principal`, `transport`, `session`, `limit`, `max` |
 | `mcp-token-expired` | an HTTP stream ended because the token that opened it expired | `principal`, `transport`, `session` |
-| `mcp-task` | an agent's task was created, its result delivered, it was cancelled, or it expired with its result not fetched (chapter 5, "Long calls: tasks") | `event` (`created`, `delivered`, `cancelled`, `expired`), `task`, `principal`, `transport`, `session` (at creation), `server`, `tool`, `reason` |
 | `mcp-sign-in` | a principal's sign-in to a server with `sign_in` started, completed (`res=success`) or failed (`res=failed`) | `server`, `principal`, `step` (`started`, `completed`, `failed`), `reason` |
 | `mcp-sign-in-refresh` | a principal's token was refreshed (`res=success`), or could not be (`res=failed`; `tokens=deleted` when the authorization server refused it and the principal must sign in again) | `server`, `principal`, `reason`, `tokens` |
 | `mcp-sign-out` | a principal was signed out of a server | `server`, `principal`, `by` (`mcp-gateway` when the server's definition was removed, lost `sign_in` or changed its `url`), `reason` (then), `revoked` (`yes`, `no`) |
