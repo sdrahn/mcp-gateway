@@ -358,6 +358,25 @@ landlock:
   is where a human sees them.
 - In a role, allow the six reading tools by name (`search_packages`,
   `find_*`, `check_updates`, `plan_*`) and require approval for the rest.
+- **A change cut off halfway.** The gateway never stops `confirm_install`
+  or `confirm_remove` because the agent's token expired or its
+  connection broke (chapter 4, "Servers that change the system"), but a
+  crash, a reboot or a restart of the gateway after 28 minutes can, and
+  an RPM transaction installs package after package: cut off, it leaves
+  some installed and others not. On a system with a btrfs root, install
+  `snapper-zypp-plugin` (usually installed with snapper on openSUSE):
+  it takes a pre and a post snapshot around every zypp transaction,
+  also those of mcp-server-zypp, so that a half-done change can be
+  undone (`snapper undochange PRE..POST`, or a rollback, also through
+  mcp-server-snapper). Check with `rpm -q snapper-zypp-plugin`, and with
+  `snapper list` after an installation (a pre and post pair whose
+  description names zypp). On a transactional system (chapter
+  2) packages are changed only with `transactional-update`, into a new
+  snapshot that becomes active at the next boot: all or nothing, but
+  not through this server.
+- Agents installing packages should ask for a task (chapter 5, "Long
+  calls: tasks"): the installation then outlasts their token, and they
+  fetch its result afterwards.
 
 ## SELinux domains
 

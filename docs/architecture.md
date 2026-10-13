@@ -2487,9 +2487,9 @@ answered at once with a task id, runs on whatever happens to the
 connection and the token, and its result is fetched later with a valid
 token, through the same delivery check. Servers stay synchronous; the
 gateway holds the result. That a change completes or does not happen at
-all is the server's to guarantee (zypper's transactional mode with a
-snapshot, transactional-update), never the gateway's: it only never
-interrupts one.
+all is the server's to guarantee (a transaction, snapper's pre and post
+snapshots around a zypp transaction, transactional-update), never the
+gateway's: it only never interrupts one.
 *Rationale:* expiry is freshness, not revocation: the principal was
 allowed the call when it started, and a token runs out on a timer (often
 an hour) while an installation or an approval may take longer.
@@ -3356,11 +3356,12 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       agent that did not loses the answer, and the gateway logs that it
       withheld it. Chapter 5 tells agents to use a task, or a session,
       for calls that may outlast their token;
-    - stage D, servers that change the system: the user guide (chapter
+    - stage D (done), servers that change the system: the user guide (chapter
       4) asks server authors for changes that complete or do not happen
       (a transaction, a snapshot to return to), for `destructiveHint` on
       such tools, and never to rely on the connection staying open; the
-      `zypp` setup's notes recommend its transactional mode with snapper
+      `zypp` setup's notes recommend snapper's snapshots around each zypp
+      transaction (`snapper-zypp-plugin`), or transactional-update
       where the system offers it;
     - Cockpit lists a principal's running and finished tasks (server,
       tool, started, state) and lets an administrator cancel one;

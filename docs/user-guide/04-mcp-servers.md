@@ -579,6 +579,45 @@ the earlier revisions). Such a server still works, as a legacy one.
 
 `mcp-gateway-admin inspect` and the doctor probe the same way.
 
+## Servers that change the system
+
+A call to a server that installs packages, updates a system or changes
+its configuration may take longer than the agent's connection or token
+lasts. The gateway never stops such a call because of that: when a
+token expires, the agent gets an error saying the call goes on, and
+the call runs to its end (chapter 5; decision D20 of the architecture).
+Only the agent's own cancellation stops it (`notifications/cancelled`,
+or a closed stateless request), the instance's end (the gateway
+stopping or restarting: it waits up to 28 minutes for privileged
+calls, but not for others), or a failure. What the gateway cannot do is
+make a change complete or not happen at all; that is the server's to
+guarantee. For authors of such servers:
+
+- **Changes that complete or do not happen.** Do the work as one
+  transaction where the system offers it, or take a snapshot to return
+  to before it (snapper's pre and post snapshots around the change, as
+  `snapper-zypp-plugin` does for zypp), so that a change cut off by a
+  crash, a reboot or a stop of the gateway leaves the system as it was,
+  or recoverably so. Say in the result what was done.
+- **Safe to call again.** An agent whose token expired, or whose
+  connection broke, does not know whether the call took effect and may
+  call again. Make a repeated call harmless where you can (installing
+  an installed package does nothing), and set `idempotentHint: true`
+  then.
+- **Annotations.** Mark tools that change the system with
+  `destructiveHint: true` (and `readOnlyHint: false`). Agents show them
+  differently, and policy may ask for approval on them; annotations are
+  untrusted hints, so the gateway uses them only to be stricter.
+- **Never rely on the connection.** Keep no state that dies with the
+  connection or the session, and do not undo work because a request's
+  connection closed: finish the step at hand, or stop at a safe point
+  when `notifications/cancelled` arrives. Agents that expect long calls
+  should ask the gateway for a task (chapter 5, "Long calls: tasks"); the
+  server needs nothing for that.
+- **Progress.** Send `notifications/progress` during long calls when the
+  client asked for it (`_meta.progressToken`): agents show it, and it
+  keeps proxies from closing the connection.
+
 ## Privileged servers
 
 A server that installs packages (mcp-server-zypp) writes anywhere below

@@ -36,6 +36,12 @@ minor release (with a warning) and removed in the next.
   to the result. A custom policy without a rule for `phase` decides as
   it did for the call.
 
+- User guide: chapter 4, "Servers that change the system" (roadmap step
+  31 stage D): changes that complete or do not happen, calls safe to
+  repeat, `destructiveHint`, never relying on the connection. Chapter
+  13 recommends `snapper-zypp-plugin` with the privileged `zypp`
+  server, so that an installation cut off halfway can be undone.
+
 ### Changed
 
 - A token's expiry ends a response, never the call (D20, roadmap step 31
