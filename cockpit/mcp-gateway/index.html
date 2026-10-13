@@ -68,6 +68,19 @@
                 </p>
                 <div id="servers"></div>
             </section>
+            <section>
+                <h2>Tasks</h2>
+                <p class="muted">Calls agents run as tasks: they go on whatever happens to the
+                agent's connection and token, and the result is kept until the agent fetches it
+                (for <code>tasks.retention</code> after the call ended). Cancelling a task cancels
+                its call at the server, as the agent's own cancellation would.</p>
+                <table id="tasks">
+                    <thead>
+                        <tr><th>Call</th><th>Principal</th><th>Started</th><th>State</th><th></th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </section>
         </div>
 
         <div id="tab-policy" class="tab" hidden>

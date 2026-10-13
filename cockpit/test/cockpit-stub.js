@@ -20,6 +20,13 @@
         { id: "i0", server: "fs", unit: "mcp-fs-i0.service", sub: "bob", uid: 1002, transport: "unix", isolation: "principal",
           started: new Date(Date.now() - 900000).toISOString(), sessions: 1, definition: "previous" },
     ];
+    let tasks = [
+        { id: "t1", server: "zypp", tool: "confirm_install", sub: "alice", uid: 1001, transport: "unix", status: "working",
+          created: new Date(Date.now() - 1200000).toISOString(), updated: new Date().toISOString(), delivered: false },
+        { id: "t2", server: "fs", tool: "read_file", sub: "carol", uid: 1003, transport: "http", iss: "https://idp.example.com",
+          status: "completed", created: new Date(Date.now() - 600000).toISOString(), updated: new Date().toISOString(),
+          ended: new Date(Date.now() - 540000).toISOString(), delivered: false },
+    ];
     let signIns = [
         { server: "tickets", principal: { sub: "carol", uid: 1003, transport: "unix" }, since: new Date(Date.now() - 3600000).toISOString(),
           expiry: new Date(Date.now() + 1800000).toISOString(), scope: "mcp.read", refreshable: true },
@@ -28,6 +35,7 @@
     ];
     const routes = {
         "/v1/whoami": () => ({ name: "carol", uid: 1003 }),
+        "/v1/tasks": () => tasks,
         "/v1/status": () => query.has("reload")
             ? { restart_pending: false, config_error: "/etc/mcp-gateway/gateway.yaml: yaml: line 3: did not find expected key",
                 restart_needed: ["socket_group"] }
@@ -85,6 +93,12 @@
                             ? [{ principal: "user:alice", server: "fs", kind: "tool", name: "write_file", before: "deny", after: "ask" }]
                             : [];
                         return Promise.resolve(JSON.stringify({ changes, principals: 3, resources: 12, unchecked: { db: "per-user discovery" } }));
+                    }
+                    const cancel = path.match(/^\/v1\/tasks\/([^/]+)\/cancel$/);
+                    if (cancel) {
+                        tasks = tasks.map(t => t.id === cancel[1]
+                            ? { ...t, status: "cancelled", status_message: "cancelled by carol (control API)", ended: new Date().toISOString() }
+                            : t);
                     }
                     return Promise.resolve("");
                 },

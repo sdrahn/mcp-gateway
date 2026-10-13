@@ -6,6 +6,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/contract"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
+	"github.com/sdrahn/mcp-gateway/internal/router"
 )
 
 // The control API's requests and responses (/v1; docs/architecture.md,
@@ -19,6 +20,7 @@ func TestContract(t *testing.T) {
 		"approval-decided.txt": pep.Grant{},
 		"grants.txt":           []pep.Grant{},
 		"servers.txt":          []serverInfo{},
+		"tasks.txt":            []router.TaskInfo{},
 		"policy.txt":           policyResponse{},
 		"sign-ins.txt":         signInsResponse{},
 		"sign-out.txt":         signOutResponse{},

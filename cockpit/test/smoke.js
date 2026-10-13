@@ -71,6 +71,13 @@ function site() {
     check((await page.textContent("pre.log")).includes("Landlock rules (landlock in its definition) are the likely cause"),
           "a refused access under Landlock names the rules");
     check((await page.textContent("#servers .card:first-child")).includes("· Landlock"), "a server under Landlock says so");
+    const tasksText = await page.textContent("#tasks");
+    check(tasksText.includes("zypp / confirm_install") && tasksText.includes("running") &&
+          tasksText.includes("result not fetched yet") && tasksText.includes("https://idp.example.com"), "tasks listed");
+    check(await page.$$eval("#tasks button:has-text('Cancel')", bs => bs.length) === 1, "only a running task can be cancelled");
+    await page.click("#tasks button:has-text('Cancel')");
+    await page.waitForFunction(() => document.querySelector("#tasks").textContent.includes("cancelled by carol (control API)"));
+    check((await page.evaluate(() => __calls)).some(c => c[0] === "POST" && c[1] === "/v1/tasks/t1/cancel"), "cancel task");
     await page.click("#servers button:has-text('Stop'):not([disabled])");
     await page.waitForFunction(() => !document.querySelector("#servers").textContent.includes("mcp-fs-i1.service"));
     check((await page.evaluate(() => __calls)).some(c => c[0] === "DELETE" && c[1] === "/v1/instances/i1"), "stop instance");

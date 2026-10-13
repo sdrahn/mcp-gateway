@@ -90,6 +90,16 @@ After the configuration changed while the gateway runs (chapter 3,
   (administrative access): the gateway checks the configuration first
   and keeps what it has if a file does not load; the page says so.
 
+**Tasks** lists the calls agents run as tasks (chapter 5, "Long calls:
+tasks") that you may manage, by the same approver rules as instances
+(your own; everyone's for administrators), newest first: the server
+and tool, the principal, when it started, and its state (running,
+waiting for the agent, completed with whether the agent fetched the
+result, failed, cancelled). **Cancel** cancels a running task's call at
+the server, as the agent's own cancellation would; the agent then finds
+the task cancelled "by <you> (control API)". Finished tasks stay listed
+until the agent fetched them and `tasks.retention` passed.
+
 Below, the tab shows the self-check's counts (`mcp-gateway-admin doctor
 --no-start`, chapter 10), run when the page opens and with **Run
 self-check**, and lists its warnings and failures with what to do. It

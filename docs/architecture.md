@@ -1059,6 +1059,7 @@ socket), HTTP with JSON:
 | `GET /v1/grants`, `DELETE /v1/grants/{id}` | the caller's grants (all for admins); revoke |
 | `GET /v1/servers` | the server registry (without command and environment) and the running instances the caller may manage |
 | `DELETE /v1/instances/{id}` | stop an instance; its sessions get a new one on their next call |
+| `GET /v1/tasks`, `POST /v1/tasks/{id}/cancel` | the agents' tasks the caller may manage (§5.11.6; the approver rules of instances); cancel one, as its agent would |
 | `GET /v1/sign-ins`, `DELETE /v1/sign-ins/{server}` | sign-ins to servers with `sign_in` the caller may see (never tokens) and the caller's pending ones with their link; sign out (§5.7.3) |
 | `GET /v1/policy` | policy mode (directories or bundle) and the active bundle revisions |
 | `POST /v1/policy/whatif` | "what changes?": the decisions proposed role data would change (`data.mcp.whatif.changes`, for reviewers per `data.mcp.approvals.review_policy`) |
@@ -3363,7 +3364,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       `zypp` setup's notes recommend snapper's snapshots around each zypp
       transaction (`snapper-zypp-plugin`), or transactional-update
       where the system offers it;
-    - Cockpit lists a principal's running and finished tasks (server,
+    - (done) Cockpit lists a principal's running and finished tasks (server,
       tool, started, state) and lets an administrator cancel one;
       `GET /v1/tasks` in the control API;
     - not in this step: keeping tasks across a restart of the gateway;

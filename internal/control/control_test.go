@@ -275,6 +275,69 @@ func TestServersAndInstances(t *testing.T) {
 	}
 }
 
+type fakeTasks struct {
+	list      []router.TaskInfo
+	cancelled []string
+}
+
+func (f *fakeTasks) Tasks() []router.TaskInfo { return f.list }
+
+func (f *fakeTasks) CancelTask(id, by string) error {
+	for i := range f.list {
+		if f.list[i].ID == id {
+			if f.list[i].Status != "working" {
+				return router.ErrTaskEnded
+			}
+			f.list[i].Status = "cancelled"
+			f.cancelled = append(f.cancelled, id+" by "+by)
+			return nil
+		}
+	}
+	return router.ErrNoTask
+}
+
+// The agents' tasks: each user sees and cancels their own (as instances,
+// by the approver rules); an ended task cannot be cancelled.
+func TestTasks(t *testing.T) {
+	s, _, _ := setup(t)
+	alice, bob := uint32(1001), uint32(1002)
+	now := time.Now()
+	tasks := &fakeTasks{list: []router.TaskInfo{
+		{ID: "t1", Server: "zypp", Tool: "confirm_install", Sub: "alice", UID: &alice, Status: "working", Created: now.Add(-time.Hour)},
+		{ID: "t2", Server: "fs", Tool: "read_file", Sub: "alice", UID: &alice, Status: "completed", Created: now},
+		{ID: "t3", Server: "fs", Tool: "read_file", Sub: "bob", UID: &bob, Status: "working", Created: now},
+	}}
+	s.Tasks = tasks
+	rec := call(t, s, 1001, "GET", "/v1/tasks", "")
+	var got []router.TaskInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if len(got) != 2 || got[0].ID != "t2" || got[1].ID != "t1" {
+		t.Fatalf("alice sees %+v", got)
+	}
+	if rec := call(t, s, 1001, "POST", "/v1/tasks/t3/cancel", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("alice cancels bob's task: %d", rec.Code)
+	}
+	if rec := call(t, s, 1001, "POST", "/v1/tasks/t2/cancel", ""); rec.Code != http.StatusConflict {
+		t.Fatalf("cancel an ended task: %d %s", rec.Code, rec.Body)
+	}
+	if rec := call(t, s, 1001, "POST", "/v1/tasks/t1/cancel", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("alice cancels her task: %d %s", rec.Code, rec.Body)
+	}
+	if rec := call(t, s, 1001, "POST", "/v1/tasks/nope/cancel", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown task: %d", rec.Code)
+	}
+	if len(tasks.cancelled) != 1 || !strings.HasPrefix(tasks.cancelled[0], "t1 by ") || !strings.HasSuffix(tasks.cancelled[0], "(control API)") {
+		t.Fatalf("cancelled %v", tasks.cancelled)
+	}
+	// Without tasks (an older router), the list is empty.
+	s.Tasks = nil
+	if rec := call(t, s, 1001, "GET", "/v1/tasks", ""); rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Fatalf("no tasks: %d %s", rec.Code, rec.Body)
+	}
+}
+
 // Instances of a server whose definition went away are listed under it.
 func TestServersRemovedWithInstances(t *testing.T) {
 	s, _, _ := setup(t)

@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -349,5 +350,42 @@ func TestTaskResultDeliveryCheck(t *testing.T) {
 	w = awaitStatus(t, a, &id, modern.TaskID, "completed", meta)
 	if !strings.Contains(string(w.Result), "fs did read_file") {
 		t.Fatalf("modern, while the role holds: %s", w.Result)
+	}
+}
+
+// The control API lists tasks and cancels a running one for an
+// administrator.
+func TestTasksForControlAPI(t *testing.T) {
+	r, l := testRouter(t, 0)
+	p := alice()
+	c := connectVersion(t, r, p, "fs", nil, nil, "2025-11-25")
+	slow := taskOfResult(t, c.roundTrip(1, "tools/call", map[string]any{"name": "slow", "task": map[string]any{}}))
+	done := taskOfResult(t, c.roundTrip(2, "tools/call", map[string]any{"name": "read_file", "task": map[string]any{}}))
+	id := 2
+	awaitStatus(t, c, &id, done.TaskID, "completed", nil)
+
+	list := r.Tasks()
+	if len(list) != 2 || list[0].ID != slow.TaskID || list[0].Server != "fs" || list[0].Tool != "slow" ||
+		list[0].Sub != "alice" || list[0].UID == nil || list[0].Status != "working" || list[0].Ended != nil ||
+		list[1].Status != "completed" || list[1].Ended == nil {
+		t.Fatalf("tasks %+v", list)
+	}
+	if err := r.CancelTask(done.TaskID, "carol"); !errors.Is(err, ErrTaskEnded) {
+		t.Fatalf("cancel a completed task: %v", err)
+	}
+	if err := r.CancelTask("nope", "carol"); !errors.Is(err, ErrNoTask) {
+		t.Fatalf("cancel an unknown task: %v", err)
+	}
+	if err := r.CancelTask(slow.TaskID, "carol (control API)"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-l.started("fs")[0].cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("backend not told about cancellation")
+	}
+	w := decodeTask(t, c.roundTrip(10, "tasks/get", map[string]any{"taskId": slow.TaskID}))
+	if w.Status != "cancelled" || w.StatusMessage != "cancelled by carol (control API)" {
+		t.Fatalf("after cancel: %+v", w)
 	}
 }
