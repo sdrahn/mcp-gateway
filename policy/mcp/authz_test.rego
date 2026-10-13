@@ -412,3 +412,29 @@ test_sign_in_follows_server_tools if {
 	other := object.union(signin, {"resource": {"server": "fs", "kind": "tool", "name": "sign_in", "sign_in": true}})
 	authz.decision.effect == "deny" with input as other with data.mcp.rbac as rbac
 }
+
+# Delivering a call's result (phase "delivery", D20): allowed while the
+# principal holds a permission for the tool, without asking again;
+# withheld once it no longer does.
+test_delivery_of_approved_call_allowed if {
+	delivery := object.union(call(alice, "fs", "write_file", {"path": "/home/alice/x.txt"}), {"phase": "delivery"})
+	d := authz.decision with input as delivery
+	d.effect == "allow"
+	d.reason == "decided at the call"
+}
+
+test_delivery_allowed_as_the_call if {
+	delivery := object.union(call(alice, "git", "commit", {}), {"phase": "delivery"})
+	authz.decision.effect == "allow" with input as delivery
+}
+
+test_delivery_withheld_without_role if {
+	delivery := object.union(call(object.union(alice, {"groups": []}), "git", "commit", {}), {"phase": "delivery"})
+	authz.decision.effect == "deny" with input as delivery
+}
+
+test_delivery_withheld_by_explicit_deny if {
+	admin_dev := object.union(alice, {"groups": ["dev", "wheel"]})
+	delivery := object.union(call(admin_dev, "fs", "delete_file", {"path": "/home/alice/x"}), {"phase": "delivery"})
+	authz.decision.effect == "deny" with input as delivery
+}

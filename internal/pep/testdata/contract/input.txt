@@ -22,6 +22,7 @@ grants[].session_id
 grants[].sub
 grants[].tool
 grants[].uid
+phase
 principal
 principal.cert
 principal.cert.dns

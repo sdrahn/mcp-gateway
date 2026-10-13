@@ -1373,8 +1373,11 @@ each decided as in any call) makes the task `input_required` until the
 agent answers; out-of-band approvals leave it `working`. An approval for
 a task offers no `session` scope, since the call may outlast the
 session. Progress and log messages go to the session that started the
-task while it lasts. Results pass obligations as any call's do; one
-larger than `tasks.max_result_bytes` (default 4 MiB) fails the task. A
+task while it lasts. A task keeps the result as the server gave it; one
+larger than `tasks.max_result_bytes` (default 4 MiB) fails the task.
+Each fetch is a delivery: policy decides again for the fetching
+principal and the obligations of that decision apply (§6.2 `phase`,
+roadmap step 31 stage B). A
 result is kept for `tasks.retention` after the call ended (default 1 h,
 reported to agents as the task's `ttl`), a principal has at most
 `limits.tasks_per_principal` tasks (default 32), and none survives a
@@ -1460,6 +1463,11 @@ policy uses them only as a ceiling (§6.7).
 `resource.sign_in` is `true` for the tool `sign_in` the gateway offers
 in place of a server's tools until the principal signed in to it
 (§5.7.3).
+
+`phase` is `"delivery"` when policy decides whether a call's result goes
+to the principal (D20, roadmap step 31): the call's input, with the
+principal as it is then and the arguments as forwarded; absent when the
+call itself is decided. A new field within input version 1.
 
 `version` is the version of the input documents (D10); the OPA client
 adds it to the input of every query, also the filter's and the approver
@@ -3319,7 +3327,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       call: the task waits for the decision (`input_required` where the
       era has it). Audited: task created, delivered, expired unfetched,
       cancelled;
-    - stage B, a check on delivery: every result (an answer on its
+    - stage B (done), a check on delivery: every result (an answer on its
       stream, an answer replayed on resume, a task's result) goes only
       with a valid token of the call's principal, and policy is asked
       again before it goes: the call's input with `phase: "delivery"`
@@ -3330,7 +3338,11 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       reason); an `ask` does not ask again, the call was decided.
       Obligations (redaction, size limits) apply on delivery, as now on
       the answer. A custom policy without a rule for `phase` sees the
-      same input as for the call and decides as it did then;
+      same input as for the call and decides as it did then. As built,
+      the gateway decides when it hands a result out: when the server
+      answered, and for a task at each fetch; an answer the HTTP
+      transport replays on a resume was decided when it was produced
+      (the replay buffer keeps 5 minutes) and is not decided again;
     - stage C, stateless calls follow sessions: a call's response stream
       ends at the token's `exp` (audited `mcp-token-expired`), the call
       runs on, and its result is kept as a task's would be, so that the

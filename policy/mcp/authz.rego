@@ -476,6 +476,10 @@ decision := {"effect": "deny", "reason": "denied by policy"} if {
 } else := allow_with({"effect": "allow", "reason": "approved"}) if {
 	count(approvable) > 0
 	granted
+} else := allow_with({"effect": "allow", "reason": "decided at the call"}) if {
+	# Delivering a result (D20): the call was approved, nothing is asked.
+	input.phase == "delivery"
+	count(approvable) > 0
 } else := {
 	"effect": "ask",
 	"ask": {

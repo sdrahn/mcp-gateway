@@ -106,7 +106,14 @@ type Input struct {
 	Args      map[string]any      `json:"args,omitempty"`
 	Grants    []Grant             `json:"grants,omitempty"`
 	Context   Context             `json:"context"`
+	// Phase is "delivery" when policy decides whether a call's result
+	// goes to the principal (decision D20), on the call's input with the
+	// principal as it is then; empty when it decides the call itself.
+	Phase string `json:"phase,omitempty"`
 }
+
+// PhaseDelivery is Input.Phase of a decision on delivering a result.
+const PhaseDelivery = "delivery"
 
 // AskSpec describes how to obtain an approval.
 type AskSpec struct {

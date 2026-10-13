@@ -1072,17 +1072,63 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	if rerr != nil {
 		return nil, rerr
 	}
+	deliver := func(ctx context.Context, to principal.Principal) (any, *jsonrpc.Error) {
+		return s.deliver(ctx, to, m.Method, t, in, ob, decisionID, raw)
+	}
+	if s.task != nil {
+		// A task's result is delivered when the agent fetches it.
+		s.task.setDelivery(deliver)
+		return raw, nil
+	}
+	return deliver(ctx, s.snapshotPrincipal())
+}
+
+// deliver hands the result raw of a call to principal to (decision D20):
+// policy decides again, on the call's input with phase "delivery" and the
+// principal as it is now, and the obligations of that decision apply to
+// the result. A denial withholds it (audited mcp-result-withheld); an ask
+// does not ask again, the call was decided, and the call's obligations
+// ob apply. callID is the call's decision id.
+func (s *Session) deliver(ctx context.Context, to principal.Principal, method string, t *callTarget, in pep.Input,
+	ob *pep.Compiled, callID string, raw json.RawMessage) (any, *jsonrpc.Error) {
+	decisionID := newDecisionID()
+	in.Principal = to
+	in.Args = t.args // as forwarded
+	in.Phase = pep.PhaseDelivery
+	in.Context = s.policyContext(decisionID)
+	dec := pep.Evaluate(ctx, s.r.PDP, in)
+	switch dec.Effect {
+	case pep.Allow:
+		if c, err := dec.Obligations.Compile(); err == nil {
+			ob = c
+		} else {
+			dec = pep.Decision{Effect: pep.Deny, Reason: "invalid obligations"}
+		}
+	case pep.Ask:
+	default:
+		if dec.Reason == "" {
+			dec.Reason = "denied by policy"
+		}
+	}
+	if dec.Effect != pep.Allow && dec.Effect != pep.Ask {
+		s.r.Audit.Event("mcp-result-withheld", false, map[string]string{
+			"principal": to.Sub, "transport": string(to.Transport), "session": to.SessionID,
+			"action": t.action, "server": t.server, "target": t.resource.Name, "reason": dec.Reason,
+			"decision_id": decisionID, "call_decision_id": callID,
+		})
+		return s.denial(method, "result withheld: "+dec.Reason)
+	}
 	result, stats, err := ob.ApplyOutput(raw, s.vault)
 	if len(stats) > 0 {
-		s.auditPseudonymized(p, t.server, t.resource.Name, decisionID, stats)
+		s.auditPseudonymized(to, t.server, t.resource.Name, decisionID, stats)
 	}
 	if err != nil {
-		s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: t.action, Server: t.server,
+		s.r.Audit.Log(audit.Record{Session: to.SessionID, Sub: to.Sub, Action: t.action, Server: t.server,
 			Name: t.resource.Name, Effect: string(pep.Deny), Reason: "output withheld: " + err.Error(),
 			DecisionID: decisionID})
-		return s.denial(m.Method, "output withheld: "+err.Error())
+		return s.denial(method, "output withheld: "+err.Error())
 	}
-	if m.Method == "resources/read" && s.endpoint().aggregated {
+	if method == "resources/read" && s.endpoint().aggregated {
 		return s.exposeContents(t.server, result), nil
 	}
 	return result, nil

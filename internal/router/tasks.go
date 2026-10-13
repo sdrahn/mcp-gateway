@@ -82,6 +82,10 @@ type task struct {
 	changed   chan struct{}   // closed and replaced on every change
 	delivered bool
 	expiry    *time.Timer
+	// deliver hands the call's result to a principal, through the
+	// delivery check (session.go); nil for results the gateway answered
+	// itself (a denial, gateway_capabilities), which go as they are.
+	deliver func(ctx context.Context, to principal.Principal) (any, *jsonrpc.Error)
 	// notify passes the call's notifications (progress, log messages)
 	// to the agent's session while it lasts (nil: dropped).
 	notify func(*jsonrpc.Message)
@@ -178,17 +182,22 @@ func (t *task) wireModern(retention time.Duration, detailed bool) map[string]any
 		}
 		out["inputRequests"] = reqs
 	case taskCompleted:
-		var res map[string]json.RawMessage
-		_ = json.Unmarshal(t.result, &res)
-		if res == nil {
-			res = map[string]json.RawMessage{}
-		}
-		res["resultType"] = json.RawMessage(`"complete"`)
-		out["result"] = res
+		out["result"] = taskResultOf(t.result)
 	case taskFailed:
 		out["error"] = t.err
 	}
 	return out
+}
+
+// taskResultOf is a call's result as a modern task carries it.
+func taskResultOf(raw json.RawMessage) map[string]json.RawMessage {
+	var res map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &res)
+	if res == nil {
+		res = map[string]json.RawMessage{}
+	}
+	res["resultType"] = json.RawMessage(`"complete"`)
+	return res
 }
 
 // withoutMeta drops the gateway's request _meta (related request, task)
@@ -273,6 +282,33 @@ func (t *task) answer(in *taskInput, resp *jsonrpc.Message) {
 	if found {
 		t.s.dispatch(resp)
 	}
+}
+
+func (t *task) setDelivery(deliver func(context.Context, principal.Principal) (any, *jsonrpc.Error)) {
+	t.mu.Lock()
+	t.deliver = deliver
+	t.mu.Unlock()
+}
+
+// outcome is the completed task's result for principal to, as it is
+// delivered to it now (decision D20): asked of policy again, with the
+// obligations of that decision applied.
+func (t *task) outcome(ctx context.Context, to principal.Principal) (json.RawMessage, *jsonrpc.Error) {
+	t.mu.Lock()
+	raw, deliver := t.result, t.deliver
+	t.mu.Unlock()
+	if deliver == nil {
+		return raw, nil
+	}
+	res, rpcErr := deliver(ctx, to)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	out, err := json.Marshal(res)
+	if err != nil {
+		return nil, rpcError(jsonrpc.CodeInternalError, "internal error")
+	}
+	return out, nil
 }
 
 // claim returns an input no agent's tasks/result is asking for yet, and
@@ -638,10 +674,14 @@ func (s *Session) taskResult(ctx context.Context, m *jsonrpc.Message) (any, *jso
 			continue
 		}
 		t.mu.Lock()
-		st, res, terr, changed := t.status, t.result, t.err, t.changed
+		st, terr, changed := t.status, t.err, t.changed
 		t.mu.Unlock()
 		switch st {
 		case taskCompleted:
+			res, rpcErr := t.outcome(ctx, s.snapshotPrincipal())
+			if rpcErr != nil {
+				return nil, rpcErr
+			}
 			s.r.deliver(t)
 			return withRelatedTask(res, t.id), nil
 		case taskFailed:
@@ -679,12 +719,21 @@ func withRelatedTask(raw json.RawMessage, id string) json.RawMessage {
 
 // --- MCP 2026-07-28, tasks extension ------------------------------------
 
-func (s *Session) agentTaskGet(_ context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error) {
+func (s *Session) agentTaskGet(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error) {
 	t, rpcErr := s.taskOf(m.Params)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
 	out := t.wireModern(s.r.taskRetention(), true)
+	if out["status"] == taskCompleted {
+		res, derr := t.outcome(ctx, s.snapshotPrincipal())
+		if derr != nil {
+			delete(out, "result")
+			out["status"], out["error"] = taskFailed, derr
+		} else {
+			out["result"] = taskResultOf(res)
+		}
+	}
 	s.r.deliver(t)
 	return out, nil
 }

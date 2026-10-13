@@ -295,3 +295,59 @@ func TestAgentTask(t *testing.T) {
 		t.Fatalf("cancelled a completed task: %s", m.Result)
 	}
 }
+
+// Policy decides again before a result goes (D20): a denial withholds
+// it, and the obligations of the delivery decision apply.
+func TestDeliveryCheck(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	c := connect(t, r, alice(), "fs", nil)
+	text, isErr := toolText(t, c.roundTrip(1, "tools/call", map[string]any{"name": "read_withheld"}))
+	if !isErr || text != "mcp-gateway: result withheld: not to be delivered" {
+		t.Fatalf("withheld: %q %v", text, isErr)
+	}
+	if text, _ := toolText(t, c.roundTrip(2, "tools/call", map[string]any{"name": "read_redacted_later"})); text != "fs [redacted] read_redacted_later" {
+		t.Fatalf("delivery obligations: %q", text)
+	}
+	if text, _ := toolText(t, c.roundTrip(3, "tools/call", map[string]any{"name": "read_file"})); text != "fs did read_file" {
+		t.Fatalf("plain call: %q", text)
+	}
+}
+
+// A task's result is decided again whenever it is fetched: withheld from
+// the user whose role was removed meanwhile, delivered while it holds.
+func TestTaskResultDeliveryCheck(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	p := alice()
+	c := connectVersion(t, r, p, "fs", nil, nil, "2025-11-25")
+	created := taskOfResult(t, c.roundTrip(1, "tools/call", map[string]any{"name": "read_file", "task": map[string]any{}}))
+	id := 1
+	awaitStatus(t, c, &id, created.TaskID, "completed", nil)
+
+	revoked := sameUser(p, p.SessionID+"-revoked")
+	revoked.Groups = []string{"revoked"}
+	rc := connectVersion(t, r, revoked, "fs", nil, nil, "2025-11-25")
+	text, isErr := toolText(t, rc.roundTrip(1, "tasks/result", map[string]any{"taskId": created.TaskID}))
+	if !isErr || text != "mcp-gateway: result withheld: role removed" {
+		t.Fatalf("after the role was removed: %q %v", text, isErr)
+	}
+	if text, isErr := toolText(t, c.roundTrip(10, "tasks/result", map[string]any{"taskId": created.TaskID})); isErr || text != "fs did read_file" {
+		t.Fatalf("while the role holds: %q %v", text, isErr)
+	}
+
+	// The same for a modern agent's tasks/get.
+	caps := map[string]any{metaClientCapabilities: map[string]any{"extensions": map[string]any{tasksExtension: map[string]any{}}}}
+	a := agent(t, r, p, "fs")
+	modern := decodeTask(t, a.roundTrip(1, "tools/call", withAgentMeta(map[string]any{"name": "read_file"}, caps)))
+	ra := agent(t, r, revoked, "fs")
+	meta := func(m map[string]any) map[string]any { return withAgentMeta(m, caps) }
+	id = 1
+	w := awaitStatus(t, ra, &id, modern.TaskID, "completed", meta)
+	if !strings.Contains(string(w.Result), "result withheld: role removed") || !strings.Contains(string(w.Result), `"isError":true`) {
+		t.Fatalf("modern, after the role was removed: %s", w.Result)
+	}
+	id = 1
+	w = awaitStatus(t, a, &id, modern.TaskID, "completed", meta)
+	if !strings.Contains(string(w.Result), "fs did read_file") {
+		t.Fatalf("modern, while the role holds: %s", w.Result)
+	}
+}

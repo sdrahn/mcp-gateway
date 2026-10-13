@@ -25,6 +25,16 @@ minor release (with a warning) and removed in the next.
   journal as `mcp-task`. Kit, at its default 2025-11-25, now runs its calls as
   tasks (`tasksMode: auto`) and polls them; `tasksMode: never` in its
   configuration keeps plain calls.
+- Results are decided again on delivery (D20, roadmap step 31 stage
+  B): before a call's result goes to the agent (when the server
+  answered, or for a task each time it is fetched), policy is asked with
+  the call's input and `"phase": "delivery"`, for the principal as it is
+  then. The shipped policy delivers while the principal holds a
+  permission for the tool; a deny, or a role removed meanwhile,
+  withholds the result ("result withheld: …", audited as
+  `mcp-result-withheld`). The obligations of the delivery decision apply
+  to the result. A custom policy without a rule for `phase` decides as
+  it did for the call.
 
 ### Fixed
 

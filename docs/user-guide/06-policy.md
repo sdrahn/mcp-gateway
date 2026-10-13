@@ -153,6 +153,12 @@ For a request, all permissions of all the principal's roles whose
    names the tool but its `args` do not match, the reason adds the
    patterns it allows, so that the agent can correct the call).
 
+A call's result is decided again before it goes to the agent (when the
+server answers, or for a task each time the agent fetches it): it goes
+while the principal still holds a permission for the tool, approved or
+not, and is withheld ("result withheld: …") once a role was removed or a
+deny applies. The obligations of that decision apply to the result.
+
 Everything not explicitly allowed is denied. If OPA does not answer
 within `policy.timeout`, or answers something invalid, the request is
 denied ("policy evaluation failed", "invalid policy decision").
