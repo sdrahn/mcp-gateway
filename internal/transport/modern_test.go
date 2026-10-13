@@ -21,6 +21,10 @@ import (
 type modernServe struct {
 	mu        sync.Mutex
 	cancelled bool
+	// release lets "held" calls finish (they ignore the request's end,
+	// as a call the token's expiry must not stop); finished counts them.
+	release  chan struct{}
+	finished int
 }
 
 func (f *modernServe) serve(ctx context.Context, out jsonrpc.MessageConn, p principal.Principal, server string, m *jsonrpc.Message, h http.Header) {
@@ -42,6 +46,18 @@ func (f *modernServe) serve(ctx context.Context, out jsonrpc.MessageConn, p prin
 		f.cancelled = true
 		f.mu.Unlock()
 		return
+	case "held", "held-streamed":
+		if m.Method == "held-streamed" {
+			n, _ := jsonrpc.NewNotification("notifications/progress", map[string]any{"progress": 1})
+			_ = jsonrpc.WriteRelated(out, n, m.ID)
+		}
+		<-f.release
+		f.mu.Lock()
+		if ctx.Err() != nil {
+			f.cancelled = true
+		}
+		f.finished++
+		f.mu.Unlock()
 	case "missing":
 		_ = out.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeMethodNotFound, "method not found"))
 		return
@@ -264,5 +280,51 @@ func TestModernListen(t *testing.T) {
 	case <-expired:
 	case <-time.After(2 * time.Second):
 		t.Fatal("TokenExpired not called")
+	}
+}
+
+// A stateless request's response ends at its token's expiry, with an
+// error saying the call goes on; the call is not cancelled, and its
+// answer is withheld (D20). As JSON and as a stream.
+func TestModernResponseEndsAtTokenExpiry(t *testing.T) {
+	f := &modernServe{release: make(chan struct{})}
+	var exp expiries
+	srv, _ := newTestServer(t, func(c *HTTPConfig) {
+		c.Request = f.serve
+		c.TokenExpired = exp.add
+	})
+	for i, method := range []string{"held", "held-streamed"} {
+		start := time.Now()
+		resp := modernPostAs(t, "alice-brief", srv.URL+"/mcp", method, "", nil)
+		body := readAll(t, resp)
+		if d := time.Since(start); d > 3*time.Second {
+			t.Fatalf("%s: the response outlived the token by %v", method, d)
+		}
+		if !strings.Contains(body, "the token expired before the call ended") || !strings.Contains(body, `"reason":"token_expired"`) {
+			t.Fatalf("%s: %s", method, body)
+		}
+		if method == "held-streamed" && (resp.Header.Get("Content-Type") != "text/event-stream" || !strings.Contains(body, ": token expired")) {
+			t.Fatalf("%s: not the end of a stream: %v %s", method, resp.Header, body)
+		}
+		if n := len(exp.get()); n != i+1 {
+			t.Fatalf("%s: %d expiries reported", method, n)
+		}
+	}
+	close(f.release)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		f.mu.Lock()
+		done, cancelled := f.finished, f.cancelled
+		f.mu.Unlock()
+		if cancelled {
+			t.Fatal("a call was cancelled at the token's expiry")
+		}
+		if done == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d calls finished, want 2", done)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

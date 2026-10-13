@@ -36,6 +36,19 @@ minor release (with a warning) and removed in the next.
   to the result. A custom policy without a rule for `phase` decides as
   it did for the call.
 
+### Changed
+
+- A token's expiry ends a response, never the call (D20, roadmap step 31
+  stage C). A request of an agent of MCP 2026-07-28, which used to be
+  answered past its token's expiry, and a session's request answered as
+  plain JSON, which used to be delivered after it, now end at the expiry
+  with an error ("the token expired before the call ended; the call goes
+  on at the server and its result is withheld", `data.reason`
+  `token_expired`, audited as `mcp-token-expired`). The call runs on at
+  the server; its answer is withheld and logged. A session's SSE stream
+  ends as before and stays resumable. Agents that run calls which may
+  outlast their token should ask for a task.
+
 ### Fixed
 
 - A server definition or `exec` command file with a complex key beside a

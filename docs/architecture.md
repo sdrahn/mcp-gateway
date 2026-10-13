@@ -224,7 +224,10 @@ own backends.
   expired ids get `400`. A connection ends when the token of the request
   that opened it is no longer accepted (its `exp`, plus the leeway), as
   new requests with it are refused; the stream stays resumable with a
-  fresh token (audited as `mcp-token-expired`). `initialize` creates the
+  fresh token (audited as `mcp-token-expired`). A plain JSON response
+  cannot be resumed: at the expiry it is an error saying the call goes on
+  and its answer is withheld (D20), as for a stateless request (§5.11.1);
+  the request id stays in use until the call ends. `initialize` creates the
   session and returns `Mcp-Session-Id`; a session is bound to its
   principal (issuer + subject, and client certificate if any), and
   requests from anyone else get `404`.
@@ -1178,7 +1181,10 @@ instead of `approvals.retry_wait` (§5.11.2).
   with `UnsupportedProtocolVersionError` (`-32022`) listing the versions
   the gateway speaks (modern and legacy). An unknown method is `404`
   with `-32601`. Closing a response stream cancels that request (no
-  `notifications/cancelled`). `Mcp-Session-Id`, GET, DELETE and
+  `notifications/cancelled`). The token's expiry does not: the response
+  ends with an error saying the call goes on and its answer is withheld
+  (logged), and the call runs to its end (D20, roadmap step 31 stage C);
+  `subscriptions/listen` simply ends. `Mcp-Session-Id`, GET, DELETE and
   `Last-Event-ID` keep their meaning for legacy sessions only; on a
   modern request they are ignored. SSE responses carry
   `X-Accel-Buffering: no`; long-lived streams send comment keep-alives.
@@ -3343,7 +3349,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       answered, and for a task at each fetch; an answer the HTTP
       transport replays on a resume was decided when it was produced
       (the replay buffer keeps 5 minutes) and is not decided again;
-    - stage C, stateless calls follow sessions: a call's response stream
+    - stage C (done), stateless calls follow sessions: a call's response stream
       ends at the token's `exp` (audited `mcp-token-expired`), the call
       runs on, and its result is kept as a task's would be, so that the
       agent can fetch it with a fresh token if it asked for a task; an

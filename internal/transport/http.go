@@ -474,7 +474,10 @@ type httpSession struct {
 	streams    map[int]*stream    // resumable streams by number; 0 is the GET stream
 	nextStream int                // number of the next request stream
 	pending    map[string]*stream // streams awaiting a response, by client request id
-	order      []*stream          // attached SSE request streams, oldest first
+	// withheld are plain JSON requests whose response ended at their
+	// token's expiry (D20): their answers are dropped, and logged.
+	withheld   map[string]principal.Principal
+	order      []*stream // attached SSE request streams, oldest first
 	queue      []*jsonrpc.Message
 	lastActive time.Time
 }
@@ -629,6 +632,9 @@ func (s *httpSession) Write(m *jsonrpc.Message) error {
 		if st := s.pending[m.Key()]; st != nil {
 			delete(s.pending, m.Key())
 			st.add(m)
+		} else if p, ok := s.withheld[m.Key()]; ok {
+			delete(s.withheld, m.Key())
+			s.h.log.Warn("result withheld: the token expired before the call ended", "sub", p.Sub, "session", s.id)
 		}
 		// The client left before a plain JSON response: drop it.
 		return nil
@@ -752,7 +758,8 @@ func (s *httpSession) detach(st *stream, conn int) {
 func (s *httpSession) handleRequest(w http.ResponseWriter, r *http.Request, p principal.Principal, m *jsonrpc.Message, sse bool) {
 	key := m.Key()
 	s.mu.Lock()
-	if _, dup := s.pending[key]; dup {
+	_, withheld := s.withheld[key] // its call still runs: the id is in use
+	if _, dup := s.pending[key]; dup || withheld {
 		s.mu.Unlock()
 		writeJSONError(w, http.StatusBadRequest, jsonrpc.CodeInvalidRequest, "duplicate request id")
 		return
@@ -795,6 +802,14 @@ func (s *httpSession) handleRequest(w http.ResponseWriter, r *http.Request, p pr
 		s.mu.Unlock()
 		s.detach(st, conn)
 	}()
+	// The token's expiry ends the response, never the call (D20): it
+	// runs on in the session, and its answer is withheld.
+	var expired <-chan time.Time
+	if !p.Expires.IsZero() {
+		t := time.NewTimer(time.Until(p.Expires))
+		defer t.Stop()
+		expired = t.C
+	}
 	for {
 		s.mu.Lock()
 		evs := st.eventsAfter(0)
@@ -810,6 +825,25 @@ func (s *httpSession) handleRequest(w http.ResponseWriter, r *http.Request, p pr
 		}
 		select {
 		case <-wake:
+		case <-expired:
+			s.mu.Lock()
+			if s.pending[key] == st {
+				delete(s.pending, key)
+				if s.withheld == nil {
+					s.withheld = map[string]principal.Principal{}
+				}
+				s.withheld[key] = p
+			}
+			s.mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			b, _ := json.Marshal(tokenExpiredError(m.ID))
+			_, _ = w.Write(append(b, '\n'))
+			s.h.log.Info("response ended: token expired; the call goes on, its result is withheld", "sub", p.Sub, "session", s.id)
+			if s.h.cfg.TokenExpired != nil {
+				p.SessionID = s.id
+				s.h.cfg.TokenExpired(p)
+			}
+			return
 		case <-r.Context().Done():
 			return
 		case <-s.closed:
