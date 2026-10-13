@@ -3380,6 +3380,48 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       a fetched result; in the VMs, a `zypp` installation outlasting a
       short token completes, and its result is fetched afterwards.
 
+32. **Tasks that report, and a rule of their own** (0.20, D20):
+    - the problem: agents poll their tasks (every 2 s, as the gateway
+      suggests), so an approval waiting in a task, or its end, reaches
+      the agent up to a poll late, and each poll is a request with its
+      token and a decision log entry. Seeing and cancelling tasks in the
+      control API follows the approver rule of instances
+      (`manage_instance`), so a policy cannot let helpdesk staff cancel
+      a user's task without letting them stop the user's instances;
+    - stage A, status notifications: every change of a task's status
+      (and of its input requests) is sent to its agent as the agent's
+      era has it, besides polling, which stays. Agents of 2025-11-25
+      get `notifications/tasks/status` (the task) on the session that
+      started the task, and on the user's other sessions of 2025-11-25
+      that listed it (`tasks/list`) or asked for it (`tasks/get`,
+      `tasks/result`); agents of 2026-07-28 get `notifications/tasks`
+      (the detailed task, with `inputRequests`, `result` or `error`
+      by status) on their `subscriptions/listen` streams that ask for
+      it (`notifications.taskIds`), which the acknowledgement lists as
+      accepted for the task ids of the principal only. A notification
+      that carries a result passes the delivery check (stage B of
+      step 31) for the stream's principal, as a fetch would; one
+      withheld is sent without the result (the agent's `tasks/get`
+      then answers why). The suggested polling interval stays 2 s;
+    - stage B, `data.mcp.approvals.manage_task`: who may see and cancel
+      a task in the control API and Cockpit, with input `task` (server,
+      tool, the principal's `sub`, `uid`, `iss`, `transport`). The
+      shipped rule is the instances' (the approver rules of the
+      server: the principal themself, and the approvers named for it);
+      a policy that does not define the rule falls back to
+      `manage_instance`, so custom approval policies keep working;
+    - not in this step: deciding replayed answers again (the replay
+      buffer keeps 5 minutes), per-conversation state for modern agents
+      (§12), Kit at 2026-07-28 (waits for mcp-go to implement the tasks
+      extension);
+    - tests: a task's approval and end reach a 2025-11-25 session and a
+      2026-07-28 listen stream without polling; a stream asking for
+      another principal's task ids gets none accepted and nothing sent;
+      a notification for a principal whose role was removed carries no
+      result; a custom policy without `manage_task` decides by
+      `manage_instance`; one with it lets an approver cancel a task but
+      not stop the instance.
+
 ## 12. Open items
 
 - Per-conversation state for modern agents (D18): servers marked
