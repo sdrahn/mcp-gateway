@@ -911,3 +911,37 @@ func TestScopeChallenge(t *testing.T) {
 		t.Fatalf("after streaming: %d %s", resp.StatusCode, body)
 	}
 }
+
+// A plain JSON response of a session ends at the token's expiry with an
+// error saying the call goes on (D20); its answer is withheld, and the
+// request id stays in use until then.
+func TestPlainResponseEndsAtTokenExpiry(t *testing.T) {
+	var exp expiries
+	srv, _ := newTestServer(t, func(c *HTTPConfig) { c.TokenExpired = exp.add })
+	sid := initialize(t, srv, "/mcp", "alice")
+
+	start := time.Now()
+	resp := do(t, srv, req{token: "alice-brief", session: sid, accept: "application/json", body: `{"jsonrpc":"2.0","id":5,"method":"hold"}`})
+	body := readBody(t, resp)
+	if d := time.Since(start); d > 3*time.Second {
+		t.Fatalf("the response outlived the token by %v", d)
+	}
+	if resp.StatusCode != 200 || !strings.Contains(body, `"id":5`) || !strings.Contains(body, `"reason":"token_expired"`) {
+		t.Fatalf("at expiry: %d %s", resp.StatusCode, body)
+	}
+	if ps := exp.get(); len(ps) != 1 || ps[0].SessionID != sid {
+		t.Fatalf("TokenExpired: %+v", ps)
+	}
+	// The call still runs: its id is in use.
+	dup := do(t, srv, req{token: "alice", session: sid, accept: "application/json", body: `{"jsonrpc":"2.0","id":5,"method":"later"}`})
+	if b := readBody(t, dup); dup.StatusCode != http.StatusBadRequest || !strings.Contains(b, "duplicate request id") {
+		t.Fatalf("id reused while the call runs: %d %s", dup.StatusCode, b)
+	}
+	// Its answer is withheld; then the id is free again.
+	rel := do(t, srv, req{token: "alice", session: sid, accept: "application/json", body: `{"jsonrpc":"2.0","id":6,"method":"release"}`})
+	_ = readBody(t, rel)
+	again := do(t, srv, req{token: "alice", session: sid, accept: "application/json", body: `{"jsonrpc":"2.0","id":5,"method":"later"}`})
+	if b := readBody(t, again); again.StatusCode != 200 || !strings.Contains(b, `"id":5`) || strings.Contains(b, "token_expired") {
+		t.Fatalf("after the call ended: %d %s", again.StatusCode, b)
+	}
+}

@@ -335,8 +335,16 @@ scopes come on top of it.
   (one minute of leeway after its `exp`), a comment `: token expired`
   being the last thing on it. Nothing is lost: the client resumes with a
   fresh token and `Last-Event-ID`, as after a dropped connection. A
-  plain JSON response (no `text/event-stream`) is still delivered after
-  the expiry: it answers a request that was valid when made.
+  plain JSON response (no `text/event-stream`), which cannot be resumed,
+  ends at the expiry with the error below; the call goes on at the
+  server and its answer is withheld.
+- Requests of agents of MCP 2026-07-28 (no session) end the same way at
+  their token's expiry, as JSON or as the last message of their stream:
+  the call goes on, its answer is withheld (the gateway logs that), and
+  the agent learns of it from the error. A token's expiry never stops a
+  call at the server (an update half done is the worst outcome); for
+  calls that may outlast the token, ask for a task ("Long calls: tasks",
+  below) and fetch the result with a fresh token.
 - `DELETE` with the session id ends a session.
 
 ### Browser clients
@@ -379,6 +387,8 @@ http:
 | `404 unknown session` / `session ended` | the session expired or belongs to someone else; initialize again |
 | `400 unknown or expired Last-Event-ID` | the stream to resume is gone; send the request again |
 | `409 stream already open` | a second `GET` stream (without `Last-Event-ID`) while the session's stream is open |
+| `200` with error `-32603` "mcp-gateway: the token expired before the call ended; the call goes on at the server and its result is withheld (ask for a task for calls that may outlast the token)", `data.reason` `token_expired` | the token ran out while the call was running; do not call again without checking what the call did; use a task for long calls |
+| `400 duplicate request id` | a request id still in use, also by a call whose answer was withheld at its token's expiry and that still runs |
 
 ## Long calls: tasks
 

@@ -79,7 +79,10 @@ func (h *HTTPHandler) postModern(w http.ResponseWriter, r *http.Request, p princ
 		return
 	}
 	out := &modernWriter{w: w, id: m.Key(), sse: acceptsSSE(r),
-		challenge: func(scope string, body []byte) { h.scopeChallenge(w, p, scope, body) }}
+		challenge: func(scope string, body []byte) { h.scopeChallenge(w, p, scope, body) },
+		withheld: func() {
+			h.log.Warn("result withheld: the token expired before the call ended", "sub", p.Sub, "method", m.Method)
+		}}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	if m.Method == "subscriptions/listen" {
@@ -101,8 +104,45 @@ func (h *HTTPHandler) postModern(w http.ResponseWriter, r *http.Request, p princ
 	}
 	stop := out.keepAlive(keepAlive)
 	defer stop()
-	h.cfg.Request(ctx, out, p, server, m, r.Header)
+	if p.Expires.IsZero() || m.Method == "subscriptions/listen" {
+		h.cfg.Request(ctx, out, p, server, m, r.Header)
+		out.finish()
+		return
+	}
+	// The token's expiry ends the response, never the call (D20): the
+	// call runs on in a context that ends when the client goes away
+	// first, not when the response ended at the expiry.
+	callCtx, cancelCall := context.WithCancel(context.WithoutCancel(r.Context()))
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		defer cancelCall()
+		h.cfg.Request(callCtx, out, p, server, m, r.Header)
+	}()
+	t := time.NewTimer(time.Until(p.Expires))
+	defer t.Stop()
+	select {
+	case <-finished:
+	case <-r.Context().Done():
+		cancelCall() // the client went away: the call is cancelled
+	case <-t.C:
+		if out.expire() {
+			h.log.Info("response ended: token expired; the call goes on, its result is withheld", "sub", p.Sub, "method", m.Method)
+			if h.cfg.TokenExpired != nil {
+				h.cfg.TokenExpired(p)
+			}
+		}
+	}
 	out.finish()
+}
+
+// tokenExpiredError answers a request whose token expired before its
+// call ended (D20): the call goes on, its result is withheld.
+func tokenExpiredError(id json.RawMessage) *jsonrpc.Message {
+	m := jsonrpc.NewError(id, jsonrpc.CodeInternalError, "mcp-gateway: the token expired before the call ended; "+
+		"the call goes on at the server and its result is withheld (ask for a task for calls that may outlast the token)")
+	m.Error.Data = json.RawMessage(`{"reason":"token_expired"}`)
+	return m
 }
 
 func versionsData(requested string) json.RawMessage {
@@ -183,9 +223,14 @@ type modernWriter struct {
 	// challenge answers a response with a scope challenge (403).
 	challenge func(scope string, body []byte)
 
+	// withheld, if set, is told of a response dropped because the
+	// request's token expired first.
+	withheld func()
+
 	mu       sync.Mutex
 	streamed bool // the SSE stream started
 	done     bool // the response was written
+	expired  bool // the response ended at the token's expiry
 }
 
 func (o *modernWriter) Read() (*jsonrpc.Message, error) { select {} }
@@ -198,14 +243,17 @@ func (o *modernWriter) WriteRelated(m *jsonrpc.Message, _ json.RawMessage) error
 func (o *modernWriter) Write(m *jsonrpc.Message) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	response := m.IsResponse() && m.Key() == o.id
 	if o.done {
+		if o.expired && response && o.withheld != nil {
+			o.withheld()
+		}
 		return nil
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
 		return err
 	}
-	response := m.IsResponse() && m.Key() == o.id
 	if !o.streamed {
 		if response {
 			o.done = true
@@ -238,6 +286,30 @@ func (o *modernWriter) Write(m *jsonrpc.Message) error {
 	}
 	o.done = response
 	return nil
+}
+
+// expire ends the response at the token's expiry, unless it was written:
+// with tokenExpiredError, as JSON or as the stream's last message. It
+// reports whether it ended it.
+func (o *modernWriter) expire() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.done {
+		return false
+	}
+	b, _ := json.Marshal(tokenExpiredError(json.RawMessage(o.id)))
+	if o.streamed {
+		_, _ = fmt.Fprintf(o.w, ": token expired\n\nevent: message\ndata: %s\n\n", b)
+		if f, ok := o.w.(http.Flusher); ok {
+			f.Flush()
+		}
+	} else {
+		o.w.Header().Set("Content-Type", "application/json")
+		o.w.WriteHeader(http.StatusOK)
+		_, _ = o.w.Write(append(b, '\n'))
+	}
+	o.done, o.expired = true, true
+	return true
 }
 
 // keepAlive writes an SSE comment every interval while the response is a
