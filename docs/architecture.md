@@ -3388,7 +3388,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       a fetched result; in the VMs, a `zypp` installation outlasting a
       short token completes, and its result is fetched afterwards.
 
-32. **Tasks that report, and a rule of their own** (0.20, D20):
+32. **Tasks that report, and a rule of their own** (0.20, D20; done):
     - the problem: agents poll their tasks (every 2 s, as the gateway
       suggests), so an approval waiting in a task, or its end, reaches
       the agent up to a poll late, and each poll is a request with its
