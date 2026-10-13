@@ -21,6 +21,8 @@
 //	DELETE /v1/grants/{id}
 //	GET    /v1/servers          registry, with the instances the caller may see
 //	DELETE /v1/instances/{id}   stop an instance
+//	GET    /v1/tasks            the agents' tasks the caller may see (running and kept)
+//	POST   /v1/tasks/{id}/cancel  cancel a task: its call is cancelled as by its agent
 //	GET    /v1/policy           active policy bundles and their revisions, roles shipped by server setups
 //	POST   /v1/policy/whatif    role data → the decisions it would change
 //	GET    /v1/events           server-sent events: approvals the caller may decide on
@@ -40,6 +42,7 @@ import (
 	"net"
 	"net/http"
 	"os/user"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -59,6 +62,12 @@ import (
 type Instances interface {
 	Instances() []router.InstanceInfo
 	StopInstance(id string) bool
+}
+
+// Tasks lists and cancels the agents' tasks (router.Router).
+type Tasks interface {
+	Tasks() []router.TaskInfo
+	CancelTask(id, by string) error
 }
 
 // PolicyStatus reports the policy OPA has activated (pep.OPA).
@@ -100,7 +109,9 @@ type Server struct {
 	// is reloaded; Instances and Policy are optional.
 	Backends  func() map[string]*config.Backend
 	Instances Instances
-	Policy    PolicyStatus
+	// Tasks serves /v1/tasks; optional.
+	Tasks  Tasks
+	Policy PolicyStatus
 	// Review and Catalog serve POST /v1/policy/whatif; both optional.
 	Review  PolicyReview
 	Catalog Catalog
@@ -204,6 +215,8 @@ func (s *Server) Handler() http.Handler {
 	}))
 	mux.HandleFunc("GET /v1/servers", s.with(s.servers))
 	mux.HandleFunc("DELETE /v1/instances/{id}", s.with(s.stopInstance))
+	mux.HandleFunc("GET /v1/tasks", s.with(s.tasks))
+	mux.HandleFunc("POST /v1/tasks/{id}/cancel", s.with(s.cancelTask))
 	mux.HandleFunc("GET /v1/sign-ins", s.with(s.signIns))
 	mux.HandleFunc("DELETE /v1/sign-ins/{server}", s.with(s.signOut))
 	mux.HandleFunc("GET /v1/policy", s.with(s.policy))
@@ -438,6 +451,46 @@ func (s *Server) stopInstance(w http.ResponseWriter, r *http.Request, a broker.A
 		}
 	}
 	writeError(w, http.StatusNotFound, "no such instance")
+}
+
+// tasks lists the tasks the caller may manage: as instances, by the
+// approver rules (their own; everyone's for the admin role), newest
+// first.
+func (s *Server) tasks(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+	out := []router.TaskInfo{}
+	if s.Tasks != nil {
+		for _, t := range s.Tasks.Tasks() {
+			if s.Broker.MayManageInstance(r.Context(), a, t.Server, t.UID) {
+				out = append(out, t)
+			}
+		}
+	}
+	slices.Reverse(out)
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+	id := r.PathValue("id")
+	if s.Tasks != nil {
+		for _, t := range s.Tasks.Tasks() {
+			if t.ID != id || !s.Broker.MayManageInstance(r.Context(), a, t.Server, t.UID) {
+				continue
+			}
+			switch err := s.Tasks.CancelTask(id, a.Name+" (control API)"); {
+			case err == nil:
+				if s.Log != nil {
+					s.Log.Info("task cancelled via control API", "task", id, "server", t.Server, "tool", t.Tool, "by", a.Name)
+				}
+				w.WriteHeader(http.StatusNoContent)
+			case errors.Is(err, router.ErrTaskEnded):
+				writeError(w, http.StatusConflict, "the task has ended")
+			default:
+				writeError(w, http.StatusNotFound, "no such task")
+			}
+			return
+		}
+	}
+	writeError(w, http.StatusNotFound, "no such task")
 }
 
 func (s *Server) policy(w http.ResponseWriter, r *http.Request, _ broker.Approver) {

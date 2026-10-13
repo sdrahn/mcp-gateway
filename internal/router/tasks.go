@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"io"
 	"maps"
 	"slices"
@@ -858,4 +859,73 @@ func modernCapabilities(caps any) map[string]json.RawMessage {
 	ext[tasksExtension] = json.RawMessage(`{}`)
 	out["extensions"], _ = json.Marshal(ext)
 	return out
+}
+
+// --- control API --------------------------------------------------------
+
+// TaskInfo describes a task for the control API (GET /v1/tasks).
+type TaskInfo struct {
+	ID        string              `json:"id"`
+	Server    string              `json:"server"`
+	Tool      string              `json:"tool"`
+	Sub       string              `json:"sub"`
+	Issuer    string              `json:"iss,omitempty"`
+	UID       *uint32             `json:"uid,omitempty"`
+	Transport principal.Transport `json:"transport"`
+	// Status is working, input_required, completed, failed or cancelled.
+	Status  string     `json:"status"`
+	Message string     `json:"status_message,omitempty"`
+	Created time.Time  `json:"created"`
+	Updated time.Time  `json:"updated"`
+	Ended   *time.Time `json:"ended,omitempty"`
+	// Delivered tells that the agent fetched the result.
+	Delivered bool `json:"delivered"`
+}
+
+// ErrNoTask and ErrTaskEnded are CancelTask's errors.
+var (
+	ErrNoTask    = errors.New("no such task")
+	ErrTaskEnded = errors.New("the task has ended")
+)
+
+// Tasks lists the agents' tasks, running and kept, oldest first.
+func (r *Router) Tasks() []TaskInfo {
+	r.init()
+	r.tasks.mu.Lock()
+	ts := make([]*task, 0, len(r.tasks.tasks))
+	for _, t := range r.tasks.tasks {
+		ts = append(ts, t)
+	}
+	r.tasks.mu.Unlock()
+	slices.SortFunc(ts, func(a, b *task) int { return a.created.Compare(b.created) })
+	out := make([]TaskInfo, 0, len(ts))
+	for _, t := range ts {
+		t.mu.Lock()
+		info := TaskInfo{ID: t.id, Server: t.server, Tool: t.tool, Sub: t.principal.Sub, Issuer: t.principal.Issuer,
+			UID: t.principal.UID, Transport: t.principal.Transport, Status: string(t.status), Message: t.message,
+			Created: t.created, Updated: t.updated, Delivered: t.delivered}
+		if !t.ended.IsZero() {
+			ended := t.ended
+			info.Ended = &ended
+		}
+		t.mu.Unlock()
+		out = append(out, info)
+	}
+	return out
+}
+
+// CancelTask cancels the task id on behalf of by (an administrator, in
+// the control API): its call is cancelled as by the agent.
+func (r *Router) CancelTask(id, by string) error {
+	r.init()
+	r.tasks.mu.Lock()
+	t := r.tasks.tasks[id]
+	r.tasks.mu.Unlock()
+	if t == nil {
+		return ErrNoTask
+	}
+	if r.cancelTask(t, by) != nil {
+		return ErrTaskEnded
+	}
+	return nil
 }

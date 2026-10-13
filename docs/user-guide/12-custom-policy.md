@@ -68,7 +68,7 @@ input as self-reported.
 | `data.mcp.filter.hints` | every `tools/list`, for the visible tools (optional: a policy without it gives none) | a set of `{"server", "name", "approval", "args"}`: the approval channel (`""` for none) and the argument constraints (one object per permission) the gateway adds to the tool's description (chapter 4, "What agents see about their limits") |
 | `data.mcp.approvals.allow` | control API: may this approver decide on this pending approval? | `true`/`false` |
 | `data.mcp.approvals.manage_grant` | control API: may this caller see and revoke this grant? | `true`/`false` |
-| `data.mcp.approvals.manage_instance` | control API: may this caller see and stop this instance? | `true`/`false` |
+| `data.mcp.approvals.manage_instance` | control API: may this caller see and stop this instance, and see and cancel the tasks on its server of the same principal? | `true`/`false` |
 | `data.mcp.approvals.notify` | a new pending approval, with mail configured | a set of `"user:<name>"` and `"group:<name>"` |
 | `data.mcp.log.mask` | OPA itself, for every decision it logs (`mcp-opa.service` sets `decision_logs.mask_decision` to it) | a set of JSON pointers to remove from the decision log |
 

@@ -1,5 +1,6 @@
 /* Servers tab: the registry and the backend instances the user may see,
- * with stop and the instance's journal; for servers each user signs in to
+ * with stop and the instance's journal; the agents' tasks the user may
+ * see, with cancel; for servers each user signs in to
  * (sign_in), the user's sign-in (with Sign out, and the link of a sign-in
  * waiting for them) and, for administrators, everyone's (with Revoke);
  * the state of the last reload of
@@ -175,6 +176,52 @@ function renderServers(servers, signIns) {
     }
 }
 
+/* taskState describes a task's state for people. */
+function taskState(t) {
+    switch (t.status) {
+    case "working": return "running";
+    case "input_required": return "waiting for the agent (an approval or a question)";
+    case "completed": return "completed " + relative(t.ended) + (t.delivered ? ", result fetched" : ", result not fetched yet");
+    case "failed": return "failed " + relative(t.ended) + (t.status_message ? ": " + t.status_message : "");
+    case "cancelled": return (t.status_message || "cancelled") + " " + relative(t.ended);
+    }
+    return t.status;
+}
+
+async function cancelTask(t, button) {
+    if (!window.confirm("Cancel " + t.server + " / " + t.tool + " of " + t.sub + "? The call is cancelled at the server.")) return;
+    button.disabled = true;
+    try {
+        await api.post("/v1/tasks/" + encodeURIComponent(t.id) + "/cancel", "", {});
+        showError(null);
+    } catch (ex) {
+        showError(ex && (ex.status === 409 || ex.status === 404) ? "The task has ended already." : describeFailure(ex));
+    }
+    tabs.servers.refresh();
+}
+
+function renderTasks(tasks) {
+    const body = document.querySelector("#tasks tbody");
+    body.replaceChildren();
+    if (tasks.length === 0) {
+        body.append(el("tr", null, el("td", { colspan: "5", class: "muted" }, "No tasks you may manage.")));
+        return;
+    }
+    for (const t of tasks) {
+        let action = null;
+        if (t.status === "working" || t.status === "input_required") {
+            action = el("button", { class: "danger" }, "Cancel");
+            action.addEventListener("click", () => cancelTask(t, action));
+        }
+        body.append(el("tr", null,
+                       el("td", null, t.server + " / " + t.tool),
+                       el("td", null, principalText(t)),
+                       el("td", null, relative(t.created)),
+                       el("td", null, taskState(t)),
+                       el("td", null, action)));
+    }
+}
+
 /* renderReloadStatus shows what the last reload of the configuration
  * left: a file that did not load, keys that need a restart. */
 function renderReloadStatus(status) {
@@ -268,9 +315,11 @@ tabs.servers = {
         selfCheck(check);
     },
     async refresh() {
-        const [servers, status, signIns] = await Promise.all([getJSON("/v1/servers"), getJSON("/v1/status"),
-            getJSON("/v1/sign-ins").catch(() => ({ sign_ins: [], pending: [] }))]);
+        const [servers, status, signIns, tasks] = await Promise.all([getJSON("/v1/servers"), getJSON("/v1/status"),
+            getJSON("/v1/sign-ins").catch(() => ({ sign_ins: [], pending: [] })),
+            getJSON("/v1/tasks").catch(() => [])]);
         renderServers(servers, signIns);
+        renderTasks(tasks);
         renderReloadStatus(status);
     },
 };

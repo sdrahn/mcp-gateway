@@ -36,6 +36,10 @@ minor release (with a warning) and removed in the next.
   to the result. A custom policy without a rule for `phase` decides as
   it did for the call.
 
+- Tasks in Cockpit and the control API: `GET /v1/tasks` lists the
+  agents' tasks the caller may manage (as instances: their own,
+  everyone's for administrators), `POST /v1/tasks/{id}/cancel` cancels a
+  running one's call; the Servers tab lists them with **Cancel**.
 - User guide: chapter 4, "Servers that change the system" (roadmap step
   31 stage D): changes that complete or do not happen, calls safe to
   repeat, `destructiveHint`, never relying on the connection. Chapter

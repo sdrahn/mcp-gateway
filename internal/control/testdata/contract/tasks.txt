@@ -1,0 +1,15 @@
+# GET /v1/tasks
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+[].created
+[].delivered
+[].ended
+[].id
+[].iss
+[].server
+[].status
+[].status_message
+[].sub
+[].tool
+[].transport
+[].uid
+[].updated
