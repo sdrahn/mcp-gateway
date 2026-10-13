@@ -3314,7 +3314,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       under Landlock; the doctor's report on both distributions.
 
 31. **Long calls outlive tokens, results reach only valid ones**
-    (0.19, D20):
+    (0.19, D20; done):
     - the problem: a call's life is tied to its connection and token
       where it should not be, and its result is not where it should be.
       A session's streams end at the token's `exp` and the answer waits
