@@ -1305,7 +1305,7 @@ it but without `inputRequests` for a final result.
 | Pseudonym vault per session (§6.3.1) | per principal and endpoint, with the same bound and an idle expiry (`pseudonymize.vault_idle`, default 1 h). Pseudonyms stay consistent across calls, which the model needs; the vault cannot live in `requestState`, which spans the round trips of one call only. |
 | Grants `session` | not offered (above) |
 | `isolation: session` instances | one instance per principal, as `isolation: principal`, which SEP-2567 names for gateways that bridged sessions to stdio processes ("route by authenticated principal"). Legacy sessions keep their own instances. The specification asks such servers to move their state to handles in tool arguments; the doctor and the reference say that modern agents get per-principal instances. |
-| Sessions per principal (D14) | in-flight requests and open subscription streams per principal: `limits.requests_per_principal`, `limits.streams_per_principal` |
+| Sessions per principal (D14) | in-flight requests and open subscription streams per principal: `limits.requests_per_principal`, `limits.streams_per_principal`; tasks (§5.11.6, in both eras): `limits.tasks_per_principal` |
 | `logging/setLevel` | per-request `logLevel` |
 | Replay of 256 events per stream | none: a broken stream loses its request, and the client issues it again |
 
@@ -1338,14 +1338,54 @@ per principal; discovery instances (`discovery: shared`) fit the model
 better than before, since lists may no longer depend on a connection.
 Extensions are not passed through unless the gateway implements them:
 it declares none to servers and strips unknown ones from what agents
-declare (the reason tasks are not relayed today, roadmap step 15). The
-MCP Apps extension (`io.modelcontextprotocol/ui`, server-rendered HTML
-shown by the agent) does not pass the gateway (decided for now: its
-content is not something policy and obligations can judge). The tasks
-extension (`io.modelcontextprotocol/tasks`: polling with `tasks/get`,
-input with `tasks/update`) can be supported later with policy and
-obligations applied to task results (roadmap step 31, D20: the
-gateway offers tasks to agents itself).
+declare. The MCP Apps extension (`io.modelcontextprotocol/ui`,
+server-rendered HTML shown by the agent) does not pass the gateway
+(decided for now: its content is not something policy and obligations
+can judge). The tasks extension (`io.modelcontextprotocol/tasks`) the
+gateway implements toward agents itself (§5.11.6); servers' own tasks
+are not relayed.
+
+#### 5.11.6 Tasks
+
+The gateway offers agents tasks for `tools/call` (D20, roadmap step 31):
+the agent gets a task id at once, and the gateway makes the call to the
+server as for any other call, in a session of its own (the task
+session) that ends neither with the agent's connection nor with its
+token. Servers stay synchronous: none needs to support tasks, and a
+server's own tasks are not relayed (the gateway does not ask for them).
+
+| | Agents of 2025-11-25 | Agents of 2026-07-28 |
+|---|---|---|
+| Offered | capability `tasks` (`list`, `cancel`, `requests.tools.call`) at `initialize`; every tool listed with `execution.taskSupport: "optional"` (earlier versions are offered nothing) | extension `io.modelcontextprotocol/tasks` in `server/discover` (no `execution.taskSupport`, which 2026-07-28 removed) |
+| Asked for | the `task` parameter of `tools/call` | the extension in the request's `clientCapabilities`: each `tools/call` of the request is a task |
+| Answer | `CreateTaskResult` (`task`) | `resultType: "task"` with the task |
+| Status | `tasks/get` | `tasks/get`, with `inputRequests`, `result` or `error` by status |
+| Result | `tasks/result`: blocks until the task ended, asks the agent on its stream what the call asks of the client, and answers the result with `_meta["io.modelcontextprotocol/related-task"]` | in `tasks/get` once `completed` |
+| Input | asked over `tasks/result` | `tasks/update` with `inputResponses` |
+| Other | `tasks/list`, `tasks/cancel` | `tasks/cancel` |
+
+A task belongs to its principal (issuer and subject, or the local user,
+and the client certificate if any), not to a session: another session or
+request of the same principal finds it, another principal does not
+(`-32602`, as for an unknown task). What the call asks of the client (a
+`form` or `url` approval, a server's elicitation, sampling or roots,
+each decided as in any call) makes the task `input_required` until the
+agent answers; out-of-band approvals leave it `working`. An approval for
+a task offers no `session` scope, since the call may outlast the
+session. Progress and log messages go to the session that started the
+task while it lasts. Results pass obligations as any call's do; one
+larger than `tasks.max_result_bytes` (default 4 MiB) fails the task. A
+result is kept for `tasks.retention` after the call ended (default 1 h,
+reported to agents as the task's `ttl`), a principal has at most
+`limits.tasks_per_principal` tasks (default 32), and none survives a
+restart of the gateway (whose instances end with it). Cancelling a task
+cancels its call as an agent's `notifications/cancelled` does. Task
+sessions run in the gateway's own context: a stopping gateway drains
+privileged calls first, then ends them. Recorded in the journal as
+`mcp-task` (`event`: `created`, `delivered`, `cancelled`, `expired`
+with `reason=result not fetched`; not in the kernel audit log). Not yet: status notifications
+(`notifications/tasks/status`, and `notifications/tasks` on
+`subscriptions/listen`); agents poll, at the suggested 2 s.
 
 **Errors and audit.** Error codes follow the request's era (a missing
 resource is `-32602` for modern requests, `-32002` for legacy ones).
@@ -3262,7 +3302,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       `zypper` installation halfway, and make long changes impossible
       with hour-long tokens. Agents that hold no connection for a long
       call have no way to come back for its result;
-    - stage A, tasks in the gateway, for `tools/call`, in both eras (the
+    - stage A (done), tasks in the gateway, for `tools/call`, in both eras (the
       experimental tasks of 2025-11-25 toward legacy agents, the tasks
       extension `io.modelcontextprotocol/tasks` toward modern ones,
       §5.11). An agent that asks for a task gets its id at once; the

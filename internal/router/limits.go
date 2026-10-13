@@ -24,7 +24,7 @@ func principalKey(p principal.Principal) string {
 
 // LimitError is returned when a limit refuses a session or an instance.
 type LimitError struct {
-	Limit string // sessions, instances_per_principal, instances, requests_per_principal, streams_per_principal
+	Limit string // sessions, instances_per_principal, instances, requests_per_principal, streams_per_principal, tasks_per_principal
 	Max   int
 }
 
@@ -35,6 +35,7 @@ func (e *LimitError) Error() string {
 		"instances":               "gateway instance limit",
 		"requests_per_principal":  "request limit",
 		"streams_per_principal":   "subscription stream limit",
+		"tasks_per_principal":     "task limit",
 	}[e.Limit]
 	return fmt.Sprintf("%s reached (%d)", what, e.Max)
 }

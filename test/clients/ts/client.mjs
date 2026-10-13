@@ -142,7 +142,32 @@ async function cancel() {
     return { cancelled: error !== null, error };
 }
 
-const scenarios = { basic, approval, elicit, listchanged, cancel };
+// A write run as a task (MCP 2025-11-25, the gateway's own tasks): its
+// approval comes as input_required and is asked over tasks/result.
+async function task() {
+    const { client } = await connect({ elicitation: { form: {} } });
+    client.setRequestHandler(ElicitRequestSchema, (req) => {
+        const scope = req.params.requestedSchema?.properties?.scope;
+        return { action: "accept", content: { scope: scope?.enum?.includes("once") ? "once" : scope?.default ?? "once" } };
+    });
+    await client.listTools(); // learns that the tool may run as a task
+    const seen = [];
+    let out = { error: "no result" };
+    const stream = client.experimental.tasks.callToolStream(
+        { name: "write_file", arguments: { path: path.join(home, "tasked.txt"), content: "ok" } },
+        undefined,
+        { task: { ttl: 60000 } },
+    );
+    for await (const m of stream) {
+        seen.push(m.type === "taskStatus" ? m.task.status : m.type);
+        if (m.type === "result") out = { isError: !!m.result.isError, text: text(m.result) };
+        if (m.type === "error") out = { error: String(m.error?.message || m.error) };
+    }
+    await client.close();
+    return { ...out, seen };
+}
+
+const scenarios = { basic, approval, elicit, listchanged, cancel, task };
 if (!scenarios[scenario]) {
     console.error(`unknown scenario ${scenario}`);
     process.exit(2);

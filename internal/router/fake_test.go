@@ -51,7 +51,8 @@ func (fakePDP) Decide(_ context.Context, in pep.Input) (pep.Decision, error) {
 		}
 		switch {
 		case strings.HasPrefix(in.Resource.Name, "read_"), strings.HasPrefix(in.Resource.Name, "ask_"),
-			in.Resource.Name == "slow", in.Resource.Name == "progress", in.Resource.Name == "sign_in":
+			in.Resource.Name == "slow", in.Resource.Name == "progress", in.Resource.Name == "sign_in",
+			in.Resource.Name == "commit":
 			return allow, nil
 		case strings.HasPrefix(in.Resource.Name, "write_"):
 			if len(in.Grants) > 0 {

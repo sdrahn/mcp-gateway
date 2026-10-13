@@ -359,7 +359,12 @@ Event records carry `event` (the operation below), `ok` and fields of
 the event. The event `mcp-pseudonymize` is recorded in the journal only
 (not in the kernel audit log): `session`, `sub`, `server`, `name`
 (tool, prompt or `sampling/createMessage`), `decision_id` and `values`,
-the classes and counts replaced (`"EMAIL:2 PERSON:1"`).
+the classes and counts replaced (`"EMAIL:2 PERSON:1"`). So is
+`mcp-task`, an agent's task created, its result delivered, cancelled, or
+expired with its result not fetched (chapter 5, "Long calls: tasks"):
+`event` (`created`, `delivered`, `cancelled`, `expired`), `task`,
+`principal`, `transport`, `session` (at creation), `server`, `tool`,
+`reason`.
 
 Kernel audit (`TRUSTED_APP`) operations:
 

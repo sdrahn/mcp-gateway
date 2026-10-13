@@ -235,6 +235,7 @@ limits:
   instances: 0
   requests_per_principal: 64
   streams_per_principal: 16
+  tasks_per_principal: 32
 ```
 
 | Key | Default | Meaning |
@@ -244,6 +245,7 @@ limits:
 | `limits.instances` | `0` (none) | running instances of all principals together, handled the same way ("gateway instance limit reached"); size it to the host's memory |
 | `limits.requests_per_principal` | `64` | requests of agents of MCP 2026-07-28, which have no session, one principal has in flight (subscription streams aside); more are refused ("request limit reached (64)") |
 | `limits.streams_per_principal` | `16` | subscription streams (`subscriptions/listen`) of agents of MCP 2026-07-28 one principal has open; more are refused ("subscription stream limit reached (16)") |
+| `limits.tasks_per_principal` | `32` | tasks (below) one principal has, running or done and kept; a call asking for another is refused ("task limit reached (32)") until one is dropped |
 
 A principal is a local user, or a remote token's issuer and subject.
 Discovery instances do not count. Clients that never end their HTTP
@@ -262,6 +264,23 @@ pseudonymize:
 | Key | Default | Meaning |
 |---|---|---|
 | `pseudonymize.vault_idle` | `1h` | agents of MCP 2026-07-28 have no session: their pseudonyms (obligation `pseudonymize`, chapter 6) belong to the user and endpoint and are dropped this long after the user's last request there; at least `1m`. Legacy sessions keep theirs until they end |
+
+### Tasks
+
+```yaml
+tasks:
+  retention: 1h
+  max_result_bytes: 4194304
+```
+
+An agent that asks for a task (chapter 5, "Long calls: tasks") gets its
+id at once; the call runs whatever happens to the agent's connection
+and token, and the gateway keeps its result for the user.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `tasks.retention` | `1h` | keep a task, and its result, this long after its call ended (fetched or not); at least `1m`. Tasks do not survive a restart of the gateway |
+| `tasks.max_result_bytes` | `4194304` (4 MiB) | a larger result fails the task ("the result exceeds tasks.max_result_bytes"); at least `1024` |
 
 ### Protocol versions per client
 

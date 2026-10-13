@@ -7,6 +7,25 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Tasks for long calls (decision D20, roadmap step 31 stage A): an
+  agent that asks for one gets a task id at once, and the gateway makes
+  the `tools/call` to the server as for any call, in a session of its
+  own that ends neither with the agent's connection nor with its token.
+  The result is kept for the user (`tasks.retention`, default 1 h;
+  `tasks.max_result_bytes`, default 4 MiB; `limits.tasks_per_principal`,
+  default 32) and fetched later, from any session of the same user,
+  with a fresh token if need be. Agents of MCP 2025-11-25 get the tasks
+  of that version (`tasks/get`, `tasks/result`, `tasks/list`,
+  `tasks/cancel`), agents of 2026-07-28 the extension
+  `io.modelcontextprotocol/tasks` (`tasks/get`, `tasks/update`,
+  `tasks/cancel`). Approvals in the agent make the task
+  `input_required`. No server needs to support tasks. Recorded in the
+  journal as `mcp-task`. Kit, at its default 2025-11-25, now runs its calls as
+  tasks (`tasksMode: auto`) and polls them; `tasksMode: never` in its
+  configuration keeps plain calls.
+
 ### Fixed
 
 - A server definition or `exec` command file with a complex key beside a
