@@ -68,6 +68,11 @@ type Router struct {
 	// NoRequestTimeout names clients whose approval and sign-in rounds
 	// wait until decided (agents.no_request_timeout; mrtr.go).
 	NoRequestTimeout []string
+	// MaxTasksPerPrincipal, TaskRetention and TaskMaxResultBytes bound
+	// the tasks the gateway offers agents (tasks.go; 0: the default).
+	MaxTasksPerPrincipal int
+	TaskRetention        time.Duration
+	TaskMaxResultBytes   int
 	// ModernAgents serves agents' requests of MCP 2026-07-28 (agents.go).
 	// Off, such requests are served as before (a server/discover probe
 	// is unknown, and the agent falls back to initialize).
@@ -85,6 +90,11 @@ type Router struct {
 	discovery discoveryCache
 	// lastChange is when policy or the definitions last changed.
 	lastChange atomic.Value // time.Time
+	// tasks are the agents' tasks; tasksCtx ends their calls when the
+	// gateway stops (stopTasks).
+	tasks     taskStore
+	tasksCtx  context.Context
+	stopTasks context.CancelFunc
 
 	mu       sync.Mutex
 	sessions map[*Session]struct{}
@@ -262,12 +272,14 @@ func (r *Router) init() {
 		}
 		r.registry.Store(&initial)
 		r.sealer = newSealer()
+		r.tasksCtx, r.stopTasks = context.WithCancel(context.Background())
 		r.pool = newPool(r.Launcher, r.IdleTimeout, r.Log)
 		r.applySettings(Settings{IdleTimeout: r.IdleTimeout, ProgressInterval: r.ProgressInterval,
 			MaxSessionsPerPrincipal: r.MaxSessionsPerPrincipal, MaxInstancesPerPrincipal: r.MaxInstancesPerPrincipal,
 			MaxInstances: r.MaxInstances, ListTTL: r.ListTTL, RetryWait: r.RetryWait,
 			MaxRequestsPerPrincipal: r.MaxRequestsPerPrincipal, MaxStreamsPerPrincipal: r.MaxStreamsPerPrincipal, VaultIdle: r.VaultIdle,
-			MaxVersion: r.MaxVersion, NoRequestTimeout: r.NoRequestTimeout})
+			MaxVersion: r.MaxVersion, NoRequestTimeout: r.NoRequestTimeout,
+			MaxTasksPerPrincipal: r.MaxTasksPerPrincipal, TaskRetention: r.TaskRetention, TaskMaxResultBytes: r.TaskMaxResultBytes})
 		r.pool.onListChanged = r.listChanged
 		r.pool.current = func(server string) *config.Backend { return (*r.registry.Load())[server] }
 		if r.SignIns != nil {
@@ -289,6 +301,9 @@ type Settings struct {
 	VaultIdle                                                       time.Duration
 	MaxVersion                                                      map[string]string
 	NoRequestTimeout                                                []string
+	MaxTasksPerPrincipal                                            int
+	TaskRetention                                                   time.Duration
+	TaskMaxResultBytes                                              int
 }
 
 // defaultListTTL and defaultRetryWait are ListTTL and RetryWait when
@@ -323,6 +338,15 @@ func (r *Router) applySettings(s Settings) {
 	if s.VaultIdle <= 0 {
 		s.VaultIdle = defaultVaultIdle
 	}
+	if s.MaxTasksPerPrincipal <= 0 {
+		s.MaxTasksPerPrincipal = defaultTasksPerPrincipal
+	}
+	if s.TaskRetention <= 0 {
+		s.TaskRetention = defaultTaskRetention
+	}
+	if s.TaskMaxResultBytes <= 0 {
+		s.TaskMaxResultBytes = defaultTaskResultBytes
+	}
 	s.MaxVersion = lowerKeys(s.MaxVersion)
 	s.NoRequestTimeout = lowerNames(s.NoRequestTimeout)
 	r.live.Store(&s)
@@ -342,6 +366,9 @@ func (r *Router) settings() Settings {
 // instances.
 func (r *Router) Serve(ctx context.Context, l *transport.UnixListener) error {
 	r.init()
+	// Deferred: tasks' calls end after the instances (privileged calls
+	// drain first).
+	defer r.endTasks()
 	defer r.pool.closeAll()
 	go func() {
 		<-ctx.Done()

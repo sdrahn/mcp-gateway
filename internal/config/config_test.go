@@ -32,7 +32,8 @@ func TestLoadGatewayDefaults(t *testing.T) {
 		g.Supervisor.IdleTimeout != DefaultIdleTimeout ||
 		g.Approvals.ControlSocket != DefaultControl || g.Policy.WatchInterval != DefaultWatchInterval ||
 		g.Limits.SessionsPerPrincipal != DefaultSessionsPerPrincipal || g.Limits.InstancesPerPrincipal != DefaultInstancesPerPrincipal ||
-		g.Limits.Instances != 0 {
+		g.Limits.Instances != 0 || g.Limits.TasksPerPrincipal != DefaultTasksPerPrincipal ||
+		g.Tasks.Retention != DefaultTaskRetention || g.Tasks.MaxResultBytes != DefaultTaskMaxResultBytes {
 		t.Errorf("defaults not applied: %+v", g)
 	}
 }
@@ -126,6 +127,9 @@ func TestLoadGatewayErrors(t *testing.T) {
 		"http plain aud":   "http:\n  listen: ':8443'\n  cert_file: c\n  key_file: k\n  issuer: https://idp\n  audience: http://gw.example.com/mcp\n",
 		"bad selinux":      "supervisor:\n  selinux: maybe\n",
 		"negative limit":   "limits:\n  instances: -1\n",
+		"negative tasks":   "limits:\n  tasks_per_principal: -1\n",
+		"short retention":  "tasks:\n  retention: 30s\n",
+		"tiny results":     "tasks:\n  max_result_bytes: 100\n",
 		"bad max version":  "agents:\n  max_version:\n    kit: '2025-12-01'\n",
 		"empty client":     "agents:\n  max_version:\n    '': '2025-11-25'\n",
 		"empty patient":    "agents:\n  no_request_timeout: ['']\n",

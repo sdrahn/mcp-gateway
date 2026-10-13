@@ -356,6 +356,19 @@ agents:
 					}
 				})
 
+				// The gateway's tasks (D20), with the client library that
+				// implements them for agents (the TypeScript SDK 1.x).
+				t.Run("task", func(t *testing.T) {
+					if c.name != "ts" {
+						t.Skip("no task support in this client library")
+					}
+					r := runClient(t, c, "task", envFor("fsform"), nil)
+					if r["isError"] == true || !strings.HasPrefix(fmt.Sprint(r["text"]), "wrote") ||
+						!strings.Contains(strs(r["seen"]), "taskCreated") || !strings.Contains(strs(r["seen"]), "input_required") {
+						t.Fatalf("write as a task: %v", r)
+					}
+				})
+
 				t.Run("list_changed", func(t *testing.T) {
 					r := runClient(t, c, "listchanged", envFor("fs"), func() {
 						opaPut(t, opaSock, "mcp/rbac", rbac(`,

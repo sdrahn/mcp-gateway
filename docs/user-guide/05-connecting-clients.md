@@ -380,6 +380,42 @@ http:
 | `400 unknown or expired Last-Event-ID` | the stream to resume is gone; send the request again |
 | `409 stream already open` | a second `GET` stream (without `Last-Event-ID`) while the session's stream is open |
 
+## Long calls: tasks
+
+A call can take longer than an agent's connection or token lasts: an
+installation, an update, an approval nobody has decided yet. Agents
+that support MCP tasks can ask the gateway for one: the call is
+answered at once with a task id and runs at the server whatever happens
+to the connection and the token; the agent comes back for the result,
+with a fresh token if the old one expired. Servers need nothing for
+this: the gateway makes the call as any other and keeps the result.
+
+- **Who uses them:** agents of MCP 2025-11-25 see the `tasks`
+  capability and every tool marked `execution.taskSupport: "optional"`,
+  and ask with the `task` parameter of `tools/call` (Kit by default,
+  the TypeScript SDK 1.x with `client.experimental.tasks.callToolStream`).
+  Agents of 2026-07-28 that declare the extension
+  `io.modelcontextprotocol/tasks` get a task for each `tools/call`.
+  Earlier versions, and agents that do not ask, are answered as before.
+- **Fetching:** `tasks/get` tells the status (`working`,
+  `input_required`, `completed`, `failed`, `cancelled`); 2025-11-25
+  agents fetch the result with `tasks/result`, 2026-07-28 agents find
+  it in `tasks/get`. A task belongs to the user, not to the session or
+  connection: another session of the same user finds it, nobody else
+  does ("task not found").
+- **Approvals:** a `form` or `url` approval makes the task
+  `input_required`: a 2025-11-25 agent is asked over `tasks/result`, a
+  2026-07-28 agent finds the request in `tasks/get` and answers with
+  `tasks/update`. An out-of-band approval leaves the task `working`
+  until an approver decides, within `approval_timeout`. A task's
+  approval offers no "session" scope.
+- **Cancelling:** `tasks/cancel` cancels the call at the server, as an
+  agent's own cancellation does.
+- **Limits:** results are kept for `tasks.retention` (1 h) after the
+  call ended, up to `tasks.max_result_bytes` (4 MiB), at most
+  `limits.tasks_per_principal` (32) per user, and not across a restart
+  of the gateway (chapter 3). Audited as `mcp-task` (chapter 11).
+
 ## Client compatibility
 
 The gateway speaks MCP 2024-11-05 to 2026-07-28 with agents: the
@@ -508,7 +544,7 @@ mcpServers:
 | Protocol | with `agents.max_version: {}` (no cap) Kit speaks 2026-07-28: no session, no "session" grants; approvals still wait up to `approval_timeout`, since Kit is named in `agents.no_request_timeout` (a round waits until the decision). Without that, an approval ends for Kit after about 75 s (three waiting rounds of `approvals.retry_wait`, above) |
 | Policy changes | Kit reads the tool list when it starts and does not act on `list_changed` (over HTTP it does not receive it either); start Kit again after role changes. Tools that policy removed meanwhile are refused when called |
 | Load | before each tool call Kit lists the server's tools as a health check |
-| Tasks | with `tasksMode: always` Kit asks for a task; the gateway runs the call synchronously (it offers no tasks, so `auto` never asks) |
+| Tasks | at 2025-11-25 (its default cap, above) Kit sees that the gateway offers tasks and, with `tasksMode: auto` (its default), makes each call a task and polls `tasks/get` (every 2 s): a long call is not cut by a proxy's timeout or by its token's expiry. Kit gives up on a task after 15 minutes and cancels it; `tasksMode: never` restores plain calls |
 
 ### Other agents
 

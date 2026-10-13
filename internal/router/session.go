@@ -94,6 +94,11 @@ type Session struct {
 	// carries modern requests never does, and hears nothing as a
 	// session).
 	initialized bool
+	// version is the protocol version initialize agreed on.
+	version string
+	// task marks the session of a task (tasks.go): its client is the
+	// task, which keeps what the call asks of the client for the agent.
+	task *task
 }
 
 func newSession(r *Router, ep endpoint, client jsonrpc.MessageConn, p principal.Principal) *Session {
@@ -251,9 +256,19 @@ func (s *Session) handlers(method string) (handler, bool) {
 		return func(context.Context, *jsonrpc.Message) (any, *jsonrpc.Error) { return map[string]any{}, nil }, true
 	case "tools/list", "prompts/list", "resources/list", "resources/templates/list":
 		return s.list, true
-	case "tools/call", "prompts/get", "resources/read", "resources/subscribe",
+	case "tools/call":
+		return s.toolsCall, true
+	case "prompts/get", "resources/read", "resources/subscribe",
 		"resources/unsubscribe", "completion/complete":
 		return s.call, true
+	case "tasks/get":
+		return s.taskGet, true
+	case "tasks/result":
+		return s.taskResult, true
+	case "tasks/list":
+		return s.taskList, true
+	case "tasks/cancel":
+		return s.taskCancel, true
 	case "logging/setLevel":
 		return s.setLevel, true
 	}
@@ -473,6 +488,9 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 	if c := s.r.versionCap(p.ClientInfo.Name); c != "" && v > c {
 		v = c
 	}
+	s.mu.Lock()
+	s.version = v
+	s.mu.Unlock()
 	if !s.endpoint().aggregated {
 		server := s.endpoint().order[0]
 		b := s.endpoint().backends[server]
@@ -484,12 +502,12 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 		if (b != nil && s.mustSignIn(b)) || errors.Is(err, signin.ErrNotSignedIn) {
 			// Until the principal signed in, the gateway answers for
 			// the server: it offers sign_in, and lists change after.
-			return map[string]any{"protocolVersion": v, "serverInfo": map[string]any{"name": server},
+			return s.withTaskCapability(map[string]any{"protocolVersion": v, "serverInfo": map[string]any{"name": server},
 				"capabilities": map[string]any{
 					"tools":     map[string]any{"listChanged": true},
 					"prompts":   map[string]any{"listChanged": true},
 					"resources": map[string]any{"listChanged": true},
-				}}, nil
+				}}), nil
 		}
 		if err != nil {
 			return nil, unavailable(err)
@@ -498,9 +516,9 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 		if init.Instructions != "" {
 			res["instructions"] = init.Instructions
 		}
-		return res, nil
+		return s.withTaskCapability(res), nil
 	}
-	return map[string]any{
+	return s.withTaskCapability(map[string]any{
 		"protocolVersion": v,
 		"capabilities": map[string]any{
 			"tools":       map[string]any{"listChanged": true},
@@ -511,7 +529,7 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 		},
 		"serverInfo":   map[string]any{"name": "mcp-gateway", "version": version.Version},
 		"instructions": aggregatedInstructions(s.endpoint()),
-	}, nil
+	}), nil
 }
 
 // aggregatedInstructions tells the client how names are prefixed, that
@@ -685,6 +703,7 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		s.mu.Lock()
 		s.annotations = annotations
 		s.mu.Unlock()
+		s.withTaskSupport(out)
 	}
 	return map[string]any{spec.field: out}, nil
 }
@@ -894,7 +913,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 			return nil, rpcErr
 		}
 	}
-	if s.modern && m.Method == "tools/call" {
+	if (s.modern || s.task != nil) && m.Method == "tools/call" {
 		var name string
 		_ = json.Unmarshal(params["name"], &name)
 		s.learnTools(ctx, name)
@@ -991,8 +1010,9 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	t.rewrite(params)
 	// A task-augmented request (params.task, MCP 2025-11-25) would make the
 	// backend answer with a task to poll through methods the gateway does
-	// not route; it runs synchronously instead. The gateway does not offer
-	// tasks, but some clients ask regardless.
+	// not route; it runs synchronously instead. The gateway offers tasks
+	// itself (tasks.go): a task's call arrives here without the parameter,
+	// and clients of earlier versions that ask regardless get a result.
 	delete(params, "task")
 	// The answers to a modern server's input requests are the gateway's
 	// to give, after policy (answerInput): a client cannot supply them.
@@ -1109,9 +1129,10 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 		return dec, "", in
 	}
 	ask := *dec.Ask
-	if p.SessionID == "" {
+	if p.SessionID == "" || s.task != nil {
 		// No session (a modern agent's request): no grant for the
-		// session, which would hold for all of them.
+		// session, which would hold for all of them. A task's call may
+		// outlast its session.
 		ask.Scopes = slices.DeleteFunc(slices.Clone(ask.Scopes), func(sc string) bool { return sc == "session" })
 	}
 	stop := s.reportWaiting(t)

@@ -86,6 +86,8 @@ type Gateway struct {
 	SignIn SignInSettings `yaml:"sign_in"`
 	// Pseudonymize configures the pseudonym vaults.
 	Pseudonymize Pseudonymize `yaml:"pseudonymize"`
+	// Tasks configures the tasks the gateway offers agents (D20).
+	Tasks Tasks `yaml:"tasks"`
 	// Agents configures how the gateway speaks to agents.
 	Agents Agents `yaml:"agents"`
 
@@ -125,6 +127,19 @@ type Limits struct {
 	// StreamsPerPrincipal limits the subscription streams
 	// (subscriptions/listen) one principal has open; more are refused.
 	StreamsPerPrincipal int `yaml:"streams_per_principal"`
+	// TasksPerPrincipal limits the tasks (running, or done and kept)
+	// one principal has; more are refused.
+	TasksPerPrincipal int `yaml:"tasks_per_principal"`
+}
+
+// Tasks configures the tasks the gateway offers agents for tools/call
+// (docs/architecture.md, decision D20): the call runs whatever happens
+// to the agent's connection and token, and the gateway keeps its result.
+type Tasks struct {
+	// Retention keeps a task's result this long after its call ended.
+	Retention time.Duration `yaml:"retention"`
+	// MaxResultBytes bounds a kept result; a larger one fails the task.
+	MaxResultBytes int `yaml:"max_result_bytes"`
 }
 
 // Pseudonymize configures the pseudonym vaults (obligation
@@ -521,6 +536,9 @@ const (
 	DefaultRequestsPerPrincipal  = 64
 	DefaultStreamsPerPrincipal   = 16
 	DefaultVaultIdle             = time.Hour
+	DefaultTasksPerPrincipal     = 32
+	DefaultTaskRetention         = time.Hour
+	DefaultTaskMaxResultBytes    = 4 << 20
 	// DefaultMCSRange is the upper quarter of the targeted policy's
 	// categories; libvirt is confined to the rest by the shipped drop-ins.
 	DefaultMCSRange        = "c768.c1023"
@@ -654,8 +672,17 @@ func (g *Gateway) setDefaults() {
 	if g.Limits.StreamsPerPrincipal == 0 {
 		g.Limits.StreamsPerPrincipal = DefaultStreamsPerPrincipal
 	}
+	if g.Limits.TasksPerPrincipal == 0 {
+		g.Limits.TasksPerPrincipal = DefaultTasksPerPrincipal
+	}
 	if g.Pseudonymize.VaultIdle == 0 {
 		g.Pseudonymize.VaultIdle = DefaultVaultIdle
+	}
+	if g.Tasks.Retention == 0 {
+		g.Tasks.Retention = DefaultTaskRetention
+	}
+	if g.Tasks.MaxResultBytes == 0 {
+		g.Tasks.MaxResultBytes = DefaultTaskMaxResultBytes
 	}
 	if g.Approvals.ControlSocket == "" {
 		g.Approvals.ControlSocket = DefaultControl
@@ -776,11 +803,17 @@ func (g *Gateway) Validate() error {
 		}
 	}
 	if g.Limits.SessionsPerPrincipal < 0 || g.Limits.InstancesPerPrincipal < 0 || g.Limits.Instances < 0 ||
-		g.Limits.RequestsPerPrincipal < 0 || g.Limits.StreamsPerPrincipal < 0 {
+		g.Limits.RequestsPerPrincipal < 0 || g.Limits.StreamsPerPrincipal < 0 || g.Limits.TasksPerPrincipal < 0 {
 		return errors.New("limits: must not be negative")
 	}
 	if g.Pseudonymize.VaultIdle < time.Minute {
 		return errors.New("pseudonymize.vault_idle: must be at least 1m")
+	}
+	if g.Tasks.Retention < time.Minute {
+		return errors.New("tasks.retention: must be at least 1m")
+	}
+	if g.Tasks.MaxResultBytes < 1024 {
+		return errors.New("tasks.max_result_bytes: must be at least 1024")
 	}
 	if l := g.Metrics.Listen; l != "" {
 		if _, port, err := net.SplitHostPort(l); err != nil || port == "" {

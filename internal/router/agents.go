@@ -173,12 +173,21 @@ func (s *Session) agentRequest(ctx context.Context, m *jsonrpc.Message, header h
 			if err := s.checkParamHeaders(ctx, m, header); err != nil {
 				return nil, err
 			}
+			if s.agentWantsTask() {
+				return s.agentTask(m)
+			}
 			return s.call(ctx, m)
 		}
 	case "prompts/get", "resources/read", "completion/complete":
 		h = s.call
 	case "subscriptions/listen":
 		h = s.listen
+	case "tasks/get":
+		h = s.agentTaskGet
+	case "tasks/update":
+		h = s.agentTaskUpdate
+	case "tasks/cancel":
+		h = s.agentTaskCancel
 	default:
 		// Among them what MCP 2026-07-28 removed (initialize, ping,
 		// logging/setLevel, resources/subscribe and unsubscribe).
@@ -204,7 +213,7 @@ func (s *Session) cacheable(method string, result any) any {
 	if err != nil || json.Unmarshal(raw, &res) != nil || res == nil {
 		return result
 	}
-	if string(res["resultType"]) == `"input_required"` {
+	if t := string(res["resultType"]); t == `"input_required"` || t == `"task"` {
 		return res // an interim result: nothing to cache
 	}
 	res["resultType"] = json.RawMessage(`"complete"`)
@@ -267,7 +276,7 @@ func (s *Session) discover(ctx context.Context, m *jsonrpc.Message) (any, *jsonr
 	}
 	res, _ := init.(map[string]any)
 	// Changes and subscribed resources come on subscriptions/listen.
-	caps := res["capabilities"]
+	caps := modernCapabilities(res["capabilities"])
 	info := res["serverInfo"]
 	if info == nil {
 		info = map[string]any{"name": "mcp-gateway", "version": version.Version}
