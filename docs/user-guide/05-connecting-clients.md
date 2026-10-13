@@ -477,6 +477,14 @@ What the gateway does for clients:
   removed) a round waits until the decision. For other mcp-go agents
   without a request timeout, name them in both, or in
   `agents.no_request_timeout` only.
+- **Tasks of mcp-go.** mcp-go 1.1 implements the tasks of 2025-11-25,
+  not the tasks extension of 2026-07-28 (`io.modelcontextprotocol/tasks`),
+  and Kit decides to use tasks from the 2025-11-25 `tasks` capability.
+  Capped, Kit runs its calls as tasks ("Long calls: tasks", above); with
+  the cap removed it makes plain calls again, which end with the
+  connection, and has no "session" grants. Keep the cap until mcp-go
+  implements the extension, even though `agents.no_request_timeout`
+  alone would keep its approvals waiting.
 
 ## Agents
 

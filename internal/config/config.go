@@ -180,7 +180,9 @@ var AgentVersions = []string{"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-
 // DefaultMaxVersion is Agents.MaxVersion's default: mcp-go 1.1 (Kit)
 // gives up on a call after three answers in a row that ask for nothing,
 // so approvals that take longer end for it on 2026-07-28; with the
-// handshake, a call waits up to approval_timeout.
+// handshake, a call waits up to approval_timeout. It also uses tasks
+// only at 2025-11-25 (mcp-go 1.1 lacks the tasks extension of
+// 2026-07-28), so the cap stays until mcp-go implements it.
 func DefaultMaxVersion() map[string]string {
 	return map[string]string{"kit": "2025-11-25"}
 }
