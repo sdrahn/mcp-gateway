@@ -258,7 +258,8 @@ func TestAgentTask(t *testing.T) {
 
 	m = c.roundTrip(2, "tools/call", withAgentMeta(map[string]any{"name": "write_file"}, caps))
 	created := decodeTask(t, m)
-	if created.ResultType != "task" || created.Status != "working" || created.TTLMs == nil {
+	// The approval may already be asked for when the task is answered.
+	if created.ResultType != "task" || (created.Status != "working" && created.Status != "input_required") || created.TTLMs == nil {
 		t.Fatalf("created: %s", m.Result)
 	}
 	id := 2
