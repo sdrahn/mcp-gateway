@@ -151,11 +151,29 @@ not enforce.
 | `context.client_capabilities` | the capabilities the agent announced (self-reported): at `initialize`, or in the request itself (MCP 2026-07-28) |
 | `context.protocol_version` | `2026-07-28` for a request of an agent of that version, which has no session; absent for sessions |
 | `discovery` | `true` when the decision is asked on behalf of the filter (below) |
+| `phase` | `delivery` when the decision is whether a call's result goes to the principal (below); absent when the call itself is decided |
 
 Not every field is present in every query: the filter's inner decisions
 have no `args`, `grants` or `context`; requests from MCP servers have no
 `grants`. Rules must cope with missing fields (in Rego a missing field
 makes an expression undefined, so the rule simply does not apply).
+
+### Deciding again on delivery
+
+Before a call's result goes to the agent, the gateway asks again: the
+call's input with `"phase": "delivery"`, the principal as it is then
+(its groups, roles and scopes from the token it presents now) and the
+grants the call was decided with. For a plain call that is when the
+server answered; for a task, each time the agent fetches its result,
+which may be hours later and with a new token. `deny` withholds the
+result (the agent gets "result withheld: …", audited as
+`mcp-result-withheld`); `allow` delivers it with that decision's
+obligations (redaction, size limits) applied; `ask` delivers it with the
+call's obligations, since the call was decided and nothing is asked
+again. The shipped policy allows delivery while the principal holds a
+permission for the tool, with or without approval. A custom policy
+without a rule for `phase` decides as it did for the call; to treat
+delivery differently, test `input.phase == "delivery"`.
 
 ### Decision document
 

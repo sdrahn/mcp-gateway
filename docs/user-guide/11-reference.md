@@ -378,6 +378,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcp-config-reload` | the server definitions, or `gateway.yaml` (`file=gateway.yaml`), were reloaded with changes (`res=success`), or could not be (`res=failed`; what was in force stays) | `trigger` (`file change`, `SIGHUP`), `file`, `added`, `changed`, `removed`, `restart_needed`, `error` |
 | `mcp-mcs-collision` | an instance's MCS pair was taken by another workload | `instance`, `pair`, `foreign_pid`, `foreign_context` |
 | `mcp-limit` | a session or instance was refused at a limit (`res=failed`) | `principal`, `transport`, `session`, `limit`, `max` |
+| `mcp-result-withheld` | policy withheld a call's result on delivery (`res=failed`; chapter 12, "Deciding again on delivery") | `principal`, `transport`, `session`, `action`, `server`, `target`, `reason`, `decision_id`, `call_decision_id` |
 | `mcp-token-expired` | an HTTP stream ended because the token that opened it expired | `principal`, `transport`, `session` |
 | `mcp-sign-in` | a principal's sign-in to a server with `sign_in` started, completed (`res=success`) or failed (`res=failed`) | `server`, `principal`, `step` (`started`, `completed`, `failed`), `reason` |
 | `mcp-sign-in-refresh` | a principal's token was refreshed (`res=success`), or could not be (`res=failed`; `tokens=deleted` when the authorization server refused it and the principal must sign in again) | `server`, `principal`, `reason`, `tokens` |

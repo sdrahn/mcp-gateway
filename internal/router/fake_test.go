@@ -27,6 +27,19 @@ type fakePDP struct{}
 func (fakePDP) Decide(_ context.Context, in pep.Input) (pep.Decision, error) {
 	allow := pep.Decision{Effect: pep.Allow}
 	deny := pep.Decision{Effect: pep.Deny, Reason: "not yours"}
+	// Delivering a result (D20): withheld from a principal in the group
+	// "revoked" (a role removed meanwhile) and for read_withheld, with an
+	// obligation of its own for read_redacted_later.
+	if in.Phase == pep.PhaseDelivery {
+		switch {
+		case slices.Contains(in.Principal.Groups, "revoked"):
+			return pep.Decision{Effect: pep.Deny, Reason: "role removed"}, nil
+		case in.Resource.Name == "read_withheld":
+			return pep.Decision{Effect: pep.Deny, Reason: "not to be delivered"}, nil
+		case in.Resource.Name == "read_redacted_later":
+			return pep.Decision{Effect: pep.Allow, Obligations: &pep.Obligations{RedactOutput: []string{"did"}}}, nil
+		}
+	}
 	switch in.Action {
 	case "tools.call":
 		// gateway_capabilities (builtin.rego): not for "nobody".
