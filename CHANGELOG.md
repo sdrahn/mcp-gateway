@@ -16,6 +16,12 @@ minor release (with a warning) and removed in the next.
   `subscriptions/listen` streams of 2026-07-28 that name it in
   `notifications.taskIds` (accepted for the user's own tasks only), the
   result there decided again on delivery as a fetch is.
+- `data.mcp.approvals.manage_task` (roadmap step 32 stage B): who may
+  see and cancel a task in the control API and Cockpit is a rule of its
+  own, with input `task` (server, tool, the principal's `sub`, `iss`,
+  `uid`, `transport`); the shipped rule is the instances' approver
+  rules, and a policy without it decides by `manage_instance` as
+  before.
 
 ## v0.19.0 — 2026-10-13
 

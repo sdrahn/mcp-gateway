@@ -64,6 +64,18 @@ test_manage_instance if {
 	approvals.manage_instance with input as {"approver": carol, "instance": remote}
 }
 
+test_manage_task if {
+	own := {"server": "zypp", "tool": "confirm_install", "sub": "alice", "uid": 1001, "transport": "unix"}
+	approvals.manage_task with input as {"approver": alice, "task": own}
+	not approvals.manage_task with input as {"approver": bob, "task": own}
+	approvals.manage_task with input as {"approver": carol, "task": own}
+
+	# An unmapped remote principal's task: admins only.
+	remote := {"server": "zypp", "tool": "confirm_install", "sub": "u-remote", "uid": null, "transport": "http"}
+	not approvals.manage_task with input as {"approver": alice, "task": remote}
+	approvals.manage_task with input as {"approver": carol, "task": remote}
+}
+
 test_manage_sign_in if {
 	own := {"server": "tickets", "uid": 1001}
 	approvals.manage_sign_in with input as {"approver": alice, "sign_in": own}

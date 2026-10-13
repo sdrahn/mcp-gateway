@@ -112,6 +112,7 @@ const (
 	manageGrantPath    = "/v1/data/mcp/approvals/manage_grant"
 	manageInstancePath = "/v1/data/mcp/approvals/manage_instance"
 	manageSignInPath   = "/v1/data/mcp/approvals/manage_sign_in"
+	manageTaskPath     = "/v1/data/mcp/approvals/manage_task"
 	reviewPolicyPath   = "/v1/data/mcp/approvals/review_policy"
 )
 
@@ -660,6 +661,18 @@ type ApproverInput struct {
 	// SignIn is a principal's sign-in to a server (server and uid, as
 	// for an instance).
 	SignIn *InstanceTarget `json:"sign_in,omitempty"`
+	// Task is an agent's task (roadmap step 32).
+	Task *TaskTarget `json:"task,omitempty"`
+}
+
+// TaskTarget is an agent's task, as approver rules see it.
+type TaskTarget struct {
+	Server    string              `json:"server"`
+	Tool      string              `json:"tool"`
+	Sub       string              `json:"sub"`
+	Issuer    string              `json:"iss,omitempty"`
+	UID       *uint32             `json:"uid"`
+	Transport principal.Transport `json:"transport"`
 }
 
 // ApprovalTarget is the call an approval is about, as approver rules see it.
@@ -717,6 +730,29 @@ func (b *Broker) mayApprove(ctx context.Context, a Approver, p *Pending) bool {
 // access: as policy says; without policy, root only.
 func (b *Broker) MayReviewPolicy(ctx context.Context, a Approver) bool {
 	return b.ask(ctx, a, reviewPolicyPath, ApproverInput{})
+}
+
+// MayManageTask reports whether a may see and cancel the task t
+// (data.mcp.approvals.manage_task). A policy that does not define the
+// rule decides as for the principal's instances of the server
+// (manage_instance), so approval policies written before it keep
+// working.
+func (b *Broker) MayManageTask(ctx context.Context, a Approver, t TaskTarget) bool {
+	if a.UID == 0 {
+		return true
+	}
+	if b.opts.Policy == nil {
+		return t.UID != nil && *t.UID == a.UID
+	}
+	ok, err := b.opts.Policy.Bool(ctx, manageTaskPath, ApproverInput{Approver: &a, Task: &t})
+	if errors.Is(err, pep.ErrUndefined) {
+		return b.MayManageInstance(ctx, a, t.Server, t.UID)
+	}
+	if err != nil {
+		b.log.Warn("approver policy failed", "path", manageTaskPath, "err", err)
+		return false
+	}
+	return ok
 }
 
 // mayManage: as policy says; without policy, the principal's own grants.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -674,5 +675,64 @@ func TestSetApprovals(t *testing.T) {
 	b.SetApprovals(time.Hour, "")
 	if u := b.ApprovalURL("a-1"); u != "" {
 		t.Fatalf("url %q without a template", u)
+	}
+}
+
+// policyFunc answers approver queries with a function.
+type policyFunc func(path string, in ApproverInput) (bool, error)
+
+func (f policyFunc) Bool(_ context.Context, path string, input any) (bool, error) {
+	return f(path, input.(ApproverInput))
+}
+
+// manage_task decides on tasks; a policy without the rule decides as
+// for the principal's instances (manage_instance).
+func TestMayManageTask(t *testing.T) {
+	uid := uint32(1001)
+	task := TaskTarget{Server: "zypp", Tool: "confirm_install", Sub: "alice", UID: &uid}
+	helpdesk := Approver{Name: "dave", UID: 1004, Groups: []string{"helpdesk"}}
+
+	// A policy with the rule: the helpdesk may manage tasks, not instances.
+	withRule := newBroker(t, func(o *Options) {
+		o.Policy = policyFunc(func(path string, in ApproverInput) (bool, error) {
+			switch path {
+			case manageTaskPath:
+				return slices.Contains(in.Approver.Groups, "helpdesk") ||
+					(in.Task.UID != nil && *in.Task.UID == in.Approver.UID), nil
+			case manageInstancePath:
+				return in.Instance.UID != nil && *in.Instance.UID == in.Approver.UID, nil
+			}
+			return false, nil
+		})
+	})
+	if !withRule.MayManageTask(context.Background(), helpdesk, task) || withRule.MayManageInstance(context.Background(), helpdesk, "zypp", &uid) {
+		t.Fatal("manage_task not decided by its rule")
+	}
+	if withRule.MayManageTask(context.Background(), bobApprover, task) || !withRule.MayManageTask(context.Background(), aliceApprover, task) {
+		t.Fatal("manage_task: own task only")
+	}
+
+	// A policy without it: as instances.
+	without := newBroker(t, func(o *Options) {
+		o.Policy = policyFunc(func(path string, in ApproverInput) (bool, error) {
+			if path == manageTaskPath {
+				return false, fmt.Errorf("%w for %s", pep.ErrUndefined, path)
+			}
+			return in.Instance != nil && in.Instance.UID != nil && *in.Instance.UID == in.Approver.UID, nil
+		})
+	})
+	if !without.MayManageTask(context.Background(), aliceApprover, task) || without.MayManageTask(context.Background(), bobApprover, task) {
+		t.Fatal("without manage_task: not decided as for instances")
+	}
+	// Another failure refuses.
+	failing := newBroker(t, func(o *Options) { o.Policy = errPolicy{} })
+	if failing.MayManageTask(context.Background(), aliceApprover, task) {
+		t.Fatal("a failing policy allowed")
+	}
+	// Root may; without policy, the principal themself.
+	noPolicy := newBroker(t, func(o *Options) { o.Policy = nil })
+	if !noPolicy.MayManageTask(context.Background(), Approver{Name: "root"}, task) ||
+		!noPolicy.MayManageTask(context.Background(), aliceApprover, task) || noPolicy.MayManageTask(context.Background(), bobApprover, task) {
+		t.Fatal("without policy")
 	}
 }

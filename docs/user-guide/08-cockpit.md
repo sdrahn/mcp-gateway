@@ -91,8 +91,9 @@ After the configuration changed while the gateway runs (chapter 3,
   and keeps what it has if a file does not load; the page says so.
 
 **Tasks** lists the calls agents run as tasks (chapter 5, "Long calls:
-tasks") that you may manage, by the same approver rules as instances
-(your own; everyone's for administrators), newest first: the server
+tasks") that you may manage (`manage_task`: by default the approver
+rules of the server, as for instances: your own; everyone's for
+administrators), newest first: the server
 and tool, the principal, when it started, and its state (running,
 waiting for the agent, completed with whether the agent fetched the
 result, failed, cancelled). **Cancel** cancels a running task's call at
