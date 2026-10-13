@@ -1344,7 +1344,8 @@ shown by the agent) does not pass the gateway (decided for now: its
 content is not something policy and obligations can judge). The tasks
 extension (`io.modelcontextprotocol/tasks`: polling with `tasks/get`,
 input with `tasks/update`) can be supported later with policy and
-obligations applied to task results.
+obligations applied to task results (roadmap step 31, D20: the
+gateway offers tasks to agents itself).
 
 **Errors and audit.** Error codes follow the request's era (a missing
 resource is `-32602` for modern requests, `-32002` for legacy ones).
@@ -2416,6 +2417,50 @@ can hide, and nothing outside systemd); a seccomp-unotify broker
 (heavier, and a broker in the gateway's path); waiting for audit
 records of denials (later kernels; diagnosis without them is stage D).
 
+**D20 — A token's expiry ends delivery, never work.**
+*Decision (proposed 2026-10-13, roadmap step 31):* when the token of a
+call in progress expires, the call runs to its end (D12): the gateway
+never cancels work at a server because a token expired. Only the
+agent's cancellation, the call's own timeout or the instance's stop end
+it. What expiry ends is delivery: a result goes only to the principal
+whose call it was, presented with a currently valid token, and policy
+is asked again when it is delivered. In a session this holds today (the
+stream ends at `exp`; the answer is replayed when the client resumes
+with a fresh token); stateless calls (2026-07-28) follow the same rule
+instead of answering on the open connection past `exp`. For calls that
+outlast a token, the gateway offers tasks to agents: the call is
+answered at once with a task id, runs on whatever happens to the
+connection and the token, and its result is fetched later with a valid
+token, through the same delivery check. Servers stay synchronous; the
+gateway holds the result. That a change completes or does not happen at
+all is the server's to guarantee (zypper's transactional mode with a
+snapshot, transactional-update), never the gateway's: it only never
+interrupts one.
+*Rationale:* expiry is freshness, not revocation: the principal was
+allowed the call when it started, and a token runs out on a timer (often
+an hour) while an installation or an approval may take longer.
+Cancelling a change halfway (an update stopped between packages) is the
+worst outcome there is, and would make long changes impossible for
+short-lived tokens. Where authorization does matter after the start is
+the result: a large query answered to someone whose role was removed
+meanwhile. A check on delivery covers that, and covers revocation, not
+only expiry. Tasks decouple the call's life from the connection and the
+token without asking every server to implement them, and the result
+still passes the gateway's policy and obligations (redaction, size).
+One rule for sessions, stateless calls and tasks keeps the behaviour
+predictable: what started runs, what is delivered is decided again.
+*Considered:* cancelling the call at expiry (stops changes halfway; a
+read-only call could be cancelled to save the server's work, but the
+gain is small and the result can still be fetched); delivering
+regardless, as stateless calls do today (a result to a principal whose
+access was revoked); ending the session at expiry (loses its grants and
+state, while refreshing the token is the client's job); tasks only where
+a server implements them (few do, and each would hold results the
+gateway cannot judge on delivery); introspecting the token at the
+identity provider on every message (a round trip per message and a
+dependence on the provider's availability; `exp` and the delivery check
+bound the window instead).
+
 ## 10. Repository layout
 
 ```
@@ -3204,6 +3249,76 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       another instance; the systemd server reads outside its trees no
       more; `inspect --exec` of a server that writes to `$HOME` fails
       under Landlock; the doctor's report on both distributions.
+
+31. **Long calls outlive tokens, results reach only valid ones**
+    (0.19, D20):
+    - the problem: a call's life is tied to its connection and token
+      where it should not be, and its result is not where it should be.
+      A session's streams end at the token's `exp` and the answer waits
+      for a resume with a fresh token (step 17); a stateless call
+      (2026-07-28) is not cut at all and answers on the open connection
+      past `exp`, so a result can reach a principal whose access was
+      revoked meanwhile. Cancelling at expiry instead would stop a
+      `zypper` installation halfway, and make long changes impossible
+      with hour-long tokens. Agents that hold no connection for a long
+      call have no way to come back for its result;
+    - stage A, tasks in the gateway, for `tools/call`, in both eras (the
+      experimental tasks of 2025-11-25 toward legacy agents, the tasks
+      extension `io.modelcontextprotocol/tasks` toward modern ones,
+      §5.11). An agent that asks for a task gets its id at once; the
+      gateway makes the call to the server as today (servers stay
+      synchronous, no server needs to support tasks) and keeps the
+      result: per principal (issuer and subject, and client certificate
+      if any), for `tasks.retention` after the call ends (default 1 h),
+      up to `tasks.max_result_bytes`, with a per-principal limit
+      (`limits.tasks_per_principal`, D14). A task survives the agent's
+      disconnection and its token's expiry, not a restart of the gateway
+      (whose instances end with it). `tasks/get` answers the status and,
+      once done, the result; cancelling a task cancels the call, decided
+      by policy as the call's own cancellation. Approvals work as for any
+      call: the task waits for the decision (`input_required` where the
+      era has it). Audited: task created, delivered, expired unfetched,
+      cancelled;
+    - stage B, a check on delivery: every result (an answer on its
+      stream, an answer replayed on resume, a task's result) goes only
+      with a valid token of the call's principal, and policy is asked
+      again before it goes: the call's input with `phase: "delivery"`
+      (a new field; the input contract stays at version 1, §6.2). The
+      shipped policy allows delivery while the principal still holds a
+      permission for the tool; a deny, or a role removed meanwhile,
+      withholds the result (audited `mcp-result-withheld`, with the
+      reason); an `ask` does not ask again, the call was decided.
+      Obligations (redaction, size limits) apply on delivery, as now on
+      the answer. A custom policy without a rule for `phase` sees the
+      same input as for the call and decides as it did then;
+    - stage C, stateless calls follow sessions: a call's response stream
+      ends at the token's `exp` (audited `mcp-token-expired`), the call
+      runs on, and its result is kept as a task's would be, so that the
+      agent can fetch it with a fresh token if it asked for a task; an
+      agent that did not loses the answer, and the gateway logs that it
+      withheld it. Chapter 5 tells agents to use a task, or a session,
+      for calls that may outlast their token;
+    - stage D, servers that change the system: the user guide (chapter
+      4) asks server authors for changes that complete or do not happen
+      (a transaction, a snapshot to return to), for `destructiveHint` on
+      such tools, and never to rely on the connection staying open; the
+      `zypp` setup's notes recommend its transactional mode with snapper
+      where the system offers it;
+    - Cockpit lists a principal's running and finished tasks (server,
+      tool, started, state) and lets an administrator cancel one;
+      `GET /v1/tasks` in the control API;
+    - not in this step: keeping tasks across a restart of the gateway;
+      tasks for methods other than `tools/call`; relaying the tasks of
+      servers that offer their own (the gateway's tasks cover them);
+      introspecting tokens at the identity provider;
+    - tests: a task outlives its agent's disconnection and its token,
+      and its result is fetched with a fresh token; a task's result is
+      withheld after the principal's role is removed, and delivered after
+      a role change that keeps the tool; a stateless call's stream ends
+      at `exp` while the call completes at the server (no cancellation
+      reaches it); retention and the per-principal limit; obligations on
+      a fetched result; in the VMs, a `zypp` installation outlasting a
+      short token completes, and its result is fetched afterwards.
 
 ## 12. Open items
 
