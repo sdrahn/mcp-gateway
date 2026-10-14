@@ -27,8 +27,11 @@ section 11). Releases marked as pre-releases on GitHub (tags such as
 v1.0.0-rc1) bring new features ahead of the next release recommended for
 use.
 Packages are built and tested in VMs on Leap 16 and Tumbleweed for every
-change; from 0.4 on, configuration, role data and APIs change compatibly
-([CHANGELOG](CHANGELOG.md)). Local clients connect over a unix socket,
+change. From 0.4 on, and from 1.0 on as before, configuration, role
+data, the policy input and decision, and the control API change
+compatibly: what goes away is deprecated in one minor release and
+removed in the next ([user guide, chapter 10](docs/user-guide/10-operations.md#what-stays-compatible),
+[CHANGELOG](CHANGELOG.md)). Local clients connect over a unix socket,
 remote clients over MCP Streamable HTTP with OAuth bearer tokens. The
 [user guide](docs/user-guide/README.md) covers installation,
 configuration, MCP servers, clients, policy (including custom Rego),
