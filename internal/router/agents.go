@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/audit"
@@ -138,15 +139,24 @@ func (r *Router) serveAgentRequest(ctx context.Context, ep endpoint, out jsonrpc
 	s.clientCaps = am.caps
 	s.agentLevel = am.logLevel
 	s.vault = r.agentVault(s)
-	defer r.agentSeen(s, m.Method == "subscriptions/listen")()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	s.ctx = ctx
 	defer s.release()
+	// An administrator may end the agent (EndSession): the request is
+	// cancelled and answered so.
+	var ended atomic.Bool
+	defer r.agentSeen(s, m.Method == "subscriptions/listen", func() {
+		ended.Store(true)
+		cancel()
+	})()
 
 	reqCtx, challenge := withChallenge(withRequest(ctx, m.ID))
 	result, rpcErr := s.agentRequest(reqCtx, m, header)
 	if ctx.Err() != nil {
+		if ended.Load() {
+			_ = out.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "mcp-gateway: "+errEnded))
+		}
 		return // cancelled: the client went away or said so
 	}
 	if rpcErr != nil {

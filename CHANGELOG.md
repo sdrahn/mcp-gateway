@@ -23,7 +23,16 @@ minor release (with a warning) and removed in the next.
   is listed by principal, client and endpoint for an hour after its
   last request, with its open `subscriptions/listen` streams and
   requests in flight.
-- `data.mcp.approvals.manage_session`: who may see a client (input
+- Ending a client (roadmap step 34 stage B): `DELETE /v1/sessions/{id}`
+  ends a session as if its client had gone: its calls are cancelled at
+  their servers (a privileged server's instance runs until its call
+  ends), its streams close, its session grants and instances go, and an
+  HTTP client gets `404` for the session id and starts a new session.
+  For an agent of 2026-07-28 it ends the open streams and requests in
+  flight, which are answered with an error; its next request is served.
+  Ending a client keeps nobody out. Audited `mcp-session-ended`, with
+  who ended it.
+- `data.mcp.approvals.manage_session`: who may see and end a client (input
   `session`: the principal, the endpoint and its servers, the client).
   By default the instances' approver rules of every server of the
   endpoint: the principal themself and the admin role.
@@ -31,7 +40,7 @@ minor release (with a warning) and removed in the next.
 ### Changed
 
 - **Custom approval policies.** A policy without `manage_session`
-  decides who may see a client by `manage_instance` for each server of
+  decides who may see and end a client by `manage_instance` for each server of
   its endpoint, so policies written for 1.0.0-rc1 keep working.
 
 ### Fixed

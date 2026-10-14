@@ -3,6 +3,7 @@ package router
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -57,6 +58,8 @@ type agentClient struct {
 	servers           []string
 	first, last       time.Time
 	requests, streams int
+	// end cancels the requests and streams in flight, by request.
+	end map[*bool]func()
 }
 
 // Sessions lists the clients: the initialized sessions and the agents
@@ -117,7 +120,7 @@ func endpointLabel(ep endpoint) string {
 // agentSeen records a request of the modern agent of request session s
 // (a subscription stream if stream); done, when it is answered or the
 // stream ends.
-func (r *Router) agentSeen(s *Session, stream bool) (done func()) {
+func (r *Router) agentSeen(s *Session, stream bool, end func()) (done func()) {
 	p := s.snapshotPrincipal()
 	ep := s.endpoint()
 	key := s.binding() + "\x00" + s.endpointName() + "\x00" + p.Client.Name + "\x00" + p.Client.Version
@@ -130,9 +133,11 @@ func (r *Router) agentSeen(s *Session, stream bool) (done func()) {
 	c := r.agents.clients[key]
 	if c == nil {
 		sum := sha256.Sum256([]byte(key))
-		c = &agentClient{id: "agent-" + hex.EncodeToString(sum[:8]), principal: p, first: now}
+		c = &agentClient{id: "agent-" + hex.EncodeToString(sum[:8]), principal: p, first: now, end: map[*bool]func(){}}
 		r.agents.clients[key] = c
 	}
+	token := new(bool)
+	c.end[token] = end
 	c.endpoint, c.servers, c.last = endpointLabel(ep), slices.Clone(ep.order), now
 	if stream {
 		c.streams++
@@ -148,8 +153,75 @@ func (r *Router) agentSeen(s *Session, stream bool) (done func()) {
 		} else {
 			c.requests--
 		}
+		delete(c.end, token)
 		c.last = time.Now()
 	}
+}
+
+// errEnded is what a client ended by an administrator is told.
+const errEnded = "ended by an administrator"
+
+// ErrNoSession is EndSession's error for an unknown client.
+var ErrNoSession = errors.New("no such session")
+
+// EndSession ends the client id (as Sessions lists it) on behalf of by:
+// a session as if its client had gone (its calls are cancelled at their
+// servers, a privileged instance runs until its call ends; its streams
+// close, its session grants and instances go; an HTTP client gets 404 for
+// the session id), an agent of 2026-07-28 by ending its requests and
+// streams in flight, which are answered with an error. Audited
+// mcp-session-ended.
+func (r *Router) EndSession(id, by string) error {
+	r.init()
+	var info *SessionInfo
+	for _, c := range r.Sessions() {
+		if c.ID == id {
+			info = &c
+			break
+		}
+	}
+	if info == nil {
+		return ErrNoSession
+	}
+	if info.Kind == "agent" {
+		r.agentMu.Lock()
+		var ends []func()
+		for _, c := range r.agents.clients {
+			if c.id == id {
+				for _, end := range c.end {
+					ends = append(ends, end)
+				}
+			}
+		}
+		r.agentMu.Unlock()
+		for _, end := range ends {
+			end()
+		}
+	} else {
+		r.mu.Lock()
+		var victim *Session
+		for s := range r.sessions {
+			if s.principal.SessionID == id {
+				victim = s
+			}
+		}
+		if victim != nil {
+			// Out of the count now, as at the session limit; its Run
+			// ends when the connection closes.
+			delete(r.sessions, victim)
+		}
+		r.mu.Unlock()
+		if victim == nil {
+			return ErrNoSession
+		}
+		_ = victim.client.Close()
+	}
+	r.Log.Info("session ended", "session", id, "kind", info.Kind, "sub", info.Sub, "client", info.Client.Name, "by", by)
+	r.Audit.Event("mcp-session-ended", true, map[string]string{
+		"principal": info.Sub, "transport": string(info.Transport), "session": id, "kind": info.Kind,
+		"endpoint": info.Endpoint, "client": info.Client.Name, "by": by,
+	})
+	return nil
 }
 
 // pruneAgentClients drops the agents not seen for agentSeenFor and, of a
