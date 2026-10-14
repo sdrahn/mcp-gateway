@@ -1062,7 +1062,7 @@ socket), HTTP with JSON:
 | `GET /v1/servers` | the server registry (without command and environment) and the running instances the caller may manage |
 | `DELETE /v1/instances/{id}` | stop an instance; its sessions get a new one on their next call |
 | `GET /v1/tasks`, `POST /v1/tasks/{id}/cancel` | the agents' tasks the caller may manage (§5.11.6; the approver rules of instances); cancel one, as its agent would |
-| `GET /v1/sessions` | the clients the caller may manage (step 34): sessions with client, the MCP version asked for and negotiated and a cap; agents of 2026-07-28 as last seen |
+| `GET /v1/sessions`, `DELETE /v1/sessions/{id}` | the clients the caller may manage (step 34): sessions with client, the MCP version asked for and negotiated and a cap; agents of 2026-07-28 as last seen; end one, as if it had gone |
 | `GET /v1/sign-ins`, `DELETE /v1/sign-ins/{server}` | sign-ins to servers with `sign_in` the caller may see (never tokens) and the caller's pending ones with their link; sign out (§5.7.3) |
 | `GET /v1/policy` | policy mode (directories or bundle) and the active bundle revisions |
 | `POST /v1/policy/whatif` | "what changes?": the decisions proposed role data would change (`data.mcp.whatif.changes`, for reviewers per `data.mcp.approvals.review_policy`) |
@@ -1076,7 +1076,7 @@ an instance is policy (`data.mcp.approvals.manage_instance`, the same
 approver rules as for grants: by default the principal themself and the
 admin role), and so is who may see and cancel a task
 (`data.mcp.approvals.manage_task`, by default the same rules; a policy
-without it decides by `manage_instance`), and who may see a client
+without it decides by `manage_instance`), and who may see and end a client
 (`data.mcp.approvals.manage_session`: the rules of every server of its
 endpoint; a policy without it decides by `manage_instance` for those
 servers).
@@ -3534,10 +3534,10 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       `manage_instance` for those servers. The client's name is its own
       claim, shown as such: it chooses the protocol, never what is
       allowed;
-    - stage B, ending a client: `DELETE /v1/sessions/{id}` ends a
+    - stage B (done), ending a client: `DELETE /v1/sessions/{id}` ends a
       session as if the client had gone: its calls in flight are
-      cancelled at their servers (a privileged call is let finish, as
-      when the gateway stops), its streams close, its session-scoped
+      cancelled at their servers (a privileged server's instance runs
+      until its call ends, as when the gateway stops), its streams close, its session-scoped
       grants and instances go as at the end of a session; an HTTP
       client gets `404` for the session id and starts a new session,
       which it may, as before. For an agent of 2026-07-28 it ends its

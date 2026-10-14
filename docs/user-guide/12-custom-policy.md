@@ -70,7 +70,7 @@ input as self-reported.
 | `data.mcp.approvals.manage_grant` | control API: may this caller see and revoke this grant? | `true`/`false` |
 | `data.mcp.approvals.manage_instance` | control API: may this caller see and stop this instance? | `true`/`false` |
 | `data.mcp.approvals.manage_task` | control API: may this caller see and cancel this task? (optional: a policy without it decides by `manage_instance` for the task's server and principal) | `true`/`false` |
-| `data.mcp.approvals.manage_session` | control API: may this caller see this client (a session, or an agent of 2026-07-28)? (optional: a policy without it decides by `manage_instance` for every server of the client's endpoint and its principal) | `true`/`false` |
+| `data.mcp.approvals.manage_session` | control API: may this caller see and end this client (a session, or an agent of 2026-07-28)? (optional: a policy without it decides by `manage_instance` for every server of the client's endpoint and its principal) | `true`/`false` |
 | `data.mcp.approvals.notify` | a new pending approval, with mail configured | a set of `"user:<name>"` and `"group:<name>"` |
 | `data.mcp.log.mask` | OPA itself, for every decision it logs (`mcp-opa.service` sets `decision_logs.mask_decision` to it) | a set of JSON pointers to remove from the decision log |
 
