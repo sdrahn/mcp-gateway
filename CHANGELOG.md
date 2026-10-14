@@ -7,6 +7,24 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v1.0.0-rc2 — 2026-10-14
+
+The second release candidate for 1.0, published as a pre-release. It
+adds what joined 1.0 after the first candidate, both decided on
+2026-10-14: the clients using the gateway, with the MCP version each
+speaks, in the control API and in Cockpit, where an administrator can
+end one (roadmap step 34); and the setup package for podman-mcp-server,
+which lets each user's agent manage the user's own rootless containers
+(user guide, chapter 13). From this candidate to 1.0.0, the release
+branch takes fixes only.
+
+Upgrading from 1.0.0-rc1 or 0.20.x needs no changes to `gateway.yaml`,
+server definitions, role data or custom policies: a custom approval
+policy without the new rule `manage_session` decides who may see and
+end a client as for instances. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. The
+package version is `1.0.0~rc2`, which sorts before `1.0.0`.
+
 ### Added
 
 - **Podman setup package** `mcp-gateway-profile-podman`:
