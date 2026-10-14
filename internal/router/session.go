@@ -543,12 +543,20 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 	if supportedVersions[p.ProtocolVersion] {
 		v = p.ProtocolVersion
 	}
+	capped := ""
 	if c := s.r.versionCap(p.ClientInfo.Name); c != "" && v > c {
-		v = c
+		v, capped = c, c
 	}
 	s.mu.Lock()
 	s.version = v
 	s.mu.Unlock()
+	if !s.modern {
+		// Which client, and the version it asked for and got: the name is
+		// what agents.max_version matches (a modern agent's discovery
+		// is logged by discover).
+		s.log.Info("session initialized", "client", p.ClientInfo.Name, "client_version", p.ClientInfo.Version,
+			"requested", p.ProtocolVersion, "protocol", v, "capped", capped)
+	}
 	if !s.endpoint().aggregated {
 		server := s.endpoint().order[0]
 		b := s.endpoint().backends[server]
