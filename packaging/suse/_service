@@ -5,10 +5,7 @@
   modules; OBS builds have no network access), then commit.
 
   Release branch: fetches release-1.0 and takes the version from its
-  latest tag; it needs that tag before the first build. While the branch
-  carries release candidates, v1.0.0-rc1 becomes 1.0.0~rc1 (RPM allows
-  no "-" in a version, and "~" sorts before 1.0.0); the commit releasing
-  1.0.0 sets the rewrite back to v(.*) -> \1.
+  latest tag (v1.0.0 -> 1.0.0); it needs that tag before the first build.
 -->
 <services>
   <service name="tar_scm" mode="manual">
@@ -16,8 +13,8 @@
     <param name="scm">git</param>
     <param name="revision">release-1.0</param>
     <param name="versionformat">@PARENT_TAG@</param>
-    <param name="versionrewrite-pattern">v(.*)-(.*)</param>
-    <param name="versionrewrite-replacement">\1~\2</param>
+    <param name="versionrewrite-pattern">v(.*)</param>
+    <param name="versionrewrite-replacement">\1</param>
     <param name="filename">mcp-gateway</param>
     <param name="exclude">.git</param>
     <param name="exclude">.github</param>

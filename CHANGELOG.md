@@ -5,6 +5,39 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## v1.0.0 — 2026-10-14
+
+The first stable release, for SLES 16 and openSUSE Leap 16, from the
+second release candidate unchanged but for documentation. What 1.0
+brings beyond 0.20 is in the sections of its candidates below: answers
+replayed to a resuming HTTP client decided again (rc1); the compatibility
+promise written down (user guide, chapter 10, "What stays compatible")
+and each minor release tested with the configuration of the one before
+it (rc1); the clients using the gateway, with the MCP version each
+speaks, in the control API and Cockpit, where an administrator can end
+one (rc2); and the setup package for podman-mcp-server, each user's own
+rootless containers as that user (rc2). The compatibility promise holds
+from 1.0 on as it has since 0.4: configuration, role data, the policy's
+input and decision documents and the control API only grow within their
+version, and what goes away is deprecated in one minor release and
+removed in the next.
+
+Upgrading from 0.20.x, 1.0.0-rc1 or 1.0.0-rc2 needs no changes to
+`gateway.yaml`, server definitions, role data or custom policies; from
+0.19.x, read the notes of v0.20.0 as well. After the update, restart the
+gateway (`systemctl restart mcp-gateway.service`); the package does not.
+The package version is `1.0.0`, which `zypper up` takes over the
+candidates' `1.0.0~rcN`. OBS packages that follow a release copy the
+spec, `_service` and `mcp-gateway-rpmlintrc` of the release's tag again
+(packaging/suse/README.md): the spec of 1.0.0-rc1 lacks the podman
+setup package.
+
+### Changed
+
+- packaging/suse/README.md: the spec, `_service` and
+  `mcp-gateway-rpmlintrc` in an OBS package are copies, to be copied
+  again from the release's tag on each update.
+
 ## v1.0.0-rc2 — 2026-10-14
 
 The second release candidate for 1.0, published as a pre-release. It
