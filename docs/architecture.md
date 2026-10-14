@@ -3482,10 +3482,15 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       compatible", with what is not part of the promise (log texts,
       metric names, audit fields, the Cockpit page, the admin tool's
       output);
-    - then 1.0.0-rc1: main builds as 1.0.0, a release branch
-      `release-1.0` carries the candidate, tagged `v1.0.0-rc1` and
-      published as a pre-release, to be tested on SLES 16 and Leap 16;
-      between the candidate and 1.0.0, fixes only;
+    - then 1.0.0-rc1 (done, 2026-10-14): main builds as 1.0.0, a
+      release branch `release-1.0` carries the candidate, tagged
+      `v1.0.0-rc1` and published as a pre-release, to be tested on
+      SLES 16 and Leap 16; between the candidate and 1.0.0, fixes only.
+      As built: on `release-1.0`, `_service` makes the package version
+      of a candidate `1.0.0~rc1` (RPM allows no `-`, and `~` sorts
+      before `1.0.0`); the commit releasing 1.0.0 sets the rewrite back.
+      The VM test's `exec` check expected a 0.x version and now
+      expects the installed package's;
     - not in this step: per-conversation state for modern agents (§12,
       D18), Kit at 2026-07-28 (waits for mcp-go to implement the tasks
       extension);
