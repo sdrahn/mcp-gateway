@@ -36,6 +36,20 @@ type Authenticator interface {
 	Authenticate(ctx context.Context, token string, cert *x509.Certificate) (principal.Principal, error)
 }
 
+// Redelivery makes a response again for principal p, who resumes the
+// stream that carried it: what goes in its place when it is replayed (nil:
+// the response as it was made).
+type Redelivery func(ctx context.Context, p principal.Principal) *jsonrpc.Message
+
+// ReplayWriter is implemented by connections that keep responses for a
+// client to resume (an HTTP session's streams): a response written with
+// WriteReplayable is made again by again each time a resumption replays
+// it, so that a result is decided for the principal resuming it (D20)
+// rather than delivered as decided when it was produced.
+type ReplayWriter interface {
+	WriteReplayable(m *jsonrpc.Message, again Redelivery) error
+}
+
 // SessionFunc runs an MCP session over conn; first is the hello selecting
 // the endpoint. It returns when the session ends.
 type SessionFunc func(ctx context.Context, conn jsonrpc.MessageConn, p principal.Principal, first *jsonrpc.Message)
@@ -503,16 +517,22 @@ type sseEvent struct {
 	response bool
 	// challenge is the response's ScopeChallenge.
 	challenge string
+	// again makes the response again when a resumption replays it.
+	again Redelivery
 }
 
 // add appends m to the stream's events. Caller holds the session's mu.
-func (st *stream) add(m *jsonrpc.Message) {
+func (st *stream) add(m *jsonrpc.Message) { st.addReplayable(m, nil) }
+
+// addReplayable appends m, which again makes anew when a resumption
+// replays it (nil: replayed as it is). Caller holds the session's mu.
+func (st *stream) addReplayable(m *jsonrpc.Message, again Redelivery) {
 	data, err := json.Marshal(m)
 	if err != nil {
 		return
 	}
 	resp := st.key != "" && m.IsResponse() && m.Key() == st.key
-	ev := sseEvent{seq: st.next, data: data, response: resp}
+	ev := sseEvent{seq: st.next, data: data, response: resp, again: again}
 	if resp {
 		ev.challenge = m.ScopeChallenge
 	}
@@ -620,7 +640,14 @@ func (s *httpSession) Read() (*jsonrpc.Message, error) {
 }
 
 // Write implements jsonrpc.MessageConn.
-func (s *httpSession) Write(m *jsonrpc.Message) error {
+func (s *httpSession) Write(m *jsonrpc.Message) error { return s.write(m, nil) }
+
+// WriteReplayable implements ReplayWriter.
+func (s *httpSession) WriteReplayable(m *jsonrpc.Message, again Redelivery) error {
+	return s.write(m, again)
+}
+
+func (s *httpSession) write(m *jsonrpc.Message, again Redelivery) error {
 	select {
 	case <-s.closed:
 		return io.ErrClosedPipe
@@ -631,7 +658,7 @@ func (s *httpSession) Write(m *jsonrpc.Message) error {
 	if m.IsResponse() {
 		if st := s.pending[m.Key()]; st != nil {
 			delete(s.pending, m.Key())
-			st.add(m)
+			st.addReplayable(m, again)
 		} else if p, ok := s.withheld[m.Key()]; ok {
 			delete(s.withheld, m.Key())
 			s.h.log.Warn("result withheld: the token expired before the call ended", "sub", p.Sub, "session", s.id)
@@ -684,6 +711,21 @@ func (s *httpSession) writeUnrelated(m *jsonrpc.Message) {
 		s.queue = s.queue[1:]
 	}
 	s.queue = append(s.queue, m)
+}
+
+// again makes the replayed response ev anew for p, the principal resuming
+// its stream.
+func (s *httpSession) again(ctx context.Context, p principal.Principal, ev sseEvent) []byte {
+	p.SessionID = s.id
+	m := ev.again(ctx, p)
+	if m == nil {
+		return ev.data
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		data, _ = json.Marshal(jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "internal error"))
+	}
+	return data
 }
 
 // Close implements jsonrpc.MessageConn and ends the session.
@@ -791,7 +833,7 @@ func (s *httpSession) handleRequest(w http.ResponseWriter, r *http.Request, p pr
 		if s.challenged(w, r, p, st, wake) {
 			return
 		}
-		s.pipe(w, r, p, st, 0, conn, wake)
+		s.pipe(w, r, p, st, 0, 0, conn, wake)
 		return
 	}
 	defer func() {
@@ -920,14 +962,19 @@ func (s *httpSession) serveStream(w http.ResponseWriter, r *http.Request, p prin
 		http.Error(w, "stream already open", http.StatusConflict)
 		return
 	}
+	// A resumption replays the events after cursor that the stream holds
+	// now; later ones are new.
+	replayed := 0
 	if cursor < 0 {
 		cursor = st.next - 1
+	} else {
+		replayed = st.next - 1
 	}
 	conn, wake := s.attach(st)
 	s.mu.Unlock()
 	defer s.detach(st, conn)
 	w.Header().Set(sessionHeader, s.id)
-	s.pipe(w, r, p, st, cursor, conn, wake)
+	s.pipe(w, r, p, st, cursor, replayed, conn, wake)
 }
 
 // pipe writes st's events after cursor as server-sent events until the
@@ -935,8 +982,10 @@ func (s *httpSession) serveStream(w http.ResponseWriter, r *http.Request, p prin
 // session ends, or the token of the request (p, from the request that
 // opened this connection) is no longer accepted. A stream ended at the
 // token's expiry stays resumable: the client resumes it with a fresh
-// token and Last-Event-ID, and gets what it missed.
-func (s *httpSession) pipe(w http.ResponseWriter, r *http.Request, p principal.Principal, st *stream, cursor, conn int, wake chan struct{}) {
+// token and Last-Event-ID, and gets what it missed: the events up to seq
+// replayed, which a resumption replays, with each response that can be
+// made again (WriteReplayable) made again for p.
+func (s *httpSession) pipe(w http.ResponseWriter, r *http.Request, p principal.Principal, st *stream, cursor, replayed, conn int, wake chan struct{}) {
 	flusher, _ := w.(http.Flusher)
 	flush := func() {
 		if flusher != nil {
@@ -969,7 +1018,11 @@ func (s *httpSession) pipe(w http.ResponseWriter, r *http.Request, p principal.P
 		evs := st.eventsAfter(cursor)
 		s.mu.Unlock()
 		for _, ev := range evs {
-			if _, err := fmt.Fprintf(w, "id: %s\nevent: message\ndata: %s\n\n", eventID(st.num, ev.seq), ev.data); err != nil {
+			data := ev.data
+			if ev.again != nil && ev.seq <= replayed {
+				data = s.again(r.Context(), p, ev)
+			}
+			if _, err := fmt.Fprintf(w, "id: %s\nevent: message\ndata: %s\n\n", eventID(st.num, ev.seq), data); err != nil {
 				return
 			}
 			cursor = ev.seq

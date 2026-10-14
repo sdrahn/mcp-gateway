@@ -25,6 +25,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/pseudo"
 	"github.com/sdrahn/mcp-gateway/internal/signin"
+	"github.com/sdrahn/mcp-gateway/internal/transport"
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
 
@@ -292,6 +293,7 @@ func (s *Session) clientRequest(m *jsonrpc.Message) {
 	}
 	ctx, cancel := context.WithCancel(withRequest(s.ctx, m.ID))
 	ctx, challenge := withChallenge(ctx)
+	ctx, again := withRedelivery(ctx)
 	s.mu.Lock()
 	s.inflight[m.Key()] = cancel
 	s.mu.Unlock()
@@ -307,16 +309,29 @@ func (s *Session) clientRequest(m *jsonrpc.Message) {
 		if ctx.Err() != nil {
 			return // cancelled by the client or the session ended
 		}
-		if rpcErr != nil {
-			_ = s.client.Write(challenge.mark(&jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Error: rpcErr}))
-			return
-		}
-		resp, err := jsonrpc.NewResult(m.ID, result)
-		if err != nil {
-			resp = jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "internal error")
-		}
-		_ = s.client.Write(challenge.mark(resp))
+		_ = s.writeResponse(challenge.mark(response(m.ID, result, rpcErr)), again.replay(m.ID))
 	}()
+}
+
+// response is the response to request id with result, or rpcErr.
+func response(id json.RawMessage, result any, rpcErr *jsonrpc.Error) *jsonrpc.Message {
+	if rpcErr != nil {
+		return &jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: id, Error: rpcErr}
+	}
+	resp, err := jsonrpc.NewResult(id, result)
+	if err != nil {
+		resp = jsonrpc.NewError(id, jsonrpc.CodeInternalError, "internal error")
+	}
+	return resp
+}
+
+// writeResponse writes resp to the client; again, if set, makes it anew
+// when the client's transport replays it (transport.ReplayWriter).
+func (s *Session) writeResponse(resp *jsonrpc.Message, again transport.Redelivery) error {
+	if rw, ok := s.client.(transport.ReplayWriter); ok && again != nil {
+		return rw.WriteReplayable(resp, again)
+	}
+	return s.client.Write(resp)
 }
 
 func rpcError(code int, msg string) *jsonrpc.Error { return &jsonrpc.Error{Code: code, Message: msg} }
@@ -441,6 +456,49 @@ func (c *scopeChallenge) mark(resp *jsonrpc.Message) *jsonrpc.Message {
 	resp.ScopeChallenge = c.scope
 	c.mu.Unlock()
 	return resp
+}
+
+// redeliveryKey holds the request's *redelivery.
+type redeliveryKey struct{}
+
+// redelivery is how a request's result is delivered again (D20, roadmap
+// step 33): set while the request is served by a call whose result
+// passes the delivery check, so that a transport replaying the response
+// to a client that resumes its stream decides it again, for the
+// principal resuming it.
+type redelivery struct {
+	mu      sync.Mutex
+	deliver func(ctx context.Context, to principal.Principal) (any, *jsonrpc.Error)
+}
+
+// withRedelivery returns ctx with a redelivery for its request.
+func withRedelivery(ctx context.Context) (context.Context, *redelivery) {
+	r := &redelivery{}
+	return context.WithValue(ctx, redeliveryKey{}, r), r
+}
+
+// setRedelivery records how ctx's request's result is delivered again.
+func setRedelivery(ctx context.Context, deliver func(ctx context.Context, to principal.Principal) (any, *jsonrpc.Error)) {
+	if r, _ := ctx.Value(redeliveryKey{}).(*redelivery); r != nil {
+		r.mu.Lock()
+		r.deliver = deliver
+		r.mu.Unlock()
+	}
+}
+
+// replay returns how the response to request id is made again (nil:
+// as it is).
+func (r *redelivery) replay(id json.RawMessage) transport.Redelivery {
+	r.mu.Lock()
+	deliver := r.deliver
+	r.mu.Unlock()
+	if deliver == nil {
+		return nil
+	}
+	return func(ctx context.Context, p principal.Principal) *jsonrpc.Message {
+		result, rpcErr := deliver(ctx, p)
+		return response(id, result, rpcErr)
+	}
 }
 
 // requestOf returns the client request ctx serves, nil if none.
@@ -1080,6 +1138,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		s.task.setDelivery(deliver)
 		return raw, nil
 	}
+	setRedelivery(ctx, deliver)
 	return deliver(ctx, s.snapshotPrincipal())
 }
 

@@ -322,7 +322,10 @@ scopes come on top of it.
   connection drops reconnects with `GET` and `Last-Event-ID` and receives
   what it missed (the last 256 events per stream, kept for 5 minutes),
   including approval requests that were pending. A resumption takes over
-  from a connection that is still considered open.
+  from a connection that is still considered open. A call's result among
+  what it receives is decided again for the token that resumes, as on
+  delivery (chapter 12, "Deciding again on delivery"): a user whose role
+  was removed meanwhile gets "result withheld" instead.
 - What the gateway sends that belongs to a request goes on that
   request's stream while it is open: progress, the approval dialog, and
   a server's log messages, elicitations and sampling requests made while
