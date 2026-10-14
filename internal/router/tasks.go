@@ -779,12 +779,20 @@ func (s *Session) taskResult(ctx context.Context, m *jsonrpc.Message) (any, *jso
 		t.mu.Unlock()
 		switch st {
 		case taskCompleted:
-			res, rpcErr := t.outcome(ctx, s.snapshotPrincipal())
+			deliver := func(ctx context.Context, to principal.Principal) (any, *jsonrpc.Error) {
+				res, rpcErr := t.outcome(ctx, to)
+				if rpcErr != nil {
+					return nil, rpcErr
+				}
+				return withRelatedTask(res, t.id), nil
+			}
+			setRedelivery(ctx, deliver)
+			res, rpcErr := deliver(ctx, s.snapshotPrincipal())
 			if rpcErr != nil {
 				return nil, rpcErr
 			}
 			s.r.deliver(t)
-			return withRelatedTask(res, t.id), nil
+			return res, nil
 		case taskFailed:
 			s.r.deliver(t)
 			return nil, terr

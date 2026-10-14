@@ -7,6 +7,14 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Changed
+
+- A call's answer replayed to an HTTP client that resumes its stream
+  (`Last-Event-ID`) is decided again for the token that resumes, as on
+  delivery (roadmap step 33 stage A): a user whose role was removed
+  since the answer was produced gets "result withheld" instead of the
+  result, within the 5 minutes a stream stays resumable.
+
 ## v0.20.0 — 2026-10-13
 
 Tasks report (roadmap step 32, D20). Every change of a task's status,

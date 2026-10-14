@@ -219,7 +219,9 @@ own backends.
   response, and can be resumed for 5 minutes after it. The client resumes
   a stream with `GET` and `Last-Event-ID`: the events after that id are
   replayed, then the stream goes on (a request stream ends with its
-  response); events of other streams are never replayed. A resumption
+  response); events of other streams are never replayed. A replayed
+  answer to a call passes the delivery check again, for the principal
+  resuming (D20, roadmap step 33). A resumption
   replaces a connection the server still considers attached. Unknown or
   expired ids get `400`. A connection ends when the token of the request
   that opened it is no longer accepted (its `exp`, plus the leeway), as
@@ -3443,16 +3445,23 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       snapshot is taken at each release. Chapter 10 says
       `mcp_gateway_decisions_total` counts decisions enforced, without
       the delivery decisions it has counted since 0.19;
-    - stage A, replayed answers decided again: when a client resumes a
-      stream (`Last-Event-ID`), each answer to a call among the replayed
-      events, and each task notification that carries a result (step
-      32), passes the delivery check for the principal of the resuming
+    - stage A (done), replayed answers decided again: when a client
+      resumes a stream (`Last-Event-ID`), each answer to a call among
+      the replayed events, and each task notification that carries a
+      result (step 32), passes the delivery check for the principal of the resuming
       token, as an answer on its stream does: the call's input with
       `phase: "delivery"`, its obligations, `mcp-result-withheld`
       audited for one withheld, which the client receives as the
       withholding ("result withheld: …") in place of the result. Other
       replayed events (notifications, requests to the client) go as
-      before;
+      before. As built: the router writes an answer that passed the
+      delivery check (a `tools/call`'s, a `tasks/result`'s) with how
+      to make it again (`transport.ReplayWriter`); an HTTP session's
+      stream keeps that with the event and, on a resumption, makes the
+      events it replays again for the resuming principal; events that
+      arrive after the resumption go as written. The streams of modern
+      agents carry no event ids and are not resumed, so their task
+      notifications are never replayed;
     - stage B, the previous release's configuration tested:
       `test/compat` holds 0.20's configuration (`snapshot.sh v0.20.0`)
       in place of 0.4's; `tools/check-release` refuses a minor release

@@ -167,8 +167,10 @@ Before a call's result goes to the agent, the gateway asks again: the
 call's input with `"phase": "delivery"`, the principal as it is then
 (its groups, roles and scopes from the token it presents now) and the
 grants the call was decided with. For a plain call that is when the
-server answered; for a task, each time the agent fetches its result,
-which may be hours later and with a new token. `deny` withholds the
+server answered, and again each time an HTTP client that resumes its
+stream (`Last-Event-ID`) receives the answer replayed; for a task, each
+time the agent fetches its result, which may be hours later and with a
+new token. `deny` withholds the
 result (the agent gets "result withheld: …", audited as
 `mcp-result-withheld`); `allow` delivers it with that decision's
 obligations (redaction, size limits) applied; `ask` delivers it with the

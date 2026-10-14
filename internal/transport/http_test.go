@@ -55,7 +55,12 @@ func echoServe(_ context.Context, c jsonrpc.MessageConn, p principal.Principal, 
 		case m.IsResponse():
 			if orig := waiting[m.Key()]; orig != nil {
 				r, _ := jsonrpc.NewResult(orig.ID, map[string]any{"answer": json.RawMessage(m.Result)})
-				_ = c.Write(r)
+				// Made again for whoever resumes the stream it is on.
+				again := func(_ context.Context, p principal.Principal) *jsonrpc.Message {
+					r, _ := jsonrpc.NewResult(orig.ID, map[string]any{"answer": json.RawMessage(m.Result), "again": p.Sub, "session": p.SessionID})
+					return r
+				}
+				_ = c.(ReplayWriter).WriteReplayable(r, again)
 			}
 		case m.Method == "initialize":
 			r, _ := jsonrpc.NewResult(m.ID, map[string]any{"server": hello.Server, "sub": p.Sub, "session": p.SessionID})
@@ -641,6 +646,37 @@ func TestResumeRequestStream(t *testing.T) {
 	again := resume(t, srv, sid, final.id)
 	if body := readBody(t, again); again.StatusCode != 200 || strings.Contains(body, "data: {") {
 		t.Fatalf("second resume: %d %q", again.StatusCode, body)
+	}
+}
+
+// A response a resumption replays is made again for the principal
+// resuming (D20): not one written while a connection is attached, also
+// on a resumed connection after what it replayed.
+func TestResumeMakesResponseAgain(t *testing.T) {
+	srv, _ := newTestServer(t, nil)
+	sid := initialize(t, srv, "/mcp", "alice")
+	_, elID := askAndDrop(t, srv, sid)
+	answer(t, srv, sid)
+	resp := resume(t, srv, sid, elID)
+	events := make(chan sseEvent2, 8)
+	go sseWithIDs(resp, events)
+	nextEv(t, events) // priming
+	final := nextEv(t, events)
+	if final.msg == nil || !strings.Contains(string(final.msg.Result), `"again":"alice"`) ||
+		!strings.Contains(string(final.msg.Result), `"session":"`+sid+`"`) {
+		t.Fatalf("replayed response not made again: %+v", final)
+	}
+
+	// Resumed before the response: it arrives on the resumed connection
+	// and goes as written.
+	_, elID = askAndDrop(t, srv, sid)
+	resp = resume(t, srv, sid, elID)
+	events = make(chan sseEvent2, 8)
+	go sseWithIDs(resp, events)
+	nextEv(t, events) // priming
+	answer(t, srv, sid)
+	if live := nextEv(t, events); live.msg == nil || live.msg.Key() != "2" || strings.Contains(string(live.msg.Result), "again") {
+		t.Fatalf("live response on a resumed stream: %+v", live)
 	}
 }
 
