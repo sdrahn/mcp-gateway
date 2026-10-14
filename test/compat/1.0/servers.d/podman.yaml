@@ -1,0 +1,35 @@
+# podman-mcp-server (https://github.com/manusa/podman-mcp-server), set up by
+# the package mcp-gateway-profile-podman. Each user's instance runs as the
+# user and manages the user's own rootless containers through the user's
+# Podman service ($XDG_RUNTIME_DIR/podman/podman.sock: systemctl --user
+# enable --now podman.socket); it has no rights the user lacks. The
+# gateway's policy decides who may call which tool (roles podman-reader
+# and podman-operator). Override or mask in /etc/mcp-gateway/servers.d.
+version: 1
+name: podman
+# The REST API only: the CLI fallback would run podman inside the
+# sandbox, which rootless Podman cannot work in.
+command: ["/usr/bin/podman-mcp-server", "--podman-impl=api"]
+run_as: principal
+selinux_type: mcpsrv_podman_t
+# The tools are the same for everyone, but the server starts only where
+# the user's Podman socket is: lists come from the user's own instance.
+discovery: instance
+# Landlock (a second wall, chapter 4): the system's configuration and
+# programs, and the user's home for image_build's build context. Podman
+# itself (pulls, runs, builds) runs in the user's service, outside.
+landlock:
+  read: ["${HOME}"]
+# What the tools' schemas do not tell the agent, added to their
+# descriptions (tool_notes, chapter 4). Checked against
+# podman-mcp-server 0.0.15 (test/vm/build-servers.sh): check them again
+# when it changes.
+tool_notes:
+  image_build: >-
+    containerFile is an absolute path in the user's home directory; its
+    directory is the build context, sent to Podman whole.
+  container_run: >-
+    The container runs in the user's rootless Podman, pulled first if
+    needed, and is removed when it stops. Without ports, every port the
+    image exposes is published on a random host port. Host ports below
+    1024 fail unless the system allows them to unprivileged users.
