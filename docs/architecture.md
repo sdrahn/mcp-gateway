@@ -3430,6 +3430,54 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       `manage_instance`; one with it lets an approver cancel a task but
       not stop the instance.
 
+33. **Ready for 1.0** (1.0.0-rc1, D10, D20):
+    - the problem: steps 10–15 led to a 1.0 for SLES 16 and Leap 16, and
+      what came after them (modern MCP, sign-in, Landlock, tasks) is
+      done. Three things stand in the way of calling it 1.0. An answer
+      the HTTP transport replays when a client resumes a stream was
+      decided when it was produced and is not decided again (step 31,
+      stage B), so for up to 5 minutes a principal whose role was
+      removed can still receive it. `test/compat` holds the
+      configuration of 0.4, while D10 promises that the previous minor
+      release's configuration works, and nothing checks that the
+      snapshot is taken at each release. Chapter 10 says
+      `mcp_gateway_decisions_total` counts decisions enforced, without
+      the delivery decisions it has counted since 0.19;
+    - stage A, replayed answers decided again: when a client resumes a
+      stream (`Last-Event-ID`), each answer to a call among the replayed
+      events, and each task notification that carries a result (step
+      32), passes the delivery check for the principal of the resuming
+      token, as an answer on its stream does: the call's input with
+      `phase: "delivery"`, its obligations, `mcp-result-withheld`
+      audited for one withheld, which the client receives as the
+      withholding ("result withheld: …") in place of the result. Other
+      replayed events (notifications, requests to the client) go as
+      before;
+    - stage B, the previous release's configuration tested:
+      `test/compat` holds 0.20's configuration (`snapshot.sh v0.20.0`)
+      in place of 0.4's; `tools/check-release` refuses a minor release
+      X.Y.0 whose tree has no snapshot of the minor release before it,
+      and the release steps (`packaging/suse/README.md`) take a new one
+      after each minor release;
+    - stage C, the documentation of what 1.0 promises: chapter 10's
+      decision counter names delivery decisions; the user guide and
+      README state what stays compatible from 1.0 on (D10: configuration,
+      role data, the policy input and decision, the control API), as
+      they do for 0.x now;
+    - then 1.0.0-rc1: main builds as 1.0.0, a release branch
+      `release-1.0` carries the candidate, tagged `v1.0.0-rc1` and
+      published as a pre-release, to be tested on SLES 16 and Leap 16;
+      between the candidate and 1.0.0, fixes only;
+    - not in this step: per-conversation state for modern agents (§12,
+      D18), Kit at 2026-07-28 (waits for mcp-go to implement the tasks
+      extension);
+    - tests: a client that resumes after its principal's role was
+      removed receives the withholding instead of the replayed answer,
+      and one whose role still holds the tool receives the answer;
+      replayed notifications go unchanged; the compatibility test reads
+      0.20's configuration; `check-release` refuses a tree whose
+      snapshot is older than the previous minor release.
+
 ## 12. Open items
 
 - Per-conversation state for modern agents (D18): servers marked
