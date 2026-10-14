@@ -328,6 +328,10 @@ and sees no one else's.
   removes containers acts on the user's services, and `image_push`
   publishes with the user's registry credentials. With the default
   approver rules the user approves their own calls (chapter 6).
+- `image_build` (0.0.15) writes Podman's build output to its stdout, the
+  MCP channel: the gateway skips those lines and logs each as "invalid
+  message from backend … parse error" (`STEP 1/2: FROM …`, `COMMIT …`);
+  the build and its answer are not affected.
 - A system-wide (rootful) Podman is not set up: its socket,
   `/run/podman/podman.sock`, is as good as root on the host.
 

@@ -840,7 +840,7 @@ END
 	stool alice podman image_list '{}'
 	check "podman: image_list shows the pulled and the built image" \
 		bash -c 'grep -q "busybox" <<<"$1" && grep -q "vmtest-image" <<<"$1"' _ "$out"
-	check "podman: the images are alice's own" bash -c "runuser -u alice -- podman images --format '{{.Repository}}' | grep -q vmtest-image"
+	check "podman: the images are alice's own" bash -c "runuser -u alice -- env XDG_RUNTIME_DIR=/run/user/$alice_uid podman images --format '{{.Repository}}' | grep -q vmtest-image"
 
 	# The setups' rulesets (step 30): the servers above ran under them.
 	for s in systemd firewalld zypp podman; do
