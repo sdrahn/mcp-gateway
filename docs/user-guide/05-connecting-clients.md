@@ -488,7 +488,15 @@ What the gateway does for clients:
   handshake; the TypeScript SDK 2.3, the Python SDK 2.3 and mcp-go 1.1
   fall back so, which CI checks. As shipped, Kit is capped at
   2025-11-25 (below). The name is the client's own claim: it chooses
-  the protocol, never what is allowed.
+  the protocol, never what is allowed. The gateway's log names each
+  client and the version it speaks: "session initialized" with
+  `client`, `client_version`, the version it asked for (`requested`),
+  the one it got (`protocol`) and the cap that lowered it (`capped`);
+  "agent discovered" for a client of 2026-07-28; "agent discovery
+  refused" for one capped below it. A client that never asks for
+  2026-07-28 shows only "session initialized" with the older
+  `requested` version (`journalctl -u mcp-gateway | grep -E 'session
+  initialized|agent discover'`).
 - **Approval rounds of mcp-go.** mcp-go 1.1 on 2026-07-28 gives up on
   a call after three answers in a row that ask for nothing (a pending
   approval decided out of band or on the page): with

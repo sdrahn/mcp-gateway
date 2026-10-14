@@ -7,6 +7,19 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- The gateway logs which client a session or modern agent is and the
+  MCP version it speaks: "session initialized" with the client's name
+  and version, the version it asked for, the one it got and a cap that
+  lowered it (`agents.max_version`); "agent discovered" for clients of
+  2026-07-28, "agent discovery refused" for one capped below it.
+
+### Fixed
+
+- A modern agent's `server/discover` cleared the client's name and
+  version (`clientInfo`) for the rest of that request; it keeps them.
+
 ## v1.0.0-rc1 — 2026-10-14
 
 The first release candidate for 1.0 (roadmap step 33), published as a

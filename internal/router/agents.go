@@ -113,6 +113,10 @@ func (r *Router) ServeRequest(ctx context.Context, out jsonrpc.MessageConn, p pr
 // ep, writing to out.
 func (r *Router) serveAgentRequest(ctx context.Context, ep endpoint, out jsonrpc.MessageConn, p principal.Principal, m *jsonrpc.Message, header http.Header) {
 	if rpcErr := r.cappedRequest(m); rpcErr != nil {
+		if m.Method == "server/discover" {
+			name, limit := r.agentCap(m)
+			r.Log.Info("agent discovery refused: the client is capped below "+modernVersion, "sub", p.Sub, "client", name, "capped", limit)
+		}
 		_ = out.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Error: rpcErr})
 		return
 	}
@@ -269,12 +273,15 @@ func (r *Router) listTTL() time.Duration {
 // toward agents per request, the capabilities the endpoint offers (as
 // initialize does), its identity and instructions.
 func (s *Session) discover(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error) {
-	init, rpcErr := s.initialize(ctx, &jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Method: "initialize",
-		Params: json.RawMessage(`{"protocolVersion":"` + protocolVersion + `"}`)})
+	// The agent's clientInfo goes along, so that initialize keeps it.
+	client := s.snapshotPrincipal().Client
+	params, _ := json.Marshal(map[string]any{"protocolVersion": protocolVersion, "clientInfo": client})
+	init, rpcErr := s.initialize(ctx, &jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Method: "initialize", Params: params})
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
 	res, _ := init.(map[string]any)
+	s.log.Info("agent discovered", "client", client.Name, "client_version", client.Version, "protocol", modernVersion)
 	// Changes and subscribed resources come on subscriptions/listen.
 	caps := modernCapabilities(res["capabilities"])
 	info := res["serverInfo"]
