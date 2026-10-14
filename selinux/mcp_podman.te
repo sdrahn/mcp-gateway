@@ -54,6 +54,12 @@ optional_policy(`
 	allow mcpsrv_podman_t container_runtime_t:unix_stream_socket connectto;
 ')
 
+# The user's name and groups (/etc/passwd, /etc/group), which the Podman
+# bindings look up: passwd_file_t where the policy has it.
+ifdef(`auth_read_passwd',`
+	auth_read_passwd(mcpsrv_podman_t)
+')
+
 # The containers configuration the Podman bindings read: /etc/containers
 # (container_config_t where container-selinux labels it) and
 # /usr/share/containers.
