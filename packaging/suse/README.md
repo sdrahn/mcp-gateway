@@ -23,6 +23,12 @@ puts that version into the spec, and `go_modules` creates `vendor.tar.gz`,
 because OBS builds have no network access. Re-run `osc service manualrun` to
 update, then `osc vc` and commit.
 
+The services refresh the sources only: the spec, `_service` and
+`mcp-gateway-rpmlintrc` in the OBS package are copies, and stay as they
+were. Copy them again whenever they change here, before running the
+services. A new subpackage or file the old spec does not list otherwise
+fails the build with "Installed (but unpackaged) file(s) found".
+
 ### Releases
 
 Each release has a branch `release-X.Y` and tags `vX.Y.Z`. Pushing a tag
@@ -34,10 +40,21 @@ version is `X.Y.Z`. While a branch carries release candidates (tags such
 as `v1.0.0-rc1`, published as pre-releases), its `_service` rewrites the
 version to `1.0.0~rc1`: RPM allows no `-` in a version, and `~` sorts
 before `1.0.0`; the commit that releases X.Y.0 on the branch sets the
-rewrite back. For an OBS project that follows a release, use the
-`_service` of that branch, run `osc service manualrun`, then
+rewrite back. For an OBS project that follows a release, take the
+spec, `_service` and `mcp-gateway-rpmlintrc` of the release's tag (or of
+its branch), run `osc service manualrun`, then
 `osc vc -m "Update to X.Y.Z"` with the release's CHANGELOG.md section, and
-commit.
+commit:
+
+```bash
+tag=vX.Y.Z                       # the release's tag, e.g. v1.0.0-rc2
+for f in mcp-gateway.spec _service mcp-gateway-rpmlintrc; do
+  curl -sSfL -o "$f" "https://raw.githubusercontent.com/sdrahn/mcp-gateway/$tag/packaging/suse/$f"
+done
+osc service manualrun
+osc vc -m "Update to ${tag#v}"
+osc commit
+```
 
 Before tagging, check the release branch: `tools/check-release vX.Y.Z`
 (the spec's `Version`, the first CHANGELOG.md section and `_service` must
