@@ -51,6 +51,20 @@ func (r *Router) versionCap(name string) string {
 	return caps[strings.ToLower(name)]
 }
 
+// agentCap returns the client name a modern request m gives and its cap
+// ("" if not capped).
+func (r *Router) agentCap(m *jsonrpc.Message) (name, limit string) {
+	var p struct {
+		Meta struct {
+			Client struct {
+				Name string `json:"name"`
+			} `json:"io.modelcontextprotocol/clientInfo"`
+		} `json:"_meta"`
+	}
+	_ = json.Unmarshal(m.Params, &p)
+	return p.Meta.Client.Name, r.versionCap(p.Meta.Client.Name)
+}
+
 // cappedRequest refuses the modern request m of a client capped below
 // the modern version, as a gateway without it would; nil if m may be
 // served.
