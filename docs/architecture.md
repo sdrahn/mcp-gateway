@@ -1089,7 +1089,9 @@ installed to `/usr/share/cockpit/mcp-gateway`), with four tabs:
   (`#/approvals/<id>`) highlight the request.
 - **Servers:** the registry (SELinux domain, isolation, network, run as)
   and the running instances the user may manage, with their journal and
-  Stop. Instances start on demand, so there is no Start.
+  Stop. Instances start on demand, so there is no Start. The clients
+  (step 34) with the MCP version they speak, and End; the agents' tasks
+  with Cancel.
 - **Policy:** the policy mode and bundle revisions; role bindings (add or
   remove roles of users and groups), roles with their permissions,
   approver rules, and the whole role data as JSON. Edits are validated
@@ -3545,7 +3547,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       as any other. Ending a client keeps nobody out: that is the
       principal's role or token. Audited `mcp-session-ended`, with who
       ended it;
-    - stage C, Cockpit: a Clients table on the Servers tab (or its own
+    - stage C (done), Cockpit: a Clients table on the Servers tab (or its own
       tab), per row the user, client and version, the protocol version
       negotiated (marked when capped), transport, endpoint, since and
       last active, and **End** with a confirmation; the user guide

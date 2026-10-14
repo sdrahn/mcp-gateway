@@ -2,7 +2,7 @@
 
 `mcp-gateway-cockpit` adds a page to Cockpit, the web console of
 openSUSE and SLES. It is the approval page for the `url` and `oob`
-channels, and the place to watch servers, maintain role bindings and
+channels, and the place to watch servers and clients, maintain role bindings and
 read audit records.
 
 ```bash
@@ -89,6 +89,23 @@ After the configuration changed while the gateway runs (chapter 3,
 - **Reload configuration** runs `systemctl reload mcp-gateway.service`
   (administrative access): the gateway checks the configuration first
   and keeps what it has if a file does not load; the page says so.
+
+**Clients** lists the AI agents and other MCP clients using the gateway
+that you may manage (`manage_session`: by default your own; everyone's
+for administrators), newest first: the user, the client's name and
+version as the client gives them, the MCP version it speaks (marked
+"capped by agents.max_version" with the version it asked for when a cap
+lowered it, chapter 5, "The version per client"), the endpoint (a server
+or all servers), since when and when it was last active. An agent of
+2026-07-28 has no session: it is listed for an hour after its last
+request, marked "no session", with its open streams and requests.
+**End** ends a client as if it had gone: its calls are cancelled at
+their servers (a privileged server's call runs to its end), its
+session's grants and instances go, and an agent's open stream or
+request ends with an error. It keeps nobody out: the client may connect
+again, and does (an HTTP client starts a new session). To keep someone
+out, change their roles (Policy tab). Ending a client is audited
+(`mcp-session-ended`).
 
 **Tasks** lists the calls agents run as tasks (chapter 5, "Long calls:
 tasks") that you may manage (`manage_task`: by default the approver
