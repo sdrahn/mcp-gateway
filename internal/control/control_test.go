@@ -338,23 +338,38 @@ func TestTasks(t *testing.T) {
 	}
 }
 
-type fakeSessions []router.SessionInfo
+type fakeSessions struct {
+	list  []router.SessionInfo
+	ended []string
+}
 
-func (f fakeSessions) Sessions() []router.SessionInfo { return f }
+func (f *fakeSessions) Sessions() []router.SessionInfo { return f.list }
 
-// The clients: each user sees their own (as instances, by the approver
+func (f *fakeSessions) EndSession(id, by string) error {
+	for i, c := range f.list {
+		if c.ID == id {
+			f.list = append(f.list[:i], f.list[i+1:]...)
+			f.ended = append(f.ended, id+" by "+by)
+			return nil
+		}
+	}
+	return router.ErrNoSession
+}
+
+// The clients: each user sees and ends their own (as instances, by the approver
 // rules), newest first.
 func TestSessions(t *testing.T) {
 	s, _, _ := setup(t)
 	alice, bob := uint32(1001), uint32(1002)
 	now := time.Now()
-	s.Sessions = fakeSessions{
+	sessions := &fakeSessions{list: []router.SessionInfo{
 		{ID: "s1", Kind: "session", Sub: "alice", UID: &alice, Endpoint: "all", Servers: []string{"fs"},
 			Client: principal.Client{Name: "claude-ai", Version: "0.1"}, Requested: "2025-11-25", Protocol: "2025-06-18", Capped: "2025-06-18",
 			Started: now.Add(-time.Hour)},
 		{ID: "agent-1", Kind: "agent", Sub: "alice", UID: &alice, Endpoint: "fs", Servers: []string{"fs"}, Protocol: "2026-07-28", Started: now, Streams: 1},
 		{ID: "s2", Kind: "session", Sub: "bob", UID: &bob, Endpoint: "fs", Servers: []string{"fs"}, Started: now},
-	}
+	}}
+	s.Sessions = sessions
 	rec := call(t, s, 1001, "GET", "/v1/sessions", "")
 	var got []router.SessionInfo
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != 200 {
@@ -370,6 +385,19 @@ func TestSessions(t *testing.T) {
 	}
 	if rec := call(t, s, 1002, "GET", "/v1/sessions", ""); !strings.Contains(rec.Body.String(), `"id":"s2"`) || strings.Contains(rec.Body.String(), "alice") {
 		t.Fatalf("bob sees %s", rec.Body)
+	}
+	// Each ends their own.
+	if rec := call(t, s, 1001, "DELETE", "/v1/sessions/s2", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("alice ends bob's session: %d", rec.Code)
+	}
+	if rec := call(t, s, 1001, "DELETE", "/v1/sessions/s1", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("alice ends her session: %d %s", rec.Code, rec.Body)
+	}
+	if rec := call(t, s, 1001, "DELETE", "/v1/sessions/s1", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("an ended session: %d", rec.Code)
+	}
+	if len(sessions.ended) != 1 || sessions.ended[0] != "s1 by alice (control API)" {
+		t.Fatalf("ended %v", sessions.ended)
 	}
 	// Without sessions (an older router), the list is empty.
 	s.Sessions = nil

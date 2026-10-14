@@ -70,9 +70,10 @@ type Tasks interface {
 	CancelTask(id, by string) error
 }
 
-// Sessions lists the gateway's clients (router.Router).
+// Sessions lists and ends the gateway's clients (router.Router).
 type Sessions interface {
 	Sessions() []router.SessionInfo
+	EndSession(id, by string) error
 }
 
 // PolicyStatus reports the policy OPA has activated (pep.OPA).
@@ -224,6 +225,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/instances/{id}", s.with(s.stopInstance))
 	mux.HandleFunc("GET /v1/tasks", s.with(s.tasks))
 	mux.HandleFunc("GET /v1/sessions", s.with(s.sessions))
+	mux.HandleFunc("DELETE /v1/sessions/{id}", s.with(s.endSession))
 	mux.HandleFunc("POST /v1/tasks/{id}/cancel", s.with(s.cancelTask))
 	mux.HandleFunc("GET /v1/sign-ins", s.with(s.signIns))
 	mux.HandleFunc("DELETE /v1/sign-ins/{server}", s.with(s.signOut))
@@ -527,6 +529,27 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request, a broker.Appro
 	}
 	slices.Reverse(out)
 	writeJSON(w, http.StatusOK, out)
+}
+
+// endSession ends a client the caller may manage, as if it had gone.
+func (s *Server) endSession(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+	id := r.PathValue("id")
+	if s.Sessions != nil {
+		for _, c := range s.Sessions.Sessions() {
+			if c.ID != id || !s.Broker.MayManageSession(r.Context(), a, sessionTarget(c)) {
+				continue
+			}
+			if s.Sessions.EndSession(id, a.Name+" (control API)") == nil {
+				if s.Log != nil {
+					s.Log.Info("session ended via control API", "session", id, "sub", c.Sub, "client", c.Client.Name, "by", a.Name)
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			break
+		}
+	}
+	writeError(w, http.StatusNotFound, "no such session")
 }
 
 func (s *Server) policy(w http.ResponseWriter, r *http.Request, _ broker.Approver) {

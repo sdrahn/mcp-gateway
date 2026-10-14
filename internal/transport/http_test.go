@@ -107,6 +107,9 @@ func echoServe(_ context.Context, c jsonrpc.MessageConn, p principal.Principal, 
 			r, _ := jsonrpc.NewResult(m.ID, map[string]any{"isError": true})
 			r.ScopeChallenge = "mcp:git"
 			_ = c.Write(r)
+		case m.Method == "end": // the gateway ends the session (an administrator ended it)
+			_ = c.Close()
+			return
 		case m.Method == "later":
 			r, _ := jsonrpc.NewResult(m.ID, map[string]any{})
 			_ = c.Write(r)
@@ -452,6 +455,21 @@ func TestDelete(t *testing.T) {
 	h.mu.Unlock()
 	if n != 0 {
 		t.Fatalf("%d sessions left", n)
+	}
+}
+
+// A session the gateway ends (an administrator ended the client): its
+// id is unknown from then on, so the client starts a new session.
+func TestServerEndsSession(t *testing.T) {
+	srv, _ := newTestServer(t, nil)
+	sid := initialize(t, srv, "/mcp", "alice")
+	_ = readBody(t, do(t, srv, req{token: "alice", session: sid, body: `{"jsonrpc":"2.0","id":2,"method":"end"}`}))
+	resp := do(t, srv, req{token: "alice", session: sid, body: `{"jsonrpc":"2.0","id":3,"method":"later"}`})
+	if _ = readBody(t, resp); resp.StatusCode != 404 {
+		t.Fatalf("after the session ended: %d", resp.StatusCode)
+	}
+	if initialize(t, srv, "/mcp", "alice") == sid {
+		t.Fatal("a new session got the ended one's id")
 	}
 }
 
