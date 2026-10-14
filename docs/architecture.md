@@ -3501,6 +3501,67 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       0.20's configuration; `check-release` refuses a tree whose
       snapshot is older than the previous minor release.
 
+34. **The clients, seen and ended** (1.0, with 1.0.0-rc2; D14, D18):
+    - the problem: what a client is and which MCP version it speaks
+      shows only in the gateway's log (since 1.0.0-rc1: "session
+      initialized", "agent discovered"), and only to someone who reads
+      the journal; asking why Claude Desktop spoke 2025-11-25 with the
+      first candidate took a look at `journalctl`. Nobody can see which
+      clients use the gateway now, and an administrator who wants one
+      gone can stop its instances, not the client. It joins 1.0
+      although step 33 took fixes only between the candidates: decided
+      on 2026-10-14, with a second candidate to test it;
+    - stage A, the clients in the control API: `GET /v1/sessions`
+      lists the clients the caller may manage, newest first. A session
+      (MCP up to 2025-11-25): its id, the principal (`sub`, `iss`,
+      `uid`), transport (socket or HTTP), endpoint (a server or the
+      aggregated one), the client's name and version as it gave them,
+      the version it asked for and the one it got, the cap that lowered
+      it (`agents.max_version`), when it started and was last active,
+      and the instances it uses. An agent of 2026-07-28 has no session:
+      it is listed by principal, client name and version, as last seen
+      (the last hour, at most `limits.sessions_per_principal` entries
+      per principal), with its open `subscriptions/listen` streams and
+      requests in flight. Who may see and end a client is
+      `data.mcp.approvals.manage_session` (input `session`: principal,
+      transport, endpoint, client), by default the instances' approver
+      rules: the principal themself and the approvers named for the
+      servers of its endpoint; a policy without the rule decides by
+      `manage_instance` for those servers. The client's name is its own
+      claim, shown as such: it chooses the protocol, never what is
+      allowed;
+    - stage B, ending a client: `DELETE /v1/sessions/{id}` ends a
+      session as if the client had gone: its calls in flight are
+      cancelled at their servers (a privileged call is let finish, as
+      when the gateway stops), its streams close, its session-scoped
+      grants and instances go as at the end of a session; an HTTP
+      client gets `404` for the session id and starts a new session,
+      which it may, as before. For an agent of 2026-07-28 it ends its
+      open streams and requests in flight; its next request is served
+      as any other. Ending a client keeps nobody out: that is the
+      principal's role or token. Audited `mcp-session-ended`, with who
+      ended it;
+    - stage C, Cockpit: a Clients table on the Servers tab (or its own
+      tab), per row the user, client and version, the protocol version
+      negotiated (marked when capped), transport, endpoint, since and
+      last active, and **End** with a confirmation; the user guide
+      (chapters 8 and 11, chapter 5's "The version per client" points
+      to it), the CHANGELOG;
+    - then 1.0.0-rc2: the steps land on main and are taken to
+      `release-1.0`, tagged `v1.0.0-rc2` as a pre-release; from it to
+      1.0.0, fixes only;
+    - not in this step: blocking a client by name (the name is
+      self-asserted; policy decides by principal), ending a task (its
+      own Cancel, step 31);
+    - tests: a session and a modern agent are listed with client,
+      version, the negotiated version and a cap; a user sees their own
+      clients, an administrator all, another user none; a custom policy
+      without `manage_session` decides by `manage_instance`; ending a
+      session cancels its call at the server and its next request gets
+      `404`, a privileged call finishes; ending a modern agent closes
+      its listen stream; `mcp-session-ended` is audited; in the VMs,
+      Cockpit lists a `mcp-connect` client and ends it.
+
 ## 12. Open items
 
 - Per-conversation state for modern agents (D18): servers marked
