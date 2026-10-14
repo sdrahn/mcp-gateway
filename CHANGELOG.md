@@ -32,6 +32,11 @@ minor release (with a warning) and removed in the next.
   flight, which are answered with an error; its next request is served.
   Ending a client keeps nobody out. Audited `mcp-session-ended`, with
   who ended it.
+- Clients in Cockpit (roadmap step 34 stage C): the Servers tab lists
+  the clients you may manage, with the user, the client's name and
+  version, the MCP version it speaks (marked when `agents.max_version`
+  capped it), the endpoint, since when and when last active, and
+  **End**.
 - `data.mcp.approvals.manage_session`: who may see and end a client (input
   `session`: the principal, the endpoint and its servers, the client).
   By default the instances' approver rules of every server of the
