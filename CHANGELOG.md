@@ -9,6 +9,10 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- The user guide states what stays compatible from 1.0 on, as since 0.4
+  (chapter 10, "What stays compatible"), and the decision counter
+  `mcp_gateway_decisions_total` names the delivery decisions it has
+  counted since 0.19 (roadmap step 33 stage C).
 - The compatibility test reads the configuration of 0.20 (it read 0.4's
   since 0.5), and `tools/check-release` refuses a minor release whose
   tree has no snapshot of the minor release before it; CI fails while

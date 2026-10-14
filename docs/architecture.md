@@ -3474,11 +3474,14 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       checkout has no tags); `test/compat` also fails CI while its
       snapshot is older than the minor release before the one the spec
       builds, so main's move to the next minor carries the snapshot;
-    - stage C, the documentation of what 1.0 promises: chapter 10's
+    - stage C (done), the documentation of what 1.0 promises: chapter 10's
       decision counter names delivery decisions; the user guide and
       README state what stays compatible from 1.0 on (D10: configuration,
       role data, the policy input and decision, the control API), as
-      they do for 0.x now;
+      they do for 0.x now. As built: chapter 10, "What stays
+      compatible", with what is not part of the promise (log texts,
+      metric names, audit fields, the Cockpit page, the admin tool's
+      output);
     - then 1.0.0-rc1: main builds as 1.0.0, a release branch
       `release-1.0` carries the candidate, tagged `v1.0.0-rc1` and
       published as a pre-release, to be tested on SLES 16 and Leap 16;

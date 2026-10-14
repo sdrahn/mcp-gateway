@@ -115,6 +115,29 @@ changed, compare it with your copy:
 In signed bundle mode, rebuild the bundle after an update: the bundle
 contains the policy logic of the version it was built with.
 
+### What stays compatible
+
+From 0.4 on, and from 1.0 on as before, these are a stable interface:
+
+- `gateway.yaml` and the server definitions (chapters 3 and 4);
+- the role data, `data.json` (chapter 6);
+- the policy input and decision documents a custom policy reads and
+  returns (chapter 12);
+- the control API (`/v1`, chapter 11), which Cockpit and your own
+  tools use.
+
+Within the files' `version` (1), a release only adds: new optional keys
+and values, never a changed meaning. What goes away is deprecated in a
+minor release first (a warning at start and with `mcp-gateway --check`,
+and "Deprecated" in the release notes) and removed in the next one; a
+change that cannot be made that way raises the `version`, and the
+release after it still reads the old one. Each minor release is tested
+with the configuration of the one before it. A patch release (X.Y.Z)
+changes none of this. Not part of the promise: the text of log
+messages, metric names, the fields of audit records, the Cockpit page
+and the output of `mcp-gateway-admin`; the release notes name what
+changes there.
+
 ## Monitoring
 
 ### Metrics
@@ -131,7 +154,7 @@ at `/metrics`.
 
 | Metric | Type | Meaning |
 |---|---|---|
-| `mcp_gateway_decisions_total{action,effect}` | counter | decisions enforced; a call asked again after an approval counts twice |
+| `mcp_gateway_decisions_total{action,effect}` | counter | decisions enforced; a call asked again after an approval counts twice, and each delivery of its result counts once more (chapter 12, "Deciding again on delivery") |
 | `mcp_gateway_policy_failures_total{reason}` | counter | decisions that failed closed: `error` (OPA did not answer), `invalid` (malformed decision) |
 | `mcp_gateway_opa_query_duration_seconds{query}` | histogram | time of queries to OPA, e.g. `query="mcp/authz/decision"` |
 | `mcp_gateway_opa_query_errors_total{query}` | counter | failed queries to OPA |
