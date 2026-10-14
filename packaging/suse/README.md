@@ -30,7 +30,11 @@ publishes a GitHub release with `mcp-gateway-X.Y.Z.tar.gz`,
 `vendor.tar.gz` and `SHA256SUMS` (`.github/workflows/release.yml`). On a
 release branch, `_service` fetches that branch and takes the version from
 its latest tag (`@PARENT_TAG@` without the leading `v`), so the package
-version is `X.Y.Z`. For an OBS project that follows a release, use the
+version is `X.Y.Z`. While a branch carries release candidates (tags such
+as `v1.0.0-rc1`, published as pre-releases), its `_service` rewrites the
+version to `1.0.0~rc1`: RPM allows no `-` in a version, and `~` sorts
+before `1.0.0`; the commit that releases X.Y.0 on the branch sets the
+rewrite back. For an OBS project that follows a release, use the
 `_service` of that branch, run `osc service manualrun`, then
 `osc vc -m "Update to X.Y.Z"` with the release's CHANGELOG.md section, and
 commit.
