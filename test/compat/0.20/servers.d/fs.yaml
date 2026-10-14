@@ -1,7 +1,8 @@
-# Example backend: a filesystem MCP server confined to the principal's home.
+# Example backend: the file server (mcp-server-fs) confined to the
+# principal's home.
 version: 1
 name: fs
-command: ["/usr/libexec/mcp-servers/mcp-fs", "--root", "${HOME}"]
+command: ["/usr/libexec/mcp-servers/mcp-server-fs", "--root", "${HOME}"]
 selinux_type: mcpsrv_fs_t
 isolation: principal
 network: false

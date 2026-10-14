@@ -1,0 +1,25 @@
+# systemd-mcp (https://github.com/openSUSE/systemd-mcp), set up by the
+# package mcp-gateway-profile-systemd. The polkit rule of that package lets
+# the account mcp-sysmgmt manage units without a password; the gateway's
+# policy decides who may call which tool (roles systemd-reader and
+# systemd-operator). Override or mask in /etc/mcp-gateway/servers.d.
+version: 1
+name: systemd
+command: ["/usr/bin/systemd-mcp"]
+run_as: mcp-sysmgmt
+selinux_type: mcpsrv_systemd_t
+# Landlock (a second wall, chapter 4): besides the system's configuration
+# and programs, it reads the journal and the logs, systemd's runtime
+# state and man's cache; it changes units over D-Bus, which Landlock
+# does not restrict. get_file reads within these trees only.
+landlock:
+  read: ["/var/log", "/run/log/journal", "/run/systemd", "/var/cache/man"]
+# What the tools' schemas do not tell the agent, added to their
+# descriptions (tool_notes, chapter 4). Checked against systemd-mcp
+# 0.3.5 (test/vm/build-servers.sh): check them again when it changes.
+tool_notes:
+  list_log: >-
+    from and to are RFC 3339 times with a time zone, e.g.
+    2026-10-07T11:00:00+02:00 or 2026-10-07T09:00:00Z. Relative times
+    (-1h) and other formats (2026-10-07 11:00:00) are refused: compute
+    the time first.

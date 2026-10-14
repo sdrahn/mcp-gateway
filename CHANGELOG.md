@@ -9,6 +9,10 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- The compatibility test reads the configuration of 0.20 (it read 0.4's
+  since 0.5), and `tools/check-release` refuses a minor release whose
+  tree has no snapshot of the minor release before it; CI fails while
+  the snapshot is older (roadmap step 33 stage B, D10).
 - A call's answer replayed to an HTTP client that resumes its stream
   (`Last-Event-ID`) is decided again for the token that resumes, as on
   delivery (roadmap step 33 stage A): a user whose role was removed
