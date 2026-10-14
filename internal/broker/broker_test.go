@@ -736,3 +736,68 @@ func TestMayManageTask(t *testing.T) {
 		t.Fatal("without policy")
 	}
 }
+
+func TestMayManageSession(t *testing.T) {
+	uid := uint32(1001)
+	session := SessionTarget{Sub: "alice", UID: &uid, Transport: principal.TransportUnix, Endpoint: "all", Servers: []string{"fs", "zypp"},
+		Client: principal.Client{Name: "claude-code", Version: "2.1"}}
+	helpdesk := Approver{Name: "dave", UID: 1004, Groups: []string{"helpdesk"}}
+
+	// A policy with the rule: the helpdesk may manage sessions, not instances.
+	withRule := newBroker(t, func(o *Options) {
+		o.Policy = policyFunc(func(path string, in ApproverInput) (bool, error) {
+			switch path {
+			case manageSessionPath:
+				return slices.Contains(in.Approver.Groups, "helpdesk") ||
+					(in.Session.UID != nil && *in.Session.UID == in.Approver.UID), nil
+			case manageInstancePath:
+				return in.Instance.UID != nil && *in.Instance.UID == in.Approver.UID, nil
+			}
+			return false, nil
+		})
+	})
+	if !withRule.MayManageSession(context.Background(), helpdesk, session) || withRule.MayManageInstance(context.Background(), helpdesk, "fs", &uid) {
+		t.Fatal("manage_session not decided by its rule")
+	}
+	if withRule.MayManageSession(context.Background(), bobApprover, session) || !withRule.MayManageSession(context.Background(), aliceApprover, session) {
+		t.Fatal("manage_session: own session only")
+	}
+
+	// A policy without it: as instances, of every server of the endpoint.
+	var asked []string
+	without := newBroker(t, func(o *Options) {
+		o.Policy = policyFunc(func(path string, in ApproverInput) (bool, error) {
+			if path == manageSessionPath {
+				return false, fmt.Errorf("%w for %s", pep.ErrUndefined, path)
+			}
+			asked = append(asked, in.Instance.Server)
+			if in.Instance.Server == "zypp" && in.Approver.Name == "dave" {
+				return false, nil // dave approves for fs only
+			}
+			return (in.Instance.UID != nil && *in.Instance.UID == in.Approver.UID) || in.Approver.Name == "dave", nil
+		})
+	})
+	if !without.MayManageSession(context.Background(), aliceApprover, session) || without.MayManageSession(context.Background(), bobApprover, session) {
+		t.Fatal("without manage_session: not decided as for instances")
+	}
+	if without.MayManageSession(context.Background(), helpdesk, session) {
+		t.Fatal("without manage_session: an approver of one server of the endpoint may manage it")
+	}
+	asked = nil
+	noServers := session
+	noServers.Servers = nil
+	if !without.MayManageSession(context.Background(), aliceApprover, noServers) || !slices.Equal(asked, []string{"default"}) {
+		t.Fatalf("an endpoint without servers: asked %v", asked)
+	}
+	// Another failure refuses.
+	failing := newBroker(t, func(o *Options) { o.Policy = errPolicy{} })
+	if failing.MayManageSession(context.Background(), aliceApprover, session) {
+		t.Fatal("a failing policy allowed")
+	}
+	// Root may; without policy, the principal themself.
+	noPolicy := newBroker(t, func(o *Options) { o.Policy = nil })
+	if !noPolicy.MayManageSession(context.Background(), Approver{Name: "root"}, session) ||
+		!noPolicy.MayManageSession(context.Background(), aliceApprover, session) || noPolicy.MayManageSession(context.Background(), bobApprover, session) {
+		t.Fatal("without policy")
+	}
+}

@@ -25,6 +25,8 @@ type agentRegistry struct {
 	// requests and streams count the principals' requests in flight and
 	// open subscription streams.
 	requests, streams map[string]int
+	// clients are the agents as last seen (clients.go).
+	clients map[string]*agentClient
 }
 
 type agentVault struct {

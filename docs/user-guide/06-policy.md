@@ -419,7 +419,9 @@ first key that exists applies (`<server>`, else `default`, else
 
 The same rules decide who may **see and revoke grants**, who may
 **see and stop instances** of a server, who may **see and cancel
-tasks** on it (`data.mcp.approvals.manage_task`), who may **see and end sign-ins**
+tasks** on it (`data.mcp.approvals.manage_task`), who may **see the
+clients** using it (`data.mcp.approvals.manage_session`: the rules of
+every server of the client's endpoint), who may **see and end sign-ins**
 to a server with `sign_in` (`data.mcp.approvals.manage_sign_in`,
 chapter 4), and whom approval **e-mail** goes to (chapter 7). Approvers are identified by the kernel on the
 control socket, never by an agent.

@@ -338,6 +338,46 @@ func TestTasks(t *testing.T) {
 	}
 }
 
+type fakeSessions []router.SessionInfo
+
+func (f fakeSessions) Sessions() []router.SessionInfo { return f }
+
+// The clients: each user sees their own (as instances, by the approver
+// rules), newest first.
+func TestSessions(t *testing.T) {
+	s, _, _ := setup(t)
+	alice, bob := uint32(1001), uint32(1002)
+	now := time.Now()
+	s.Sessions = fakeSessions{
+		{ID: "s1", Kind: "session", Sub: "alice", UID: &alice, Endpoint: "all", Servers: []string{"fs"},
+			Client: principal.Client{Name: "claude-ai", Version: "0.1"}, Requested: "2025-11-25", Protocol: "2025-06-18", Capped: "2025-06-18",
+			Started: now.Add(-time.Hour)},
+		{ID: "agent-1", Kind: "agent", Sub: "alice", UID: &alice, Endpoint: "fs", Servers: []string{"fs"}, Protocol: "2026-07-28", Started: now, Streams: 1},
+		{ID: "s2", Kind: "session", Sub: "bob", UID: &bob, Endpoint: "fs", Servers: []string{"fs"}, Started: now},
+	}
+	rec := call(t, s, 1001, "GET", "/v1/sessions", "")
+	var got []router.SessionInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if len(got) != 2 || got[0].ID != "agent-1" || got[1].ID != "s1" || got[1].Capped != "2025-06-18" || got[1].Client.Name != "claude-ai" {
+		t.Fatalf("alice sees %+v", got)
+	}
+	for _, field := range []string{`"kind":"session"`, `"requested":"2025-11-25"`, `"client":{"name":"claude-ai","version":"0.1"}`, `"streams":1`} {
+		if !strings.Contains(rec.Body.String(), field) {
+			t.Fatalf("no %s in %s", field, rec.Body)
+		}
+	}
+	if rec := call(t, s, 1002, "GET", "/v1/sessions", ""); !strings.Contains(rec.Body.String(), `"id":"s2"`) || strings.Contains(rec.Body.String(), "alice") {
+		t.Fatalf("bob sees %s", rec.Body)
+	}
+	// Without sessions (an older router), the list is empty.
+	s.Sessions = nil
+	if rec := call(t, s, 1002, "GET", "/v1/sessions", ""); rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Fatalf("no sessions: %d %s", rec.Code, rec.Body)
+	}
+}
+
 // Instances of a server whose definition went away are listed under it.
 func TestServersRemovedWithInstances(t *testing.T) {
 	s, _, _ := setup(t)

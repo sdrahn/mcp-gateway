@@ -113,6 +113,7 @@ const (
 	manageInstancePath = "/v1/data/mcp/approvals/manage_instance"
 	manageSignInPath   = "/v1/data/mcp/approvals/manage_sign_in"
 	manageTaskPath     = "/v1/data/mcp/approvals/manage_task"
+	manageSessionPath  = "/v1/data/mcp/approvals/manage_session"
 	reviewPolicyPath   = "/v1/data/mcp/approvals/review_policy"
 )
 
@@ -663,6 +664,22 @@ type ApproverInput struct {
 	SignIn *InstanceTarget `json:"sign_in,omitempty"`
 	// Task is an agent's task (roadmap step 32).
 	Task *TaskTarget `json:"task,omitempty"`
+	// Session is a client's session, or an agent of 2026-07-28 (roadmap
+	// step 34).
+	Session *SessionTarget `json:"session,omitempty"`
+}
+
+// SessionTarget is a client of the gateway, as approver rules see it: its
+// principal, the endpoint ("all" for the aggregated one) and its servers,
+// and the client's name and version as it gave them.
+type SessionTarget struct {
+	Sub       string              `json:"sub"`
+	Issuer    string              `json:"iss,omitempty"`
+	UID       *uint32             `json:"uid"`
+	Transport principal.Transport `json:"transport"`
+	Endpoint  string              `json:"endpoint"`
+	Servers   []string            `json:"servers"`
+	Client    principal.Client    `json:"client"`
 }
 
 // TaskTarget is an agent's task, as approver rules see it.
@@ -750,6 +767,38 @@ func (b *Broker) MayManageTask(ctx context.Context, a Approver, t TaskTarget) bo
 	}
 	if err != nil {
 		b.log.Warn("approver policy failed", "path", manageTaskPath, "err", err)
+		return false
+	}
+	return ok
+}
+
+// MayManageSession reports whether a may see and end the client c
+// (data.mcp.approvals.manage_session). A policy that does not define the
+// rule decides as for the principal's instances (manage_instance) of
+// every server of the endpoint (of "default" for an endpoint without
+// servers), so approval policies written before it keep working.
+func (b *Broker) MayManageSession(ctx context.Context, a Approver, c SessionTarget) bool {
+	if a.UID == 0 {
+		return true
+	}
+	if b.opts.Policy == nil {
+		return c.UID != nil && *c.UID == a.UID
+	}
+	ok, err := b.opts.Policy.Bool(ctx, manageSessionPath, ApproverInput{Approver: &a, Session: &c})
+	if errors.Is(err, pep.ErrUndefined) {
+		servers := c.Servers
+		if len(servers) == 0 {
+			servers = []string{"default"}
+		}
+		for _, server := range servers {
+			if !b.MayManageInstance(ctx, a, server, c.UID) {
+				return false
+			}
+		}
+		return true
+	}
+	if err != nil {
+		b.log.Warn("approver policy failed", "path", manageSessionPath, "err", err)
 		return false
 	}
 	return ok

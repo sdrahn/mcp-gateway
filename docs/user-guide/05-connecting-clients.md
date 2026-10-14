@@ -496,7 +496,9 @@ What the gateway does for clients:
   refused" for one capped below it. A client that never asks for
   2026-07-28 shows only "session initialized" with the older
   `requested` version (`journalctl -u mcp-gateway | grep -E 'session
-  initialized|agent discover'`).
+  initialized|agent discover'`). The control API lists the clients
+  using the gateway now with the same fields: `GET /v1/sessions`
+  (chapter 11).
 - **Approval rounds of mcp-go.** mcp-go 1.1 on 2026-07-28 gives up on
   a call after three answers in a row that ask for nothing (a pending
   approval decided out of band or on the page): with
