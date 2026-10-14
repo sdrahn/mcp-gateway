@@ -1,4 +1,4 @@
-# 13. System management servers (systemd, firewalld, zypp, suseconnect, snapper)
+# 13. System management servers (systemd, firewalld, zypp, suseconnect, snapper, podman)
 
 MCP servers that manage the host itself, such as `systemd-mcp`,
 `firewalld-mcp` and `mcp-server-snapper`, differ from servers that work
@@ -22,12 +22,16 @@ Upstream projects: [systemd-mcp](https://github.com/openSUSE/systemd-mcp)
 [mcp-server-snapper](https://github.com/aschnell/mcp-server-snapper)
 (0.3.0), and `suseconnect-mcp`, package
 `mcp-server-suseconnect`, part of
-[connect-ng](https://github.com/SUSE/connect-ng).
+[connect-ng](https://github.com/SUSE/connect-ng). The podman setup is
+the odd one out: [podman-mcp-server](https://github.com/manusa/podman-mcp-server)
+(0.0.15) manages each user's own rootless containers, as that user
+("podman-mcp-server" below).
 
 ## Setup packages
 
-For systemd-mcp, firewalld-mcp, mcp-server-zypp, suseconnect-mcp and
-mcp-server-snapper, a package sets everything in this chapter up:
+For systemd-mcp, firewalld-mcp, mcp-server-zypp, suseconnect-mcp,
+mcp-server-snapper and podman-mcp-server, a package sets everything in
+this chapter up:
 
 | Package | Server | Roles to bind |
 |---|---|---|
@@ -36,6 +40,7 @@ mcp-server-snapper, a package sets everything in this chapter up:
 | `mcp-gateway-profile-zypp` | `zypp` | `zypp-reader` (search, dependencies, updates, plans); `zypp-installer` (also install and remove, with approval; privileged server) |
 | `mcp-gateway-profile-suseconnect` | `suseconnect` | `suseconnect-reader`; `suseconnect-admin` (also registration changes, with approval) |
 | `mcp-gateway-profile-snapper` | `snapper` | `snapper-reader` (configs, settings, snapshots); `snapper-operator` (also creates snapshots; deletes them, changes configs and rolls back with approval) |
+| `mcp-gateway-profile-podman` | `podman` | `podman-reader` (your containers, images, networks and volumes, container logs); `podman-operator` (also runs, stops and removes containers, pulls, builds, pushes and removes images, with approval) |
 
 Each installs the server definition (in
 `/usr/share/mcp-gateway/servers.d`), its roles (chapter 6, "Roles of
@@ -221,7 +226,8 @@ Notes:
   `firewalld` the configuration and programs only; `zypp` also the
   repositories' caches and zypp's state (`/var/cache/zypp`,
   `/var/lib/zypp`, `/var/log/zypp`; the rpm database is below `/usr`).
-  None of them writes beyond its private temporary directories. snapper
+  `podman` reads the user's home, for `image_build`. None of them
+  writes beyond its private temporary directories. snapper
   lists the root directory itself, which Landlock allows only with
   everything below, and the privileged zypp and suseconnect install
   packages: those definitions have no ruleset. To read more with
@@ -229,7 +235,7 @@ Notes:
   widen its `landlock`. A tool failing with "permission denied" and no
   SELinux denial points at these rules (`mcp-gateway-admin doctor`).
 - None of these servers needs `network: true`: the system bus is a unix
-  socket.
+  socket, and so is the user's Podman service.
 - The servers speak MCP on stdin/stdout. A server that also writes log
   lines to stdout breaks the protocol (the gateway logs "invalid message
   from backend … parse error" with the start of the line); use its
@@ -272,6 +278,58 @@ over the system bus: `list_configs`, `get_config`, `list_snapshots`,
   does not use (`pre_number` of a single snapshot, the `number` of
   `rollback`, which may be null); a client that leaves one out gets a
   validation error from the server, not from the gateway.
+
+### podman-mcp-server
+
+[podman-mcp-server](https://github.com/manusa/podman-mcp-server) (notes
+for version 0.0.15) lists, inspects, runs, stops and removes containers,
+reads their logs, pulls, builds, pushes and removes images, and lists
+networks and volumes. Unlike the servers above it manages no system
+service: the setup runs each user's instance **as that user**
+(`run_as: principal`), against the user's own rootless Podman, so an
+agent can do nothing with containers its user could not do in a shell,
+and sees no one else's.
+
+- Each user who uses it needs their Podman service, which the user's
+  systemd starts on demand, and an account that keeps the user's
+  systemd running when they are logged out:
+
+  ```bash
+  systemctl --user enable --now podman.socket   # as the user
+  loginctl enable-linger alice                  # as root, once per user
+  ```
+
+  Rootless Podman also needs subordinate ids for the user (`/etc/subuid`
+  and `/etc/subgid`, which `useradd` usually fills in; `usermod
+  --add-subuids 100000-165535 --add-subgids 100000-165535 alice`
+  otherwise).
+- The server talks to the socket only (`--podman-impl=api`, in the
+  definition): its own fallback runs the `podman` program, which cannot
+  work rootless in the instance's sandbox. Without the user's socket the
+  server stops at its start ("podman implementation \"api\" not
+  available"), and the user's agent sees the server unavailable.
+- What it lists is the same for everyone, but it starts only where the
+  user's socket is, so its tools are listed from each user's own
+  instance (`discovery: instance`), and `mcp-gateway-admin doctor` does
+  not start it. Remote principals without a local account have no
+  Podman and cannot use it.
+- Podman itself, outside the instance, pulls, runs and builds: the
+  instance needs no network (`network: false`). `image_build` sends the
+  directory of the Containerfile to Podman, so the instance reads the
+  user's home (Landlock: `${HOME}`, read only); a Containerfile
+  elsewhere is refused with "permission denied".
+- `container_run` pulls the image if needed, removes the container when
+  it stops, and without `ports` publishes every port the image exposes
+  on a random host port. Rootless Podman cannot use host ports below
+  1024 unless `net.ipv4.ip_unprivileged_port_start` allows it. The
+  definition's `tool_notes` tell agents so.
+- `podman-operator` makes every change wait for an approval, also
+  `container_stop` and `image_pull`: an agent that runs, stops or
+  removes containers acts on the user's services, and `image_push`
+  publishes with the user's registry credentials. With the default
+  approver rules the user approves their own calls (chapter 6).
+- A system-wide (rootful) Podman is not set up: its socket,
+  `/run/podman/podman.sock`, is as good as root on the host.
 
 ### suseconnect-mcp
 
@@ -381,7 +439,7 @@ landlock:
 ## SELinux domains
 
 `mcp-gateway-selinux` ships the modules `mcp_systemd`, `mcp_firewalld`,
-`mcp_zypp`, `mcp_suseconnect` and `mcp_snapper` (sources in the
+`mcp_zypp`, `mcp_suseconnect`, `mcp_snapper` and `mcp_podman` (sources in the
 gateway's `selinux/` directory); for those servers you need no module of
 your own, and a module of yours with one of these names would be
 replaced. What follows
@@ -595,6 +653,7 @@ journalctl -u 'mcp-systemd-*' -u 'mcp-firewalld-*' -u 'mcp-snapper-*' -b
 | Symptom | Cause | Fix |
 |---|---|---|
 | `unchecked`: "backend instance exited", the server's journal shows only systemd's start and exit messages | the server may not reach the system bus (and cannot even log why) | dedicated SELinux domain, as above; `semodule -DB` shows the hidden denials |
+| podman: the server is unavailable, its journal shows "podman implementation \"api\" not available" | the user's Podman socket is not there (`/run/user/UID/podman/podman.sock`) | as the user, `systemctl --user enable --now podman.socket`; `loginctl enable-linger` the user |
 | `status=229/SELINUX_CONTEXT` | the definition names a domain whose module is not installed | install the module, or remove `selinux_type` |
 | "invalid message from backend … parse error" | the server writes non-MCP output to stdout | its option for logging to stderr or a file |
 | a change runs without approval (audit: `effect: allow`) | a role of the principal allows the tool without approval (often `admin`) | check the principal's roles; only reads may match a permission without `require_approval` |

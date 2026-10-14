@@ -1,0 +1,1 @@
+/usr/bin/podman-mcp-server	--	gen_context(system_u:object_r:mcpsrv_podman_exec_t,s0)

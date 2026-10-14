@@ -119,6 +119,18 @@ func TestDoctorOffline(t *testing.T) {
 	}
 }
 
+// A server whose lists come from each user's instance is not started for
+// no one.
+func TestPerUserResult(t *testing.T) {
+	if r := perUserResult("fs", &config.Backend{Discovery: config.DiscoveryShared}); r != nil {
+		t.Fatalf("shared discovery: %+v", r)
+	}
+	r := perUserResult("podman", &config.Backend{Discovery: config.DiscoveryInstance})
+	if r == nil || r.Status != doctor.Skip || r.Check != "server podman" || !strings.Contains(r.Details[0], "mcp-podman-*") {
+		t.Fatalf("instance discovery: %+v", r)
+	}
+}
+
 // Roles naming missing tools are reported with the server's version and
 // account, and the usual causes.
 func TestRolesResult(t *testing.T) {

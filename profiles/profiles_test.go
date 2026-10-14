@@ -14,7 +14,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/policydata"
 )
 
-var setups = []string{"systemd", "firewalld", "zypp", "suseconnect", "snapper"}
+var setups = []string{"systemd", "firewalld", "zypp", "suseconnect", "snapper", "podman"}
 
 // vendorDir returns a directory laid out like the installed
 // /usr/share/mcp-gateway/servers.d with the definition of setup name.

@@ -437,6 +437,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcp_landlock_exec_t` | `mcp-landlock`, an entry point of every server domain |
 | `mcpsrv_admin_t`, `mcpsrv_admin_exec_t` | `mcp-gateway-admin` and the server `gateway-admin` |
 | `mcpsrv_systemd_t`, `mcpsrv_firewalld_t`, `mcpsrv_zypp_t`, `mcpsrv_suseconnect_t`, `mcpsrv_snapper_t` | the system management servers (chapter 13) |
+| `mcpsrv_podman_t` | podman-mcp-server, each user's instance against the user's rootless Podman (chapter 13) |
 | `mcpgw_etc_t` | `/etc/mcp-gateway`, `/usr/etc/mcp-gateway` |
 | `mcpgw_cred_t` | `/etc/mcp-gateway/credentials` |
 | `mcpgw_signing_key_t` | `/etc/mcp-gateway/bundle/signing.pem` |
