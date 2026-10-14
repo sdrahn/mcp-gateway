@@ -3507,10 +3507,11 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       0.20's configuration; `check-release` refuses a tree whose
       snapshot is older than the previous minor release.
 
-34. **The clients, seen and ended** (1.0, with 1.0.0-rc2; D14, D18):
+34. **The clients, seen and ended** (1.0, with 1.0.0-rc2; D14, D18; done):
     - the problem: what a client is and which MCP version it speaks
-      shows only in the gateway's log (since 1.0.0-rc1: "session
-      initialized", "agent discovered"), and only to someone who reads
+      shows only in the gateway's log ("session initialized", "agent
+      discovered", added after 1.0.0-rc1 and released with 1.0.0-rc2),
+      and only to someone who reads
       the journal; asking why Claude Desktop spoke 2025-11-25 with the
       first candidate took a look at `journalctl`. Nobody can see which
       clients use the gateway now, and an administrator who wants one
@@ -3539,26 +3540,40 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     - stage B (done), ending a client: `DELETE /v1/sessions/{id}` ends a
       session as if the client had gone: its calls in flight are
       cancelled at their servers (a privileged server's instance runs
-      until its call ends, as when the gateway stops), its streams close, its session-scoped
-      grants and instances go as at the end of a session; an HTTP
+      until its call ends, as when the gateway stops), its streams
+      close, its session-scoped grants and instances go as at the end
+      of a session; an HTTP
       client gets `404` for the session id and starts a new session,
       which it may, as before. For an agent of 2026-07-28 it ends its
       open streams and requests in flight; its next request is served
       as any other. Ending a client keeps nobody out: that is the
       principal's role or token. Audited `mcp-session-ended`, with who
       ended it;
-    - stage C (done), Cockpit: a Clients table on the Servers tab (or its own
-      tab), per row the user, client and version, the protocol version
+    - stage C (done), Cockpit: a Clients table on the Servers tab, per
+      row the user, client and version, the protocol version
       negotiated (marked when capped), transport, endpoint, since and
       last active, and **End** with a confirmation; the user guide
       (chapters 8 and 11, chapter 5's "The version per client" points
       to it), the CHANGELOG;
-    - then 1.0.0-rc2: the steps land on main and are taken to
-      `release-1.0`, tagged `v1.0.0-rc2` as a pre-release; from it to
-      1.0.0, fixes only. The setup package for podman-mcp-server
+    - then 1.0.0-rc2 (done, 2026-10-14): the steps land on main and are
+      taken to `release-1.0`, tagged `v1.0.0-rc2` as a pre-release; from
+      it to 1.0.0, fixes only. The setup package for podman-mcp-server
       (`mcp-gateway-profile-podman`: each user's own rootless Podman, as
       that user; chapter 13 of the user guide) joins the candidate too,
       decided on 2026-10-14;
+    - as built: `manage_session` needs the approver rules of every
+      server of the client's endpoint (an approver of one server is not
+      one of the aggregated endpoint), and a policy without it falls
+      back to `manage_instance` for each of them. An agent of 2026-07-28
+      with nothing open has nothing to end: Cockpit greys out its End.
+      Ending an agent answers its open streams and requests with
+      "mcp-gateway: ended by an administrator". The VMs list and end an
+      `mcp-connect` client through the control API, which the Cockpit
+      page uses; the page itself is tested against a stub (`cockpit/test`).
+      The podman setup lists its tools per user (`discovery: instance`:
+      the server does not start without the user's Podman socket), and
+      the doctor now skips such servers instead of starting them for no
+      one;
     - not in this step: blocking a client by name (the name is
       self-asserted; policy decides by principal), ending a task (its
       own Cancel, step 31);
