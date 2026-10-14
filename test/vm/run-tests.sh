@@ -462,7 +462,7 @@ check "exec: memory" succeeded_with "Mem:"
 stool alice exec disk_usage '{}'
 check "exec: disk_usage" succeeded_with "Filesystem"
 stool alice exec package_version '{"package":"mcp-gateway"}'
-check "exec: package_version" succeeded_with "mcp-gateway-0"
+check "exec: package_version" succeeded_with "mcp-gateway-$(rpm -q --qf '%{VERSION}' mcp-gateway)"
 stool alice exec user_name '{}'
 check "exec: commands run as the calling user" succeeded_with "alice"
 stool alice exec echo_word '{"word":"a; id"}'
