@@ -1216,6 +1216,36 @@ status=$(control alice GET /v1/status)
 echo "  $status"
 check "the control API reports the pending restart" grep -qF '"restart_pending":true' <<<"$status"
 
+section "Clients"
+# A client through mcp-connect, held open on a fifo: its user sees it
+# with its name and the MCP version it got, another user does not, and
+# ending it closes its connection (Cockpit's Clients table does the same).
+mkdir -p /root/vmtest
+rm -f /root/vmtest/client.in
+mkfifo /root/vmtest/client.in
+runuser -u alice -- mcp-connect --server fs </root/vmtest/client.in >/root/vmtest/client.out 2>&1 &
+client_pid=$!
+exec 7>/root/vmtest/client.in
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"vmtest-client","version":"1.2"}}}' >&7
+cl_listed() {
+	clients=$(control alice GET /v1/sessions) &&
+		jq -e '[.[] | select(.kind == "session" and .client.name == "vmtest-client" and .client.version == "1.2" and
+			.requested == "2025-11-25" and .protocol == "2025-11-25" and .endpoint == "fs")] | length == 1' >/dev/null <<<"$clients"
+}
+check "a client is listed with its name and MCP version" eventually 10 cl_listed
+echo "  $(jq -c '.[] | select(.client.name == "vmtest-client") | {id, sub, transport, client, requested, protocol, endpoint}' <<<"$clients")"
+cl_id=$(jq -r '.[] | select(.client.name == "vmtest-client") | .id' <<<"$clients")
+cl_hidden() { ! control bob GET /v1/sessions | jq -e '.[] | select(.client.name == "vmtest-client")' >/dev/null; }
+check "another user does not see the client" cl_hidden
+cl_end=$(runuser -u alice -- curl -s -o /dev/null -w '%{http_code}' --unix-socket /run/mcp-gateway/control.sock \
+	-X DELETE "http://gw/v1/sessions/$cl_id")
+check "its user ends the client (204)" test "$cl_end" = 204
+cl_gone() { ! kill -0 "$client_pid" 2>/dev/null; }
+check "the ended client's connection closes" eventually 10 cl_gone
+exec 7>&-
+check "the client got its initialize answer before" grep -q '"protocolVersion":"2025-11-25"' /root/vmtest/client.out
+check "ending the client is audited (mcp-session-ended)" eventually 10 journal_since_start_has mcp-session-ended
+
 section "Metrics"
 # The counters start with each gateway process, and earlier sections
 # restarted it: count calls of this one.

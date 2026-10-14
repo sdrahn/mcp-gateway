@@ -71,6 +71,14 @@ function site() {
     check((await page.textContent("pre.log")).includes("Landlock rules (landlock in its definition) are the likely cause"),
           "a refused access under Landlock names the rules");
     check((await page.textContent("#servers .card:first-child")).includes("· Landlock"), "a server under Landlock says so");
+    const clientsText = await page.textContent("#clients");
+    check(clientsText.includes("kit 0.121.1") && clientsText.includes("2025-06-18 (capped by agents.max_version; asked for 2025-11-25)") &&
+          clientsText.includes("all servers") && clientsText.includes("claude-code 2.1") && clientsText.includes("2026-07-28 (no session)") &&
+          clientsText.includes("1 stream open") && clientsText.includes("https://idp.example.com"), "clients listed with their protocol");
+    check(await page.$eval("#clients tr:nth-child(3) button", b => b.disabled), "an agent with nothing open cannot be ended");
+    await page.click("#clients button:has-text('End'):not([disabled])");
+    await page.waitForFunction(() => !document.querySelector("#clients").textContent.includes("kit 0.121.1"));
+    check((await page.evaluate(() => __calls)).some(c => c[0] === "DELETE" && c[1] === "/v1/sessions/s1"), "end a client");
     const tasksText = await page.textContent("#tasks");
     check(tasksText.includes("zypp / confirm_install") && tasksText.includes("running") &&
           tasksText.includes("result not fetched yet") && tasksText.includes("https://idp.example.com"), "tasks listed");

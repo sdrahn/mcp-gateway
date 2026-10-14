@@ -69,6 +69,21 @@
                 <div id="servers"></div>
             </section>
             <section>
+                <h2>Clients</h2>
+                <p class="muted">The AI agents and other MCP clients using the gateway, with the
+                MCP version each speaks. The client's name and version are what it says about
+                itself. Ending a client is as if it had gone: its calls are cancelled and its
+                session's grants and instances go. It keeps nobody out: the client may connect
+                again.</p>
+                <table id="clients">
+                    <thead>
+                        <tr><th>User</th><th>Client</th><th>Protocol</th><th>Endpoint</th>
+                            <th>Since</th><th>Last active</th><th></th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </section>
+            <section>
                 <h2>Tasks</h2>
                 <p class="muted">Calls agents run as tasks: they go on whatever happens to the
                 agent's connection and token, and the result is kept until the agent fetches it

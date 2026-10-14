@@ -27,6 +27,17 @@
           status: "completed", created: new Date(Date.now() - 600000).toISOString(), updated: new Date().toISOString(),
           ended: new Date(Date.now() - 540000).toISOString(), delivered: false },
     ];
+    let sessions = [
+        { id: "s1", kind: "session", sub: "alice", uid: 1001, transport: "unix", endpoint: "all", servers: ["fs", "git"],
+          client: { name: "kit", version: "0.121.1" }, requested: "2025-11-25", protocol: "2025-06-18", capped: "2025-06-18",
+          started: new Date(Date.now() - 1800000).toISOString(), last_active: new Date(Date.now() - 60000).toISOString(), instances: ["i1"] },
+        { id: "agent-1", kind: "agent", sub: "carol", uid: 1003, transport: "http", iss: "https://idp.example.com", endpoint: "fs",
+          servers: ["fs"], client: { name: "claude-code", version: "2.1" }, requested: "2026-07-28", protocol: "2026-07-28",
+          started: new Date(Date.now() - 600000).toISOString(), last_active: new Date().toISOString(), streams: 1 },
+        { id: "agent-2", kind: "agent", sub: "carol", uid: 1003, transport: "unix", endpoint: "fs", servers: ["fs"],
+          client: { name: "old-agent" }, requested: "2026-07-28", protocol: "2026-07-28",
+          started: new Date(Date.now() - 3000000).toISOString(), last_active: new Date(Date.now() - 2400000).toISOString() },
+    ];
     let signIns = [
         { server: "tickets", principal: { sub: "carol", uid: 1003, transport: "unix" }, since: new Date(Date.now() - 3600000).toISOString(),
           expiry: new Date(Date.now() + 1800000).toISOString(), scope: "mcp.read", refreshable: true },
@@ -36,6 +47,7 @@
     const routes = {
         "/v1/whoami": () => ({ name: "carol", uid: 1003 }),
         "/v1/tasks": () => tasks,
+        "/v1/sessions": () => sessions,
         "/v1/status": () => query.has("reload")
             ? { restart_pending: false, config_error: "/etc/mcp-gateway/gateway.yaml: yaml: line 3: did not find expected key",
                 restart_needed: ["socket_group"] }
@@ -109,6 +121,9 @@
                         signIns = signIns.filter(e => e.principal.sub !== sub);
                         // alice's authorization server revokes, carol's does not.
                         return Promise.resolve(JSON.stringify({ signed_out: 1, revoked: sub === "alice" ? 1 : 0 }));
+                    }
+                    if (opts.method === "DELETE" && opts.path.startsWith("/v1/sessions/")) {
+                        sessions = sessions.filter(s => opts.path !== "/v1/sessions/" + s.id);
                     }
                     if (opts.method === "DELETE" && opts.path.startsWith("/v1/instances/")) {
                         instances = instances.filter(i => opts.path !== "/v1/instances/" + i.id);
