@@ -21,10 +21,8 @@ Target distributions: SLES 16 and openSUSE Leap 16 (openSUSE Tumbleweed
 for development), packaged with the Open Build Service; see
 [packaging/suse](packaging/suse/README.md).
 
-Status: released (0.20.0), ready to be used; the release candidate
-1.0.0-rc2 (a pre-release) is out for testing towards 1.0 for SLES 16
-and Leap 16 (roadmap in [docs/architecture.md](docs/architecture.md),
-section 11). Releases marked as pre-releases on GitHub (tags such as
+Status: released (1.0.0) for SLES 16 and Leap 16, ready to be used
+(roadmap in [docs/architecture.md](docs/architecture.md), section 11). Releases marked as pre-releases on GitHub (tags such as
 v1.0.0-rc1) bring new features ahead of the next release recommended for
 use.
 Packages are built and tested in VMs on Leap 16 and Tumbleweed for every

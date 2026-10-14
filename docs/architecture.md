@@ -3440,7 +3440,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       `manage_instance`; one with it lets an approver cancel a task but
       not stop the instance.
 
-33. **Ready for 1.0** (1.0.0-rc1, D10, D20):
+33. **Ready for 1.0** (1.0.0, D10, D20; done):
     - the problem: steps 10–15 led to a 1.0 for SLES 16 and Leap 16, and
       what came after them (modern MCP, sign-in, Landlock, tasks) is
       done. Three things stand in the way of calling it 1.0. An answer
@@ -3497,6 +3497,11 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       before `1.0.0`); the commit releasing 1.0.0 sets the rewrite back.
       The VM test's `exec` check expected a 0.x version and now
       expects the installed package's;
+    - then 1.0.0 (done, 2026-10-14), after the second candidate (step
+      34): `release-1.0` takes no change but documentation from rc2,
+      `_service` maps `v1.0.0` to the package version `1.0.0`, and main
+      builds as 1.1.0 and tests the configuration of 1.0
+      (`test/compat/1.0`);
     - not in this step: per-conversation state for modern agents (§12,
       D18), Kit at 2026-07-28 (waits for mcp-go to implement the tasks
       extension);
