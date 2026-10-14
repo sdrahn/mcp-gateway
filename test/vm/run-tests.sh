@@ -15,7 +15,16 @@ dir=$(cd "$(dirname "$0")" && pwd)
 failed=0
 
 pass() { echo "PASS: $*"; }
-fail() { echo "FAIL: $*"; failed=1; }
+fail() { echo "FAIL: $*"; failed=1; fail_context; }
+# fail_context prints what the gateway and systemd logged about it and its
+# instances in the seconds before a failure (the journal at the end of
+# the run shows only its last lines): the gateway's errors and warnings,
+# and instances that failed to start or exited.
+fail_context() {
+	journalctl --since -20s --no-pager -o short-precise 2>/dev/null |
+		grep -E 'mcp' | grep -E 'level=(ERROR|WARN)|[Ff]ailed|status=[0-9]|code=exited' |
+		tail -15 | sed 's/^/    | /'
+}
 check() { # check <description> <command...>
 	local desc=$1
 	shift
