@@ -5,7 +5,25 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.0.0-rc1 — 2026-10-14
+
+The first release candidate for 1.0 (roadmap step 33), published as a
+pre-release to be tested on SLES 16 and Leap 16; until 1.0.0 the
+release branch takes fixes only. It closes the last gap of the delivery
+check of 0.19: an answer replayed to an HTTP client that resumes its
+stream is decided again, like every other result. The compatibility
+promise holds as it has since 0.4, now written down (user guide,
+chapter 10, "What stays compatible"), and each minor release is again
+tested with the configuration of the one before it.
+
+Upgrading from 0.20.x needs no changes to `gateway.yaml`, server
+definitions, role data or custom policies; from 0.19.x, read the notes
+of v0.20.0 as well. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. The
+package version of a candidate is `1.0.0~rc1`, which sorts before
+`1.0.0`, so `zypper up` moves on to 1.0.0 when it is released. Please
+report what does not work as documented, on SLES 16 and Leap 16 above
+all, as an issue on GitHub.
 
 ### Changed
 
