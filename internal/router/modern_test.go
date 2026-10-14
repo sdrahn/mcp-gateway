@@ -308,9 +308,12 @@ func TestSilentProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	if u.modern || u.busy() {
-		t.Fatalf("modern %v, busy %v", u.modern, u.busy())
+	if u.modern {
+		t.Fatal("modern")
 	}
+	// The read loop hands initialize's answer over before it takes the
+	// request from those in flight: busy ends just after acquire returns.
+	waitFor(t, func() bool { return !u.busy() })
 	if methods, _, _ := l.started("silent")[0].seen(); len(methods) != 2 || methods[1] != "initialize" {
 		t.Fatalf("requests %v", methods)
 	}
