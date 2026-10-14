@@ -5,6 +5,83 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## v1.0.0-rc2 — 2026-10-14
+
+The second release candidate for 1.0, published as a pre-release. It
+adds what joined 1.0 after the first candidate, both decided on
+2026-10-14: the clients using the gateway, with the MCP version each
+speaks, in the control API and in Cockpit, where an administrator can
+end one (roadmap step 34); and the setup package for podman-mcp-server,
+which lets each user's agent manage the user's own rootless containers
+(user guide, chapter 13). From this candidate to 1.0.0, the release
+branch takes fixes only.
+
+Upgrading from 1.0.0-rc1 or 0.20.x needs no changes to `gateway.yaml`,
+server definitions, role data or custom policies: a custom approval
+policy without the new rule `manage_session` decides who may see and
+end a client as for instances. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. The
+package version is `1.0.0~rc2`, which sorts before `1.0.0`.
+
+### Added
+
+- **Podman setup package** `mcp-gateway-profile-podman`:
+  [podman-mcp-server](https://github.com/manusa/podman-mcp-server)
+  behind the gateway, each user's instance running as that user against
+  the user's own rootless Podman (`systemctl --user enable --now
+  podman.socket`), in the SELinux domain `mcpsrv_podman_t`
+  (`mcp-gateway-selinux`) and under Landlock. Roles `podman-reader`
+  (containers, images, networks, volumes, logs) and `podman-operator`
+  (also running, stopping and removing containers and pulling,
+  building, pushing and removing images, each with approval). User
+  guide, chapter 13.
+- The gateway logs which client a session or modern agent is and the
+  MCP version it speaks: "session initialized" with the client's name
+  and version, the version it asked for, the one it got and a cap that
+  lowered it (`agents.max_version`); "agent discovered" for clients of
+  2026-07-28, "agent discovery refused" for one capped below it.
+- The clients in the control API (roadmap step 34 stage A):
+  `GET /v1/sessions` lists the clients the caller may manage, newest
+  first. A session: its principal, transport, endpoint, the client's
+  name and version as it gave them, the MCP version it asked for and
+  the one it got, the cap that lowered it, when it started and was last
+  active, and its instances. An agent of 2026-07-28 has no session: it
+  is listed by principal, client and endpoint for an hour after its
+  last request, with its open `subscriptions/listen` streams and
+  requests in flight.
+- Ending a client (roadmap step 34 stage B): `DELETE /v1/sessions/{id}`
+  ends a session as if its client had gone: its calls are cancelled at
+  their servers (a privileged server's instance runs until its call
+  ends), its streams close, its session grants and instances go, and an
+  HTTP client gets `404` for the session id and starts a new session.
+  For an agent of 2026-07-28 it ends the open streams and requests in
+  flight, which are answered with an error; its next request is served.
+  Ending a client keeps nobody out. Audited `mcp-session-ended`, with
+  who ended it.
+- Clients in Cockpit (roadmap step 34 stage C): the Servers tab lists
+  the clients you may manage, with the user, the client's name and
+  version, the MCP version it speaks (marked when `agents.max_version`
+  capped it), the endpoint, since when and when last active, and
+  **End**.
+- `data.mcp.approvals.manage_session`: who may see and end a client (input
+  `session`: the principal, the endpoint and its servers, the client).
+  By default the instances' approver rules of every server of the
+  endpoint: the principal themself and the admin role.
+
+### Changed
+
+- `mcp-gateway-admin doctor` skips servers that list their
+  tools per user (`discovery: instance`, as with `sign_in`): an
+  instance for no one would not start, or tell whether a user's does.
+- **Custom approval policies.** A policy without `manage_session`
+  decides who may see and end a client by `manage_instance` for each server of
+  its endpoint, so policies written for 1.0.0-rc1 keep working.
+
+### Fixed
+
+- A modern agent's `server/discover` cleared the client's name and
+  version (`clientInfo`) for the rest of that request; it keeps them.
+
 ## v1.0.0-rc1 — 2026-10-14
 
 The first release candidate for 1.0 (roadmap step 33), published as a
