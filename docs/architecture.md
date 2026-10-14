@@ -1062,6 +1062,7 @@ socket), HTTP with JSON:
 | `GET /v1/servers` | the server registry (without command and environment) and the running instances the caller may manage |
 | `DELETE /v1/instances/{id}` | stop an instance; its sessions get a new one on their next call |
 | `GET /v1/tasks`, `POST /v1/tasks/{id}/cancel` | the agents' tasks the caller may manage (§5.11.6; the approver rules of instances); cancel one, as its agent would |
+| `GET /v1/sessions` | the clients the caller may manage (step 34): sessions with client, the MCP version asked for and negotiated and a cap; agents of 2026-07-28 as last seen |
 | `GET /v1/sign-ins`, `DELETE /v1/sign-ins/{server}` | sign-ins to servers with `sign_in` the caller may see (never tokens) and the caller's pending ones with their link; sign out (§5.7.3) |
 | `GET /v1/policy` | policy mode (directories or bundle) and the active bundle revisions |
 | `POST /v1/policy/whatif` | "what changes?": the decisions proposed role data would change (`data.mcp.whatif.changes`, for reviewers per `data.mcp.approvals.review_policy`) |
@@ -1075,7 +1076,10 @@ an instance is policy (`data.mcp.approvals.manage_instance`, the same
 approver rules as for grants: by default the principal themself and the
 admin role), and so is who may see and cancel a task
 (`data.mcp.approvals.manage_task`, by default the same rules; a policy
-without it decides by `manage_instance`).
+without it decides by `manage_instance`), and who may see a client
+(`data.mcp.approvals.manage_session`: the rules of every server of its
+endpoint; a policy without it decides by `manage_instance` for those
+servers).
 
 The Cockpit page ships in this repository (`cockpit/mcp-gateway`,
 installed to `/usr/share/cockpit/mcp-gateway`), with four tabs:
@@ -3511,7 +3515,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       gone can stop its instances, not the client. It joins 1.0
       although step 33 took fixes only between the candidates: decided
       on 2026-10-14, with a second candidate to test it;
-    - stage A, the clients in the control API: `GET /v1/sessions`
+    - stage A (done), the clients in the control API: `GET /v1/sessions`
       lists the clients the caller may manage, newest first. A session
       (MCP up to 2025-11-25): its id, the principal (`sub`, `iss`,
       `uid`), transport (socket or HTTP), endpoint (a server or the

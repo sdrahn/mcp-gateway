@@ -14,6 +14,25 @@ minor release (with a warning) and removed in the next.
   and version, the version it asked for, the one it got and a cap that
   lowered it (`agents.max_version`); "agent discovered" for clients of
   2026-07-28, "agent discovery refused" for one capped below it.
+- The clients in the control API (roadmap step 34 stage A):
+  `GET /v1/sessions` lists the clients the caller may manage, newest
+  first. A session: its principal, transport, endpoint, the client's
+  name and version as it gave them, the MCP version it asked for and
+  the one it got, the cap that lowered it, when it started and was last
+  active, and its instances. An agent of 2026-07-28 has no session: it
+  is listed by principal, client and endpoint for an hour after its
+  last request, with its open `subscriptions/listen` streams and
+  requests in flight.
+- `data.mcp.approvals.manage_session`: who may see a client (input
+  `session`: the principal, the endpoint and its servers, the client).
+  By default the instances' approver rules of every server of the
+  endpoint: the principal themself and the admin role.
+
+### Changed
+
+- **Custom approval policies.** A policy without `manage_session`
+  decides who may see a client by `manage_instance` for each server of
+  its endpoint, so policies written for 1.0.0-rc1 keep working.
 
 ### Fixed
 

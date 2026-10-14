@@ -70,6 +70,11 @@ type Tasks interface {
 	CancelTask(id, by string) error
 }
 
+// Sessions lists the gateway's clients (router.Router).
+type Sessions interface {
+	Sessions() []router.SessionInfo
+}
+
 // PolicyStatus reports the policy OPA has activated (pep.OPA).
 type PolicyStatus interface {
 	Bundles(ctx context.Context) (map[string]string, error)
@@ -110,8 +115,10 @@ type Server struct {
 	Backends  func() map[string]*config.Backend
 	Instances Instances
 	// Tasks serves /v1/tasks; optional.
-	Tasks  Tasks
-	Policy PolicyStatus
+	Tasks Tasks
+	// Sessions serves /v1/sessions; optional.
+	Sessions Sessions
+	Policy   PolicyStatus
 	// Review and Catalog serve POST /v1/policy/whatif; both optional.
 	Review  PolicyReview
 	Catalog Catalog
@@ -216,6 +223,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/servers", s.with(s.servers))
 	mux.HandleFunc("DELETE /v1/instances/{id}", s.with(s.stopInstance))
 	mux.HandleFunc("GET /v1/tasks", s.with(s.tasks))
+	mux.HandleFunc("GET /v1/sessions", s.with(s.sessions))
 	mux.HandleFunc("POST /v1/tasks/{id}/cancel", s.with(s.cancelTask))
 	mux.HandleFunc("GET /v1/sign-ins", s.with(s.signIns))
 	mux.HandleFunc("DELETE /v1/sign-ins/{server}", s.with(s.signOut))
@@ -496,6 +504,29 @@ func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request, a broker.App
 		}
 	}
 	writeError(w, http.StatusNotFound, "no such task")
+}
+
+// sessionTarget is a client as approver rules see it.
+func sessionTarget(c router.SessionInfo) broker.SessionTarget {
+	return broker.SessionTarget{Sub: c.Sub, Issuer: c.Issuer, UID: c.UID, Transport: c.Transport,
+		Endpoint: c.Endpoint, Servers: c.Servers, Client: c.Client}
+}
+
+// sessions lists the clients the caller may manage
+// (data.mcp.approvals.manage_session: by default their own, and
+// everyone's for the approvers named for the endpoint's servers), newest
+// first.
+func (s *Server) sessions(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+	out := []router.SessionInfo{}
+	if s.Sessions != nil {
+		for _, c := range s.Sessions.Sessions() {
+			if s.Broker.MayManageSession(r.Context(), a, sessionTarget(c)) {
+				out = append(out, c)
+			}
+		}
+	}
+	slices.Reverse(out)
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) policy(w http.ResponseWriter, r *http.Request, _ broker.Approver) {

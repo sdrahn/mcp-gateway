@@ -76,6 +76,30 @@ test_manage_task if {
 	approvals.manage_task with input as {"approver": carol, "task": remote}
 }
 
+test_manage_session if {
+	own := {"sub": "alice", "uid": 1001, "transport": "unix", "endpoint": "all", "servers": ["fs", "zypp"], "client": {"name": "claude-code"}}
+	approvals.manage_session with input as {"approver": alice, "session": own}
+	not approvals.manage_session with input as {"approver": bob, "session": own}
+	approvals.manage_session with input as {"approver": carol, "session": own}
+
+	# An unmapped remote principal's session: admins only.
+	remote := object.union(own, {"sub": "u-remote", "uid": null, "transport": "http"})
+	not approvals.manage_session with input as {"approver": alice, "session": remote}
+	approvals.manage_session with input as {"approver": carol, "session": remote}
+
+	# Every server of the endpoint must grant it: an approver of one is
+	# not an approver of the others.
+	fs_helpdesk := {"default": ["self"], "fs": ["self", "user:bob"]}
+	approvals.manage_session with input as {"approver": bob, "session": object.union(own, {"servers": ["fs"]})}
+		with data.mcp.rbac.approvers as fs_helpdesk
+	not approvals.manage_session with input as {"approver": bob, "session": own}
+		with data.mcp.rbac.approvers as fs_helpdesk
+
+	# An endpoint without servers: the default rules.
+	approvals.manage_session with input as {"approver": alice, "session": object.union(own, {"servers": []})}
+	not approvals.manage_session with input as {"approver": bob, "session": object.union(own, {"servers": []})}
+}
+
 test_manage_sign_in if {
 	own := {"server": "tickets", "uid": 1001}
 	approvals.manage_sign_in with input as {"approver": alice, "sign_in": own}

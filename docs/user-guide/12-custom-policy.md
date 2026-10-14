@@ -70,6 +70,7 @@ input as self-reported.
 | `data.mcp.approvals.manage_grant` | control API: may this caller see and revoke this grant? | `true`/`false` |
 | `data.mcp.approvals.manage_instance` | control API: may this caller see and stop this instance? | `true`/`false` |
 | `data.mcp.approvals.manage_task` | control API: may this caller see and cancel this task? (optional: a policy without it decides by `manage_instance` for the task's server and principal) | `true`/`false` |
+| `data.mcp.approvals.manage_session` | control API: may this caller see this client (a session, or an agent of 2026-07-28)? (optional: a policy without it decides by `manage_instance` for every server of the client's endpoint and its principal) | `true`/`false` |
 | `data.mcp.approvals.notify` | a new pending approval, with mail configured | a set of `"user:<name>"` and `"group:<name>"` |
 | `data.mcp.log.mask` | OPA itself, for every decision it logs (`mcp-opa.service` sets `decision_logs.mask_decision` to it) | a set of JSON pointers to remove from the decision log |
 
@@ -78,8 +79,8 @@ input as self-reported.
 undefined or invalid `decision` denies ("policy evaluation failed",
 "invalid policy decision"), an undefined `visible` hides everything, an
 undefined `allow`, `manage_grant` or `manage_instance` refuses (an
-undefined `manage_task` falls back to `manage_instance`; one that fails
-refuses). Give
+undefined `manage_task` or `manage_session` falls back to
+`manage_instance`; one that fails refuses). Give
 your rules `default` values so they are never undefined by accident.
 
 **Versions.** Every input has `"version": 1`, the version of the input
@@ -239,7 +240,11 @@ listing and calling consistent.
 of `request`; for `manage_instance` it has `instance`
 (`{"server", "uid"}`); for `manage_task` it has `task`
 (`{"server", "tool", "sub", "iss", "uid", "transport"}`: the
-principal's `sub` and `iss`, their `uid` or `null` for a remote one). `notify` gets `request` without `approver`. Filter and approval inputs
+principal's `sub` and `iss`, their `uid` or `null` for a remote one);
+for `manage_session` it has `session` (`{"sub", "iss", "uid",
+"transport", "endpoint", "servers", "client": {"name", "version"}}`:
+the endpoint is a server or `all`, `servers` its servers, and the
+client's name and version are its own claim). `notify` gets `request` without `approver`. Filter and approval inputs
 have `version` too.
 `root` may always decide, whatever the policy says.
 
@@ -263,7 +268,7 @@ several definitions:
 | `mcp.authz.denied` | boolean | denies more requests ("denied by policy"); a deny always wins |
 | `mcp.authz.roles` | set | gives principals additional roles |
 | `mcp.authz.perms` | set | adds permissions (objects as in `data.json`) |
-| `mcp.approvals.allow`, `manage_grant`, `manage_instance`, `manage_task` | boolean | lets more approvers act |
+| `mcp.approvals.allow`, `manage_grant`, `manage_instance`, `manage_task`, `manage_session` | boolean | lets more approvers act |
 | `mcp.approvals.notify` | set | mails more people |
 | `mcp.log.mask` | set | removes more from the decision log |
 
@@ -619,6 +624,10 @@ manage_instance if "mcp-admins" in input.approver.groups
 default manage_task := false
 
 manage_task if "mcp-admins" in input.approver.groups
+
+default manage_session := false
+
+manage_session if "mcp-admins" in input.approver.groups
 
 notify contains "group:mcp-admins"
 ```
