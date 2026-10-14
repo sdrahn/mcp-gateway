@@ -17,6 +17,7 @@ FIREWALLD_MCP=v0.1.0   # https://github.com/janvhs/firewalld-mcp
 CONNECT_NG=962ea948c42176f5f774aab2730c7d290bd0e30b # https://github.com/SUSE/connect-ng (suseconnect-mcp)
 MCP_SERVER_ZYPP=0.1.2  # https://github.com/openSUSE/mcp-server-zypp
 MCP_SERVER_SNAPPER=f0f09a0422868d9f7f0a9e81ec7fdf53226712fb # https://github.com/aschnell/mcp-server-snapper (0.3.0)
+PODMAN_MCP_SERVER=v0.0.15 # https://github.com/manusa/podman-mcp-server
 
 [ $# = 1 ] || {
 	echo "usage: $0 <output dir>" >&2
@@ -62,6 +63,13 @@ fetch aschnell/mcp-server-snapper mcp-server-snapper "$MCP_SERVER_SNAPPER"
 (cd "$src/mcp-server-snapper" && CGO_ENABLED=0 go build -mod=vendor -trimpath \
 	-ldflags "-X main.Version=$(cat VERSION)" -o "$out/usr/bin/mcp-server-snapper" ./src)
 
+fetch manusa/podman-mcp-server podman-mcp-server "$PODMAN_MCP_SERVER"
+# The build tags of its Makefile: the Podman bindings without cgo.
+(cd "$src/podman-mcp-server" && CGO_ENABLED=0 go build -trimpath \
+	-tags remote,containers_image_openpgp,exclude_graphdriver_btrfs,btrfs_noversion,exclude_graphdriver_devicemapper \
+	-ldflags "-X github.com/manusa/podman-mcp-server/pkg/version.Version=${PODMAN_MCP_SERVER#v}" \
+	-o "$out/usr/bin/podman-mcp-server" ./cmd/podman-mcp-server)
+
 # mcp-gateway-admin review (mcp-gateway-tools, which it runs) on the real
 # sources (roadmap step 11, stage 3): the reports go to the job log; the
 # helpers systemd-mcp is known to run must be found.
@@ -78,6 +86,7 @@ review firewalld-mcp "$src/firewalld-mcp" --main ./cmd/firewalld-mcp
 review suseconnect-mcp "$src/connect-ng" --main ./cmd/suseconnect-mcp
 review mcp-server-zypp "$src/mcp-server-zypp"
 review mcp-server-snapper "$src/mcp-server-snapper" --main ./src
+review podman-mcp-server "$src/podman-mcp-server" --main ./cmd/podman-mcp-server
 for p in rpm man getfacl; do
 	grep -q "^  $p  " "$src/review-systemd-mcp.txt" || {
 		echo "review: systemd-mcp runs $p, not found" >&2

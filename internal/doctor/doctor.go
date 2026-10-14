@@ -554,6 +554,7 @@ var TypedPrograms = []string{
 	"/usr/bin/mcp-gateway-admin",
 	"/usr/bin/firewalld-mcp",
 	"/usr/bin/mcp-server-snapper",
+	"/usr/bin/podman-mcp-server",
 	"/usr/bin/mcp-server-zypp",
 	"/usr/bin/suseconnect-mcp",
 	"/usr/bin/systemd-mcp",

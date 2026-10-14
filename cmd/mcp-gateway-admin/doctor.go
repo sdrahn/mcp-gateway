@@ -466,6 +466,10 @@ func (d *doctorRun) servers() []doctor.Result {
 	var rs []doctor.Result
 	for _, name := range slices.Sorted(maps.Keys(sel)) {
 		b := sel[name]
+		if r := perUserResult(name, b); r != nil {
+			rs = append(rs, *r)
+			continue
+		}
 		r := doctor.Result{Check: "server " + name}
 		ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
 		res, err := inspect.Start(ctx, launcher, b, principal.Discovery)
@@ -512,6 +516,19 @@ func (d *doctorRun) servers() []doctor.Result {
 		}
 	}
 	return rs
+}
+
+// perUserResult skips a server whose lists come from each user's own
+// instance (discovery: instance, as for sign_in or the podman setup): an
+// instance for no one may not start at all (no sign-in, no Podman
+// socket) and would not tell whether a user's does.
+func perUserResult(name string, b *config.Backend) *doctor.Result {
+	if b.Discovery != config.DiscoveryInstance {
+		return nil
+	}
+	return &doctor.Result{Check: "server " + name, Status: doctor.Skip,
+		Summary: "not started: each user's own instance lists its tools (discovery: instance)",
+		Details: []string{fmt.Sprintf("a user's first call starts theirs; journalctl -u 'mcp-%s-*' shows how it went", name)}}
 }
 
 // toolNotesResult warns about tool_notes of server name for tools it
