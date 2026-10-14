@@ -1,7 +1,8 @@
 # Who may decide on a pending approval (data.mcp.approvals.allow), see or
 # revoke a grant (data.mcp.approvals.manage_grant), see or stop a backend
 # instance (data.mcp.approvals.manage_instance), see or cancel an agent's
-# task (data.mcp.approvals.manage_task) and see or end a
+# task (data.mcp.approvals.manage_task), see or end a client's session
+# (data.mcp.approvals.manage_session) and see or end a
 # principal's sign-in to a server (data.mcp.approvals.manage_sign_in). The gateway queries
 # these from its control API; the approver is identified by the kernel
 # (uid, user and group names), never by the agent.
@@ -57,6 +58,30 @@ manage_task if {
 	some rule in rules_for(input.task.server)
 	grants(rule, input.task)
 }
+
+# METADATA
+# description: >-
+#   May the caller see and end the client's session? The rules of every
+#   server of its endpoint must grant it (of "default" for an endpoint
+#   without servers). (Without this rule the gateway decides as for the
+#   principal's instances of those servers, manage_instance.)
+# entrypoint: true
+default manage_session := false
+
+manage_session if {
+	every server in session_servers {
+		session_granted(server)
+	}
+}
+
+session_granted(server) if {
+	some rule in rules_for(server)
+	grants(rule, input.session)
+}
+
+default session_servers := ["default"]
+
+session_servers := input.session.servers if count(input.session.servers) > 0
 
 # METADATA
 # description: May the caller see and end the principal's sign-in to the server?
@@ -130,8 +155,8 @@ approver_roles contains r if {
 	some r in data.mcp.rbac.bindings.groups[g]
 }
 
-# subject is the pending request's principal, the grant, the instance or
-# the sign-in;
+# subject is the pending request's principal, the grant, the instance,
+# the task, the session or the sign-in;
 # all carry the principal's local uid if it has one.
 grants("self", subject) if subject.uid == input.approver.uid
 

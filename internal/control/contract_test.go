@@ -21,6 +21,7 @@ func TestContract(t *testing.T) {
 		"grants.txt":           []pep.Grant{},
 		"servers.txt":          []serverInfo{},
 		"tasks.txt":            []router.TaskInfo{},
+		"sessions.txt":         []router.SessionInfo{},
 		"policy.txt":           policyResponse{},
 		"sign-ins.txt":         signInsResponse{},
 		"sign-out.txt":         signOutResponse{},

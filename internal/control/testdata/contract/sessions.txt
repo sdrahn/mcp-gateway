@@ -1,0 +1,21 @@
+# GET /v1/sessions
+# Fields may be added, never renamed or removed (docs/architecture.md, D10).
+[].capped
+[].client
+[].client.name
+[].client.version
+[].endpoint
+[].id
+[].instances
+[].iss
+[].kind
+[].last_active
+[].protocol
+[].requested
+[].requests
+[].servers
+[].started
+[].streams
+[].sub
+[].transport
+[].uid

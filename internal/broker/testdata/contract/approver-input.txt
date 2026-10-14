@@ -45,6 +45,16 @@ request.principal.sub
 request.principal.transport
 request.principal.uid
 request.server
+session
+session.client
+session.client.name
+session.client.version
+session.endpoint
+session.iss
+session.servers
+session.sub
+session.transport
+session.uid
 sign_in
 sign_in.server
 sign_in.uid

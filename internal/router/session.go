@@ -95,8 +95,14 @@ type Session struct {
 	// carries modern requests never does, and hears nothing as a
 	// session).
 	initialized bool
-	// version is the protocol version initialize agreed on.
-	version string
+	// version is the protocol version initialize agreed on, requested
+	// the one the client asked for and capped the agents.max_version
+	// that lowered it (clients.go).
+	version, requested, capped string
+	// started and active (unix nanoseconds of the client's last message)
+	// are when the session began and was last used.
+	started time.Time
+	active  atomic.Int64
 	// task marks the session of a task (tasks.go): its client is the
 	// task, which keeps what the call asks of the client for the agent.
 	task *task
@@ -114,7 +120,9 @@ func newSession(r *Router, ep endpoint, client jsonrpc.MessageConn, p principal.
 		inflight:    map[string]context.CancelFunc{},
 		annotations: map[string]map[string]any{},
 		vault:       pseudo.NewVault(0),
+		started:     time.Now(),
 	}
+	s.active.Store(s.started.UnixNano())
 	s.ep.Store(&ep)
 	return s
 }
@@ -177,6 +185,7 @@ func (s *Session) snapshotPrincipal() principal.Principal {
 }
 
 func (s *Session) dispatch(m *jsonrpc.Message) {
+	s.active.Store(time.Now().UnixNano())
 	switch {
 	case m.IsResponse():
 		s.mu.Lock()
@@ -548,7 +557,7 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 		v, capped = c, c
 	}
 	s.mu.Lock()
-	s.version = v
+	s.version, s.requested, s.capped = v, p.ProtocolVersion, capped
 	s.mu.Unlock()
 	if !s.modern {
 		// Which client, and the version it asked for and got: the name is

@@ -138,6 +138,7 @@ func (r *Router) serveAgentRequest(ctx context.Context, ep endpoint, out jsonrpc
 	s.clientCaps = am.caps
 	s.agentLevel = am.logLevel
 	s.vault = r.agentVault(s)
+	defer r.agentSeen(s, m.Method == "subscriptions/listen")()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	s.ctx = ctx
