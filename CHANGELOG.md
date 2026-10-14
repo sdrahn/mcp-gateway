@@ -9,6 +9,16 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- **Podman setup package** `mcp-gateway-profile-podman`:
+  [podman-mcp-server](https://github.com/manusa/podman-mcp-server)
+  behind the gateway, each user's instance running as that user against
+  the user's own rootless Podman (`systemctl --user enable --now
+  podman.socket`), in the SELinux domain `mcpsrv_podman_t`
+  (`mcp-gateway-selinux`) and under Landlock. Roles `podman-reader`
+  (containers, images, networks, volumes, logs) and `podman-operator`
+  (also running, stopping and removing containers and pulling,
+  building, pushing and removing images, each with approval). User
+  guide, chapter 13.
 - The gateway logs which client a session or modern agent is and the
   MCP version it speaks: "session initialized" with the client's name
   and version, the version it asked for, the one it got and a cap that
@@ -44,6 +54,9 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- `mcp-gateway-admin doctor` skips servers that list their
+  tools per user (`discovery: instance`, as with `sign_in`): an
+  instance for no one would not start, or tell whether a user's does.
 - **Custom approval policies.** A policy without `manage_session`
   decides who may see and end a client by `manage_instance` for each server of
   its endpoint, so policies written for 1.0.0-rc1 keep working.

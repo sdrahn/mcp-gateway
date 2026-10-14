@@ -684,9 +684,11 @@ if [ -d "$dir/servers" ]; then
 	cp -a "$dir/servers/." /
 	# CI artifacts do not keep file modes.
 	chmod 0755 /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
-		/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp/zypp-mcp-tool /usr/bin/mcp-server-snapper
+		/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp/zypp-mcp-tool /usr/bin/mcp-server-snapper \
+		/usr/bin/podman-mcp-server
 	restorecon -R /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
-		/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp /usr/bin/mcp-server-snapper
+		/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp /usr/bin/mcp-server-snapper \
+		/usr/bin/podman-mcp-server
 	rpm -Uvh --nodeps "$dir"/rpms/mcp-gateway-profile-*.rpm >/dev/null || die "installing the setup packages failed"
 	zypper -n in --no-recommends firewalld man >/dev/null && systemctl enable --now firewalld >/dev/null 2>&1
 	zypper -n in --no-recommends snapper btrfsprogs >/dev/null
@@ -703,7 +705,8 @@ if [ -d "$dir/servers" ]; then
 	snapper list-configs 2>&1 | sed 's/^/  /'
 	for f in /usr/bin/systemd-mcp:mcpsrv_systemd_exec_t /usr/bin/firewalld-mcp:mcpsrv_firewalld_exec_t \
 		/usr/bin/mcp-server-zypp:mcpsrv_zypp_exec_t /usr/libexec/mcp-server-zypp/zypp-mcp-tool:rpm_exec_t \
-		/usr/bin/suseconnect-mcp:mcpsrv_suseconnect_exec_t /usr/bin/mcp-server-snapper:mcpsrv_snapper_exec_t; do
+		/usr/bin/suseconnect-mcp:mcpsrv_suseconnect_exec_t /usr/bin/mcp-server-snapper:mcpsrv_snapper_exec_t \
+		/usr/bin/podman-mcp-server:mcpsrv_podman_exec_t; do
 		echo "  $(file_label "${f%%:*}") ${f%%:*}"
 		check "${f%%:*} is labeled ${f##*:}" file_has_type "${f%%:*}" "${f##*:}"
 	done
@@ -740,7 +743,7 @@ RemainAfterExit=yes
 ExecStart=/bin/true
 END
 	systemctl daemon-reload
-	jq '.bindings.users.alice += ["systemd-operator", "firewalld-reader", "zypp-reader", "suseconnect-reader", "snapper-operator"]' \
+	jq '.bindings.users.alice += ["systemd-operator", "firewalld-reader", "zypp-reader", "suseconnect-reader", "snapper-operator", "podman-operator"]' \
 		/etc/mcp-gateway/policy/rbac/data.json >/root/vmtest/data.json &&
 		cat /root/vmtest/data.json >/etc/mcp-gateway/policy/rbac/data.json
 	check "the role data binds the shipped roles" mcp-gateway --check-policy-data
@@ -800,8 +803,48 @@ END
 
 	stool alice zypp search_packages '{"pattern":"bash"}'
 	check "zypp: search_packages" succeeded_with "bash"
+
+	# podman: alice's own rootless Podman, through her Podman service
+	# (podman.socket of her systemd, kept running by lingering), the
+	# instance running as alice in mcpsrv_podman_t.
+	zypper -n in --no-recommends podman >/dev/null || echo "  installing podman failed"
+	grep -q '^alice:' /etc/subuid || usermod --add-subuids 100000-165535 --add-subgids 100000-165535 alice
+	loginctl enable-linger alice
+	alice_uid=$(id -u alice)
+	eventually 30 test -d "/run/user/$alice_uid"
+	systemctl --user -M alice@ enable --now podman.socket 2>&1 | sed 's/^/  /'
+	check "podman: alice's Podman socket is there" eventually 30 test -S "/run/user/$alice_uid/podman/podman.sock"
+	ls -Z "/run/user/$alice_uid/podman/podman.sock" | sed 's/^/  /'
+	# Its roles name only tools the server has (discovery: instance, so
+	# through the gateway as alice rather than inspect).
+	out=$(runuser -u alice -- /usr/local/bin/mcpcall --server podman --method tools/list --params '{}' 2>&1)
+	rc=$?
+	echo "  [alice podman/tools/list] rc=$rc ${out:0:300}"
+	podman_missing=$(jq -rn --argjson list "$out" --slurpfile roles /usr/share/mcp-gateway/policy/mcp/profiles/podman/data.json \
+		'[$roles[0].roles[].permissions[].tool | select(. != "*")] - [$list.tools[].name] | unique | join(" ")' 2>&1)
+	check "podman: the roles name only tools the server has${podman_missing:+ (missing: $podman_missing)}" \
+		test "$rc" = 0 -a -z "$podman_missing"
+	check "podman: image_build's description has the tool note" succeeded_with "Administrator's note: containerFile is an absolute path"
+	stool alice podman container_list '{}'
+	check "podman: container_list" test "$rc" = 0
+	stool alice podman volume_list '{}'
+	check "podman: volume_list" test "$rc" = 0
+	stool_approved alice podman image_pull '{"imageName":"registry.opensuse.org/opensuse/busybox:latest"}'
+	check "podman: image_pull after an approval" test "$rc" = 0
+	# A build from alice's home: the context is read under Landlock.
+	mkdir -p /home/alice/vmtest-image
+	printf 'FROM registry.opensuse.org/opensuse/busybox:latest\nLABEL vmtest=1\n' >/home/alice/vmtest-image/Containerfile
+	chown -R alice: /home/alice/vmtest-image && restorecon -R /home/alice/vmtest-image
+	stool_approved alice podman image_build '{"containerFile":"/home/alice/vmtest-image/Containerfile","imageName":"localhost/vmtest-image:1"}'
+	check "podman: image_build from the home after an approval" test "$rc" = 0
+	stool alice podman image_list '{}'
+	check "podman: image_list shows the pulled and the built image" \
+		bash -c 'grep -q "busybox" <<<"$1" && grep -q "vmtest-image" <<<"$1"' _ "$out"
+	# Asked of alice's Podman service itself, through her socket.
+	check "podman: the images are alice's own" bash -c "podman --url unix:///run/user/$alice_uid/podman/podman.sock images --format '{{.Repository}}' | grep -q vmtest-image"
+
 	# The setups' rulesets (step 30): the servers above ran under them.
-	for s in systemd firewalld zypp; do
+	for s in systemd firewalld zypp podman; do
 		check "landlock: the $s server starts restricted" \
 			bash -c "journalctl -q --no-pager -u 'mcp-$s-*' -o cat | grep -q 'mcp-landlock: Landlock ABI'"
 	done
@@ -860,7 +903,7 @@ END
 	systemctl restart mcp-gateway.service
 	wait_socket
 
-	for s in systemd firewalld zypp suseconnect snapper; do
+	for s in systemd firewalld zypp suseconnect snapper podman; do
 		journalctl -u "mcp-$s-*" --no-pager -o cat 2>/dev/null | tail -5 | sed "s/^/  [$s] /"
 	done
 

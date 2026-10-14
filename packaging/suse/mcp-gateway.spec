@@ -222,6 +222,23 @@ access and write access to the system credentials) and the roles
 suseconnect-reader and suseconnect-admin. Changes to the registration
 need an approval.
 
+%package profile-podman
+Summary:        podman-mcp-server behind mcp-gateway
+Group:          System/Management
+BuildArch:      noarch
+Requires:       %{name} = %{version}
+Recommends:     podman-mcp-server
+# The users' rootless Podman, which the server talks to.
+Recommends:     podman
+
+%description profile-podman
+Sets up podman-mcp-server (https://github.com/manusa/podman-mcp-server)
+behind mcp-gateway: the server definition, which runs each user's
+instance as that user against the user's rootless Podman service
+(podman.socket of the user's systemd), and the roles podman-reader and
+podman-operator. Running, stopping and removing containers and pulling,
+building, pushing and removing images need an approval.
+
 %prep
 %autosetup -p1 -a1
 
@@ -277,11 +294,11 @@ go test ./internal/... ./profiles/...
 %post selinux
 # One line: the macro takes no continued arguments. The setup modules
 # (mcp-gateway-profile-*) come with this package.
-%selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_systemd.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_firewalld.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_zypp.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_suseconnect.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_snapper.pp.bz2
+%selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_systemd.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_firewalld.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_zypp.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_suseconnect.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_snapper.pp.bz2 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_podman.pp.bz2
 
 %postun selinux
 if [ $1 -eq 0 ]; then
-    %selinux_modules_uninstall -s %{selinuxtype} mcp_systemd mcp_firewalld mcp_zypp mcp_suseconnect mcp_snapper %{modulename}
+    %selinux_modules_uninstall -s %{selinuxtype} mcp_systemd mcp_firewalld mcp_zypp mcp_suseconnect mcp_snapper mcp_podman %{modulename}
 fi
 
 %posttrans selinux
@@ -337,6 +354,7 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_zypp.pp.bz2
 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_suseconnect.pp.bz2
 %{_datadir}/selinux/packages/%{selinuxtype}/mcp_snapper.pp.bz2
+%{_datadir}/selinux/packages/%{selinuxtype}/mcp_podman.pp.bz2
 %{_datadir}/selinux/devel/include/services/%{modulename}.if
 
 %files cockpit
@@ -395,5 +413,9 @@ fi
 %files profile-suseconnect
 %{_datadir}/mcp-gateway/servers.d/suseconnect.yaml
 %{_datadir}/mcp-gateway/policy/mcp/profiles/suseconnect
+
+%files profile-podman
+%{_datadir}/mcp-gateway/servers.d/podman.yaml
+%{_datadir}/mcp-gateway/policy/mcp/profiles/podman
 
 %changelog

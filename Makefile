@@ -38,7 +38,7 @@ BINARIES := bin/mcp-gateway bin/mcp-gateway-admin bin/mcp-gateway-tools bin/mcp-
 
 # Server setups (profiles/<name>, SELinux module selinux/mcp_<name>.te),
 # packaged as mcp-gateway-profile-<name>.
-PROFILES := systemd firewalld zypp suseconnect snapper
+PROFILES := systemd firewalld zypp suseconnect snapper podman
 
 .PHONY: all build test vet lint fmt-check policy-check policy-test selinux check \
 	install install-gateway install-tools install-selinux install-cockpit install-desktop install-fs-server install-demo install-exec-server \

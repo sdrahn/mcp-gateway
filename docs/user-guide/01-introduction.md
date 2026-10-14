@@ -82,7 +82,7 @@ mcp-gateway sits between agents and MCP servers:
 | `mcp-gateway-notify` | `mcp-gateway-desktop` | Desktop notifications for approvals. |
 | `mcp-server-fs` | `mcp-gateway-fs-server` | An MCP server for files on the user's home directory (server `fs`): read, list, search, write, edit (chapter 4); also serves this documentation to agents (server `gateway-docs`, chapter 10). |
 | `mcp-server-exec` | `mcp-gateway-exec-server` | An MCP server offering commands the administrator allows as tools (server `exec`, chapter 4). |
-| setup packages | `mcp-gateway-profile-*` | Definitions, roles, accounts and polkit rules for the systemd, firewalld, zypp, suseconnect and snapper MCP servers (chapter 13). |
+| setup packages | `mcp-gateway-profile-*` | Definitions, roles, accounts and polkit rules for the systemd, firewalld, zypp, suseconnect and snapper MCP servers, and for the users' own containers with podman-mcp-server (chapter 13). |
 
 ## How a request flows
 

@@ -61,7 +61,7 @@ checkout.
 | `test/` | reference-client compatibility suite (`clients/`: Go, Python, TypeScript), compatibility with earlier releases' files (`compat/`), VM tests on Leap 16 and Tumbleweed (`vm/`) |
 | `policy/` | default OPA policy bundle (`data.mcp.authz.decision`, `data.mcp.filter.visible`, `data.mcp.filter.hints`), RBAC data and tests |
 | `selinux/` | `mcp_gateway` SELinux policy module (domains, types, isolation invariants) and the modules of the server setups |
-| `profiles/` | server setups for system management (zypp, systemd, firewalld, snapper, SUSEConnect): definitions and roles, packaged as `mcp-gateway-profile-<name>` |
+| `profiles/` | server setups for system management (zypp, systemd, firewalld, snapper, SUSEConnect) and the users' containers (Podman): definitions and roles, packaged as `mcp-gateway-profile-<name>` |
 | `systemd/` | `mcp-gateway.service`, `mcp-opa.service` |
 | `tools/` | `mcp-policy-bundle`: builds and signs a policy bundle; `check-release`: checks a commit is ready to be tagged (run by the Release workflow); `check-tree`: checks a commit holds sources only (run by CI) |
 | `config/` | example `gateway.yaml` and backend definitions (`servers.d/`) |

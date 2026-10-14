@@ -1,0 +1,80 @@
+policy_module(mcp_podman, 1.0.0)
+
+# podman-mcp-server (manusa/podman-mcp-server) behind mcp-gateway: package
+# mcp-gateway-profile-podman. It runs as the user (run_as: principal) and
+# talks to the user's rootless Podman service over its socket in the
+# user's runtime directory, /run/user/UID/podman/podman.sock, created by
+# the user's systemd (podman.socket); image_build reads the build context
+# from the user's home. Podman itself runs outside, in the user's session
+# and domain.
+
+mcp_gateway_backend_template(podman)
+
+# /run/user/UID and the socket in it.
+mcp_gateway_search_runtime(mcpsrv_podman_t)
+optional_policy(`
+	gen_require(`
+		type user_runtime_root_t;
+	')
+	allow mcpsrv_podman_t user_runtime_root_t:dir search_dir_perms;
+')
+optional_policy(`
+	gen_require(`
+		type user_tmp_t;
+	')
+	allow mcpsrv_podman_t user_tmp_t:dir search_dir_perms;
+	allow mcpsrv_podman_t user_tmp_t:sock_file write_sock_file_perms;
+')
+optional_policy(`
+	gen_require(`
+		type user_runtime_t;
+	')
+	allow mcpsrv_podman_t user_runtime_t:dir search_dir_perms;
+	allow mcpsrv_podman_t user_runtime_t:sock_file write_sock_file_perms;
+')
+optional_policy(`
+	gen_require(`
+		type container_var_run_t;
+	')
+	allow mcpsrv_podman_t container_var_run_t:dir search_dir_perms;
+	allow mcpsrv_podman_t container_var_run_t:sock_file write_sock_file_perms;
+')
+# The listening socket belongs to the user's systemd (socket activation)
+# or to podman system service.
+optional_policy(`
+	gen_require(`
+		type unconfined_t;
+	')
+	allow mcpsrv_podman_t unconfined_t:unix_stream_socket connectto;
+')
+optional_policy(`
+	gen_require(`
+		type container_runtime_t;
+	')
+	allow mcpsrv_podman_t container_runtime_t:unix_stream_socket connectto;
+')
+
+# The user's name and groups (/etc/passwd, /etc/group), which the Podman
+# bindings look up: passwd_file_t where the policy has it.
+ifdef(`auth_read_passwd',`
+	auth_read_passwd(mcpsrv_podman_t)
+')
+
+# The containers configuration the Podman bindings read: /etc/containers
+# (container_config_t where container-selinux labels it) and
+# /usr/share/containers.
+files_read_usr_files(mcpsrv_podman_t)
+optional_policy(`
+	gen_require(`
+		type container_config_t;
+	')
+	list_dirs_pattern(mcpsrv_podman_t, container_config_t, container_config_t)
+	read_files_pattern(mcpsrv_podman_t, container_config_t, container_config_t)
+')
+
+# image_build: the build context below the user's home (subject to the
+# instance's MCS categories, and Landlock).
+userdom_search_user_home_dirs(mcpsrv_podman_t)
+userdom_list_user_home_content(mcpsrv_podman_t)
+userdom_read_user_home_content_files(mcpsrv_podman_t)
+userdom_read_user_home_content_symlinks(mcpsrv_podman_t)

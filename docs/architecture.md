@@ -3555,7 +3555,10 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       to it), the CHANGELOG;
     - then 1.0.0-rc2: the steps land on main and are taken to
       `release-1.0`, tagged `v1.0.0-rc2` as a pre-release; from it to
-      1.0.0, fixes only;
+      1.0.0, fixes only. The setup package for podman-mcp-server
+      (`mcp-gateway-profile-podman`: each user's own rootless Podman, as
+      that user; chapter 13 of the user guide) joins the candidate too,
+      decided on 2026-10-14;
     - not in this step: blocking a client by name (the name is
       self-asserted; policy decides by principal), ending a task (its
       own Cancel, step 31);
