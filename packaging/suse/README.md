@@ -37,11 +37,19 @@ commit.
 
 Before tagging, check the release branch: `tools/check-release vX.Y.Z`
 (the spec's `Version`, the first CHANGELOG.md section and `_service` must
-name the release, and the tree must hold no binary file and nothing over
-1 MiB, `tools/check-tree`, which CI runs on every change). The Release workflow runs the same check before it
+name the release; a minor release X.Y.0 must carry the snapshot of the
+minor release before it in `test/compat`; and the tree must hold no
+binary file and nothing over 1 MiB, `tools/check-tree`, which CI runs on
+every change). The Release workflow runs the same check before it
 builds anything and refuses a tag that fails it, and after publishing it
 downloads the files again and checks them against `SHA256SUMS` and `git
 archive` of the tag.
+
+After a minor release X.Y.0, the change that moves main to X.(Y+1)
+also takes the release's configuration into `test/compat`
+(`test/compat/snapshot.sh vX.Y.0`, removing the older snapshot): the
+configuration of the previous minor release must keep working (decision
+D10), and CI fails while the snapshot is older than that.
 
 Build targets: SLES 16 and Leap 16 (supported), openSUSE Tumbleweed
 (development). SLES 15 and Leap 15 are not supported.

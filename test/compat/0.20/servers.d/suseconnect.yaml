@@ -9,6 +9,8 @@ command: ["/usr/bin/suseconnect-mcp"]
 run_as: root
 network: true
 selinux_type: mcpsrv_suseconnect_t
+# No landlock: registering activates products, which installs their
+# release packages.
 sandbox:
   state_directory: suseconnect-mcp
   read_write_paths: ["/etc/zypp/credentials.d"]

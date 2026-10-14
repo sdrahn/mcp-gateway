@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "roles": {
+    "snapper-reader": {
+      "description": "snapper: list configs, their settings and snapshots",
+      "permissions": [
+        {
+          "server": "snapper",
+          "tool": "list_configs"
+        },
+        {
+          "server": "snapper",
+          "tool": "get_config"
+        },
+        {
+          "server": "snapper",
+          "tool": "list_snapshots"
+        }
+      ]
+    },
+    "snapper-operator": {
+      "description": "snapper-reader, create snapshots, and with approval: delete snapshots, change configs, roll back (privileged server)",
+      "permissions": [
+        {
+          "server": "snapper",
+          "tool": "list_configs"
+        },
+        {
+          "server": "snapper",
+          "tool": "get_config"
+        },
+        {
+          "server": "snapper",
+          "tool": "list_snapshots"
+        },
+        {
+          "server": "snapper",
+          "tool": "create_snapshot"
+        },
+        {
+          "server": "snapper",
+          "tool": "rollback",
+          "require_approval": true,
+          "approval_channel": "oob",
+          "approval_scopes": [
+            "once"
+          ]
+        },
+        {
+          "server": "snapper",
+          "tool": "*",
+          "require_approval": true,
+          "approval_channel": "oob",
+          "approval_scopes": [
+            "once",
+            "session",
+            "1h"
+          ]
+        }
+      ]
+    }
+  }
+}

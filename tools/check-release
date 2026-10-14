@@ -11,6 +11,10 @@
 #   - the first "## " heading of CHANGELOG.md is "## vX.Y.Z — <date>";
 #   - packaging/suse/_service builds from release-X.Y with the version
 #     of its latest tag (a release branch, not main);
+#   - for a minor release (X.Y.0, also its candidates vX.Y.0-rcN):
+#     test/compat holds the configuration of the minor release before it,
+#     the latest earlier one CHANGELOG.md names (test/compat/snapshot.sh,
+#     decision D10);
 #   - the tree holds sources only (tools/check-tree).
 # Each mismatch is printed with the file to fix; the exit status is 1 if
 # there is one.
@@ -46,6 +50,21 @@ heading=$(git show "$rev:CHANGELOG.md" | grep -m1 '^## ' || true)
 case "$heading" in
 "## $tag "*) ;;
 *) fail "the first section of CHANGELOG.md is \"$heading\", not \"## $tag — <date>\"" ;;
+esac
+
+case "$base" in
+*.*.0)
+	# The minor release before X.Y: the highest A.B below it among the
+	# releases CHANGELOG.md names (candidates aside).
+	previous=$(git show "$rev:CHANGELOG.md" |
+		sed -n 's/^## v\([0-9][0-9]*\.[0-9][0-9]*\)\.[0-9][0-9]* .*/\1/p' |
+		{ cat; echo "$series"; } | sort -u -t. -k1,1n -k2,2n |
+		grep -B1 -x "$series" | grep -vx "$series" || true)
+	if [ -n "$previous" ] &&
+		! git cat-file -e "$rev:test/compat/$previous/TAG" 2>/dev/null; then
+		fail "test/compat has no snapshot of $previous, the minor release before $series (test/compat/snapshot.sh v$previous.<latest>)"
+	fi
+	;;
 esac
 
 service=$(git show "$rev:packaging/suse/_service")

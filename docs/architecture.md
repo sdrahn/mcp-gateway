@@ -2203,7 +2203,9 @@ the changelog lists it under "Deprecated". It is removed in the next
 minor release. A change that cannot be made that way raises the
 version, and the gateway reads the old version for one more minor
 release. CI loads the configuration of the previous minor release
-(`test/compat`, taken from its tag by `snapshot.sh`). The fields of the
+(`test/compat`, taken from its tag by `snapshot.sh`), and fails, as
+`tools/check-release` does for a minor release, while the snapshot is
+of an older one. The fields of the
 policy documents and of the control API's requests and responses are
 listed in `testdata/contract` files (internal/pep, internal/broker,
 internal/control); a test fails when a field disappears, and when a new
@@ -3462,12 +3464,16 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       arrive after the resumption go as written. The streams of modern
       agents carry no event ids and are not resumed, so their task
       notifications are never replayed;
-    - stage B, the previous release's configuration tested:
+    - stage B (done), the previous release's configuration tested:
       `test/compat` holds 0.20's configuration (`snapshot.sh v0.20.0`)
       in place of 0.4's; `tools/check-release` refuses a minor release
       X.Y.0 whose tree has no snapshot of the minor release before it,
       and the release steps (`packaging/suse/README.md`) take a new one
-      after each minor release;
+      after each minor release. As built: the previous minor release is
+      the latest earlier one CHANGELOG.md names (the release workflow's
+      checkout has no tags); `test/compat` also fails CI while its
+      snapshot is older than the minor release before the one the spec
+      builds, so main's move to the next minor carries the snapshot;
     - stage C, the documentation of what 1.0 promises: chapter 10's
       decision counter names delivery decisions; the user guide and
       README state what stays compatible from 1.0 on (D10: configuration,
