@@ -24,7 +24,7 @@ message is explained.
 | [7. Approvals](07-approvals.md) | Approval channels, scopes and grants, persistence, desktop and e-mail notifications |
 | [8. Cockpit](08-cockpit.md) | The web console page: approvals, servers, clients, tasks, policy, audit |
 | [9. Security](09-security.md) | SELinux, MCS isolation, sandboxing, Landlock, credentials, audit trail, hardening checklist |
-| [10. Operations](10-operations.md) | Logs, monitoring, state, upgrades, troubleshooting |
+| [10. Operations](10-operations.md) | Logs, monitoring, state, upgrades, troubleshooting, clients and tasks from the command line |
 | [11. Reference](11-reference.md) | Commands, control API, audit records, paths, SELinux types and booleans |
 | [12. Custom policy (Rego)](12-custom-policy.md) | The policy contract (queries, inputs, decisions), extending or replacing the shipped logic, writing policy from scratch, testing and deploying |
 | [13. System management servers](13-system-management-servers.md) | systemd, firewalld, snapper, suseconnect and zypp MCP servers, and podman for the users' own containers: setup packages, accounts, SELinux domains, polkit, read freely and change only with approval |

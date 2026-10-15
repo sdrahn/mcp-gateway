@@ -50,7 +50,7 @@ For an agent, which server to ask:
 | Approval channels, scopes ("once", "session", durations), desktop and mail notifications | [7. Approvals](user-guide/07-approvals.md) |
 | The Cockpit page | [8. Cockpit](user-guide/08-cockpit.md) |
 | Threat model, SELinux domains, MCS, sandbox, Landlock, audit trail, hardening checklist | [9. Security](user-guide/09-security.md) |
-| What to do after a change, logs, metrics, upgrades, the self-check, troubleshooting | [10. Operations](user-guide/10-operations.md) |
+| What to do after a change, logs, metrics, upgrades, the self-check, troubleshooting, clients and tasks from the command line | [10. Operations](user-guide/10-operations.md) |
 | Command-line options, control API, audit record fields, file paths, SELinux types, limits | [11. Reference](user-guide/11-reference.md) |
 | Writing Rego: the policy's inputs and decisions, adding to or replacing the shipped logic, testing | [12. Custom policy](user-guide/12-custom-policy.md) |
 | systemd, firewalld, zypp, suseconnect and snapper servers: setup packages, accounts, polkit, roles | [13. System management servers](user-guide/13-system-management-servers.md) |
@@ -92,4 +92,5 @@ with placeholders.
 | `refusing to run as root`, `state files not owned by mcp-gateway` | the gateway was run as root | [10, "State and backup"](user-guide/10-operations.md#state-and-backup) |
 | `mcp-gateway was updated; restart …` | the package was updated, the gateway still runs the old version | [10, "Upgrades"](user-guide/10-operations.md#upgrades) |
 | `libvirt picks MCS categories from the gateway's range` | libvirt needs a drop-in | [9, "MCS: separating instances"](user-guide/09-security.md#mcs-separating-instances) |
+| `no such client`, `no such task`, `the gateway does not answer at …`, `no access to the gateway's control socket …` | `mcp-gateway-admin clients` or `tasks`: not yours or gone; the gateway not running; not in `socket_group` | [10, "Clients and tasks"](user-guide/10-operations.md#clients-and-tasks) |
 | `FAIL`/`WARN` lines of `mcp-gateway-admin doctor` | the self-check, each line names its fix | [10, "Self-check"](user-guide/10-operations.md#self-check) |
