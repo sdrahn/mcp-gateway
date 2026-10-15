@@ -7,6 +7,25 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Server definitions: `${UID}`, the principal's numeric user id, in
+  `command`, `env` and `landlock`, next to `${HOME}` and `${USER}`. For
+  a principal without a local account, variables and Landlock trees
+  naming it are left out (user guide, chapter 4).
+
+### Fixed
+
+- podman setup: pulls and pushes failed with "failed to stat file
+  /run/containers/UID/auth.json: permission denied" once rootful Podman
+  had made `/run/containers` root's: the instance had no
+  `XDG_RUNTIME_DIR`, and Podman's library looked for credentials there.
+  The instance now gets the user's runtime directory and socket
+  (`XDG_RUNTIME_DIR`, `CONTAINER_HOST`), and reads the user's registry
+  credentials: `podman login`'s in the runtime directory, and those
+  kept in the home (Landlock, SELinux module `mcp_podman`; user guide,
+  chapter 13).
+
 ## v1.1.0 — 2026-10-15
 
 The clients and the agents' tasks from the command line, and a Cockpit

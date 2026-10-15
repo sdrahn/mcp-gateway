@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
@@ -29,8 +30,10 @@ type Launcher interface {
 	Start(ctx context.Context, b *config.Backend, p principal.Principal, id string) (Instance, error)
 }
 
-// expandVars substitutes ${HOME} and ${USER} (the principal's) in s and
-// leaves every other ${...} untouched.
+// expandVars substitutes ${HOME}, ${USER} and ${UID} (the principal's)
+// in s and leaves every other ${...} untouched. ${UID} is empty for a
+// principal without a local account; environment and landlockRules leave
+// out what names it then.
 func expandVars(s string, p principal.Principal) string {
 	return os.Expand(s, func(k string) string {
 		switch k {
@@ -38,6 +41,11 @@ func expandVars(s string, p principal.Principal) string {
 			return p.Home
 		case "USER":
 			return p.Sub
+		case "UID":
+			if p.UID == nil {
+				return ""
+			}
+			return strconv.FormatUint(uint64(*p.UID), 10)
 		}
 		return "${" + k + "}"
 	})
@@ -61,6 +69,9 @@ func command(b *config.Backend, p principal.Principal) []string {
 // to / (the home of the discovery instance, which runs for no one) is
 // read, never written.
 func landlockRules(r landlock.Rules, p principal.Principal) landlock.Rules {
+	if p.UID == nil {
+		r = r.Without(namesUID)
+	}
 	r = r.Expand(func(s string) string { return expandVars(s, p) })
 	var write []string
 	for _, w := range r.Write {
@@ -88,6 +99,9 @@ func environment(b *config.Backend, p principal.Principal) []string {
 		env["USER"] = p.Sub
 	}
 	for k, v := range b.Env {
+		if p.UID == nil && namesUID(v) {
+			continue // no uid: XDG_RUNTIME_DIR=/run/user/ would mislead
+		}
 		env[k] = expandVars(v, p)
 	}
 	out := make([]string, 0, len(env))
@@ -97,6 +111,9 @@ func environment(b *config.Backend, p principal.Principal) []string {
 	sort.Strings(out)
 	return out
 }
+
+// namesUID reports whether s names ${UID}.
+func namesUID(s string) bool { return strings.Contains(s, "${UID}") }
 
 // unitName returns the transient unit name for an instance; it must match
 // the polkit rule in packaging/polkit/50-mcp-gateway.rules.

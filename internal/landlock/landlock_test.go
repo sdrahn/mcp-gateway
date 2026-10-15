@@ -265,7 +265,7 @@ func TestHandledFS(t *testing.T) {
 }
 
 func TestValidateExpand(t *testing.T) {
-	for _, ok := range []Rules{{}, {Write: []string{"${HOME}"}, Read: []string{"/srv/${USER}/x", "/usr/share/doc"}, TCPConnect: []int{443}}} {
+	for _, ok := range []Rules{{}, {Write: []string{"${HOME}"}, Read: []string{"/srv/${USER}/x", "/usr/share/doc", "/run/user/${UID}"}, TCPConnect: []int{443}}} {
 		if err := ok.Validate(); err != nil {
 			t.Errorf("%+v: %v", ok, err)
 		}
@@ -281,6 +281,10 @@ func TestValidateExpand(t *testing.T) {
 	})
 	if r.Write[0] != "/home/alice" || r.Read[0] != "/srv/alice" || r.Exec != nil {
 		t.Errorf("expanded %+v", r)
+	}
+	w := Rules{Read: []string{"/run/user/${UID}", "/etc"}, Write: []string{"/srv/${UID}"}}.Without(func(p string) bool { return strings.Contains(p, "${UID}") })
+	if len(w.Read) != 1 || w.Read[0] != "/etc" || len(w.Write) != 0 || w.Exec != nil {
+		t.Errorf("without %+v", w)
 	}
 }
 

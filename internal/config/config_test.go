@@ -569,3 +569,20 @@ func TestBackendToolNotes(t *testing.T) {
 		t.Errorf("yaml: %+v %v", b.ToolNotes, err)
 	}
 }
+
+// A command or environment naming the principal makes instances differ by
+// principal.
+func TestPerPrincipal(t *testing.T) {
+	for _, b := range []Backend{
+		{Command: []string{"/usr/bin/x", "--root", "${HOME}"}},
+		{Command: []string{"/usr/bin/x"}, Env: map[string]string{"N": "${USER}"}},
+		{Command: []string{"/usr/bin/x"}, Env: map[string]string{"XDG_RUNTIME_DIR": "/run/user/${UID}"}},
+	} {
+		if !b.PerPrincipal() {
+			t.Errorf("%+v: not per principal", b)
+		}
+	}
+	if b := (Backend{Command: []string{"/usr/bin/x", "${OTHER}"}}); b.PerPrincipal() {
+		t.Error("${OTHER}: per principal")
+	}
+}
