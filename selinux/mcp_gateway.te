@@ -35,6 +35,17 @@ gen_tunable(mcpgw_can_send_mail, false)
 ## </desc>
 gen_tunable(mcpsrv_http_connect_any, false)
 
+## <desc>
+## <p>
+## Allow the file server (mcpsrv_fs_t) to read and change the files of
+## the XDG base directories below the users homes: ~/.config, ~/.cache
+## and ~/.local/share (config_home_t, cache_home_t, data_home_t; xdg_*_t
+## in the reference policy). ~/.ssh, ~/.gnupg and other directories
+## with types of their own stay out of reach.
+## </p>
+## </desc>
+gen_tunable(mcpsrv_fs_manage_xdg, false)
+
 # All backend MCP server domains.
 attribute mcpsrv_domain;
 
@@ -133,6 +144,29 @@ corecmd_exec_bin(mcpsrv_generic_t)
 # mcp-gateway-fs-server; config/servers.d/fs.yaml).
 mcp_gateway_backend_template(fs)
 mcp_gateway_backend_home_rw(mcpsrv_fs_t)
+# The XDG base directories (~/.config, ~/.cache, ~/.local/share) have
+# types of their own: only with mcpsrv_fs_manage_xdg. The names differ
+# between Fedora-derived policies (openSUSE) and the reference policy.
+optional_policy(`
+	gen_require(`
+		type config_home_t, cache_home_t, data_home_t;
+	')
+	tunable_policy(`mcpsrv_fs_manage_xdg',`
+		manage_dirs_pattern(mcpsrv_fs_t, { config_home_t cache_home_t data_home_t }, { config_home_t cache_home_t data_home_t })
+		manage_files_pattern(mcpsrv_fs_t, { config_home_t cache_home_t data_home_t }, { config_home_t cache_home_t data_home_t })
+		read_lnk_files_pattern(mcpsrv_fs_t, { config_home_t cache_home_t data_home_t }, { config_home_t cache_home_t data_home_t })
+	')
+')
+optional_policy(`
+	gen_require(`
+		type xdg_config_t, xdg_cache_t, xdg_data_t;
+	')
+	tunable_policy(`mcpsrv_fs_manage_xdg',`
+		manage_dirs_pattern(mcpsrv_fs_t, { xdg_config_t xdg_cache_t xdg_data_t }, { xdg_config_t xdg_cache_t xdg_data_t })
+		manage_files_pattern(mcpsrv_fs_t, { xdg_config_t xdg_cache_t xdg_data_t }, { xdg_config_t xdg_cache_t xdg_data_t })
+		read_lnk_files_pattern(mcpsrv_fs_t, { xdg_config_t xdg_cache_t xdg_data_t }, { xdg_config_t xdg_cache_t xdg_data_t })
+	')
+')
 
 # The gateway's documentation (the server gateway-docs): mcp-server-fs,
 # read-only, in a domain that reads /usr and nothing of the users'.

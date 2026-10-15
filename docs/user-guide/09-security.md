@@ -35,7 +35,7 @@ their own domains:
 | `mcpgw_t` | the gateway | read its configuration, write its state, serve its sockets, bind `mcp_port_t` and `mcp_metrics_port_t`, ask systemd over D-Bus to start `mcp-*` units, talk to OPA; mail with `mcpgw_can_send_mail` |
 | `mcpopa_t` | OPA | read the policy, serve its socket; network only with `mcpopa_can_network` |
 | `mcpsrv_generic_t` | MCP servers without `selinux_type` | stdio, libraries, `/etc`, syslog |
-| `mcpsrv_fs_t` | the file server (`mcp-server-fs`) | additionally user home content (read/write) |
+| `mcpsrv_fs_t` | the file server (`mcp-server-fs`) | additionally user home content (read/write); `~/.config`, `~/.cache`, `~/.local/share` with `mcpsrv_fs_manage_xdg`; never `~/.ssh`, `~/.gnupg` or browser profiles (chapter 4, "A file server on the user's home") |
 | `mcpsrv_docs_t` | the documentation server `gateway-docs` | read `/usr`, nothing of the users' |
 | `mcpsrv_exec_t` | the command server `exec` | run the allowed commands; read system state |
 | `mcpsrv_http_t` | servers defined with `url` (`mcp-http-connector`) | connect to HTTP ports (any port with `mcpsrv_http_connect_any`), of the server's addresses only (`IPAddressAllow=`); read the CA certificates |

@@ -496,6 +496,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcpopa_can_network` | off | OPA to fetch bundles over HTTPS |
 | `mcpgw_can_send_mail` | off | the gateway to connect to SMTP ports |
 | `mcpsrv_http_connect_any` | off | servers defined with `url`, and their sign-in helper, to connect to any port of their server, not only HTTP and proxy ports |
+| `mcpsrv_fs_manage_xdg` | off | the file server to read and change `~/.config`, `~/.cache` and `~/.local/share` (`config_home_t`, `cache_home_t`, `data_home_t`; `xdg_*_t` in the reference policy) |
 
 | Interface | For |
 |---|---|

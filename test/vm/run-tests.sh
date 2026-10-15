@@ -124,8 +124,12 @@ outside_dontaudit_off() {
 }
 # Denials in a permissive domain (permissive=1) are those mcp-gateway
 # profile records on purpose.
+# The file server refused ~/.config without mcpsrv_fs_manage_xdg and
+# ~/.ssh always, on purpose ("Files written through the gateway").
+expected_denial='scontext=[^ ]*:mcpsrv_fs_t:[^ ]* tcontext=[^ ]*:(config_home_t|ssh_home_t):'
 no_mcp_denials() {
-	! outside_dontaudit_off <<<"$avc" | grep -E 'mcpgw_|mcpopa_|mcpsrv_|mcp_port_t' | grep -v 'permissive=1' | grep -q .
+	! outside_dontaudit_off <<<"$avc" | grep -E 'mcpgw_|mcpopa_|mcpsrv_|mcp_port_t' | grep -v 'permissive=1' |
+		grep -vE "$expected_denial" | grep -q .
 }
 not_loaded() { ! semodule -l | awk '{print $1}' | grep -qx "$1"; }
 # ptool <user> <tool> <args>: a call to the privileged test server.
@@ -534,6 +538,23 @@ done
 check "a new instance of alice reads the file" succeeded_with "written by the agent"
 new_pid=$(instance_pid alice)
 echo "  new instance: $(label "${new_pid:-1}")"
+# Dot-directories with types of their own: ~/.config (config_home_t)
+# only with the boolean mcpsrv_fs_manage_xdg, ~/.ssh (ssh_home_t) never.
+runuser -u alice -- sh -c 'mkdir -p ~/.config/vmtest ~/.ssh && echo old >~/.config/vmtest/settings && echo key >~/.ssh/vmtest'
+restorecon -R /home/alice/.config /home/alice/.ssh
+echo "  $(file_label /home/alice/.config/vmtest/settings) ~/.config/vmtest/settings, $(file_label /home/alice/.ssh/vmtest) ~/.ssh/vmtest"
+tool alice write_file '{"path":"/home/alice/.config/vmtest/settings","content":"new"}'
+check "without mcpsrv_fs_manage_xdg, ~/.config is refused" tool_error_with "permission denied"
+check "the boolean mcpsrv_fs_manage_xdg is there, off" bash -c 'getsebool mcpsrv_fs_manage_xdg | grep -q "off$"'
+setsebool mcpsrv_fs_manage_xdg on
+tool alice write_file '{"path":"/home/alice/.config/vmtest/settings","content":"new"}'
+check "with mcpsrv_fs_manage_xdg, alice writes ~/.config" test "$rc" = 0 -a "$(cat /home/alice/.config/vmtest/settings 2>/dev/null)" = new
+check "the file keeps its type" file_has_type /home/alice/.config/vmtest/settings config_home_t
+tool alice write_file '{"path":"/home/alice/.config/vmtest/new.conf","content":"x"}'
+check "a new file in ~/.config is config_home_t" file_has_type /home/alice/.config/vmtest/new.conf config_home_t
+tool alice read_file '{"path":"/home/alice/.ssh/vmtest"}'
+check "~/.ssh stays out of reach with mcpsrv_fs_manage_xdg" tool_error_with "permission denied"
+setsebool mcpsrv_fs_manage_xdg off
 
 section "polkit"
 check "the gateway user may start mcp-* units" \
