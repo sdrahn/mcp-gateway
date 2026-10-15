@@ -3595,25 +3595,24 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       its listen stream; `mcp-session-ended` is audited; in the VMs,
       Cockpit lists a `mcp-connect` client and ends it.
 
-35. **Clients and tasks from the command line** (1.1; D10, D14):
+35. **Clients and tasks from the command line** (1.1; D10, D14; done):
     - the problem: the clients using the gateway and the agents' tasks
       can be listed, ended and cancelled in Cockpit and through the
       control API only (steps 31 and 34). An administrator on a host
       without Cockpit, over SSH or in a script, has `curl` against the
       control socket and the API's JSON; `mcp-gateway-admin`, the
       administrator's command, has nothing for them;
-    - stage A, the commands: `mcp-gateway-admin clients` lists the
-      clients the caller may manage (`GET /v1/sessions`), one per line:
-      user, client and version, the MCP version (marked when capped),
-      endpoint, since and last active, and the id; `clients end ID`
-      ends one (`DELETE /v1/sessions/{id}`) after a confirmation, which
-      `--yes` skips. `mcp-gateway-admin tasks` lists the tasks
-      (`GET /v1/tasks`): server and tool, user, started, state;
-      `tasks cancel ID` cancels a running one
-      (`POST /v1/tasks/{id}/cancel`). `--json` prints the API's JSON
-      for scripts, `--socket` names another control socket. An id may
-      be given by an unambiguous prefix, as the list shows ids
-      shortened;
+    - stage A (done), the commands: `mcp-gateway-admin clients` lists
+      the clients the caller may manage (`GET /v1/sessions`), one per
+      line: user, client and version, the MCP version (marked when
+      capped), endpoint, since and last active, and the id; `clients end
+      ID` ends one (`DELETE /v1/sessions/{id}`) after a confirmation,
+      which `--yes` skips. `mcp-gateway-admin tasks` lists the tasks
+      (`GET /v1/tasks`): server and tool, user, started, state; `tasks
+      cancel ID` cancels a running one (`POST /v1/tasks/{id}/cancel`).
+      `--json` prints the API's JSON for scripts, `--socket` names
+      another control socket. An id may be given by an unambiguous
+      prefix, as the list shows ids shortened;
     - who may do what is the control API's, as for Cockpit: the
       commands connect to the control socket as the user who runs them,
       so the kernel names the caller and `manage_session` and
@@ -3626,9 +3625,23 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       these commands, and its domain may not write the control socket
       (the `neverallow` every backend domain is under, §5.8). Ending
       clients and cancelling tasks stays with people;
-    - stage B, the docs: the user guide (chapter 10 next to the doctor,
-      chapter 11's command reference, chapters 5 and 8 pointing to it),
-      `mcp-gateway-admin help`, the CHANGELOG;
+    - stage B (done), the docs: the user guide (chapter 10 next to the
+      doctor, chapter 11's command reference, chapters 5 and 8 pointing
+      to it), `mcp-gateway-admin help`, the CHANGELOG;
+    - as built: the lists shorten ids to 8 characters (after the
+      `agent-` of an agent's), more where two would look alike; an exact
+      id wins over a prefix it is part of, and a prefix that names
+      several is refused with exit status 1, as an unknown id. Options
+      may come after the words (`clients end ID --yes`). `tasks cancel`
+      asks nothing, as this entry has it (Cockpit's Cancel asks).
+      Without `--socket` the commands use `approvals.control_socket` of
+      the configuration in force, else the default; without access to
+      the socket the message names its group (from the socket, else
+      `socket_group`). The VMs also start a task through `mcp-connect`
+      and check that its command ends when it is cancelled; the task
+      client sends its call only after the initialize answer, as MCP
+      asks: a call sent before it runs as a plain call, the session
+      having no version with tasks yet;
     - not in this step: approvals, grants, instances and sign-ins from
       the command line (Cockpit and the API have them; worth a step of
       their own if asked for), a live view (`watch mcp-gateway-admin
