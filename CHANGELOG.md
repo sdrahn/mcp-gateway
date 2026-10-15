@@ -7,6 +7,31 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v1.1.0 — 2026-10-15
+
+The clients and the agents' tasks from the command line, and a Cockpit
+page that fits the window. `mcp-gateway-admin clients` lists the clients
+using the gateway, with the MCP version each speaks, and ends one;
+`mcp-gateway-admin tasks` lists the agents' tasks and cancels a running
+one: what Cockpit's Clients and Tasks tabs do, for hosts without
+Cockpit, over SSH and in scripts (`--json`). Who may do what is the
+control API's, as for Cockpit: your own, and everyone's on the servers
+you approve for. Cockpit's page shows one thing per tab (Approvals,
+Servers, Clients, Tasks, Policy, Audit) with counts on the tabs, and is
+listed above Tools.
+
+Upgrading from 1.0.x needs no changes to `gateway.yaml`, server
+definitions, role data or custom policies. After the update, restart
+the gateway (`systemctl restart mcp-gateway.service`); the package does
+not. Things to know:
+
+- **Cockpit's page moved** from Tools to the end of the main list,
+  above Tools (Cockpit has no sections of its own for packages). Its
+  address stays `https://<host>:9090/mcp-gateway`. Kit's page follows
+  it once Kit's package lists itself there too.
+- **Going back to 1.0** needs nothing: 1.1 adds commands and changes
+  Cockpit's page only.
+
 ### Added
 
 - `mcp-gateway-admin clients` and `mcp-gateway-admin tasks`: the
