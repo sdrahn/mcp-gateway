@@ -3595,6 +3595,50 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       its listen stream; `mcp-session-ended` is audited; in the VMs,
       Cockpit lists a `mcp-connect` client and ends it.
 
+35. **Clients and tasks from the command line** (1.1; D10, D14):
+    - the problem: the clients using the gateway and the agents' tasks
+      can be listed, ended and cancelled in Cockpit and through the
+      control API only (steps 31 and 34). An administrator on a host
+      without Cockpit, over SSH or in a script, has `curl` against the
+      control socket and the API's JSON; `mcp-gateway-admin`, the
+      administrator's command, has nothing for them;
+    - stage A, the commands: `mcp-gateway-admin clients` lists the
+      clients the caller may manage (`GET /v1/sessions`), one per line:
+      user, client and version, the MCP version (marked when capped),
+      endpoint, since and last active, and the id; `clients end ID`
+      ends one (`DELETE /v1/sessions/{id}`) after a confirmation, which
+      `--yes` skips. `mcp-gateway-admin tasks` lists the tasks
+      (`GET /v1/tasks`): server and tool, user, started, state;
+      `tasks cancel ID` cancels a running one
+      (`POST /v1/tasks/{id}/cancel`). `--json` prints the API's JSON
+      for scripts, `--socket` names another control socket. An id may
+      be given by an unambiguous prefix, as the list shows ids
+      shortened;
+    - who may do what is the control API's, as for Cockpit: the
+      commands connect to the control socket as the user who runs them,
+      so the kernel names the caller and `manage_session` and
+      `manage_task` decide (your own, everyone's for administrators). A
+      refusal and an unknown id read alike ("no such client"), as in
+      the API. Exit status: 0, 1 for a refusal or an unknown id, 2 for
+      wrong usage, 3 when the gateway does not answer (not running, or
+      no access to the socket: the message names the socket group);
+    - not an agent's tool: the `gateway-admin` MCP server does not get
+      these commands, and its domain may not write the control socket
+      (the `neverallow` every backend domain is under, §5.8). Ending
+      clients and cancelling tasks stays with people;
+    - stage B, the docs: the user guide (chapter 10 next to the doctor,
+      chapter 11's command reference, chapters 5 and 8 pointing to it),
+      `mcp-gateway-admin help`, the CHANGELOG;
+    - not in this step: approvals, grants, instances and sign-ins from
+      the command line (Cockpit and the API have them; worth a step of
+      their own if asked for), a live view (`watch mcp-gateway-admin
+      clients` does);
+    - tests: the commands against a control API with fixtures (listing,
+      `--json`, end and cancel with and without `--yes`, a prefix, an
+      ambiguous prefix, a refusal, a gateway not running); in the VMs,
+      a user lists their `mcp-connect` client and ends it with the
+      command, another user sees none, and a running task is cancelled.
+
 ## 12. Open items
 
 - Per-conversation state for modern agents (D18): servers marked
