@@ -1,7 +1,5 @@
 /* Servers tab: the registry and the backend instances the user may see,
- * with stop and the instance's journal; the clients the user may see,
- * with the MCP version they speak, and end; the agents' tasks the user may
- * see, with cancel; for servers each user signs in to
+ * with stop and the instance's journal; for servers each user signs in to
  * (sign_in), the user's sign-in (with Sign out, and the link of a sign-in
  * waiting for them) and, for administrators, everyone's (with Revoke);
  * the state of the last reload of
@@ -177,111 +175,6 @@ function renderServers(servers, signIns) {
     }
 }
 
-/* clientProtocol describes the MCP version a client speaks: the one it
- * got, and the cap (agents.max_version) that lowered it from the one it
- * asked for. */
-function clientProtocol(c) {
-    if (c.capped) return c.protocol + " (capped by agents.max_version; asked for " + c.requested + ")";
-    if (c.kind === "agent") return c.protocol + " (no session)";
-    return c.protocol;
-}
-
-/* clientActivity describes when a client was last active: an agent of
- * 2026-07-28 with its open streams and requests. */
-function clientActivity(c) {
-    const open = [];
-    if (c.streams) open.push(c.streams + (c.streams === 1 ? " stream" : " streams") + " open");
-    if (c.requests) open.push(c.requests + (c.requests === 1 ? " request" : " requests") + " in flight");
-    return open.length > 0 ? open.join(", ") : relative(c.last_active);
-}
-
-async function endClient(c, button) {
-    const name = (c.client && c.client.name) || "the client";
-    if (!window.confirm("End " + name + " of " + c.sub + "? Its calls are cancelled; it may connect again.")) return;
-    button.disabled = true;
-    try {
-        await api.request({ method: "DELETE", path: "/v1/sessions/" + encodeURIComponent(c.id), body: "" });
-        showError(null);
-    } catch (ex) {
-        showError(ex && ex.status === 404 ? "The client is gone already." : describeFailure(ex));
-    }
-    tabs.servers.refresh();
-}
-
-function renderClients(clients) {
-    const body = document.querySelector("#clients tbody");
-    body.replaceChildren();
-    if (clients.length === 0) {
-        body.append(el("tr", null, el("td", { colspan: "7", class: "muted" }, "No clients you may manage.")));
-        return;
-    }
-    for (const c of clients) {
-        const end = el("button", { class: "danger" }, "End");
-        end.addEventListener("click", () => endClient(c, end));
-        // An agent is listed for an hour after its last request; with
-        // nothing open there is nothing to end.
-        if (c.kind === "agent" && !c.streams && !c.requests) {
-            end.disabled = true;
-            end.title = "Nothing open: the agent's next request is served as any other.";
-        }
-        const client = c.client && c.client.name ? c.client.name + (c.client.version ? " " + c.client.version : "") : "(no name given)";
-        body.append(el("tr", null,
-                       el("td", null, c.sub + (c.iss ? " (" + c.iss + ")" : "") + " via " + c.transport),
-                       el("td", null, client),
-                       el("td", null, clientProtocol(c)),
-                       el("td", null, c.endpoint === "all" ? "all servers" : c.endpoint),
-                       el("td", null, relative(c.started)),
-                       el("td", null, clientActivity(c)),
-                       el("td", null, end)));
-    }
-}
-
-/* taskState describes a task's state for people. */
-function taskState(t) {
-    switch (t.status) {
-    case "working": return "running";
-    case "input_required": return "waiting for the agent (an approval or a question)";
-    case "completed": return "completed " + relative(t.ended) + (t.delivered ? ", result fetched" : ", result not fetched yet");
-    case "failed": return "failed " + relative(t.ended) + (t.status_message ? ": " + t.status_message : "");
-    case "cancelled": return (t.status_message || "cancelled") + " " + relative(t.ended);
-    }
-    return t.status;
-}
-
-async function cancelTask(t, button) {
-    if (!window.confirm("Cancel " + t.server + " / " + t.tool + " of " + t.sub + "? The call is cancelled at the server.")) return;
-    button.disabled = true;
-    try {
-        await api.post("/v1/tasks/" + encodeURIComponent(t.id) + "/cancel", "", {});
-        showError(null);
-    } catch (ex) {
-        showError(ex && (ex.status === 409 || ex.status === 404) ? "The task has ended already." : describeFailure(ex));
-    }
-    tabs.servers.refresh();
-}
-
-function renderTasks(tasks) {
-    const body = document.querySelector("#tasks tbody");
-    body.replaceChildren();
-    if (tasks.length === 0) {
-        body.append(el("tr", null, el("td", { colspan: "5", class: "muted" }, "No tasks you may manage.")));
-        return;
-    }
-    for (const t of tasks) {
-        let action = null;
-        if (t.status === "working" || t.status === "input_required") {
-            action = el("button", { class: "danger" }, "Cancel");
-            action.addEventListener("click", () => cancelTask(t, action));
-        }
-        body.append(el("tr", null,
-                       el("td", null, t.server + " / " + t.tool),
-                       el("td", null, principalText(t)),
-                       el("td", null, relative(t.created)),
-                       el("td", null, taskState(t)),
-                       el("td", null, action)));
-    }
-}
-
 /* renderReloadStatus shows what the last reload of the configuration
  * left: a file that did not load, keys that need a restart. */
 function renderReloadStatus(status) {
@@ -356,7 +249,8 @@ async function selfCheck(button) {
         const list = el("ul", null, ...bad.map(r => el("li", null,
             el("strong", null, r.status.toUpperCase() + " " + r.check + ": "), r.summary,
             ...(r.details || []).map(d => el("div", { class: "muted" }, d)))));
-        box.replaceChildren(el("details", { open: "" }, el("summary", null, summary), list,
+        // Folded to its summary line unless a check failed.
+        box.replaceChildren(el("details", n.fail > 0 ? { open: "" } : null, el("summary", null, summary), list,
             el("div", { class: "muted" }, "All results: mcp-gateway-admin doctor (as root); chapter 10 of the user guide.")));
     } catch (ex) {
         box.textContent = "The self-check did not run: " + (ex.message || ex.problem || ex);
@@ -375,12 +269,9 @@ tabs.servers = {
         selfCheck(check);
     },
     async refresh() {
-        const [servers, status, signIns, tasks, clients] = await Promise.all([getJSON("/v1/servers"), getJSON("/v1/status"),
-            getJSON("/v1/sign-ins").catch(() => ({ sign_ins: [], pending: [] })),
-            getJSON("/v1/tasks").catch(() => []), getJSON("/v1/sessions").catch(() => [])]);
+        const [servers, status, signIns] = await Promise.all([getJSON("/v1/servers"), getJSON("/v1/status"),
+            getJSON("/v1/sign-ins").catch(() => ({ sign_ins: [], pending: [] }))]);
         renderServers(servers, signIns);
-        renderClients(clients);
-        renderTasks(tasks);
         renderReloadStatus(status);
     },
 };

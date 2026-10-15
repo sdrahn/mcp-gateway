@@ -193,7 +193,8 @@ Decision D13 in the architecture document has the reasoning.
 Policy and grants are checked when a call starts. A change to the role
 data, a revoked grant or an expiring one applies to the next call, not
 to one already forwarded to the server (decision D12); to stop a
-running call, cancel it or stop the instance (Cockpit, Servers tab).
+running call, cancel its task (Cockpit, Tasks tab) or stop the instance
+(Servers tab).
 Notifications that hand out data later are decided again as they
 arrive: an update to a subscribed resource reaches the agent only if
 the agent may still subscribe to that resource.

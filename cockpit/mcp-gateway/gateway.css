@@ -89,7 +89,7 @@ th { color: var(--muted); font-weight: normal; }
     .card dt { margin-top: 0.25rem; }
 }
 
-nav[role=tablist] { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border); margin: 0.5rem 0 0.75rem; }
+nav[role=tablist] { display: flex; flex-wrap: wrap; gap: 0.25rem; border-bottom: 1px solid var(--border); margin: 0.5rem 0 0.75rem; }
 nav[role=tablist] button {
     background: transparent;
     color: var(--fg);
@@ -127,4 +127,14 @@ ul.permissions { margin: 0.25rem 0; padding-left: 1.25rem; }
 .badge-deny { border-color: var(--danger); color: var(--danger); }
 .badge-event { border-color: var(--accent); color: var(--accent); }
 td.details { overflow-wrap: anywhere; color: var(--muted); }
+nav[role=tablist] .count {
+    display: inline-block; min-width: 1.2em; margin-left: 0.3rem; padding: 0 0.35rem;
+    border-radius: 1rem; background: var(--accent); color: var(--accent-fg); font-size: 0.8em; text-align: center;
+}
+/* A heading with its buttons on one line, the buttons to the right. */
+.toolbar { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 1rem; }
+.toolbar h2 { margin-top: 0.5rem; }
+.toolbar .actions { margin: 0 0 0 auto; }
+details > summary { cursor: pointer; }
+section > details > summary { font-size: 1.15rem; margin: 1rem 0 0.25rem; }
 .tag { font-size: 0.85em; padding: 0 0.4rem; border: 1px solid var(--accent); border-radius: 3px; color: var(--accent); }

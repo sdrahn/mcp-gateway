@@ -18,7 +18,11 @@ Open `https://<host>:9090`, log in with your local account and choose
 |---|---|
 | `https://<host>:9090/mcp-gateway` | the page (Approvals tab) |
 | `…/mcp-gateway#/approvals/<id>` | one approval, highlighted (the link agents, notifications and mail use) |
-| `…/mcp-gateway#/servers`, `#/policy`, `#/audit` | the other tabs |
+| `…/mcp-gateway#/servers`, `#/clients`, `#/tasks`, `#/policy`, `#/audit` | the other tabs |
+
+Each tab shows one thing, so that it fits the window. The Approvals,
+Clients and Tasks tabs show a count when there is something to look at:
+pending approvals, clients, running tasks.
 
 ## Access
 
@@ -50,6 +54,15 @@ scope, expiry, approver); **Revoke** removes one, and the next call asks
 again.
 
 ## Servers
+
+The self-check's counts (`mcp-gateway-admin doctor --no-start`,
+chapter 10) are shown above the servers on one line, run when the page
+opens and with **Run self-check** next to the heading; the line unfolds
+to the warnings and failures with what to do, and is unfolded when a
+check failed. It runs as root where you have administrative access;
+otherwise the checks that need root are skipped. Servers are not
+started; the full check, which starts each server once, is
+`mcp-gateway-admin doctor` as root.
 
 The registered MCP servers with their SELinux domain, isolation,
 network access and account, and the running instances you may manage:
@@ -86,11 +99,13 @@ After the configuration changed while the gateway runs (chapter 3,
   definition did not load (with the error; the gateway runs with what
   it had) and which keys of `gateway.yaml` take effect only at the next
   start;
-- **Reload configuration** runs `systemctl reload mcp-gateway.service`
+- **Reload configuration**, next to the heading, runs `systemctl reload mcp-gateway.service`
   (administrative access): the gateway checks the configuration first
   and keeps what it has if a file does not load; the page says so.
 
-**Clients** lists the AI agents and other MCP clients using the gateway
+## Clients
+
+The tab lists the AI agents and other MCP clients using the gateway
 that you may manage (`manage_session`: by default your own; everyone's
 for administrators), newest first: the user, the client's name and
 version as the client gives them, the MCP version it speaks (marked
@@ -107,7 +122,9 @@ again, and does (an HTTP client starts a new session). To keep someone
 out, change their roles (Policy tab). Ending a client is audited
 (`mcp-session-ended`).
 
-**Tasks** lists the calls agents run as tasks (chapter 5, "Long calls:
+## Tasks
+
+The tab lists the calls agents run as tasks (chapter 5, "Long calls:
 tasks") that you may manage (`manage_task`: by default the approver
 rules of the server, as for instances: your own; everyone's for
 administrators), newest first: the server
@@ -118,20 +135,14 @@ the server, as the agent's own cancellation would; the agent then finds
 the task cancelled "by <you> (control API)". Finished tasks stay listed
 until the agent fetched them and `tasks.retention` passed.
 
-Below, the tab shows the self-check's counts (`mcp-gateway-admin doctor
---no-start`, chapter 10), run when the page opens and with **Run
-self-check**, and lists its warnings and failures with what to do. It
-runs as root where you have administrative access; otherwise the checks
-that need root are skipped. Servers are not started; the full check,
-which starts each server once, is `mcp-gateway-admin doctor` as root.
-
 ## Policy
 
 - **Policy status**: whether OPA loads the policy directories or a
   bundle, and the active bundle revisions.
 - **Role bindings**: which users and groups hold which roles; add and
   remove bindings.
-- **Roles**: the permissions of each role, read-only.
+- **Roles and their permissions** (folded; open it to read them):
+  the permissions of each role, read-only.
 - **Edit the role data as JSON**: the whole `data.json`, including
   roles and approver rules; **Save** writes it (validated as JSON).
 

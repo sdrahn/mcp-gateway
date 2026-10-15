@@ -114,5 +114,6 @@ tabs.approvals = {
         const [pending, grants] = await Promise.all([getJSON("/v1/approvals"), getJSON("/v1/grants")]);
         renderApprovals(pending);
         renderGrants(grants);
+        setTabCount("approvals", pending.length);
     },
 };

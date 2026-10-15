@@ -9,6 +9,8 @@
     <script src="common.js" defer></script>
     <script src="approvals.js" defer></script>
     <script src="servers.js" defer></script>
+    <script src="clients.js" defer></script>
+    <script src="tasks.js" defer></script>
     <script src="policy.js" defer></script>
     <script src="audit.js" defer></script>
     <script src="main.js" defer></script>
@@ -19,8 +21,10 @@
         <span id="whoami" class="muted"></span>
     </header>
     <nav id="tabs" role="tablist">
-        <button role="tab" data-tab="approvals">Approvals</button>
+        <button role="tab" data-tab="approvals">Approvals <span class="count" hidden></span></button>
         <button role="tab" data-tab="servers">Servers</button>
+        <button role="tab" data-tab="clients">Clients <span class="count" hidden></span></button>
+        <button role="tab" data-tab="tasks">Tasks <span class="count" hidden></span></button>
         <button role="tab" data-tab="policy">Policy</button>
         <button role="tab" data-tab="audit">Audit</button>
     </nav>
@@ -53,21 +57,24 @@
 
         <div id="tab-servers" class="tab" hidden>
             <section>
-                <h2>MCP servers</h2>
+                <div class="toolbar">
+                    <h2>MCP servers</h2>
+                    <span class="actions">
+                        <button id="reload" class="secondary">Reload configuration</button>
+                        <button id="self-check-run" class="secondary">Run self-check</button>
+                    </span>
+                </div>
                 <p class="muted">Servers registered with the gateway and the running instances
                 you may manage. Stopping an instance ends the calls in flight; the next call
                 starts a new one.</p>
                 <div id="reload-status" class="note" hidden></div>
-                <p class="actions">
-                    <button id="reload" class="secondary">Reload configuration</button>
-                    <span id="reload-result" class="muted"></span>
-                </p>
+                <div id="reload-result" class="muted"></div>
                 <div id="self-check" class="muted"></div>
-                <p class="actions">
-                    <button id="self-check-run" class="secondary">Run self-check</button>
-                </p>
                 <div id="servers"></div>
             </section>
+        </div>
+
+        <div id="tab-clients" class="tab" hidden>
             <section>
                 <h2>Clients</h2>
                 <p class="muted">The AI agents and other MCP clients using the gateway, with the
@@ -83,6 +90,9 @@
                     <tbody></tbody>
                 </table>
             </section>
+        </div>
+
+        <div id="tab-tasks" class="tab" hidden>
             <section>
                 <h2>Tasks</h2>
                 <p class="muted">Calls agents run as tasks: they go on whatever happens to the
@@ -142,8 +152,10 @@
                 </form>
             </section>
             <section>
-                <h2>Roles</h2>
-                <div id="roles"></div>
+                <details id="roles-section">
+                    <summary>Roles and their permissions</summary>
+                    <div id="roles"></div>
+                </details>
             </section>
             <section>
                 <details id="rbac-raw">
