@@ -1317,9 +1317,15 @@ mkfifo /root/vmtest/task.in
 runuser -u alice -- mcp-connect --server exec </root/vmtest/task.in >/root/vmtest/task.out 2>&1 &
 task_client=$!
 exec 8>/root/vmtest/task.in
-printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{"tasks":{}},"clientInfo":{"name":"vmtest-tasks","version":"1"}}}' \
-	'{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{"tasks":{}},"clientInfo":{"name":"vmtest-tasks","version":"1"}}}' >&8
+# The call only after the answer: before it, the session has no MCP
+# version with tasks yet.
+tk_initialized() { grep -q '"protocolVersion":"2025-11-25"' /root/vmtest/task.out; }
+check "the task client is initialized" eventually 10 tk_initialized
+printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
 	'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"wait","arguments":{},"task":{"ttl":600000}}}' >&8
+tk_created() { grep -q '"id":2,"result":{"task":' /root/vmtest/task.out; }
+check "the call is answered with a task" eventually 10 tk_created
 tk_listed() { tasks=$(runuser -u alice -- mcp-gateway-admin tasks 2>&1) && grep -qE '^exec +wait +alice .* working ' <<<"$tasks"; }
 check "mcp-gateway-admin tasks lists the running task" eventually 20 tk_listed
 sed 's/^/  /' <<<"$tasks"
