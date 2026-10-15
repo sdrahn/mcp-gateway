@@ -7,6 +7,15 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Changed
+
+- Cockpit: each tab shows one thing, so that it fits the window. Clients
+  and Tasks are tabs of their own instead of the end of the Servers tab,
+  with counts on the Approvals, Clients and Tasks tabs (pending
+  approvals, clients, running tasks); Reload configuration and the
+  self-check sit next to the servers' heading, the self-check folded to
+  its summary unless a check failed; the Policy tab folds the roles.
+
 ## v1.0.0 — 2026-10-14
 
 The first stable release, for SLES 16 and openSUSE Leap 16, from the

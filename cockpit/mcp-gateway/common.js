@@ -76,3 +76,23 @@ function describeFailure(ex) {
 async function getJSON(path) {
     return JSON.parse(await api.get(path));
 }
+
+/* setTabCount shows n after a tab's name ("Tasks 2"); none for 0. */
+function setTabCount(tab, n) {
+    const badge = document.querySelector("#tabs button[data-tab=" + tab + "] .count");
+    if (!badge) return;
+    badge.textContent = n > 0 ? String(n) : "";
+    badge.hidden = !(n > 0);
+}
+
+/* refreshCounts updates the counts on the tabs whose lists are not shown:
+ * pending approvals, clients, running tasks. */
+async function refreshCounts() {
+    const [pending, clients, tasks] = await Promise.all([
+        getJSON("/v1/approvals").catch(() => null),
+        getJSON("/v1/sessions").catch(() => null),
+        getJSON("/v1/tasks").catch(() => null)]);
+    if (pending) setTabCount("approvals", pending.length);
+    if (clients) setTabCount("clients", clients.length);
+    if (tasks) setTabCount("tasks", tasks.filter(t => t.status === "working" || t.status === "input_required").length);
+}

@@ -1082,18 +1082,22 @@ endpoint; a policy without it decides by `manage_instance` for those
 servers).
 
 The Cockpit page ships in this repository (`cockpit/mcp-gateway`,
-installed to `/usr/share/cockpit/mcp-gateway`), with four tabs:
+installed to `/usr/share/cockpit/mcp-gateway`), with six tabs, each
+showing one thing so that it fits the window (counts on Approvals,
+Clients and Tasks tell what waits there):
 
 - **Approvals:** pending approvals with their details and one button per
   offered scope plus Deny, and the grants list with Revoke. Approval links
   (`#/approvals/<id>`) highlight the request.
 - **Servers:** the registry (SELinux domain, isolation, network, run as)
   and the running instances the user may manage, with their journal and
-  Stop. Instances start on demand, so there is no Start. The clients
-  (step 34) with the MCP version they speak, and End; the agents' tasks
-  with Cancel.
+  Stop. Instances start on demand, so there is no Start. Reload and the
+  self-check's summary sit above the servers.
+- **Clients:** the clients (step 34) with the MCP version they speak,
+  and End.
+- **Tasks:** the agents' tasks (step 31) with their state, and Cancel.
 - **Policy:** the policy mode and bundle revisions; role bindings (add or
-  remove roles of users and groups), roles with their permissions,
+  remove roles of users and groups), roles with their permissions (folded),
   approver rules, and the whole role data as JSON. Edits are validated
   (structure, bindings to unknown roles) and written to
   `/etc/mcp-gateway/policy/rbac/data.json` with Cockpit's administrative

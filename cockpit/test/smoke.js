@@ -59,6 +59,7 @@ function site() {
     const selfCheckText = await page.textContent("#self-check");
     check(selfCheckText.includes("1 ok, 1 warning, 0 failed, 1 skipped") && selfCheckText.includes("WARN principals") &&
           selfCheckText.includes("bind them to a role"), "self-check summary with the warning and what to do");
+    check(await page.$eval("#self-check details", d => !d.open), "the self-check folds to its summary without a failure");
     check((await page.evaluate(() => __calls)).some(c => c[0] === "spawn" && c[1] === "mcp-gateway-admin doctor --no-start --json" && c[2] === "try"),
           "self-check runs the doctor without starting servers");
     await page.click("#reload");
@@ -71,6 +72,14 @@ function site() {
     check((await page.textContent("pre.log")).includes("Landlock rules (landlock in its definition) are the likely cause"),
           "a refused access under Landlock names the rules");
     check((await page.textContent("#servers .card:first-child")).includes("· Landlock"), "a server under Landlock says so");
+    // Clients and Tasks are tabs of their own, with counts on the tabs.
+    check(!(await page.isVisible("#clients")) && !(await page.isVisible("#tasks")), "servers tab holds no clients or tasks");
+    await page.waitForFunction(() => document.querySelector("#tabs button[data-tab=clients] .count").textContent === "3");
+    check(await page.textContent("#tabs button[data-tab=tasks] .count") === "1" &&
+          await page.textContent("#tabs button[data-tab=approvals] .count") === "2", "tab counts: clients, running tasks, pending approvals");
+    await page.click("#tabs button[data-tab=clients]");
+    await page.waitForSelector("#clients tbody tr td");
+    check(await page.isVisible("#tab-clients") && !(await page.isVisible("#tab-servers")), "clients tab switch");
     const clientsText = await page.textContent("#clients");
     check(clientsText.includes("kit 0.121.1") && clientsText.includes("2025-06-18 (capped by agents.max_version; asked for 2025-11-25)") &&
           clientsText.includes("all servers") && clientsText.includes("claude-code 2.1") && clientsText.includes("2026-07-28 (no session)") &&
@@ -79,6 +88,9 @@ function site() {
     await page.click("#clients button:has-text('End'):not([disabled])");
     await page.waitForFunction(() => !document.querySelector("#clients").textContent.includes("kit 0.121.1"));
     check((await page.evaluate(() => __calls)).some(c => c[0] === "DELETE" && c[1] === "/v1/sessions/s1"), "end a client");
+    check(await page.textContent("#tabs button[data-tab=clients] .count") === "2", "the clients count follows an End");
+    await page.click("#tabs button[data-tab=tasks]");
+    await page.waitForSelector("#tasks tbody tr td");
     const tasksText = await page.textContent("#tasks");
     check(tasksText.includes("zypp / confirm_install") && tasksText.includes("running") &&
           tasksText.includes("result not fetched yet") && tasksText.includes("https://idp.example.com"), "tasks listed");
@@ -86,6 +98,9 @@ function site() {
     await page.click("#tasks button:has-text('Cancel')");
     await page.waitForFunction(() => document.querySelector("#tasks").textContent.includes("cancelled by carol (control API)"));
     check((await page.evaluate(() => __calls)).some(c => c[0] === "POST" && c[1] === "/v1/tasks/t1/cancel"), "cancel task");
+    check(await page.isHidden("#tabs button[data-tab=tasks] .count"), "no running task: no count");
+    await page.click("#tabs button[data-tab=servers]");
+    await page.waitForSelector("#servers .instance");
     await page.click("#servers button:has-text('Stop'):not([disabled])");
     await page.waitForFunction(() => !document.querySelector("#servers").textContent.includes("mcp-fs-i1.service"));
     check((await page.evaluate(() => __calls)).some(c => c[0] === "DELETE" && c[1] === "/v1/instances/i1"), "stop instance");
@@ -215,7 +230,7 @@ function site() {
 
     // Narrow screens: no horizontal scrolling.
     await page.setViewportSize({ width: 390, height: 800 });
-    for (const tab of ["approvals", "servers", "policy", "audit"]) {
+    for (const tab of ["approvals", "servers", "clients", "tasks", "policy", "audit"]) {
         await page.goto(url + "#/" + tab);
         await page.waitForTimeout(200);
         const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);

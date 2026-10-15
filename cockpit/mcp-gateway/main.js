@@ -55,6 +55,8 @@ async function init() {
     }
     cockpit.addEventListener("locationchanged", show);
     show();
+    refreshCounts();
+    setInterval(() => refreshCounts().catch(() => {}), 10000);
 }
 
 init();
