@@ -7,6 +7,16 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v1.1.1 — 2026-10-15
+
+A fix for the podman setup: pulls and pushes with the user's registry
+credentials. Upgrading from 1.1.0 needs no changes; an override of the
+podman definition made as a workaround in
+`/etc/mcp-gateway/servers.d/podman.yaml` can go. After the update,
+restart the gateway (`systemctl restart mcp-gateway.service`); the
+package does not. The SELinux module `mcp_podman` (package
+`mcp-gateway-selinux`) changes; the update loads it.
+
 ### Added
 
 - Server definitions: `${UID}`, the principal's numeric user id, in
