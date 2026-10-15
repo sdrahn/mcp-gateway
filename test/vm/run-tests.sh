@@ -278,6 +278,7 @@ commands:
   echo_word: {argv: [/usr/bin/echo, "{word}"], args: {word: {pattern: "[a-z]+"}}, read_only: true}
   user_name: {argv: [/usr/bin/id, -un], read_only: true}
   slow: {argv: [/usr/bin/sleep, "30"], timeout: 1s}
+  wait: {argv: [/usr/bin/sleep, "120"], timeout: 150s}
 CMDS
 restorecon -R /etc/mcp-gateway/exec.d
 check "mcp-server-exec --check accepts the commands" /usr/libexec/mcp-servers/mcp-server-exec --check
@@ -1280,14 +1281,66 @@ echo "  $(jq -c '.[] | select(.client.name == "vmtest-client") | {id, sub, trans
 cl_id=$(jq -r '.[] | select(.client.name == "vmtest-client") | .id' <<<"$clients")
 cl_hidden() { ! control bob GET /v1/sessions | jq -e '.[] | select(.client.name == "vmtest-client")' >/dev/null; }
 check "another user does not see the client" cl_hidden
-cl_end=$(runuser -u alice -- curl -s -o /dev/null -w '%{http_code}' --unix-socket /run/mcp-gateway/control.sock \
-	-X DELETE "http://gw/v1/sessions/$cl_id")
-check "its user ends the client (204)" test "$cl_end" = 204
+# The same from the command line (step 35): mcp-gateway-admin clients.
+cl_cli=$(runuser -u alice -- mcp-gateway-admin clients 2>&1)
+sed 's/^/  /' <<<"$cl_cli"
+check "mcp-gateway-admin clients lists the client" grep -qE "^alice +vmtest-client 1.2 +2025-11-25 +fs .* ${cl_id:0:8}" <<<"$cl_cli"
+cl_cli_hidden() { ! runuser -u bob -- mcp-gateway-admin clients | grep -q vmtest-client; }
+check "mcp-gateway-admin clients: another user does not see it" cl_cli_hidden
+cl_cli_refused() {
+	local out rc
+	out=$(runuser -u bob -- mcp-gateway-admin clients end "${cl_id:0:8}" --yes 2>&1)
+	rc=$?
+	[ "$rc" = 1 ] && grep -q "no such client" <<<"$out"
+}
+check "another user may not end it (exit 1, no such client)" cl_cli_refused
+check "its user ends the client with mcp-gateway-admin clients end" \
+	runuser -u alice -- mcp-gateway-admin clients end "${cl_id:0:8}" --yes
 cl_gone() { ! kill -0 "$client_pid" 2>/dev/null; }
 check "the ended client's connection closes" eventually 10 cl_gone
 exec 7>&-
 check "the client got its initialize answer before" grep -q '"protocolVersion":"2025-11-25"' /root/vmtest/client.out
 check "ending the client is audited (mcp-session-ended)" eventually 10 journal_since_start_has mcp-session-ended
+cl_cli_down() {
+	local rc
+	runuser -u alice -- mcp-gateway-admin clients --socket /run/mcp-gateway/none.sock >/dev/null 2>&1
+	rc=$?
+	[ "$rc" = 3 ]
+}
+check "mcp-gateway-admin clients exits 3 when the gateway does not answer" cl_cli_down
+
+section "Tasks"
+# A call of alice's run as a task (MCP 2025-11-25) through mcp-connect:
+# mcp-gateway-admin tasks lists it for her, not for bob, and cancels it.
+rm -f /root/vmtest/task.in
+mkfifo /root/vmtest/task.in
+runuser -u alice -- mcp-connect --server exec </root/vmtest/task.in >/root/vmtest/task.out 2>&1 &
+task_client=$!
+exec 8>/root/vmtest/task.in
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{"tasks":{}},"clientInfo":{"name":"vmtest-tasks","version":"1"}}}' \
+	'{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+	'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"wait","arguments":{},"task":{"ttl":600000}}}' >&8
+tk_listed() { tasks=$(runuser -u alice -- mcp-gateway-admin tasks 2>&1) && grep -qE '^exec +wait +alice .* working ' <<<"$tasks"; }
+check "mcp-gateway-admin tasks lists the running task" eventually 20 tk_listed
+sed 's/^/  /' <<<"$tasks"
+tk_id=$(control alice GET /v1/tasks | jq -r '[.[] | select(.server == "exec" and .tool == "wait" and .status == "working")][0].id')
+tk_hidden() { ! runuser -u bob -- mcp-gateway-admin tasks | grep -qE '^exec +wait '; }
+check "mcp-gateway-admin tasks: another user does not see it" tk_hidden
+check "its user cancels it with mcp-gateway-admin tasks cancel" runuser -u alice -- mcp-gateway-admin tasks cancel "${tk_id:0:8}"
+tk_cancelled() { control alice GET /v1/tasks | jq -e --arg id "$tk_id" '.[] | select(.id == $id and .status == "cancelled")' >/dev/null; }
+check "the task is cancelled" eventually 10 tk_cancelled
+tk_ended() {
+	local out rc
+	out=$(runuser -u alice -- mcp-gateway-admin tasks cancel "$tk_id" 2>&1)
+	rc=$?
+	[ "$rc" = 1 ] && grep -q "the task has ended" <<<"$out"
+}
+check "a cancelled task cannot be cancelled again (exit 1)" tk_ended
+tk_sleep_gone() { ! pgrep -u alice -x sleep >/dev/null; }
+check "the cancelled call's command is ended" eventually 20 tk_sleep_gone
+exec 8>&-
+kill "$task_client" 2>/dev/null
+wait "$task_client" 2>/dev/null
 
 section "Metrics"
 # The counters start with each gateway process, and earlier sections

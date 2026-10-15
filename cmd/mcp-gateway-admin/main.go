@@ -1,7 +1,7 @@
 // mcp-gateway-admin has the commands for administrators of the MCP
-// gateway: doctor, setup http, the server gateway-admin (serve), and the onboarding
-// commands inspect, profile and review, which run mcp-gateway-tools
-// (package mcp-gateway-tools).
+// gateway: doctor, clients, tasks, setup http, the server gateway-admin
+// (serve), and the onboarding commands inspect, profile and review, which
+// run mcp-gateway-tools (package mcp-gateway-tools).
 package main
 
 import (
@@ -23,6 +23,8 @@ type command struct {
 // prints its own options with -h.
 var commands = []command{
 	{"doctor", "check the installation: services, policy, servers, SELinux, polkit, principals", runDoctor},
+	{"clients", "list the clients using the gateway, or end one (clients end ID)", runClients},
+	{"tasks", "list the agents' tasks, or cancel one (tasks cancel ID)", runTasks},
 	{"inspect", "start an MCP server, list its tools, draft a definition and roles, check role data", tool("inspect")},
 	{"profile", "run a registered server in a permissive SELinux domain and draft its policy module", tool("profile")},
 	{"review", "scan an MCP server's source for what it does to the system", tool("review")},
