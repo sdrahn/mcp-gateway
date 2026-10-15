@@ -78,3 +78,29 @@ userdom_search_user_home_dirs(mcpsrv_podman_t)
 userdom_list_user_home_content(mcpsrv_podman_t)
 userdom_read_user_home_content_files(mcpsrv_podman_t)
 userdom_read_user_home_content_symlinks(mcpsrv_podman_t)
+
+# Registry credentials, as the Podman bindings look for them: the user's
+# runtime directory ($XDG_RUNTIME_DIR/containers/auth.json, written by
+# podman login), then ~/.config/containers/auth.json (config_home_t where
+# the policy has it) and Docker's files in the home. Read only.
+optional_policy(`
+	gen_require(`
+		type user_tmp_t;
+	')
+	list_dirs_pattern(mcpsrv_podman_t, user_tmp_t, user_tmp_t)
+	read_files_pattern(mcpsrv_podman_t, user_tmp_t, user_tmp_t)
+')
+optional_policy(`
+	gen_require(`
+		type user_runtime_t;
+	')
+	list_dirs_pattern(mcpsrv_podman_t, user_runtime_t, user_runtime_t)
+	read_files_pattern(mcpsrv_podman_t, user_runtime_t, user_runtime_t)
+')
+optional_policy(`
+	gen_require(`
+		type config_home_t;
+	')
+	list_dirs_pattern(mcpsrv_podman_t, config_home_t, config_home_t)
+	read_files_pattern(mcpsrv_podman_t, config_home_t, config_home_t)
+')

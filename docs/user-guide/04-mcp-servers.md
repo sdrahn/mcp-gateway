@@ -298,13 +298,13 @@ Server names must be unique across all files.
 |---|---|---|
 | `version` | `1` | the version of the definition format (see chapter 3, [Format version](03-configuration.md#format-version)) |
 | `name` | — (required) | the server's name: lower case letters, digits and `-`, starting with a letter, at most 32 characters. It appears in endpoint paths (`--server git`, `/mcp/git`), in tool name prefixes (`git__commit`) and in policy (`"server": "git"`). |
-| `command` | — (required, or `url`) | the command line; the first element must be an absolute path. `${HOME}` and `${USER}` are replaced by the principal's home directory and name; other `${…}` are left as they are. |
+| `command` | — (required, or `url`) | the command line; the first element must be an absolute path. `${HOME}`, `${USER}` and `${UID}` are replaced by the principal's home directory, name and numeric user id; other `${…}` are left as they are. A principal without a local account (a remote user, chapter 5) has no uid: `${UID}` is empty for it |
 | `url` | none | instead of `command`: the endpoint of a server that speaks Streamable HTTP, `https://…` (`http://` only to the local host). See [Servers that speak HTTP](#servers-that-speak-http) |
 | `headers` | none | with `url`: headers sent with each request (map); `${CREDENTIAL:name}` in a value is the secret `name` from `credentials` |
 | `proxy` | none | with an `https://` `url`: an HTTP proxy to tunnel through, `http://host:port` (or `https://`). See [Through a proxy](#through-a-proxy) |
 | `proxy_headers` | none | with `proxy`: headers sent to the proxy (map), typically `Proxy-Authorization`; `${CREDENTIAL:name}` as in `headers` |
 | `sign_in` | none | with `url`: each user signs in to the server with their own account there (`scopes`, `client_id`, `client_secret`). See [Signing in for each user](#signing-in-for-each-user) |
-| `env` | none | extra environment variables (map); `${HOME}` and `${USER}` are replaced as in `command` |
+| `env` | none | extra environment variables (map); `${HOME}`, `${USER}` and `${UID}` are replaced as in `command`; a variable naming `${UID}` is left out for a principal without a local account (`XDG_RUNTIME_DIR: /run/user/${UID}`) |
 | `selinux_type` | `mcpsrv_generic_t` (`mcpsrv_http_t` with `url`) | the SELinux domain instances run in; must be `mcpsrv_<name>_t` (see [SELinux domains](#selinux-domains-for-servers)) |
 | `isolation` | `principal` | `principal`: one instance per principal, shared by that principal's sessions. `session`: a new instance per session; agents of MCP 2026-07-28 have no session and share one instance per principal, as with `principal`. |
 | `network` | `false` | allow network access. Without it, the instance has a private network namespace and only unix sockets. |
@@ -312,7 +312,7 @@ Server names must be unique across all files.
 | `discovery` | `shared` (`instance` with `sign_in`) | where tool and prompt lists come from: `shared` (one gateway-owned instance per server, cached; listing starts no per-user instances), `instance` (each principal's own instance, for servers whose tools depend on the user) |
 | `credentials` | none | secrets handed to the server by systemd, see [Secrets](#secrets) |
 | `tool_notes` | none | notes on tools, by tool name (up to 500 characters each), added to the tools' descriptions after "Administrator's note:": what the server's own description does not say, such as an argument's format. The doctor warns about a note for a tool the server does not offer |
-| `landlock` | none | restrict each instance with the Landlock LSM, a second wall behind the domain and the sandbox: `read`, `write`, `exec` (lists of trees; `${HOME}` and `${USER}` are the principal's), `tcp_connect`, `tcp_bind` (ports; an empty list allows none, unset leaves TCP to the sandbox), `required` (refuse to start where the kernel cannot apply all of it). See "Landlock" below |
+| `landlock` | none | restrict each instance with the Landlock LSM, a second wall behind the domain and the sandbox: `read`, `write`, `exec` (lists of trees; `${HOME}`, `${USER}` and `${UID}` are the principal's; a tree naming `${UID}` is left out for a principal without a local account), `tcp_connect`, `tcp_bind` (ports; an empty list allows none, unset leaves TCP to the sandbox), `required` (refuse to start where the kernel cannot apply all of it). See "Landlock" below |
 | `sandbox.protect_home` | `read-only` | access to home directories: `yes` (none), `read-only`, `read-write` |
 | `sandbox.read_write_paths` | none | existing absolute paths the instance may write despite `ProtectSystem=strict` (systemd `ReadWritePaths=`); paths of the gateway itself, and directories containing them, are refused |
 | `sandbox.state_directory` | none | a directory below `/var/lib` (a relative name, e.g. `my-server`) that systemd creates for the instance, owned by its user, mode 0700, writable and kept across instances (systemd `StateDirectory=`) |

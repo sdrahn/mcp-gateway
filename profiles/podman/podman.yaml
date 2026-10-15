@@ -12,14 +12,25 @@ name: podman
 command: ["/usr/bin/podman-mcp-server", "--podman-impl=api"]
 run_as: principal
 selinux_type: mcpsrv_podman_t
+# The user's runtime directory, as in the user's session: the Podman
+# bindings take the user's registry credentials from
+# $XDG_RUNTIME_DIR/containers/auth.json (where podman login writes them),
+# and without it look in /run/containers/UID, which rootful Podman makes
+# root's. CONTAINER_HOST names the user's socket, which podman-mcp-server
+# would otherwise look for after rootful Podman's.
+env:
+  XDG_RUNTIME_DIR: /run/user/${UID}
+  CONTAINER_HOST: unix:///run/user/${UID}/podman/podman.sock
 # The tools are the same for everyone, but the server starts only where
 # the user's Podman socket is: lists come from the user's own instance.
 discovery: instance
 # Landlock (a second wall, chapter 4): the system's configuration and
-# programs, and the user's home for image_build's build context. Podman
-# itself (pulls, runs, builds) runs in the user's service, outside.
+# programs, the user's home for image_build's build context and for
+# credentials kept there (--authfile), and the user's runtime directory
+# for the registry credentials of podman login. Podman itself (pulls,
+# runs, builds) runs in the user's service, outside.
 landlock:
-  read: ["${HOME}"]
+  read: ["${HOME}", "/run/user/${UID}"]
 # What the tools' schemas do not tell the agent, added to their
 # descriptions (tool_notes, chapter 4). Checked against
 # podman-mcp-server 0.0.15 (test/vm/build-servers.sh): check them again
