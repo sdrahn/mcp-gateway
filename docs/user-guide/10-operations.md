@@ -2,7 +2,8 @@
 
 Running the gateway: what to do after a change, logs, state and backup,
 upgrades, monitoring, and troubleshooting, starting with the self-check
-(`mcp-gateway-admin doctor`). [docs/README.md](../README.md) lists common
+(`mcp-gateway-admin doctor`), and the clients and tasks from the command
+line (`mcp-gateway-admin clients`, `tasks`). [docs/README.md](../README.md) lists common
 error messages and where each is explained.
 
 ## Services
@@ -269,6 +270,83 @@ Starting the servers runs them like the gateway would, once each; use
 `--no-start` to skip that, `--server` to check one. While someone
 profiles a server (chapter 4), dontaudit rules are off and the audit log
 has denials that do not matter otherwise; they show up here too.
+
+### Clients and tasks
+
+Which clients use the gateway, and the agents' tasks, as Cockpit's
+Clients and Tasks tabs show them (chapter 8), for a host without Cockpit,
+over SSH or in a script:
+
+```bash
+mcp-gateway-admin clients
+```
+
+```
+USER   CLIENT             MCP                  ENDPOINT  SINCE             ACTIVE  ID
+alice  kit 0.3.1          2025-06-18 (capped)  all       10:02             5s ago  4f1c2a9b
+alice  claude-code 2.1.4  2025-11-25           fs        2026-10-14 16:40  3m ago  9e07d3c1
+bob    -                  2026-07-28           all       11:58             now     agent-7d2e0b4a
+```
+
+The user, the client's name and version as it gives them, the MCP
+version it got (`(capped)`: `agents.max_version` lowered it, chapter 5),
+the endpoint (a server, or `all`), when it connected and when it was
+last active, and its id. An agent of MCP 2026-07-28 has no session: it
+is listed for an hour after its last request, its id starts with
+`agent-`.
+
+```bash
+mcp-gateway-admin clients end 4f1c2a9b
+```
+
+```
+End the client kit 0.3.1 of alice on all (4f1c2a9b)? [y/N] y
+ended 4f1c2a9b (kit 0.3.1 of alice)
+```
+
+Ending a client is what **End** in Cockpit does: as if the client had
+gone, its calls are cancelled, its session's grants and instances go. It
+keeps nobody out; the client may connect again. `--yes` ends without
+asking.
+
+```bash
+mcp-gateway-admin tasks
+mcp-gateway-admin tasks cancel QZ7K3M2W
+```
+
+```
+SERVER  TOOL    USER   STARTED  STATE      ID
+zypp    update  alice  11:50    working    QZ7K3M2W
+fs      search  alice  11:00    completed  B2C4D6F8
+```
+
+`tasks cancel` cancels a running task's call at its server; the agent
+finds the task cancelled. Ended tasks stay listed while the gateway keeps
+them (`tasks.retention`).
+
+- **Who may do what** is the control API's, as for Cockpit: the commands
+  connect to the control socket as the user who runs them, and
+  `manage_session` and `manage_task` decide (chapter 6, "Approver
+  rules"): by default your own clients and tasks, and everyone's on the
+  servers you are an approver for. A client or task that is not yours
+  reads as one that does not exist: "no such client", "no such task".
+- **Ids:** the lists shorten ids to 8 characters (more where two would
+  look alike); any prefix that names one client or task will do.
+- **For scripts:** `--json` prints the list as the control API gives it
+  (chapter 11, "Control API"); the exit status is 0, 1 for a refusal, an
+  unknown or ambiguous id or a question answered no, 2 for wrong usage,
+  3 when the gateway does not answer.
+- **Who can reach the socket:** members of `socket_group` (`mcp-users`)
+  and root. Without access: "no access to the gateway's control socket
+  /run/mcp-gateway/control.sock: it is for the group mcp-users (add the
+  user to it and log in again) and root". With the gateway stopped: "the
+  gateway does not answer at /run/mcp-gateway/control.sock: is it
+  running?".
+- **Not for agents:** the `gateway-admin` server has no such tools, and
+  its SELinux domain may not reach the control socket: ending clients
+  and cancelling tasks stays with people.
+
+There is no live view; `watch mcp-gateway-admin clients` gives one.
 
 ### Asking an agent
 

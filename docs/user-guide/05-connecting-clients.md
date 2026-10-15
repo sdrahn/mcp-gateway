@@ -430,7 +430,9 @@ this: the gateway makes the call as any other and keeps the result.
   those accepted: only the agent's user's own), with the result once
   completed, decided as a fetch is.
 - **Cancelling:** `tasks/cancel` cancels the call at the server, as an
-  agent's own cancellation does.
+  agent's own cancellation does. You can cancel a task too: Cockpit's
+  Tasks tab (chapter 8) or `mcp-gateway-admin tasks cancel` (chapter 10,
+  "Clients and tasks").
 - **Limits:** results are kept for `tasks.retention` (1 h) after the
   call ended, up to `tasks.max_result_bytes` (4 MiB), at most
   `limits.tasks_per_principal` (32) per user, and not across a restart
@@ -498,7 +500,8 @@ What the gateway does for clients:
   `requested` version (`journalctl -u mcp-gateway | grep -E 'session
   initialized|agent discover'`). The control API lists the clients
   using the gateway now with the same fields: Cockpit's Clients tab
-  (chapter 8), and `GET /v1/sessions` (chapter 11).
+  (chapter 8), `mcp-gateway-admin clients` (chapter 10, "Clients and
+  tasks") and `GET /v1/sessions` (chapter 11).
 - **Approval rounds of mcp-go.** mcp-go 1.1 on 2026-07-28 gives up on
   a call after three answers in a row that ask for nothing (a pending
   approval decided out of band or on the page): with

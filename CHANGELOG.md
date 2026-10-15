@@ -7,6 +7,17 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- `mcp-gateway-admin clients` and `mcp-gateway-admin tasks`: the
+  clients using the gateway and the agents' tasks from the command
+  line, as Cockpit's Clients and Tasks tabs show them, for hosts
+  without Cockpit and for scripts. `clients end ID` ends a client
+  (after a question; `--yes` skips it), `tasks cancel ID` cancels a
+  running task; `--json` prints the control API's JSON. Who may do what
+  is the control API's, as for Cockpit (user guide, chapter 10,
+  "Clients and tasks").
+
 ### Changed
 
 - Cockpit: each tab shows one thing, so that it fits the window. Clients

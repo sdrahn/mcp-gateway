@@ -120,7 +120,8 @@ session's grants and instances go, and an agent's open stream or
 request ends with an error. It keeps nobody out: the client may connect
 again, and does (an HTTP client starts a new session). To keep someone
 out, change their roles (Policy tab). Ending a client is audited
-(`mcp-session-ended`).
+(`mcp-session-ended`). Without Cockpit, `mcp-gateway-admin clients`
+lists and ends clients the same way (chapter 10, "Clients and tasks").
 
 ## Tasks
 
@@ -133,7 +134,8 @@ waiting for the agent, completed with whether the agent fetched the
 result, failed, cancelled). **Cancel** cancels a running task's call at
 the server, as the agent's own cancellation would; the agent then finds
 the task cancelled "by <you> (control API)". Finished tasks stay listed
-until the agent fetched them and `tasks.retention` passed.
+until the agent fetched them and `tasks.retention` passed. Without
+Cockpit: `mcp-gateway-admin tasks` (chapter 10, "Clients and tasks").
 
 ## Policy
 

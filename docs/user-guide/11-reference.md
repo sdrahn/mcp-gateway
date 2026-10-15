@@ -35,17 +35,18 @@ Any argument is an error (status 2).
 ### mcp-gateway-admin
 
 ```
-mcp-gateway-admin doctor|setup|inspect|profile|review|serve [options]
+mcp-gateway-admin doctor|clients|tasks|setup|inspect|profile|review|serve [options]
 mcp-gateway-admin help [COMMAND]
 mcp-gateway-admin --version
 ```
 
-The commands for administrators: `doctor`, `setup` and `serve` come with the
-package `mcp-gateway`; `inspect`, `profile` and `review`, which help to
-add MCP servers, with `mcp-gateway-tools` (`zypper install
-mcp-gateway-tools`, which brings the SELinux policy development files
-`profile` needs). `mcp-gateway-admin COMMAND -h` or `help COMMAND` shows
-a command's options. An unknown command is an error (status 2).
+The commands for administrators: `doctor`, `clients`, `tasks`, `setup`
+and `serve` come with the package `mcp-gateway`; `inspect`, `profile`
+and `review`, which help to add MCP servers, with `mcp-gateway-tools`
+(`zypper install mcp-gateway-tools`, which brings the SELinux policy
+development files `profile` needs). `mcp-gateway-admin COMMAND -h` or
+`help COMMAND` shows a command's options. An unknown command is an error
+(status 2).
 
 ### mcp-gateway-admin inspect
 
@@ -176,6 +177,48 @@ the same across releases; the texts may change.
 | `polkit` | account | polkit *account* |
 | `principals` | | principals |
 | `approver-group` | group name | approver group *group* |
+
+### mcp-gateway-admin clients
+
+```
+mcp-gateway-admin clients [options]
+mcp-gateway-admin clients end ID [options]
+```
+
+Lists the clients using the gateway that you may manage
+(`GET /v1/sessions`), or ends one after a question
+(`DELETE /v1/sessions/{id}`); chapter 10, "Clients and tasks". ID is
+the id the list shows, or a prefix of it that names one client. Options
+may come before or after the words.
+
+| Flag | Meaning |
+|---|---|
+| `--yes` | `end`: end without asking |
+| `--json` | print the list as the control API's JSON |
+| `--socket PATH` | the control socket (default: `approvals.control_socket` of the configuration in force, `/run/mcp-gateway/control.sock`) |
+
+Exit status 0; 1 when the client is not yours to end, there is none with
+that id (the two read alike: "no such client"), the prefix names several
+or the question was answered no; 2 on usage errors; 3 when the gateway
+does not answer (not running, the control API off, or no access to the
+socket).
+
+### mcp-gateway-admin tasks
+
+```
+mcp-gateway-admin tasks [options]
+mcp-gateway-admin tasks cancel ID [options]
+```
+
+Lists the agents' tasks you may manage (`GET /v1/tasks`), or cancels a
+running one (`POST /v1/tasks/{id}/cancel`); chapter 10, "Clients and
+tasks". ID as for `clients`. Flags `--json` and `--socket` as for
+`clients`.
+
+Exit status 0; 1 when the task is not yours to cancel or there is none
+with that id ("no such task"), the prefix names several, or it has
+ended ("the task has ended"); 2 on usage errors; 3 when the gateway does
+not answer.
 
 ### mcp-gateway-admin setup http
 
