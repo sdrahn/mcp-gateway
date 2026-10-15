@@ -12,7 +12,7 @@ firewall-cmd --permanent --add-service=cockpit && firewall-cmd --reload
 ```
 
 Open `https://<host>:9090`, log in with your local account and choose
-**MCP Gateway** (under *Tools*). Addresses:
+**MCP Gateway** (at the end of the main list, above *Tools*). Addresses:
 
 | Address | Opens |
 |---|---|

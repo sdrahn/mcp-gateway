@@ -3,9 +3,10 @@
         "cockpit": "137"
     },
 
-    "tools": {
+    "menu": {
         "index": {
-            "label": "MCP Gateway"
+            "label": "MCP Gateway",
+            "order": 200
         }
     }
 }
