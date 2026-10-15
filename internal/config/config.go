@@ -396,7 +396,8 @@ type Backend struct {
 	// Landlock, if set, restricts each instance to these trees and ports
 	// (and landlock.Base) with the Landlock LSM, a second wall behind the
 	// domain and the sandbox: the instance starts through mcp-landlock
-	// (roadmap step 30). ${HOME} and ${USER} are expanded per instance.
+	// (roadmap step 30). ${HOME}, ${USER} and ${UID} are expanded per
+	// instance.
 	Landlock *landlock.Rules `yaml:"landlock"`
 
 	// Warnings are the deprecated keys the file uses (see deprecation).
@@ -983,10 +984,12 @@ func duplicateName(name, a, b string, dirs []string) error {
 }
 
 // PerPrincipal reports whether the backend's command or environment names
-// the principal (${HOME}, ${USER}): its instances differ by principal,
+// the principal (${HOME}, ${USER}, ${UID}): its instances differ by principal,
 // and so may what they say about themselves (their instructions).
 func (b *Backend) PerPrincipal() bool {
-	names := func(s string) bool { return strings.Contains(s, "${HOME}") || strings.Contains(s, "${USER}") }
+	names := func(s string) bool {
+		return strings.Contains(s, "${HOME}") || strings.Contains(s, "${USER}") || strings.Contains(s, "${UID}")
+	}
 	for _, a := range b.Command {
 		if names(a) {
 			return true

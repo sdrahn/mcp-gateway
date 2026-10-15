@@ -330,18 +330,18 @@ func restrictSelf(ruleset int) error {
 	return nil
 }
 
-// Validate checks rules from a server definition: absolute, clean
-// paths (${HOME} and ${USER} may stand for the principal's), ports from 1
-// to 65535.
+// Validate checks rules from a server definition: absolute, clean paths
+// (${HOME}, ${USER} and ${UID} may stand for the principal's), ports from
+// 1 to 65535.
 func (r Rules) Validate() error {
 	for _, l := range []struct {
 		key   string
 		paths []string
 	}{{"read", r.Read}, {"write", r.Write}, {"exec", r.Exec}} {
 		for _, p := range l.paths {
-			x := strings.NewReplacer("${HOME}", "/home/x", "${USER}", "x").Replace(p)
+			x := strings.NewReplacer("${HOME}", "/home/x", "${USER}", "x", "${UID}", "1000").Replace(p)
 			if !strings.HasPrefix(x, "/") || path.Clean(x) != x || strings.Contains(x, "$") {
-				return fmt.Errorf("landlock: %s: %q is not an absolute, clean path (only ${HOME} and ${USER} are expanded)", l.key, p)
+				return fmt.Errorf("landlock: %s: %q is not an absolute, clean path (only ${HOME}, ${USER} and ${UID} are expanded)", l.key, p)
 			}
 		}
 	}
@@ -358,7 +358,25 @@ func (r Rules) Validate() error {
 	return nil
 }
 
-// Expand returns r with expand applied to its paths (${HOME}, ${USER}).
+// Without returns r without the paths for which drop is true.
+func (r Rules) Without(drop func(string) bool) Rules {
+	each := func(in []string) []string {
+		if in == nil {
+			return nil
+		}
+		out := []string{}
+		for _, p := range in {
+			if !drop(p) {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	r.Read, r.Write, r.Exec = each(r.Read), each(r.Write), each(r.Exec)
+	return r
+}
+
+// Expand returns r with expand applied to its paths (${HOME}, ${USER}, ${UID}).
 func (r Rules) Expand(expand func(string) string) Rules {
 	each := func(in []string) []string {
 		if in == nil {

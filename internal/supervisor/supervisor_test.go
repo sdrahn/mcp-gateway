@@ -46,6 +46,14 @@ func TestCommandLandlock(t *testing.T) {
 	if len(d.Write) != 0 || !slices.Contains(d.Read, "/") {
 		t.Errorf("discovery rules %+v", d)
 	}
+	// ${UID}: the principal's uid; a principal without one gets no such tree.
+	b.Landlock.Read = append(b.Landlock.Read, "/run/user/${UID}")
+	if r := landlockRules(*b.Landlock, alice()); !slices.Contains(r.Read, "/run/user/1001") {
+		t.Errorf("rules %+v: no ${UID}", r)
+	}
+	if r := landlockRules(*b.Landlock, principal.Discovery); slices.ContainsFunc(r.Read, func(p string) bool { return strings.HasPrefix(p, "/run/user") }) {
+		t.Errorf("discovery rules %+v name a uid", r)
+	}
 }
 
 func TestCommandAndEnvironment(t *testing.T) {
@@ -67,6 +75,15 @@ func TestCommandAndEnvironment(t *testing.T) {
 	}
 	if !slices.IsSorted(env) {
 		t.Errorf("environment not sorted: %q", env)
+	}
+	b.Env["XDG_RUNTIME_DIR"] = "/run/user/${UID}"
+	if env := environment(b, alice()); !slices.Contains(env, "XDG_RUNTIME_DIR=/run/user/1001") {
+		t.Errorf("environment %q: no ${UID}", env)
+	}
+	// Without a local account there is no uid: what names it is left out.
+	remote := principal.Principal{Sub: "bob@example.com", Transport: principal.TransportHTTP}
+	if env := environment(b, remote); slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, "XDG_RUNTIME_DIR=") }) {
+		t.Errorf("environment %q of a principal without uid", env)
 	}
 	if n := unitName(b, "0123456789abcdef"); n != "mcp-fs-0123456789abcdef.service" {
 		t.Errorf("unit name %q", n)

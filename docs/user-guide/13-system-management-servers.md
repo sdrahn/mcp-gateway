@@ -226,7 +226,8 @@ Notes:
   `firewalld` the configuration and programs only; `zypp` also the
   repositories' caches and zypp's state (`/var/cache/zypp`,
   `/var/lib/zypp`, `/var/log/zypp`; the rpm database is below `/usr`).
-  `podman` reads the user's home, for `image_build`. None of them
+  `podman` reads the user's home, for `image_build`, and the user's
+  runtime directory, for registry credentials. None of them
   writes beyond its private temporary directories. snapper
   lists the root directory itself, which Landlock allows only with
   everything below, and the privileged zypp and suseconnect install
@@ -318,6 +319,17 @@ and sees no one else's.
   directory of the Containerfile to Podman, so the instance reads the
   user's home (Landlock: `${HOME}`, read only); a Containerfile
   elsewhere is refused with "permission denied".
+- Registry credentials are the user's, as in their shell. The instance
+  gets the user's runtime directory (`XDG_RUNTIME_DIR=/run/user/UID`,
+  and `CONTAINER_HOST` naming the user's socket), and pulls and pushes
+  use what `podman login` wrote there
+  (`/run/user/UID/containers/auth.json`), else
+  `~/.config/containers/auth.json` or Docker's `~/.docker/config.json`.
+  The runtime directory is emptied when the user's systemd stops, at a
+  reboot even with lingering; to keep credentials, log in with
+  `podman login --authfile ~/.config/containers/auth.json REGISTRY`.
+  The instance reads the files only (Landlock and its SELinux domain); a
+  `podman login` while an instance runs is used from its next call on.
 - `container_run` pulls the image if needed, removes the container when
   it stops, and without `ports` publishes every port the image exposes
   on a random host port. Rootless Podman cannot use host ports below
@@ -658,6 +670,7 @@ journalctl -u 'mcp-systemd-*' -u 'mcp-firewalld-*' -u 'mcp-snapper-*' -b
 |---|---|---|
 | `unchecked`: "backend instance exited", the server's journal shows only systemd's start and exit messages | the server may not reach the system bus (and cannot even log why) | dedicated SELinux domain, as above; `semodule -DB` shows the hidden denials |
 | podman: the server is unavailable, its journal shows "podman implementation \"api\" not available" | the user's Podman socket is not there (`/run/user/UID/podman/podman.sock`) | as the user, `systemctl --user enable --now podman.socket`; `loginctl enable-linger` the user |
+| podman: pulls fail with "failed to stat file /run/containers/UID/auth.json: permission denied" | before 1.2 the instance had no `XDG_RUNTIME_DIR`, and Podman's library looked for credentials in `/run/containers`, which rootful Podman makes root's | update; or, on 1.1, a copy of the definition in `/etc/mcp-gateway/servers.d/podman.yaml` with `env:` `XDG_RUNTIME_DIR: /run/user/UID` (the user's uid) |
 | `status=229/SELINUX_CONTEXT` | the definition names a domain whose module is not installed | install the module, or remove `selinux_type` |
 | "invalid message from backend … parse error" | the server writes non-MCP output to stdout | its option for logging to stderr or a file |
 | a change runs without approval (audit: `effect: allow`) | a role of the principal allows the tool without approval (often `admin`) | check the principal's roles; only reads may match a permission without `require_approval` |

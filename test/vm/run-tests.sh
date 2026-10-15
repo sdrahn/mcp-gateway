@@ -830,8 +830,31 @@ END
 	check "podman: container_list" test "$rc" = 0
 	stool alice podman volume_list '{}'
 	check "podman: volume_list" test "$rc" = 0
+	# Registry credentials, as alice's session has them: podman login's
+	# in her runtime directory, and one kept in her home. Rootful Podman
+	# has made /run/containers root's (0700); the instance must not look
+	# there (the Podman bindings do without XDG_RUNTIME_DIR), and must
+	# read both files (Landlock, SELinux).
+	mkdir -p -m 0700 /run/containers/"$alice_uid" && chown alice: /run/containers/"$alice_uid" && chmod 0700 /run/containers
+	printf '{"auths":{}}\n' >/run/containers/"$alice_uid"/auth.json && chown alice: /run/containers/"$alice_uid"/auth.json
+	runuser -u alice -- sh -c "mkdir -p /run/user/$alice_uid/containers ~/.config/containers &&
+		printf '%s\n' '{\"auths\":{\"registry.invalid\":{\"auth\":\"dm10ZXN0OnZtdGVzdA==\"}}}' >/run/user/$alice_uid/containers/auth.json &&
+		cp /run/user/$alice_uid/containers/auth.json ~/.config/containers/auth.json"
+	restorecon -R /home/alice/.config 2>/dev/null
+	ls -Z /run/user/"$alice_uid"/containers/auth.json /home/alice/.config/containers/auth.json | sed 's/^/  /'
 	stool_approved alice podman image_pull '{"imageName":"registry.opensuse.org/opensuse/busybox:latest"}'
-	check "podman: image_pull after an approval" test "$rc" = 0
+	check "podman: image_pull after an approval, with credentials in the runtime directory and the home" test "$rc" = 0
+	podman_pid=""
+	for unit in $(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-podman-*' | awk '{print $1}'); do
+		pid=$(systemctl show -p MainPID --value "$unit")
+		[ "$(proc_user "$pid")" = alice ] && podman_pid=$pid
+	done
+	podman_env() { tr '\0' '\n' <"/proc/$podman_pid/environ" | grep -qx "$1"; }
+	check "podman: the instance has alice's runtime directory" \
+		test -n "$podman_pid" -a "$(podman_env "XDG_RUNTIME_DIR=/run/user/$alice_uid" && echo yes)" = yes
+	if command -v ausearch >/dev/null; then
+		check "podman: no SELinux denials for the server" bash -c '! ausearch -m avc -c podman-mcp-serv >/dev/null 2>&1'
+	fi
 	# A build from alice's home: the context is read under Landlock.
 	mkdir -p /home/alice/vmtest-image
 	printf 'FROM registry.opensuse.org/opensuse/busybox:latest\nLABEL vmtest=1\n' >/home/alice/vmtest-image/Containerfile

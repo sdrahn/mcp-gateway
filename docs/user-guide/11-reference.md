@@ -297,7 +297,7 @@ Chapter 5.
 ```
 
 Restricts itself with the kernel's Landlock to `-rules` (the
-definition's `landlock` as JSON, `${HOME}` and `${USER}` expanded) and
+definition's `landlock` as JSON, `${HOME}`, `${USER}` and `${UID}` expanded) and
 a fixed base, then executes the program, which keeps the restriction.
 The gateway puts it in front of the command of every instance whose
 definition has `landlock`; it is not meant to be run by hand, except to
