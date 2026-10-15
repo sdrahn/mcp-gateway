@@ -15,6 +15,10 @@ minor release (with a warning) and removed in the next.
   approvals, clients, running tasks); Reload configuration and the
   self-check sit next to the servers' heading, the self-check folded to
   its summary unless a check failed; the Policy tab folds the roles.
+- Cockpit: MCP Gateway is listed at the end of the main list, above
+  Tools, instead of among the tools (manifest section `menu`, order 200;
+  Cockpit has no sections of its own for packages). Kit's page follows it
+  at order 201.
 
 ## v1.0.0 — 2026-10-14
 
