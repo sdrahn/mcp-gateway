@@ -7,6 +7,16 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- SELinux boolean `mcpsrv_fs_manage_xdg` (off): the file server may
+  read and change `~/.config`, `~/.cache` and `~/.local/share`, whose
+  SELinux types (`config_home_t`, `cache_home_t`, `data_home_t`) its
+  domain did not reach ("permission denied"). `~/.ssh`, `~/.gnupg` and
+  browser profiles stay out of reach. The user guide (chapter 4, "A file
+  server on the user's home") now says which parts of the home the
+  server reaches.
+
 ## v1.1.1 — 2026-10-15
 
 A fix for the podman setup: pulls and pushes with the user's registry

@@ -953,6 +953,34 @@ descriptions repeat; `--instructions` text goes before them. On the
 aggregated endpoint, `gateway_capabilities` (chapter 5) passes them on
 from the user's own instance, since the shared discovery instance runs
 with the home `/`.
+
+What of the home it reaches is the SELinux domain's: `mcpsrv_fs_t` reads
+and writes files labeled as user home content (`user_home_t`: your
+documents, projects, and dotfiles directly in the home such as
+`~/.bashrc`). Directories with types of their own are out of reach, and
+the server answers "…: permission denied":
+
+| Directory | Type | Reached |
+|---|---|---|
+| `~/.config`, `~/.cache`, `~/.local/share` | `config_home_t`, `cache_home_t`, `data_home_t` | with the boolean `mcpsrv_fs_manage_xdg` (off) |
+| `~/.ssh` | `ssh_home_t` | never |
+| `~/.gnupg` | `gpg_secret_t` | never |
+| browser and mail profiles (`~/.mozilla`, …) | their own (`mozilla_home_t`, …) | never |
+
+An agent that should change application settings below `~/.config` (or
+caches, or `~/.local/share`) needs the boolean, for every user of the
+server:
+
+```bash
+setsebool -P mcpsrv_fs_manage_xdg on
+```
+
+Keys, keyrings and browser profiles stay out of reach either way. `ls
+-Z` shows a file's type; a file created in such a directory takes the
+directory's type, and one created directly in the home is `user_home_t`.
+Dotfiles in the home such as `~/.bashrc` and `~/.profile` are run at the
+user's next login: the shipped roles let agents change files only after
+an approval.
 Options, for a copy of the definition in `/etc/mcp-gateway/servers.d`:
 
 | Option | Default | Meaning |
