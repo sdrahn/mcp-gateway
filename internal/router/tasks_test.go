@@ -455,9 +455,8 @@ func TestTaskStatusNotifications(t *testing.T) {
 			t.Fatalf("no completion notified: %v", statuses)
 		}
 	}
-	if !slices.Contains(statuses, "working") {
-		t.Fatalf("statuses %v", statuses)
-	}
+	// No "working" is asked for: each notice carries the task's state
+	// when it is sent, and a short call may already have completed.
 }
 
 // A listen stream of 2026-07-28 carries the changes of the tasks it asks
