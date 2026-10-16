@@ -122,6 +122,12 @@ install-gateway:
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/docs/user-guide
 	install -m0644 docs/user-guide/*.md $(DESTDIR)$(DATADIR)/mcp-gateway/docs/user-guide/
 	install -m0644 docs/README.md docs/architecture.md CHANGELOG.md $(DESTDIR)$(DATADIR)/mcp-gateway/docs/
+	# The documentation as a collection of mcp-docs, for agents that run
+	# it themselves (packaging/docs).
+	install -d $(DESTDIR)$(DATADIR)/mcp-docs/collections.d
+	sed 's|@DATADIR@|$(DATADIR)|g' packaging/docs/mcp-docs-collection.yaml.in \
+		>$(DESTDIR)$(DATADIR)/mcp-docs/collections.d/mcp-gateway.yaml
+	chmod 0644 $(DESTDIR)$(DATADIR)/mcp-docs/collections.d/mcp-gateway.yaml
 	# The gateway's diagnostics as the server gateway-admin, with its role.
 	sed 's|@BINDIR@|$(BINDIR)|g' packaging/admin/gateway-admin.yaml.in \
 		>$(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/gateway-admin.yaml
@@ -178,6 +184,11 @@ install-fs-server:
 	chmod 0644 $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/gateway-docs.yaml
 	install -Dm0644 packaging/fs-server/gateway-docs-roles.json \
 		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/gateway-docs/data.json
+	# The same server on mcp-docs, for the administrator to enable.
+	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/profiles
+	sed -e 's|@BINDIR@|$(BINDIR)|g' -e 's|@DATADIR@|$(DATADIR)|g' packaging/fs-server/gateway-docs-mcp-docs.yaml.in \
+		>$(DESTDIR)$(DATADIR)/mcp-gateway/profiles/gateway-docs-mcp-docs.yaml
+	chmod 0644 $(DESTDIR)$(DATADIR)/mcp-gateway/profiles/gateway-docs-mcp-docs.yaml
 
 install-demo: install-fs-server
 
