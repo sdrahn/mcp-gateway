@@ -29,6 +29,13 @@ minor release (with a warning) and removed in the next.
   `/usr/share/mcp-docs/collections.d/mcp-gateway.yaml`, for agents that
   run mcp-docs themselves.
 
+### Fixed
+
+- Instances failed to start now and then ("backend unavailable",
+  logged as "dbus: connection closed by user") when the gateway's
+  connection to systemd closed between two calls. Starting and stopping
+  a unit now reconnect and try once more.
+
 ## v1.1.1 — 2026-10-15
 
 A fix for the podman setup: pulls and pushes with the user's registry

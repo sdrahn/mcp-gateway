@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/godbus/dbus/v5"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/landlock"
@@ -311,5 +314,37 @@ func TestHasSELinuxFS(t *testing.T) {
 	}
 	if hasSELinuxFS(strings.NewReader(without)) {
 		t.Error("selinuxfs found where there is none")
+	}
+}
+
+// A call that fails because the connection to systemd closed (godbus'
+// ErrClosed) runs once more after a reconnect; other errors, and a
+// failed reconnect, end it.
+func TestRetryClosed(t *testing.T) {
+	other := errors.New("org.freedesktop.systemd1.UnitExists")
+	for _, c := range []struct {
+		name          string
+		errs          []error
+		renewErr      error
+		calls, renews int
+		want          error
+	}{
+		{"ok", []error{nil}, nil, 1, 0, nil},
+		{"other error", []error{other}, nil, 1, 0, other},
+		{"closed, then ok", []error{dbus.ErrClosed, nil}, nil, 2, 1, nil},
+		{"closed twice", []error{dbus.ErrClosed, dbus.ErrClosed}, nil, 2, 1, dbus.ErrClosed},
+		{"closed, reconnect fails", []error{dbus.ErrClosed}, errNoBus, 1, 1, errNoBus},
+	} {
+		calls, renews := 0, 0
+		err := retryClosed(func() error {
+			calls++
+			return c.errs[calls-1]
+		}, func() error {
+			renews++
+			return c.renewErr
+		})
+		if calls != c.calls || renews != c.renews || !errors.Is(err, c.want) || (c.want == nil) != (err == nil) {
+			t.Errorf("%s: %d calls, %d reconnects, %v", c.name, calls, renews, err)
+		}
 	}
 }
