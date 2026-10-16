@@ -221,10 +221,12 @@ check "SELinux is enforcing" test "$(getenforce)" = Enforcing
 sestatus | grep -E 'policy name|mode'
 
 section "Install"
-zypper -n --gpg-auto-import-keys ref >/dev/null
+# zypper's output only when it fails: which package or repository.
+zypper -n --gpg-auto-import-keys ref >/tmp/zypper.log 2>&1 ||
+	{ tail -n 30 /tmp/zypper.log; die "refreshing the repositories failed"; }
 zypper -n in --no-recommends audit policycoreutils selinux-tools selinux-policy-targeted selinux-policy-devel polkit \
-	rpm-build jq >/dev/null ||
-	die "installing dependencies failed"
+	rpm-build jq >/tmp/zypper.log 2>&1 ||
+	{ tail -n 30 /tmp/zypper.log; die "installing dependencies failed"; }
 systemctl enable --now auditd
 if zypper -n in --no-recommends opa >/dev/null 2>&1; then
 	echo "  opa: distribution package"
