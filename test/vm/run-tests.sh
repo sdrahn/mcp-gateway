@@ -224,9 +224,22 @@ section "Install"
 # zypper's output only when it fails: which package or repository.
 zypper -n --gpg-auto-import-keys ref >/tmp/zypper.log 2>&1 ||
 	{ tail -n 30 /tmp/zypper.log; die "refreshing the repositories failed"; }
-zypper -n in --no-recommends audit policycoreutils selinux-tools selinux-policy-targeted selinux-policy-devel polkit \
-	rpm-build jq >/tmp/zypper.log 2>&1 ||
-	{ tail -n 30 /tmp/zypper.log; die "installing dependencies failed"; }
+deps="audit policycoreutils selinux-tools polkit rpm-build jq"
+# shellcheck disable=SC2086 # deps is a list of package names
+if ! zypper -n in --no-recommends $deps selinux-policy-targeted selinux-policy-devel >/tmp/zypper.log 2>&1; then
+	# The image's selinux-policy can be newer than any selinux-policy-devel
+	# in the repositories (Leap 16.0 on 2026-10-16: git412 installed,
+	# devel only at git405, which requires its own policy): the policy at
+	# the devel package's version, then, so that both match.
+	v=$(zypper -n --no-refresh info selinux-policy-devel | sed -n 's/^Version *: *//p' | head -n 1)
+	[ -n "$v" ] || { tail -n 30 /tmp/zypper.log; die "installing dependencies failed"; }
+	had=$(rpm -q --qf '%{version}-%{release}' selinux-policy 2>/dev/null || echo none)
+	# shellcheck disable=SC2086
+	zypper -n in --no-recommends --oldpackage $deps "selinux-policy=$v" "selinux-policy-targeted=$v" \
+		"selinux-policy-devel=$v" >/tmp/zypper.log 2>&1 ||
+		{ tail -n 30 /tmp/zypper.log; die "installing dependencies failed"; }
+	echo "  selinux-policy $v, the devel package's version (the image had $had)"
+fi
 systemctl enable --now auditd
 if zypper -n in --no-recommends opa >/dev/null 2>&1; then
 	echo "  opa: distribution package"
