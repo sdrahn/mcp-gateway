@@ -78,6 +78,9 @@ func hasSELinuxFS(r io.Reader) bool {
 	return false
 }
 
+// errNoBus marks bus failing to connect to systemd.
+var errNoBus = errors.New("supervisor: connecting to systemd")
+
 func (s *Systemd) bus(ctx context.Context) (*sddbus.Conn, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -86,10 +89,49 @@ func (s *Systemd) bus(ctx context.Context) (*sddbus.Conn, error) {
 	}
 	c, err := sddbus.NewSystemConnectionContext(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("supervisor: connecting to systemd: %w", err)
+		return nil, fmt.Errorf("%w: %w", errNoBus, err)
 	}
 	s.conn = c
 	return c, nil
+}
+
+// onBus runs call on the connection to systemd. A connection that closed
+// after bus found it open (godbus: "connection closed by user") is
+// dropped, and call runs once more on a new one.
+func (s *Systemd) onBus(ctx context.Context, call func(*sddbus.Conn) error) error {
+	conn, err := s.bus(ctx)
+	if err != nil {
+		return err
+	}
+	return retryClosed(func() error { return call(conn) }, func() error {
+		s.dropBus(conn)
+		conn, err = s.bus(ctx)
+		return err
+	})
+}
+
+// retryClosed runs call, and when it fails because the connection closed,
+// renew and call once more.
+func retryClosed(call, renew func() error) error {
+	err := call()
+	if !errors.Is(err, dbus.ErrClosed) {
+		return err
+	}
+	if rErr := renew(); rErr != nil {
+		return errors.Join(err, rErr)
+	}
+	return call()
+}
+
+// dropBus forgets c if it is the cached connection, so that bus makes a
+// new one.
+func (s *Systemd) dropBus(c *sddbus.Conn) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn == c {
+		s.conn.Close()
+		s.conn = nil
+	}
 }
 
 // Properties returns the transient unit properties for an instance whose
@@ -235,7 +277,8 @@ func sandboxProperties(b *config.Backend, prop func(string, any) sddbus.Property
 
 // Start implements Launcher.
 func (s *Systemd) Start(ctx context.Context, b *config.Backend, p principal.Principal, id string) (Instance, error) {
-	conn, err := s.bus(ctx)
+	// Fails early when systemd cannot be reached at all.
+	_, err := s.bus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +328,10 @@ func (s *Systemd) Start(ctx context.Context, b *config.Backend, p principal.Prin
 	}
 	name := unitName(b, id)
 	done := make(chan string, 1)
-	if _, err := conn.StartTransientUnitContext(ctx, name, "fail", props, done); err != nil {
+	if err := s.onBus(ctx, func(conn *sddbus.Conn) error {
+		_, err := conn.StartTransientUnitContext(ctx, name, "fail", props, done)
+		return err
+	}); err != nil {
 		return fail(fmt.Errorf("supervisor: starting %s: %w", name, err))
 	}
 	select {
@@ -369,16 +415,19 @@ func (i *unitInstance) Close() error {
 		err = i.Conn.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if conn, bErr := i.s.bus(ctx); bErr == nil {
-			done := make(chan string, 1)
-			if _, sErr := conn.StopUnitContext(ctx, i.name, "replace", done); sErr == nil {
-				select {
-				case <-done:
-				case <-ctx.Done():
-				}
-			} else if !isNoSuchUnit(sErr) {
-				err = errors.Join(err, sErr)
+		done := make(chan string, 1)
+		sErr := i.s.onBus(ctx, func(conn *sddbus.Conn) error {
+			_, err := conn.StopUnitContext(ctx, i.name, "replace", done)
+			return err
+		})
+		switch {
+		case sErr == nil:
+			select {
+			case <-done:
+			case <-ctx.Done():
 			}
+		case !isNoSuchUnit(sErr) && !errors.Is(sErr, errNoBus):
+			err = errors.Join(err, sErr)
 		}
 		if i.mcs != "" {
 			i.s.mu.Lock()
