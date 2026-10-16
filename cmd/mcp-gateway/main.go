@@ -414,8 +414,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		httpErrs = make(chan error, 1)
 		if stopHTTP, err = serveHTTP(log, gw.HTTP, certs, r, signIns, httpErrs); err != nil {
 			stop()
-			<-served
-			return err
+			return errors.Join(err, <-served)
 		}
 	}
 
