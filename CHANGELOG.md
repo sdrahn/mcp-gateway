@@ -7,6 +7,35 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v1.2.0 — 2026-10-20
+
+The file server reaches a user's configuration if the administrator
+allows it, and the gateway's documentation can be served by mcp-docs.
+The SELinux boolean `mcpsrv_fs_manage_xdg` (off) lets the file server
+read and change `~/.config`, `~/.cache` and `~/.local/share`; `~/.ssh`,
+`~/.gnupg` and browser profiles stay out of reach either way.
+`gateway-docs` can run on mcp-docs, which answers with outlines and
+sections instead of whole files, and the documentation is an mcp-docs
+collection for agents that run mcp-docs themselves. Instances no longer
+fail to start now and then after the gateway's connection to systemd
+closed.
+
+Upgrading from 1.1.x needs no changes to `gateway.yaml`, server
+definitions, role data or custom policies. After the update, restart
+the gateway (`systemctl restart mcp-gateway.service`); the package does
+not. The SELinux module `mcp_gateway` (package `mcp-gateway-selinux`)
+changes; the update loads it and labels `/usr/bin/mcp-docs` if
+installed. Things to know:
+
+- **Nothing changes by default:** the boolean is off and `gateway-docs`
+  stays on `mcp-server-fs` until you turn the one on
+  (`setsebool -P mcpsrv_fs_manage_xdg on`) or copy the other's
+  definition (user guide, chapters 4 and 10).
+- **Going back to 1.1** needs, if you enabled them, removing
+  `/etc/mcp-gateway/servers.d/gateway-docs.yaml` copied from the
+  mcp-docs definition first (1.1 does not label `mcp-docs`); the
+  boolean goes away with 1.2's module.
+
 ### Added
 
 - SELinux boolean `mcpsrv_fs_manage_xdg` (off): the file server may
@@ -35,6 +64,8 @@ minor release (with a warning) and removed in the next.
   logged as "dbus: connection closed by user") when the gateway's
   connection to systemd closed between two calls. Starting and stopping
   a unit now reconnect and try once more.
+- When the gateway could not start its HTTP listener, the error it
+  logged left out how the Unix socket server ended; it now names both.
 
 ## v1.1.1 — 2026-10-15
 
