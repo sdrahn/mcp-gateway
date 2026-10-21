@@ -21,7 +21,9 @@ minor release (with a warning) and removed in the next.
   for remote agents: `setup http`, bearer tokens refused for expiry,
   audience, an unknown key or a missing scope, the scope ceiling with
   step-up, an agent of MCP 2026-07-28, and a certificate renewed without
-  a restart.
+  a restart; and the obligations as the shipped policy merges them under
+  the real OPA: redaction, pseudonymization with the session's vault and
+  re-identification, the size limit, the rate limit and full audit.
 
 ### Fixed
 
