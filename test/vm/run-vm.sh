@@ -1,8 +1,10 @@
 #!/bin/bash
 # Boots an openSUSE cloud image with QEMU/KVM, installs the packages built
-# from this tree and runs test/vm/run-tests.sh in it as root.
+# from this tree (test/vm/prepare.sh) and runs the functional tests of
+# mcp-gateway-tests in it as root, as openQA does on a product system:
+# /usr/libexec/mcp-gateway/tests/run-tests.sh (test/vm/run-tests.sh).
 #
-# Usage: test/vm/run-vm.sh <rpm dir> <mcpcall binary> <opa binary> <privsrv binary> [<servers dir>]
+# Usage: test/vm/run-vm.sh <rpm dir> <opa binary> [<servers dir>]
 #
 # The servers dir (test/vm/build-servers.sh) holds the MCP servers of the
 # setup packages, laid out like the root file system.
@@ -10,22 +12,21 @@
 # Environment:
 #   IMAGE_URL  cloud image (default: openSUSE Tumbleweed Minimal-VM, Cloud)
 #   WORK       working directory (default: a new temporary directory); the
-#              serial console log and test output are left there
+#              serial console log, test output and results (TAP, JUnit)
+#              are left there
 #
 # If SELinux is not enforcing in the image, it is installed and enabled
 # first (with a relabelling reboot). Needs qemu-system-x86_64, qemu-img,
 # cloud-localds (cloud-image-utils), ssh and /dev/kvm.
 set -euo pipefail
 
-[ $# = 4 ] || [ $# = 5 ] || {
-	echo "usage: $0 <rpm dir> <mcpcall binary> <opa binary> <privsrv binary> [<servers dir>]" >&2
+[ $# = 2 ] || [ $# = 3 ] || {
+	echo "usage: $0 <rpm dir> <opa binary> [<servers dir>]" >&2
 	exit 2
 }
 rpms=$(realpath "$1")
-mcpcall=$(realpath "$2")
-opa=$(realpath "$3")
-privsrv=$(realpath "$4")
-servers=${5:+$(realpath "$5")}
+opa=$(realpath "$2")
+servers=${3:+$(realpath "$3")}
 here=$(cd "$(dirname "$0")" && pwd)
 image_url=${IMAGE_URL:-https://download.opensuse.org/tumbleweed/appliances/openSUSE-Tumbleweed-Minimal-VM.x86_64-Cloud.qcow2}
 work=${WORK:-$(mktemp -d)}
@@ -107,7 +108,7 @@ fi
 log "copying the test payload"
 vm 'rm -rf /root/vmtest && mkdir -p /root/vmtest/rpms'
 scp -q -i "$work/key" -P "$port" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
-	"$here/run-tests.sh" "$mcpcall" "$opa" "$privsrv" root@127.0.0.1:/root/vmtest/
+	"$here/prepare.sh" "$opa" root@127.0.0.1:/root/vmtest/
 scp -q -i "$work/key" -P "$port" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
 	"$rpms"/*.rpm root@127.0.0.1:/root/vmtest/rpms/
 if [ -n "$servers" ]; then
@@ -115,10 +116,17 @@ if [ -n "$servers" ]; then
 		"$servers" root@127.0.0.1:/root/vmtest/servers
 fi
 
+log "installing the packages"
+vm 'bash /root/vmtest/prepare.sh /root/vmtest' 2>&1 | tee "$work/prepare.log"
+[ "${PIPESTATUS[0]}" = 0 ] || exit 1
 log "running the tests"
+args="--disposable --results /root/vmtest/results --rpms /root/vmtest/rpms"
+[ -n "$servers" ] && args+=" --servers /root/vmtest/servers"
 set +e
-vm 'bash /root/vmtest/run-tests.sh' 2>&1 | tee "$work/test.log"
+vm "/usr/libexec/mcp-gateway/tests/run-tests.sh $args" 2>&1 | tee "$work/test.log"
 status=${PIPESTATUS[0]}
+scp -q -i "$work/key" -P "$port" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+	root@127.0.0.1:/root/vmtest/results/results.tap root@127.0.0.1:/root/vmtest/results/results.xml "$work/"
 set -e
 log "tests exited with $status"
 exit "$status"
