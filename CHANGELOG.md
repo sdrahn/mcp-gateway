@@ -5,7 +5,31 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.3.0 — 2026-10-21
+
+Settings without copying the whole default, and from the command line.
+Drop-ins, the files `*.yaml` in `/etc/mcp-gateway/gateway.d`, are read
+over the configuration in force key by key, so that one setting changes
+and the others still follow the package's default.
+`mcp-gateway-admin config` shows each setting in force and where it
+comes from, and changes one in a drop-in of its own: it checks the whole
+configuration first, waits for the gateway's reload and says whether the
+change is in force or takes effect at the next start.
+
+Upgrading from 1.2.x needs no changes to `gateway.yaml`, server
+definitions, role data or custom policies. After the update, restart
+the gateway (`systemctl restart mcp-gateway.service`); the package does
+not. The SELinux modules do not change. Things to know:
+
+- **Nothing changes by default:** `gateway.d` comes empty; a
+  `/etc/mcp-gateway/gateway.yaml` of yours stays in force as before,
+  with drop-ins over it once you add some.
+- **`--config FILE` reads that file alone**, without drop-ins, as tests
+  and the tools that name a file expect.
+- **Going back to 1.2** ignores the drop-ins: 1.2 does not read
+  `gateway.d`, so the settings there, those `mcp-gateway-admin config
+  set` wrote included, no longer apply. Move them into
+  `/etc/mcp-gateway/gateway.yaml` first if you need them.
 
 ### Added
 
