@@ -320,6 +320,7 @@ fi
 %{_sbindir}/mcp-policy-bundle
 %dir %{_sysconfdir}/mcp-gateway
 %dir %{_sysconfdir}/mcp-gateway/servers.d
+%dir %{_sysconfdir}/mcp-gateway/gateway.d
 %dir %attr(0700,root,root) %{_sysconfdir}/mcp-gateway/credentials
 %dir %{_sysconfdir}/mcp-gateway/bundle
 %dir %{_sysconfdir}/mcp-gateway/policy

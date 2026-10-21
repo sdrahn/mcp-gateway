@@ -451,3 +451,69 @@ func TestReloadWatchInotify(t *testing.T) {
 		t.Fatalf("%d reloads", n)
 	}
 }
+
+// Drop-ins: one added to gateway.d is noticed (the directory is watched
+// though no file of it was there) and put in force over gateway.yaml; one
+// that does not load keeps the configuration in force and is named in
+// the status and the audit; removing it recovers.
+func TestReloadDropIns(t *testing.T) {
+	l, a, path, applied := testConfigReloader(t)
+	dropIns := filepath.Join(t.TempDir(), "gateway.d")
+	if err := os.Mkdir(dropIns, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	l.loadConfig = func() (*config.Gateway, error) {
+		g, _, err := config.ResolveWith([]string{path}, dropIns)
+		return g, err
+	}
+	l.configFiles = func(*config.Gateway) []string {
+		files, _ := config.DropIns(dropIns)
+		return append([]string{path}, files...)
+	}
+	l.configDirs = []string{dropIns}
+	fsw, err := fswatch.New()
+	if err != nil {
+		t.Skipf("no inotify: %v", err)
+	}
+	defer func() { _ = fsw.Close() }()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go l.watch(ctx, func() time.Duration { return time.Hour }, l.fingerprint(), make(chan os.Signal), fsw)
+	waitFor := func(what string, done func() bool) {
+		t.Helper()
+		for range 500 {
+			l.mu.Lock()
+			ok := done()
+			l.mu.Unlock()
+			if ok {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatal(what)
+	}
+	time.Sleep(50 * time.Millisecond) // the watches are set
+
+	write(t, dropIns, "50-admin.yaml", "limits:\n  tasks_per_principal: 64\n")
+	waitFor("a new drop-in was not noticed", func() bool {
+		return len(*applied) == 1 && (*applied)[0].Limits.TasksPerPrincipal == 64
+	})
+	if rec := a.last(); !rec.ok || rec.fields["changed"] != "limits.tasks_per_principal" {
+		t.Fatalf("audit %+v", rec)
+	}
+
+	bad := filepath.Join(dropIns, "60-bad.yaml")
+	write(t, dropIns, "60-bad.yaml", "limits:\n  task_per_principal: 1\n")
+	waitFor("a broken drop-in was not reported", func() bool { return l.configErr != "" })
+	if !strings.Contains(l.ConfigErr(), bad) || len(*applied) != 1 || l.current.Limits.TasksPerPrincipal != 64 {
+		t.Fatalf("error %q, %d applied, tasks %d", l.ConfigErr(), len(*applied), l.current.Limits.TasksPerPrincipal)
+	}
+	if rec := a.last(); rec.ok || rec.fields["file"] != "gateway.d/60-bad.yaml" {
+		t.Fatalf("audit %+v", rec)
+	}
+
+	if err := os.Remove(bad); err != nil {
+		t.Fatal(err)
+	}
+	waitFor("removing the broken drop-in did not recover", func() bool { return l.configErr == "" })
+}

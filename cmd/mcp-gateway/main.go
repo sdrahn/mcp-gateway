@@ -173,7 +173,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if err != nil {
 		return fmt.Errorf("loading backend registry: %w", err)
 	}
-	log.Info("configuration valid", "config", used, "socket", gw.Socket, "backends", len(backends))
+	log.Info("configuration valid", "config", used, "drop_ins", strings.Join(gw.DropIns, ","), "socket", gw.Socket, "backends", len(backends))
 	for _, w := range gw.Warnings {
 		log.Warn(w, "config", used)
 	}
@@ -336,6 +336,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		running:     gw,
 		current:     gw,
 		configFiles: func(c *config.Gateway) []string { return reloadFiles(configPath, c) },
+		configDirs:  reloadDirs(configPath),
 		loaded: func(next map[string]*config.Backend) {
 			for _, name := range slices.Sorted(maps.Keys(next)) {
 				if next[name].Privileged {

@@ -3653,7 +3653,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       command, another user sees none, and a running task is cancelled.
 
 36. **Settings from the command line, in a file of their own** (1.3;
-    D10):
+    D10; stage A done):
     - the problem: a setting of `gateway.yaml` is changed by editing the
       file. A reloadable key is in force as soon as the file is written
       (steps 19 and 20), but nothing says which keys reload, whether the
@@ -3671,7 +3671,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       and the gateway reloads them as any edit; it runs as
       `mcp-gateway` with `/etc` read-only (`ProtectSystem=strict`) and
       keeps no way to write there;
-    - stage A, drop-ins: `/etc/mcp-gateway/gateway.d/*.yaml`, read in
+    - stage A (done), drop-ins: `/etc/mcp-gateway/gateway.d/*.yaml`, read in
       the order of their names over the file in force (`/etc`'s, else
       `/usr/etc`'s, else the built-in defaults), key by key: a section
       (a map) merges, a value or a list replaces. Each drop-in has the
@@ -3686,6 +3686,18 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       `gateway-admin` server shows the drop-ins too. With
       `--config FILE`, no drop-ins are read, so that a test reads what
       it names;
+    - as built (stage A): "a section merges" follows the types of the
+      configuration, not the YAML: a key whose value is a struct of
+      `gateway.yaml` (`limits`, `approvals`, `notifications.email`)
+      merges, while a map of names (`agents.max_version`, whose `{}`
+      caps no client) replaces as a value and a list does. A drop-in is
+      decoded alone first, so that an unknown key or a wrong type names
+      its line; the whole is then checked after each drop-in, so that
+      one making it invalid is named. `version` may be left out of a
+      drop-in. Empty drop-ins and hidden files (`.NAME.yaml`, a file
+      being written) count for nothing. The gateway watches
+      `gateway.d` itself, so that a drop-in added to an empty directory
+      is noticed; the package owns the directory;
     - stage B, the commands: `mcp-gateway-admin config get KEY` prints
       the value in force and where it comes from (the file and line, or
       "default"), and, when the files say otherwise and the key needs a

@@ -55,11 +55,16 @@ func applyConfig(log *slog.Logger, next, running *config.Gateway, certs *certSto
 
 // reloadFiles lists the files besides servers.d whose change triggers a
 // reload: gateway.yaml (the explicit one, or both places it is looked
-// for), the TLS certificate and key, the SMTP password.
+// for, and the drop-ins there are now), the TLS certificate and key, the
+// SMTP password.
 func reloadFiles(explicit string, c *config.Gateway) []string {
 	files := []string{config.DefaultConfigPath, config.DefaultVendorConfigPath}
 	if explicit != "" {
 		files = []string{explicit}
+	} else {
+		// An unreadable directory is an error of the reload itself.
+		dropIns, _ := config.DropIns(config.DefaultDropInDir)
+		files = append(files, dropIns...)
 	}
 	if c == nil {
 		return files
@@ -71,4 +76,13 @@ func reloadFiles(explicit string, c *config.Gateway) []string {
 		files = append(files, f)
 	}
 	return files
+}
+
+// reloadDirs lists the directories watched for files added to them: the
+// drop-ins' (unless an explicit configuration reads none).
+func reloadDirs(explicit string) []string {
+	if explicit != "" {
+		return nil
+	}
+	return []string{config.DefaultDropInDir}
 }
