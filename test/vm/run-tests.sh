@@ -1435,7 +1435,8 @@ jq '.roles.obligated = {"permissions": [
 		"pseudonymize": {"detect": ["email"], "patterns": {"customer": "CUST-[0-9]{6}"}},
 		"max_output_bytes": 2048, "audit": "full"}},
 	{"server": "fs", "tool": "write_file", "args": {"path": "^${home}/"}, "obligations": {"reidentify": "content"}},
-	{"server": "fs", "tool": "list_directory", "obligations": {"rate_limit": "2/m"}}]}
+	{"server": "fs", "tool": "list_directory"},
+	{"server": "fs", "tool": "get_file_info", "obligations": {"rate_limit": "2/m"}}]}
 	| .bindings.users.dora = ["obligated"]' \
 	/etc/mcp-gateway/policy/rbac/data.json >/root/ob-data.json &&
 	cat /root/ob-data.json >/etc/mcp-gateway/policy/rbac/data.json
@@ -1479,13 +1480,25 @@ check "max_output_bytes: a small result is released" succeeded_with "under the l
 tool dora read_file '{"path":"/home/dora/large.txt"}'
 check "max_output_bytes: a larger result is withheld" tool_error_with "output withheld: result of"
 check "max_output_bytes: ... and none of it is sent" bash -c '! grep -q xxxxxxxx <<<"$1"' _ "$out"
-# 2/m per principal, server and tool, across sessions.
-call dora --method tools/call --params '{"name":"list_directory","arguments":{"path":"/home/dora"}}' \
-	--then '{"name":"list_directory","arguments":{"path":"/home/dora"}}' \
-	--then '{"name":"list_directory","arguments":{"path":"/home/dora"}}'
-check "rate_limit: two calls a minute, the third is denied" \
-	bash -c '[ "$2" = 2 ] && [ "$(grep -c record.txt <<<"$1")" = 2 ] && grep -qF "mcp-gateway: rate limit exceeded" <<<"$1"' _ "$out" "$rc"
+# The home directory itself, as an agent lists it first. When the server
+# cannot, the layers one by one: permissions, Landlock (SELinux and the
+# unit's sandbox remain).
 tool dora list_directory '{"path":"/home/dora"}'
+check "list_directory lists the home directory itself" succeeded_with "[FILE] record.txt"
+if ! succeeded_with "[FILE] record.txt"; then
+	stat -c '  %A %U:%G %C %n' /home/dora /home/dora/* /home/dora/.[!.]* 2>&1 | head -20
+	runuser -u dora -- ls -a /home/dora >/dev/null && echo "  dora's account lists it"
+	runuser -u dora -- /usr/libexec/mcp-gateway/mcp-landlock -rules '{"write":["/home/dora"]}' -- ls -a /home/dora >/dev/null &&
+		echo "  ... and so does ls under the fs ruleset"
+	journalctl -q --no-pager -u 'mcp-fs-*' --since "@$ob_since" -o cat | tail -5 | sed 's/^/  | /'
+fi
+# 2/m per principal, server and tool, across sessions.
+call dora --method tools/call --params '{"name":"get_file_info","arguments":{"path":"/home/dora/small.txt"}}' \
+	--then '{"name":"get_file_info","arguments":{"path":"/home/dora/small.txt"}}' \
+	--then '{"name":"get_file_info","arguments":{"path":"/home/dora/small.txt"}}'
+check "rate_limit: two calls a minute, the third is denied" \
+	bash -c '[ "$2" = 2 ] && [ "$(grep -c "\"isError\":false" <<<"$1")" = 2 ] && grep -qF "mcp-gateway: rate limit exceeded" <<<"$1"' _ "$out" "$rc"
+tool dora get_file_info '{"path":"/home/dora/small.txt"}'
 check "rate_limit: ... in a new session too" tool_error_with "rate limit exceeded"
 # The kernel record has the reason hex-encoded (it has spaces).
 ob_rate_hex=$(printf 'rate limit exceeded' | od -An -tx1 | tr -d ' \n' | tr a-f A-F)
