@@ -1377,7 +1377,8 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	hl_call "$hl_read" write_file '{"path":"/home/alice/remote.txt","content":"remote"}'
 	check "writing is outside its scopes: 403, asking for mcp:write (step-up)" hl_status 403 'mcp:write'
 	check "... and nothing is written" test ! -e /home/alice/remote.txt
-	hl_scopes_audited() { journalctl -u mcp-gateway.service -o cat --since "@$hl_since" | grep -F '"event":"mcp-decision"' | grep -qF '"scopes":"mcp mcp:read"'; }
+	# Decision records: "audit":true with the token's scopes.
+	hl_scopes_audited() { journalctl -u mcp-gateway.service -o cat --since "@$hl_since" | grep -F '"audit":true' | grep -qF '"scopes":"mcp mcp:read"'; }
 	check "the decision is audited with the token's scopes" hl_scopes_audited
 	jq 'del(.scopes)' /etc/mcp-gateway/policy/rbac/data.json >/root/hl-data.json &&
 		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.json
