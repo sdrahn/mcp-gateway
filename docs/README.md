@@ -21,7 +21,8 @@ For an agent, which server to ask:
 - what the user may do here, on which server, within which limits:
   the gateway's own tool `gateway_capabilities` (aggregated endpoint);
 
-- the gateway's configuration (`gateway.yaml`, server definitions in
+- the gateway's configuration (`gateway.yaml` and its drop-ins in
+  `gateway.d`, server definitions in
   `servers.d`, the exec server's commands in `exec.d`, role data):
   `gateway-admin` `show_config`, after an approval; secrets are masked;
 - whether it works, SELinux denials, what the policy decides and why,
@@ -41,6 +42,7 @@ For an agent, which server to ask:
 | What does the gateway do, what are principals, sessions, instances, grants? | [1. Introduction](user-guide/01-introduction.md) |
 | Which packages, first start, transactional systems (MicroOS, SLE Micro) | [2. Installation](user-guide/02-installation.md) |
 | Every key of `gateway.yaml`, which file is in force (`/etc` or `/usr/etc`), which keys apply without a restart | [3. Configuration](user-guide/03-configuration.md) |
+| Changing one setting without copying the default: drop-ins in `gateway.d`, `mcp-gateway-admin config get/set/unset/show`, where a value in force comes from | [3, "Drop-ins"](user-guide/03-configuration.md#drop-ins), ["Settings from the command line"](user-guide/03-configuration.md#settings-from-the-command-line) |
 | Adding an MCP server: definition keys, sandbox, secrets, SELinux domain; `inspect`, `profile`, `review`; the file server `fs` and the command server `exec` | [4. MCP servers](user-guide/04-mcp-servers.md) |
 | Landlock: what an instance may reach (`landlock`), the shipped rulesets, servers that restrict themselves, drafting a ruleset with `profile`, a refusal with no audit record | [4. MCP servers, "Landlock"](user-guide/04-mcp-servers.md#landlock) |
 | Servers that speak HTTP (`url`), through a proxy, or that each user signs in to (`sign_in`, OAuth) | [4. MCP servers, "Servers that speak HTTP"](user-guide/04-mcp-servers.md#servers-that-speak-http), ["Signing in for each user"](user-guide/04-mcp-servers.md#signing-in-for-each-user) |
@@ -87,11 +89,14 @@ with placeholders.
 | `selinux_type is not in the loaded SELinux policy` | the same, as the gateway warns at start | [4, "SELinux domains for servers"](user-guide/04-mcp-servers.md#selinux-domains-for-servers) |
 | `invalid message from backend … parse error` | the server writes something other than MCP to stdout | [10, "Instances do not start"](user-guide/10-operations.md#instances-do-not-start) |
 | `server definitions not reloaded; serving the previous ones` | a definition in `servers.d` does not load | [4, "Changing definitions while the gateway runs"](user-guide/04-mcp-servers.md#changing-definitions-while-the-gateway-runs) |
-| `gateway.yaml not reloaded; the configuration in force stays` | `gateway.yaml`, its certificate or password file does not load | [3, "Changing the configuration while the gateway runs"](user-guide/03-configuration.md#changing-the-configuration-while-the-gateway-runs) |
+| `gateway.yaml not reloaded; the configuration in force stays` | `gateway.yaml`, a drop-in in `gateway.d` (the error names it), the certificate or the password file does not load | [3, "Changing the configuration while the gateway runs"](user-guide/03-configuration.md#changing-the-configuration-while-the-gateway-runs) |
 | `gateway.yaml changes keys that take effect at the next start only` | a key that needs a restart changed | [3, "Changing the configuration while the gateway runs"](user-guide/03-configuration.md#changing-the-configuration-while-the-gateway-runs) |
 | `server … is defined twice` | two files define the same server name | [13, "Setup packages"](user-guide/13-system-management-servers.md#setup-packages) |
 | `refusing to run as root`, `state files not owned by mcp-gateway` | the gateway was run as root | [10, "State and backup"](user-guide/10-operations.md#state-and-backup) |
 | `mcp-gateway was updated; restart …` | the package was updated, the gateway still runs the old version | [10, "Upgrades"](user-guide/10-operations.md#upgrades) |
 | `libvirt picks MCS categories from the gateway's range` | libvirt needs a drop-in | [9, "MCS: separating instances"](user-guide/09-security.md#mcs-separating-instances) |
 | `no such client`, `no such task`, `the gateway does not answer at …`, `no access to the gateway's control socket …` | `mcp-gateway-admin clients` or `tasks`: not yours or gone; the gateway not running; not in `socket_group` | [10, "Clients and tasks"](user-guide/10-operations.md#clients-and-tasks) |
+| `…: no such key in gateway.yaml`, `… is a section: set one of its keys`, `not changed: …` | `mcp-gateway-admin config set`: an unknown key, a section, or a value the check of the whole configuration refuses; nothing was written | [3, "Settings from the command line"](user-guide/03-configuration.md#settings-from-the-command-line) |
+| `not changed: … sets KEY too (line N) and is read after …, so it would win` | `mcp-gateway-admin config set`: a later drop-in sets the key; change it there | [3, "Settings from the command line"](user-guide/03-configuration.md#settings-from-the-command-line) |
+| `written; the gateway reads it when it runs`, `written; the gateway has not reloaded it yet` | `mcp-gateway-admin config`: the file is written, the gateway did not answer or not reload yet | [3, "Settings from the command line"](user-guide/03-configuration.md#settings-from-the-command-line) |
 | `FAIL`/`WARN` lines of `mcp-gateway-admin doctor` | the self-check, each line names its fix | [10, "Self-check"](user-guide/10-operations.md#self-check) |

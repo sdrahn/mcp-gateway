@@ -1,7 +1,9 @@
 # 3. Configuration
 
-Which files the gateway reads, and every key of `gateway.yaml`. MCP
-server definitions are chapter 4, the role data chapter 6.
+Which files the gateway reads, how to change a setting (a drop-in in
+`gateway.d`, or `mcp-gateway-admin config set`), and every key of
+`gateway.yaml`. MCP server definitions are chapter 4, the role data
+chapter 6.
 
 ## Files
 
@@ -26,6 +28,8 @@ change (below `/etc`):
 
 On distributions without `/usr/etc`, the default configuration is
 `/etc/mcp-gateway/gateway.yaml` itself (marked as a configuration file).
+
+### Drop-ins
 
 To change a few settings, put them in a drop-in; the default stays in
 force for everything else, and package updates of it still reach you:
@@ -94,6 +98,8 @@ mcp-gateway-admin config show      # every key, its value and its source
   a later drop-in sets, or a reload that failed; 2 on usage errors; 3
   when the gateway does not answer (after `set` and `unset` the file is
   written all the same, and the gateway reads it when it runs).
+
+### A copy of the default
 
 To change the configuration as a whole, copy the default and edit the
 copy:

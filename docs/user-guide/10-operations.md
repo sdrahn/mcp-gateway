@@ -370,10 +370,12 @@ section.
 
 For the configuration in force on the machine, the agent needs the
 `gateway-admin` server (role `gateway-admin`): its `show_config` shows
-`gateway.yaml`, the server definitions, the exec servers' command files
+`gateway.yaml` and its drop-ins, the server definitions, the exec servers' command files
 (`exec.d`) and the role data with secrets
 masked (each call with an approval, out of band), `check_config` and
-`doctor` check them without one. The other servers cannot
+`doctor` check them without one. Agents read the configuration; they
+do not change it: `mcp-gateway-admin config set` is a command for
+people (chapter 3). The other servers cannot
 read these files, by design: the file server sees the user's home only,
 and the systemd roles allow reading systemd's own files only (systemd-mcp
 reports such a refusal as "calling method was canceled by user"). The
