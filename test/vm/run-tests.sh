@@ -163,15 +163,13 @@ journal_has_audit() { journalctl -u mcp-gateway.service -o cat | grep -qF '"audi
 # which turns dontaudit rules off for the whole system: accesses the
 # policy keeps silent (such as the gateway's MCS scan of /proc) are logged
 # while it runs.
-dontaudit_off_from=0 dontaudit_off_to=0 diag_off_from=0 diag_off_to=0
+dontaudit_off_from=0 dontaudit_off_to=0
 outside_dontaudit_off() {
 	local line ts
 	while IFS= read -r line; do
 		ts=${line#*msg=audit(}
 		ts=${ts%%.*}
 		[[ $ts =~ ^[0-9]+$ ]] && [ "$ts" -ge "$dontaudit_off_from" ] && [ "$ts" -le "$dontaudit_off_to" ] && continue
-		# (and a diagnosis that turned them off as well)
-		[[ $ts =~ ^[0-9]+$ ]] && [ "$ts" -ge "$diag_off_from" ] && [ "$ts" -le "$diag_off_to" ] && continue
 		printf '%s\n' "$line"
 	done
 }
@@ -1482,36 +1480,14 @@ check "max_output_bytes: a small result is released" succeeded_with "under the l
 tool dora read_file '{"path":"/home/dora/large.txt"}'
 check "max_output_bytes: a larger result is withheld" tool_error_with "output withheld: result of"
 check "max_output_bytes: ... and none of it is sent" bash -c '! grep -q xxxxxxxx <<<"$1"' _ "$out"
-# The home directory itself, as an agent lists it first. When the server
-# cannot, the layers one by one: permissions, Landlock (SELinux and the
-# unit's sandbox remain).
+# The home directory itself, as an agent lists it first. Where the file
+# system gives no entry types, the server examines each entry, and SELinux
+# keeps it from ~/.cache and ~/.config: those are listed as [?], the rest
+# as usual.
 tool dora list_directory '{"path":"/home/dora"}'
 check "list_directory lists the home directory itself" succeeded_with "[FILE] record.txt"
-if ! succeeded_with "[FILE] record.txt"; then
-	stat -c '  %A %U:%G %C %n' /home/dora /home/dora/* /home/dora/.[!.]* 2>&1 | head -20
-	runuser -u dora -- ls -a /home/dora >/dev/null && echo "  dora's account lists it"
-	runuser -u dora -- /usr/libexec/mcp-gateway/mcp-landlock -rules '{"write":["/home/dora"]}' -- ls -a /home/dora >/dev/null &&
-		echo "  ... and so does ls under the fs ruleset"
-	# The server as dora herself, outside systemd and the fs domain: its
-	# own Landlock restriction alone.
-	{
-		printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"vmtest","version":"1"}}}' \
-			'{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-			'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_directory","arguments":{"path":"/home/dora"}}}'
-		sleep 2
-	} | runuser -u dora -- /usr/libexec/mcp-servers/mcp-server-fs --root /home/dora 2>&1 | grep -v '"id":1' | cut -c1-200 | sed 's/^/  direct: /'
-	# The call again with dontaudit rules off: a refusal SELinux keeps
-	# silent shows (these denials do not count in "SELinux denials").
-	diag_off_from=$(date +%s)
-	semodule -DB
-	tool dora list_directory '{"path":"/home/dora"}'
-	sleep 2
-	semodule -B
-	diag_off_to=$(date +%s)
-	ausearch --input-logs -m AVC,USER_AVC -ts recent 2>/dev/null | grep -E 'mcpsrv_fs_t' | grep -v 'name="\.\(ssh\|config\)"' |
-		tail -10 | sed 's/^/  | /'
-	journalctl -q --no-pager -u 'mcp-fs-*' --since "@$ob_since" -o cat | tail -5 | sed 's/^/  | /'
-fi
+check "... with the entries the server may not examine by name" \
+	bash -c 'grep -qE "\[(DIR|\?)\] \.cache" <<<"$1"' _ "$out"
 # 2/m per principal, server and tool, across sessions.
 call dora --method tools/call --params '{"name":"get_file_info","arguments":{"path":"/home/dora/small.txt"}}' \
 	--then '{"name":"get_file_info","arguments":{"path":"/home/dora/small.txt"}}' \
