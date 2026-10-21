@@ -17,7 +17,11 @@ minor release (with a warning) and removed in the next.
   tested when their packages are installed, and skipped otherwise. They
   change the system for good, hence `--disposable`. `test/openqa` has an
   openQA test module and proposals for more tests. The CI's VM test runs
-  the same package.
+  the same package, and now also tests the gateway's own HTTPS listener
+  for remote agents: `setup http`, bearer tokens refused for expiry,
+  audience, an unknown key or a missing scope, the scope ceiling with
+  step-up, an agent of MCP 2026-07-28, and a certificate renewed without
+  a restart.
 
 ## v1.3.0 — 2026-10-21
 
