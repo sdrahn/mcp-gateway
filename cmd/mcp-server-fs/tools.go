@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"mime"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
 	"sort"
@@ -138,7 +139,7 @@ func (s *fileServer) tools() []tool {
 				"items": map[string]any{"type": "string"}, "description": "the files"}}, "paths"),
 			readOnly: true, idempotent: true, run: readMultipleFiles},
 		{name: "list_directory", title: "List a directory",
-			description: fmt.Sprintf("List a directory's entries, each marked [DIR], [FILE] or [LINK] (at most %d).", s.maxEntries),
+			description: fmt.Sprintf("List a directory's entries, each marked [DIR], [FILE] or [LINK], or [?] where the server may not examine it (at most %d).", s.maxEntries),
 			input:       obj(map[string]any{"path": pathArg}, "path"), readOnly: true, idempotent: true, run: listDirectory},
 		{name: "list_dir", alias: "list_directory", title: "List a directory",
 			description: "List a directory's entry names, one per line (older form of list_directory).",
@@ -576,7 +577,7 @@ func (s *fileServer) readDir(t target) ([]fs.DirEntry, bool, error) {
 		return nil, false, explain(t, err)
 	}
 	defer func() { _ = d.Close() }()
-	entries, err := d.ReadDir(-1)
+	entries, err := readEntries(d)
 	if err != nil {
 		return nil, false, explain(t, err)
 	}
@@ -587,8 +588,65 @@ func (s *fileServer) readDir(t target) ([]fs.DirEntry, bool, error) {
 	return entries, false, nil
 }
 
+// readEntries reads all entries of the directory d. Where the file system
+// gives no entry types, Go examines each entry (lstat), and one the server
+// may not examine ends ReadDir: SELinux keeps the file server from
+// ~/.cache and ~/.config without mcpsrv_fs_manage_xdg, so a home
+// directory could not be listed at all. Such an entry is kept, by name,
+// of unknown kind, and reading goes on.
+func readEntries(d interface {
+	ReadDir(n int) ([]fs.DirEntry, error)
+}) ([]fs.DirEntry, error) {
+	var entries []fs.DirEntry
+	for {
+		batch, err := d.ReadDir(-1)
+		entries = append(entries, batch...)
+		if err == nil {
+			return entries, nil
+		}
+		var pe *fs.PathError
+		if !errors.As(err, &pe) || pe.Op != "lstat" || !errors.Is(err, fs.ErrPermission) {
+			return entries, err
+		}
+		entries = append(entries, unexamined(path.Base(pe.Path)))
+	}
+}
+
+// unexamined is an entry the server may not examine: its name only.
+type unexamined string
+
+func (u unexamined) Name() string             { return string(u) }
+func (unexamined) IsDir() bool                { return false }
+func (unexamined) Type() fs.FileMode          { return fs.ModeIrregular }
+func (unexamined) Info() (fs.FileInfo, error) { return nil, fs.ErrPermission }
+
+func isUnexamined(e fs.DirEntry) bool {
+	_, ok := e.(unexamined)
+	return ok
+}
+
+// rootFS is the file system of root whose ReadDir keeps the entries the
+// server may not examine (readEntries), for fs.WalkDir.
+type rootFS struct {
+	fs.FS
+	root *os.Root
+}
+
+func (r rootFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	f, err := r.root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	entries, err := readEntries(f)
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	return entries, err
+}
+
 func kind(e fs.DirEntry) string {
 	switch {
+	case isUnexamined(e):
+		return "?"
 	case e.Type()&fs.ModeSymlink != 0:
 		return "LINK"
 	case e.IsDir():
@@ -679,7 +737,7 @@ func listDirectoryWithSizes(s *fileServer, _ context.Context, args json.RawMessa
 	var b strings.Builder
 	for _, r := range rows {
 		sz := ""
-		if !r.e.IsDir() {
+		if !r.e.IsDir() && !isUnexamined(r.e) {
 			sz = size(r.size)
 		}
 		fmt.Fprintf(&b, "[%s] %-40s %10s\n", kind(r.e), r.e.Name(), sz)
@@ -710,7 +768,7 @@ func (s *fileServer) walk(ctx context.Context, t target, excludes []string, visi
 		return fmt.Errorf("%s: not a directory", t.full)
 	}
 	stop := errors.New("stop")
-	err = fs.WalkDir(root.FS(), t.rel, func(p string, e fs.DirEntry, err error) error {
+	err = fs.WalkDir(rootFS{root.FS(), root}, t.rel, func(p string, e fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -779,6 +837,8 @@ func directoryTree(s *fileServer, ctx context.Context, args json.RawMessage) (*r
 		count++
 		n := &node{Name: path.Base(rel), Type: "file"}
 		switch {
+		case isUnexamined(e):
+			n.Type = "unknown"
 		case e.Type()&fs.ModeSymlink != 0:
 			n.Type = "symlink"
 		case e.IsDir():
@@ -1102,7 +1162,7 @@ func (s *fileServer) resourceList(cursor string) (any, error) {
 		if err != nil {
 			continue
 		}
-		entries, _ := f.ReadDir(-1)
+		entries, _ := readEntries(f)
 		_ = f.Close()
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 		for _, e := range entries {
