@@ -93,6 +93,8 @@ type Gateway struct {
 
 	// Warnings are the deprecated keys the file uses (see deprecation).
 	Warnings []string `yaml:"-"`
+	// DropIns are the drop-ins read over the file (DefaultDropInDir).
+	DropIns []string `yaml:"-"`
 }
 
 // SignInSettings configure principals' sign-ins to servers defined with
@@ -584,21 +586,49 @@ func LoadGateway(path string) (*Gateway, error) {
 }
 
 // Resolve loads the configuration: from explicit if given (it must
-// exist), else from the first of DefaultConfigPath (administrator) and
-// DefaultVendorConfigPath (package default) that exists, else the built-in
-// defaults. It returns the path used ("" for built-in defaults).
+// exist; no drop-ins are read then), else from the first of
+// DefaultConfigPath (administrator) and DefaultVendorConfigPath (package
+// default) that exists, else the built-in defaults, with the drop-ins of
+// DefaultDropInDir over it. It returns the path used ("" for built-in
+// defaults). An error about one file is a *FileError.
 func Resolve(explicit string) (*Gateway, string, error) {
 	if explicit != "" {
 		g, err := LoadGateway(explicit)
+		if err != nil {
+			err = &FileError{explicit, err}
+		}
 		return g, explicit, err
 	}
-	for _, p := range []string{DefaultConfigPath, DefaultVendorConfigPath} {
+	return ResolveWith([]string{DefaultConfigPath, DefaultVendorConfigPath}, DefaultDropInDir)
+}
+
+// ResolveWith is Resolve without an explicit file: from the first of
+// bases that exists, else the built-in defaults, with the drop-ins of
+// dropInDir over it.
+func ResolveWith(bases []string, dropInDir string) (*Gateway, string, error) {
+	used := ""
+	for _, p := range bases {
 		if _, err := os.Stat(p); err == nil {
-			g, err := LoadGateway(p)
-			return g, p, err
+			used = p
+			break
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return nil, p, err
+			return nil, p, &FileError{p, err}
 		}
+	}
+	dropIns, err := DropIns(dropInDir)
+	if err != nil {
+		return nil, used, err
+	}
+	if len(dropIns) > 0 {
+		g, err := loadMerged(used, dropIns)
+		return g, used, err
+	}
+	if used != "" {
+		g, err := LoadGateway(used)
+		if err != nil {
+			err = &FileError{used, err}
+		}
+		return g, used, err
 	}
 	g := &Gateway{}
 	g.setDefaults()

@@ -23,7 +23,7 @@ Any argument is an error (status 2).
 
 | Flag | Meaning |
 |---|---|
-| `--config FILE` | configuration file (default: `/etc/mcp-gateway/gateway.yaml`, else `/usr/etc/mcp-gateway/gateway.yaml`, else built-in defaults) |
+| `--config FILE` | configuration file, read alone (default: `/etc/mcp-gateway/gateway.yaml`, else `/usr/etc/mcp-gateway/gateway.yaml`, else built-in defaults, with the drop-ins of `/etc/mcp-gateway/gateway.d` over it) |
 | `--check` | validate the configuration, all MCP server definitions and the role data (if the file exists), print a summary, exit (status 1 on errors) |
 | `--check-policy-data` | validate only the role data against its schema, print each problem, exit (status 1 on problems) |
 | `--policy-data FILE` | role data for the two checks (default: `/etc/mcp-gateway/policy/rbac/data.json`; `-`: standard input; empty: none) |
@@ -441,6 +441,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/usr/sbin/mcp-policy-bundle` | bundle tool |
 | `/usr/etc/mcp-gateway/gateway.yaml` | default configuration |
 | `/etc/mcp-gateway/gateway.yaml` | your configuration |
+| `/etc/mcp-gateway/gateway.d/` | your drop-ins, read over the configuration (chapter 3) |
 | `/usr/share/mcp-gateway/servers.d/` | package server definitions |
 | `/usr/share/mcp-gateway/profiles/` | definitions to link into `/etc/mcp-gateway/servers.d` by hand: `zypp-privileged.yaml`, `snapper-privileged.yaml` (chapter 13) |
 | `/etc/mcp-gateway/servers.d/` | your server definitions |

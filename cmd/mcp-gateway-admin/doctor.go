@@ -234,7 +234,15 @@ func (d *doctorRun) configuration(path string) doctor.Result {
 		return r
 	}
 	r.Status = doctor.OK
-	r.Summary = fmt.Sprintf("%s, %d servers", used, len(backends))
+	r.Summary = used
+	if n := len(gw.DropIns); n > 0 {
+		names := make([]string, n)
+		for i, p := range gw.DropIns {
+			names[i] = filepath.Base(p)
+		}
+		r.Summary += fmt.Sprintf(" with %d drop-in(s) (%s: %s)", n, config.DefaultDropInDir, strings.Join(names, ", "))
+	}
+	r.Summary += fmt.Sprintf(", %d servers", len(backends))
 	if len(backends) > 0 {
 		r.Summary += " (" + strings.Join(slices.Sorted(maps.Keys(backends)), ", ") + ")"
 	}

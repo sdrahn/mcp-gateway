@@ -57,6 +57,9 @@ type serverReloader struct {
 	// triggers a reload (gateway.yaml, the TLS certificate and key, the
 	// SMTP password).
 	configFiles func(*config.Gateway) []string
+	// configDirs are directories watched besides those of the files, for
+	// files added there (gateway.d).
+	configDirs []string
 
 	mu        sync.Mutex
 	lastErr   string
@@ -112,6 +115,7 @@ func (l *serverReloader) reloadConfig(trigger string) (err error) {
 		}
 		fields := map[string]string{"trigger": trigger, "file": "gateway.yaml"}
 		if err != nil {
+			fields["file"] = config.ErrorFile(err)
 			l.configErr = err.Error()
 			fields["error"] = l.configErr
 			l.log.Error("gateway.yaml not reloaded; the configuration in force stays", "trigger", trigger, "err", err)
@@ -252,7 +256,7 @@ func (l *serverReloader) watchDirs(fsw *fswatch.Watcher, unwatched map[string]bo
 	if fsw == nil {
 		return
 	}
-	dirs := slices.Clone(l.dirs)
+	dirs := append(slices.Clone(l.dirs), l.configDirs...)
 	l.mu.Lock()
 	var files []string
 	if l.configFiles != nil {

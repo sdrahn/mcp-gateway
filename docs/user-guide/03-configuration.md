@@ -12,6 +12,7 @@ change (below `/etc`):
 |---|---|---|
 | `/usr/etc/mcp-gateway/gateway.yaml` | default configuration | package |
 | `/etc/mcp-gateway/gateway.yaml` | your configuration; used **instead of** the default if it exists | you |
+| `/etc/mcp-gateway/gateway.d/*.yaml` | drop-ins: settings read over the configuration in force, key by key | you |
 | `/usr/share/mcp-gateway/servers.d/*.yaml` | MCP server definitions installed by packages | packages |
 | `/etc/mcp-gateway/servers.d/*.yaml` | your MCP server definitions; a file overrides the package file of the same name, an empty file or a symlink to `/dev/null` disables it | you |
 | `/usr/share/mcp-gateway/policy/` | policy logic (Rego), and the roles of setup packages (`mcp/profiles/<setup>/data.json`) | packages |
@@ -26,7 +27,31 @@ change (below `/etc`):
 On distributions without `/usr/etc`, the default configuration is
 `/etc/mcp-gateway/gateway.yaml` itself (marked as a configuration file).
 
-To change the configuration, copy the default and edit the copy:
+To change a few settings, put them in a drop-in; the default stays in
+force for everything else, and package updates of it still reach you:
+
+```bash
+cat >/etc/mcp-gateway/gateway.d/50-limits.yaml <<'END'
+limits:
+  tasks_per_principal: 64
+END
+mcp-gateway --check
+```
+
+The drop-ins, the files `*.yaml` in `/etc/mcp-gateway/gateway.d` (not
+hidden ones), are read in the order of their names over
+`/etc/mcp-gateway/gateway.yaml` if it exists, else over the default,
+else over the built-in defaults. A section (`limits`, `approvals`, …)
+merges key by key, so `50-limits.yaml` above changes one limit and keeps
+the others; any other value replaces the one below, a list
+(`agents.no_request_timeout`) and a map of names (`agents.max_version`)
+too. A later file wins over an earlier one. A drop-in has the keys of
+`gateway.yaml`; `version` may be left out. The gateway reads drop-ins
+only where it looks for its configuration itself: `--config FILE` reads
+that file alone.
+
+To change the configuration as a whole, copy the default and edit the
+copy:
 
 ```bash
 cp /usr/etc/mcp-gateway/gateway.yaml /etc/mcp-gateway/gateway.yaml
@@ -40,7 +65,8 @@ file.
 
 ### Changing the configuration while the gateway runs
 
-The gateway reloads `gateway.yaml` when it changes and on `systemctl
+The gateway reloads `gateway.yaml` and its drop-ins when they change (a
+drop-in added or removed too) and on `systemctl
 reload mcp-gateway.service`, together with the MCP server definitions
 (chapter 4, "Changing definitions while the gateway runs"). Sessions
 stay open. A change is noticed when the file is written (inotify, also
@@ -54,7 +80,8 @@ within `policy.watch_interval` (10 s).
 |---|---|
 | `approval_timeout`, `approvals.url_template`, `approvals.progress_interval`, `approvals.retry_wait` | apply to approvals asked from then on (`retry_wait`: to the next retry) |
 | `notifications.email` (all keys) | apply to the next mail; the password file is read again |
-| `limits` | apply to the next session, instance or request |
+| `limits` | apply to the next session, instance, request or task |
+| `tasks.retention`, `tasks.max_result_bytes` | apply to tasks that end from then on |
 | `pseudonymize.vault_idle` | applies to the next request |
 | `agents.max_version`, `agents.no_request_timeout` | apply to the next request or session (`no_request_timeout`: to the next round) |
 | `supervisor.idle_timeout` | applies to instances that become idle from then on |
@@ -63,11 +90,13 @@ within `policy.watch_interval` (10 s).
 | `http.list_ttl` | applies to the next list |
 | all others (sockets, `socket_group`, `http.listen` and the identity provider, `metrics`, `audit`, `state_dir`, the other `supervisor` keys, `policy.opa_socket`, the servers directories) | take effect at the next start (`systemctl restart mcp-gateway.service`, which ends all sessions). Until then the gateway logs them, `GET /v1/status` lists them (`restart_needed`) and `mcp-gateway-admin doctor` warns |
 
-A reload reads and validates the whole file before it changes anything.
-If the file does not parse or validate, or the certificate or the
-password file cannot be read, nothing changes: the gateway keeps the
-configuration in force, logs the error, audits it (`mcp-config-reload`
-with `file=gateway.yaml`), reports it (`config_error` in `GET
+A reload reads and validates the whole configuration, `gateway.yaml`
+with its drop-ins, before it changes anything. If a file does not parse
+or validate, or the certificate or the password file cannot be read,
+nothing changes: the gateway keeps the configuration in force, logs the
+error, which names the file, audits it (`mcp-config-reload` with
+`file=gateway.yaml`, or `file=gateway.d/NAME` for a drop-in), reports it
+(`config_error` in `GET
 /v1/status`, the doctor) and retries when the file changes again.
 `systemctl reload` runs `mcp-gateway --check` first and fails on such a
 file.

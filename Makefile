@@ -105,6 +105,7 @@ install-gateway:
 	install -m0644 packaging/mcs/* $(DESTDIR)$(DATADIR)/mcp-gateway/mcs/
 	install -Dm0644 config/gateway.yaml $(DESTDIR)$(DISTCONFDIR)/mcp-gateway/gateway.yaml
 	install -d $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/servers.d
+	install -d $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/gateway.d
 	install -d -m0700 $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/credentials
 	install -d $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/bundle
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d

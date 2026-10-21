@@ -92,7 +92,7 @@ const adminInstructions = `Diagnostics of the MCP gateway on this machine, for f
 - doctor: the checks of "mcp-gateway-admin doctor" (configuration, role data, services, state files, SELinux types, labels and denials, polkit, snapper, users without a role). Start here.
 - check_config: only whether the configuration and the role data are valid.
 - explain_decision: what the policy decides for a user calling a tool (or reading a resource, getting a prompt), with the roles the user holds and the permissions that match.
-- show_config: the configuration files (gateway.yaml, server definitions, the exec servers' command files in /etc/mcp-gateway/exec.d, role data), secrets masked.
+- show_config: the configuration files (gateway.yaml and its drop-ins in /etc/mcp-gateway/gateway.d, server definitions, the exec servers' command files in /etc/mcp-gateway/exec.d, role data), secrets masked.
 - recent_audit: the gateway's recent decisions and events.
 - selinux_denials: SELinux denials for the gateway and its servers.
 
@@ -165,7 +165,7 @@ var adminTools = []map[string]any{
 			"arguments": map[string]any{"type": "object", "description": "the call's arguments, for permissions that constrain them"},
 		}, "user", "server", "name"),
 	adminTool("show_config", "Read the configuration",
-		"Without file: the configuration files (gateway.yaml, server definitions, the exec servers' command files, role data, roles of the server setups). "+
+		"Without file: the configuration files (gateway.yaml and its drop-ins, server definitions, the exec servers' command files, role data, roles of the server setups). "+
 			"With file: its content, values of keys that look like secrets masked.",
 		map[string]any{"file": map[string]any{"type": "string", "description": "a path as the list without file shows it"}}),
 	adminTool("recent_audit", "Recent decisions",
@@ -464,6 +464,11 @@ func (a *adminServer) configFiles() []string {
 	if used != "" {
 		files = append(files, used)
 	}
+	dropIns, _ := config.DropIns(config.DefaultDropInDir)
+	if a.configPath != "" {
+		dropIns = nil // an explicit configuration reads none
+	}
+	files = append(files, dropIns...)
 	if err == nil {
 		for _, dir := range []string{gw.VendorServersDir, gw.ServersDir} {
 			paths, _ := filepath.Glob(filepath.Join(dir, "*.yaml"))

@@ -7,6 +7,25 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Drop-ins for `gateway.yaml`: the files `*.yaml` in
+  `/etc/mcp-gateway/gateway.d` are read in the order of their names over
+  the configuration in force (`/etc/mcp-gateway/gateway.yaml`, else the
+  default), key by key: a section merges, any other value replaces. So a
+  setting can be changed without copying the whole default, whose other
+  settings then still follow package updates. A drop-in is checked as
+  `gateway.yaml` is and reloads when it changes, is added or removed; an
+  error names the file (the journal, `config_error`, the doctor, the
+  audit's `file=gateway.d/NAME`). `--config FILE` reads that file alone.
+  The doctor and `show_config` list the drop-ins (user guide, chapter 3,
+  and roadmap step 36).
+
+### Fixed
+
+- User guide, chapter 3: the reload table names the task limit and the
+  `tasks` section, which a reload applies too.
+
 ## v1.2.0 — 2026-10-20
 
 The file server reaches a user's configuration if the administrator

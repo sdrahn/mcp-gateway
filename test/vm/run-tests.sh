@@ -1301,6 +1301,23 @@ check "with a broken gateway.yaml the gateway still serves" rl_works_fs
 rm -f /etc/mcp-gateway/gateway.yaml
 rl_config_clean() { s=$(rl_status); ! grep -q 'config_error\|restart_needed' <<<"$s"; }
 check "back to the default gateway.yaml, nothing is reported" eventually 40 rl_config_clean
+# Drop-ins (step 36): one setting over the default, applied without a
+# restart and listed by the doctor; a broken one is named and changes
+# nothing; removing it recovers.
+check "the package owns gateway.d" test -d /etc/mcp-gateway/gateway.d
+printf 'limits:\n  tasks_per_principal: 7\n' >/etc/mcp-gateway/gateway.d/50-vmtest.yaml
+ls -Z /etc/mcp-gateway/gateway.d/50-vmtest.yaml | sed 's/^/  /'
+check "a drop-in is labeled mcpgw_etc_t" sh -c 'ls -Z /etc/mcp-gateway/gateway.d/50-vmtest.yaml | grep -q ":mcpgw_etc_t:"'
+check "a drop-in is applied" eventually 40 rl_journal_has '"changed":"limits.tasks_per_principal"'
+check "the doctor lists the drop-in" \
+	sh -c 'mcp-gateway-admin doctor --no-start 2>&1 | grep -E "configuration: .*1 drop-in.*50-vmtest.yaml"'
+printf 'limits:\n  task_per_principal: 7\n' >/etc/mcp-gateway/gateway.d/60-vmtest-bad.yaml
+rl_dropin_error() { rl_status | grep -qF 'gateway.d/60-vmtest-bad.yaml'; }
+check "a broken drop-in is reported by its name" eventually 40 rl_dropin_error
+check "the audit names the broken drop-in" rl_journal_has '"file":"gateway.d/60-vmtest-bad.yaml"'
+check "with a broken drop-in the gateway still serves" rl_works_fs
+rm -f /etc/mcp-gateway/gateway.d/50-vmtest.yaml /etc/mcp-gateway/gateway.d/60-vmtest-bad.yaml
+check "without the drop-ins, nothing is reported" eventually 40 rl_config_clean
 check "the gateway was not restarted" test "$(systemctl show -p MainPID --value mcp-gateway.service)" = "$gw_pid"
 
 section "Update without restart"
