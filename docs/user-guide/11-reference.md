@@ -35,13 +35,13 @@ Any argument is an error (status 2).
 ### mcp-gateway-admin
 
 ```
-mcp-gateway-admin doctor|clients|tasks|setup|inspect|profile|review|serve [options]
+mcp-gateway-admin doctor|clients|tasks|config|setup|inspect|profile|review|serve [options]
 mcp-gateway-admin help [COMMAND]
 mcp-gateway-admin --version
 ```
 
-The commands for administrators: `doctor`, `clients`, `tasks`, `setup`
-and `serve` come with the package `mcp-gateway`; `inspect`, `profile`
+The commands for administrators: `doctor`, `clients`, `tasks`,
+`config`, `setup` and `serve` come with the package `mcp-gateway`; `inspect`, `profile`
 and `review`, which help to add MCP servers, with `mcp-gateway-tools`
 (`zypper install mcp-gateway-tools`, which brings the SELinux policy
 development files `profile` needs). `mcp-gateway-admin COMMAND -h` or
@@ -220,6 +220,31 @@ with that id ("no such task"), the prefix names several, or it has
 ended ("the task has ended"); 2 on usage errors; 3 when the gateway does
 not answer.
 
+### mcp-gateway-admin config
+
+```
+mcp-gateway-admin config get KEY [options]
+mcp-gateway-admin config set KEY VALUE [options]
+mcp-gateway-admin config unset KEY [options]
+mcp-gateway-admin config show [options]
+```
+
+The settings in force and their sources; `set` and `unset` change the
+drop-in `/etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml` and wait
+for the gateway's reload (`config_reloads` of `GET /v1/status`); chapter
+3, "Settings from the command line". Options may come before or after
+the words; after `--`, all are words.
+
+| Flag | Meaning |
+|---|---|
+| `--json` | `get`, `show`: print a list of `{"key", "value", "from", "restart_needed"}` |
+| `--socket PATH` | the control socket, as for `clients` |
+
+Exit status 0; 1 for an unknown key or a section, a value the check
+refuses, a key a later drop-in sets, or a reload that failed; 2 on usage
+errors; 3 when the gateway does not answer (after `set` and `unset`, the
+file is written all the same).
+
 ### mcp-gateway-admin setup http
 
 ```
@@ -347,7 +372,7 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | Method and path | Body / result |
 |---|---|
 | `GET /v1/whoami` | the caller: `{"name", "uid", "groups"}` |
-| `GET /v1/status` | `{"version", "restart_pending", "servers_error", "config_error", "restart_needed"}`: the running gateway's version; `true` when its program was updated and the gateway not yet restarted; why the last reload of the server definitions, or of `gateway.yaml`, failed (absent when it did not); the keys of `gateway.yaml` changed since the start that take effect at the next start (absent when none) |
+| `GET /v1/status` | `{"version", "restart_pending", "servers_error", "config_error", "restart_needed", "config_reloads"}`: the running gateway's version; `true` when its program was updated and the gateway not yet restarted; why the last reload of the server definitions, or of `gateway.yaml`, failed (absent when it did not); the keys of `gateway.yaml` changed since the start that take effect at the next start (absent when none); how often `gateway.yaml` and its drop-ins were reloaded since the start, failed reloads too (from 1.3) |
 | `GET /v1/approvals` | pending approvals the caller may decide on (list of approvals, below) |
 | `GET /v1/approvals/{id}` | one approval; `404` if unknown or not the caller's to decide |
 | `POST /v1/approvals/{id}` | `{"decision": "approve"\|"deny", "scope": "once"\|"session"\|<duration>}`; returns the grant (`200`) or nothing (`204`, denied); `400 scope not offered` |

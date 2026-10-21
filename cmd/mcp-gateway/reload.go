@@ -66,6 +66,8 @@ type serverReloader struct {
 	current   *config.Gateway // the configuration in force
 	configErr string
 	restart   []string
+	// configReloads counts the reloads of gateway.yaml, failed ones too.
+	configReloads int
 }
 
 // Err returns why the last reload of the server definitions failed, ""
@@ -82,6 +84,15 @@ func (l *serverReloader) ConfigErr() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.configErr
+}
+
+// ConfigReloads returns how often gateway.yaml was reloaded since the
+// start, failed reloads included: a command that changed it waits for
+// the count to grow (mcp-gateway-admin config set).
+func (l *serverReloader) ConfigReloads() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.configReloads
 }
 
 // RestartNeeded returns the keys of gateway.yaml whose change takes
@@ -109,6 +120,7 @@ func (l *serverReloader) reloadConfig(trigger string) (err error) {
 	}
 	var changed []string
 	defer func() {
+		l.configReloads++
 		if p := recover(); p != nil {
 			err = fmt.Errorf("internal error: %v", p)
 			l.log.Error("reloading gateway.yaml panicked", "panic", p, "stack", string(debug.Stack()))

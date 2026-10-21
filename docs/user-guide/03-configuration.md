@@ -50,6 +50,51 @@ too. A later file wins over an earlier one. A drop-in has the keys of
 only where it looks for its configuration itself: `--config FILE` reads
 that file alone.
 
+### Settings from the command line
+
+`mcp-gateway-admin config` shows the settings in force and where each
+comes from, and changes one in a drop-in of its own,
+`/etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml`:
+
+```bash
+mcp-gateway-admin config get limits.tasks_per_principal
+# limits.tasks_per_principal: 32  # /usr/etc/mcp-gateway/gateway.yaml, line 152
+mcp-gateway-admin config set limits.tasks_per_principal 64
+# set limits.tasks_per_principal: 64 (/etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml)
+# limits.tasks_per_principal is in force
+mcp-gateway-admin config unset limits.tasks_per_principal
+mcp-gateway-admin config show      # every key, its value and its source
+```
+
+- `get KEY` prints the value in force and its source: a file and line,
+  or `default`; `show` does so for every key. A key that changed since
+  the gateway started and takes effect at the next start is marked so.
+  `--json` prints a list of `{"key", "value", "from", "restart_needed"}`
+  (`from` is `{"file", "line"}`, or `null` for a default).
+- `set KEY VALUE` checks the whole configuration the change makes, as
+  `mcp-gateway --check` would, and writes nothing if the check fails or a
+  later drop-in sets the key too (it would win; the message names it).
+  It writes the file under a hidden name and renames it into place, waits
+  for the gateway to reload it, and says whether the setting is in force
+  or takes effect at the next start (`systemctl restart
+  mcp-gateway.service`). VALUE is YAML: `64`, `15m`, `[kit, other]`,
+  `{kit: "2025-11-25"}`; a value that starts with `-` comes after `--`
+  (`config set KEY -- -1`). A key is named as the file has it; a section
+  (`limits`) is not a key, its keys are.
+- `unset KEY` removes the key from that file, so that the value below it
+  is in force again; the file goes when its last key does. It does not
+  change other files: a key `gateway.yaml` or another drop-in sets is
+  changed there.
+- Writing needs root, as editing the files does. The gateway itself never
+  writes its configuration: the files stay the only record of it, and
+  the command's file is a drop-in like any other, which you may edit by
+  hand too. The `gateway-admin` server (chapter 10) has no such tool:
+  agents read the configuration, they do not change it.
+- Exit status 0; 1 for an unknown key, a value the check refuses, a key
+  a later drop-in sets, or a reload that failed; 2 on usage errors; 3
+  when the gateway does not answer (after `set` and `unset` the file is
+  written all the same, and the gateway reads it when it runs).
+
 To change the configuration as a whole, copy the default and edit the
 copy:
 

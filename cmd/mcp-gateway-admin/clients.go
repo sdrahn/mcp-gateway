@@ -101,10 +101,14 @@ func newAdminFlags(name, usageText string, stderr io.Writer) adminFlags {
 }
 
 // parse parses args with the options anywhere among the words, as in
-// "clients end ID --yes"; it returns the words, or the exit status.
+// "clients end ID --yes"; after "--" all are words (config set KEY -- -1s).
+// It returns the words, or the exit status.
 func (f adminFlags) parse(args []string) ([]string, int) {
 	var words []string
 	for {
+		if len(args) > 0 && args[0] == "--" {
+			return append(words, args[1:]...), -1
+		}
 		if err := f.fs.Parse(args); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
 				return nil, 0

@@ -20,6 +20,17 @@ minor release (with a warning) and removed in the next.
   audit's `file=gateway.d/NAME`). `--config FILE` reads that file alone.
   The doctor and `show_config` list the drop-ins (user guide, chapter 3,
   and roadmap step 36).
+- `mcp-gateway-admin config get KEY`, `set KEY VALUE`, `unset KEY` and
+  `show`: the settings in force and where each comes from (a file and
+  line, or the default), and a change in a drop-in of the command's own,
+  `/etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml`. `set` checks
+  the whole configuration the change makes and writes nothing if it
+  fails or a later drop-in sets the key too; it waits for the gateway's
+  reload and says whether the setting is in force or takes effect at the
+  next start. `--json` for scripts. Writing needs root; the gateway
+  itself still never writes its configuration (user guide, chapter 3).
+- Control API: `GET /v1/status` has `config_reloads`, how often
+  `gateway.yaml` was reloaded since the start.
 
 ### Fixed
 

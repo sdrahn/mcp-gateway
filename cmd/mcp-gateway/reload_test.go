@@ -345,6 +345,10 @@ func TestReloadConfig(t *testing.T) {
 	if err := l.reload("test"); err != nil || l.ConfigErr() != "" {
 		t.Fatalf("fixed: %v %q", err, l.ConfigErr())
 	}
+	// Every reload counts, the failed ones too.
+	if n := l.ConfigReloads(); n != 7 {
+		t.Fatalf("%d reloads counted, want 7", n)
+	}
 }
 
 // An error or a panic while applying keeps the configuration in force.

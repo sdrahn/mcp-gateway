@@ -372,7 +372,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 			return a, err
 		}
 		cs := &controlapi.Server{Broker: b, Identify: identify, Backends: r.CurrentBackends, ServersError: reloader.Err,
-			ConfigError: reloader.ConfigErr, RestartNeeded: reloader.RestartNeeded, Instances: r, Tasks: r, Sessions: r, Policy: opa,
+			ConfigError: reloader.ConfigErr, RestartNeeded: reloader.RestartNeeded, ConfigReloads: reloader.ConfigReloads, Instances: r, Tasks: r, Sessions: r, Policy: opa,
 			Review: opa, Catalog: r, Log: log, RestartPending: restartPending, Metrics: metrics.Default}
 		if signIns != nil {
 			cs.SignIns = signIns

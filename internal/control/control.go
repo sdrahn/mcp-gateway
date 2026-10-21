@@ -13,7 +13,8 @@
 //	GET    /v1/status           {"version": "0.4.0", "restart_pending": true} after an update,
 //	                            "servers_error" when servers.d could not be reloaded,
 //	                            "config_error" when gateway.yaml could not be,
-//	                            "restart_needed": keys of gateway.yaml changed since the start
+//	                            "restart_needed": keys of gateway.yaml changed since the start,
+//	                            "config_reloads": how often gateway.yaml was reloaded since
 //	GET    /v1/approvals
 //	GET    /v1/approvals/{id}
 //	POST   /v1/approvals/{id}   {"decision": "approve"|"deny", "scope": "session"}
@@ -138,6 +139,8 @@ type Server struct {
 	// effect at the next start only.
 	ConfigError   func() string
 	RestartNeeded func() []string
+	// ConfigReloads counts the reloads of gateway.yaml since the start.
+	ConfigReloads func() int
 	// Metrics serves GET /v1/metrics; optional.
 	Metrics *metrics.Registry
 	// SignIns serves /v1/sign-ins; optional.
@@ -197,6 +200,9 @@ func (s *Server) Handler() http.Handler {
 		if s.RestartNeeded != nil {
 			st.RestartNeeded = s.RestartNeeded()
 		}
+		if s.ConfigReloads != nil {
+			st.ConfigReloads = s.ConfigReloads()
+		}
 		writeJSON(w, http.StatusOK, st)
 	}))
 	mux.HandleFunc("GET /v1/approvals", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
@@ -252,6 +258,9 @@ type statusResponse struct {
 	// RestartNeeded lists the keys of gateway.yaml whose change takes
 	// effect at the next start only.
 	RestartNeeded []string `json:"restart_needed,omitempty"`
+	// ConfigReloads counts the reloads of gateway.yaml since the start,
+	// failed ones too; a command that changed it waits for it to grow.
+	ConfigReloads int `json:"config_reloads"`
 }
 
 // policyResponse is the body of GET /v1/policy.
