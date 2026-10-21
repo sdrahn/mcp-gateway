@@ -588,12 +588,13 @@ func (s *fileServer) readDir(t target) ([]fs.DirEntry, bool, error) {
 	return entries, false, nil
 }
 
-// readEntries reads all entries of the directory d. Where the file system
-// gives no entry types, Go examines each entry (lstat), and one the server
-// may not examine ends ReadDir: SELinux keeps the file server from
-// ~/.cache and ~/.config without mcpsrv_fs_manage_xdg, so a home
-// directory could not be listed at all. Such an entry is kept, by name,
-// of unknown kind, and reading goes on.
+// readEntries reads all entries of the directory d. Go examines each entry
+// of a directory opened in a root (fstatat, since Go 1.26; lstat before,
+// where the file system gives no entry types), and one the server may not
+// examine ends ReadDir: SELinux keeps the file server from ~/.cache and
+// ~/.config without mcpsrv_fs_manage_xdg, so a home directory could not be
+// listed at all. Such an entry is kept, by name, of unknown kind, and
+// reading goes on.
 func readEntries(d interface {
 	ReadDir(n int) ([]fs.DirEntry, error)
 }) ([]fs.DirEntry, error) {
@@ -605,7 +606,7 @@ func readEntries(d interface {
 			return entries, nil
 		}
 		var pe *fs.PathError
-		if !errors.As(err, &pe) || pe.Op != "lstat" || !errors.Is(err, fs.ErrPermission) {
+		if !errors.As(err, &pe) || pe.Op != "fstatat" && pe.Op != "lstat" || !errors.Is(err, fs.ErrPermission) {
 			return entries, err
 		}
 		entries = append(entries, unexamined(path.Base(pe.Path)))

@@ -1480,10 +1480,9 @@ check "max_output_bytes: a small result is released" succeeded_with "under the l
 tool dora read_file '{"path":"/home/dora/large.txt"}'
 check "max_output_bytes: a larger result is withheld" tool_error_with "output withheld: result of"
 check "max_output_bytes: ... and none of it is sent" bash -c '! grep -q xxxxxxxx <<<"$1"' _ "$out"
-# The home directory itself, as an agent lists it first. Where the file
-# system gives no entry types, the server examines each entry, and SELinux
-# keeps it from ~/.cache and ~/.config: those are listed as [?], the rest
-# as usual.
+# The home directory itself, as an agent lists it first. The server
+# examines each entry (Go 1.26), and SELinux keeps it from ~/.cache and
+# ~/.config: those are listed as [?], the rest as usual.
 tool dora list_directory '{"path":"/home/dora"}'
 check "list_directory lists the home directory itself" succeeded_with "[FILE] record.txt"
 check "... with the entries the server may not examine by name" \

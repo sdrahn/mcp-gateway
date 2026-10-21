@@ -27,9 +27,9 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
-- The file server could not list a home directory on file systems that do
-  not tell the kind of an entry (as on the CI's openSUSE VMs): it then
-  examines each entry, and SELinux keeps it from `~/.cache` and
+- The file server could not list a home directory when built with Go 1.26
+  or later (as openSUSE builds it): Go then examines each entry of a
+  listed directory, and SELinux keeps the server from `~/.cache` and
   `~/.config` (without `mcpsrv_fs_manage_xdg`), so `list_directory` of
   the home failed with "…: permission denied", and so did
   `directory_tree`, `search_files` and the other searches starting there.
