@@ -3,7 +3,8 @@
 Running the gateway: what to do after a change, logs, state and backup,
 upgrades, monitoring, and troubleshooting, starting with the self-check
 (`mcp-gateway-admin doctor`), and the clients and tasks from the command
-line (`mcp-gateway-admin clients`, `tasks`). [docs/README.md](../README.md) lists common
+line (`mcp-gateway-admin clients`, `tasks`). Settings from the command
+line (`mcp-gateway-admin config`) are in chapter 3. [docs/README.md](../README.md) lists common
 error messages and where each is explained.
 
 ## Services

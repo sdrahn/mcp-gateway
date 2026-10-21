@@ -1318,6 +1318,35 @@ check "the audit names the broken drop-in" rl_journal_has '"file":"gateway.d/60-
 check "with a broken drop-in the gateway still serves" rl_works_fs
 rm -f /etc/mcp-gateway/gateway.d/50-vmtest.yaml /etc/mcp-gateway/gateway.d/60-vmtest-bad.yaml
 check "without the drop-ins, nothing is reported" eventually 40 rl_config_clean
+# mcp-gateway-admin config (step 36 B): a reloadable key in force without
+# a restart, one that waits for the next start, a refused value that
+# changes nothing, only root writes, and unset removes the drop-in again.
+cfg_out=$(mcp-gateway-admin config set limits.tasks_per_principal 9 2>&1)
+sed 's/^/  /' <<<"$cfg_out"
+check "config set puts a reloadable key in force" grep -qF "limits.tasks_per_principal is in force" <<<"$cfg_out"
+cfg_get() {
+	mcp-gateway-admin config get limits.tasks_per_principal |
+		grep -qF "limits.tasks_per_principal: 9  # /etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml, line"
+}
+check "config get names the command's drop-in" cfg_get
+check "the command's drop-in is labeled mcpgw_etc_t" \
+	sh -c 'ls -Z /etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml | grep -q ":mcpgw_etc_t:"'
+cfg_restart() { mcp-gateway-admin config set socket_group wheel | grep -qF "socket_group takes effect at the next start"; }
+check "config set says when a key takes effect at the next start" cfg_restart
+cfg_refused() {
+	! mcp-gateway-admin config set limits.tasks_per_principal many 2>/dev/null &&
+		grep -qF "tasks_per_principal: 9" /etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml
+}
+check "config set refuses a wrong value and changes nothing" cfg_refused
+cfg_not_root() {
+	! runuser -u alice -- mcp-gateway-admin config set limits.instances 1 2>/dev/null &&
+		! grep -q instances /etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml
+}
+check "config set needs root" cfg_not_root
+mcp-gateway-admin config unset socket_group >/dev/null
+mcp-gateway-admin config unset limits.tasks_per_principal >/dev/null
+check "config unset of the last key removes the drop-in" test ! -e /etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml
+check "after config unset, nothing is reported" eventually 40 rl_config_clean
 check "the gateway was not restarted" test "$(systemctl show -p MainPID --value mcp-gateway.service)" = "$gw_pid"
 
 section "Update without restart"

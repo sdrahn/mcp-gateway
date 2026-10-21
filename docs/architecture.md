@@ -3653,7 +3653,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       command, another user sees none, and a running task is cancelled.
 
 36. **Settings from the command line, in a file of their own** (1.3;
-    D10; stage A done):
+    D10; stages A and B done):
     - the problem: a setting of `gateway.yaml` is changed by editing the
       file. A reloadable key is in force as soon as the file is written
       (steps 19 and 20), but nothing says which keys reload, whether the
@@ -3698,7 +3698,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       being written) count for nothing. The gateway watches
       `gateway.d` itself, so that a drop-in added to an empty directory
       is noticed; the package owns the directory;
-    - stage B, the commands: `mcp-gateway-admin config get KEY` prints
+    - stage B (done), the commands: `mcp-gateway-admin config get KEY` prints
       the value in force and where it comes from (the file and line, or
       "default"), and, when the files say otherwise and the key needs a
       restart, that value too, waiting for the next start.
@@ -3718,6 +3718,17 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       written), 2 for wrong usage, 3 when the gateway does not answer
       (the file is written all the same; the message says it applies
       when the gateway reads it);
+    - as built (stage B): `get` does not know the value the gateway
+      started with for a key that needs a restart (the API has no such
+      value); it marks the key as taking effect at the next start, from
+      `restart_needed`. To wait for the reload, `GET /v1/status` gained
+      `config_reloads`, the count of reloads since the start (failed ones
+      too); with a gateway without it, `set` writes and does not wait.
+      `set` refuses, besides an invalid configuration, a key that a later
+      drop-in sets (it would not be in force); `unset` of the file's last
+      key removes the file. A value that starts with `-` comes after `--`,
+      after which all are words. The explanation is in chapter 3 next to
+      the drop-ins, not chapter 10;
     - who may: who may write `/etc/mcp-gateway`, that is root; the
       control API changes nothing here. No secret passes the command
       line: `gateway.yaml` holds none, the keys that need one name a
