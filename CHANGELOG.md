@@ -5,6 +5,17 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Fixed
+
+- `mcp-gateway-admin setup http -write` on a system without
+  `/etc/mcp-gateway/gateway.yaml` (the default on openSUSE, which keeps it
+  in `/usr/etc`) created it readable by root only (0640, root:root): the
+  gateway, which runs as `mcp-gateway`, then failed to start
+  (`ExecStartPre` could not read its configuration). A new file is 0644
+  now, as the default is; an existing one keeps its owner and mode.
+
 ## v1.3.0 — 2026-10-21
 
 Settings without copying the whole default, and from the command line.
