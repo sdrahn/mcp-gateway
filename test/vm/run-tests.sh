@@ -1256,7 +1256,164 @@ END
 	kill "$oauth_pid" 2>/dev/null
 	wait "$oauth_pid" 2>/dev/null
 else
-	echo "  semanage or openssl not available; signing in not tested"
+	skip "signing in (semanage or openssl not installed)"
+fi
+
+section "HTTPS listener for remote agents"
+# The gateway's own listener (http.listen) as remote agents reach it: set
+# up with mcp-gateway-admin setup http against an OpenID provider
+# (privsrv -idp, https://idp.vmtest, which hands out the tokens the test
+# asks for); bearer tokens checked for audience, expiry, signing key and
+# the scope every token needs (mcp); the principal acting as the local
+# account its preferred_username names; the role data's scope ceiling
+# with step-up; an agent of MCP 2026-07-28 without a session; a renewed
+# certificate taken without a restart.
+if command -v semanage >/dev/null && command -v openssl >/dev/null; then
+	hl_since=$(date +%s)
+	hl_url=https://gw.vmtest:9443/mcp
+	semanage port -a -t mcp_port_t -p tcp 9443 2>/dev/null || semanage port -m -t mcp_port_t -p tcp 9443
+	grep -q 'idp\.vmtest' /etc/hosts || echo '127.0.0.6 idp.vmtest' >>/etc/hosts
+	grep -q 'gw\.vmtest' /etc/hosts || echo '127.0.0.5 gw.vmtest' >>/etc/hosts
+	/usr/libexec/mcpgw-privtest -idp 127.0.0.6:443 /root/vmtest-idp.pem &
+	idp_pid=$!
+	eventually 10 test -s /root/vmtest-idp.pem
+	# hl_cert: a new certificate and key for gw.vmtest; both certificates
+	# trusted, as clients and the gateway must.
+	hl_cert() {
+		install -d -m 0750 -g mcp-gateway /etc/mcp-gateway/tls
+		openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 -subj /CN=gw.vmtest \
+			-addext subjectAltName=DNS:gw.vmtest -keyout /root/vmtest-gw-key.pem -out /root/vmtest-gw.pem 2>/dev/null
+		install -m 0640 -g mcp-gateway /root/vmtest-gw-key.pem /etc/mcp-gateway/tls/key.pem
+		install -m 0644 /root/vmtest-gw.pem /etc/mcp-gateway/tls/cert.pem
+		restorecon -R /etc/mcp-gateway/tls
+		install -m 0644 /root/vmtest-gw.pem /etc/pki/trust/anchors/mcp-vmtest-gw.pem
+		install -m 0644 /root/vmtest-idp.pem /etc/pki/trust/anchors/mcp-vmtest-idp.pem
+		update-ca-certificates
+	}
+	hl_cert
+	mcp-gateway-admin setup http -url "$hl_url" -issuer https://idp.vmtest -cert /etc/mcp-gateway/tls/cert.pem \
+		-key /etc/mcp-gateway/tls/key.pem -local-user-claim preferred_username -scopes mcp -write >/root/hl-setup.txt 2>&1
+	sed 's/^/  /' /root/hl-setup.txt | head -30
+	restorecon /etc/mcp-gateway/gateway.yaml
+	check "setup http writes the http block" grep -qF "audience: $hl_url" /etc/mcp-gateway/gateway.yaml
+	check "the configuration with the listener is valid" /usr/bin/mcp-gateway --check --policy-data=
+	# http.listen takes effect at the next start.
+	systemctl restart mcp-gateway.service
+	wait_socket
+	hl_listening() { curl -s --noproxy '*' -o /dev/null "https://gw.vmtest:9443/.well-known/oauth-protected-resource/mcp"; }
+	check "the gateway listens on 9443" eventually 30 hl_listening
+
+	# hl_tok QUERY: a token from the identity provider (privsrv -idp).
+	hl_tok() { curl -sf --noproxy '*' "https://idp.vmtest/token?$1"; }
+	# hl_post TOKEN PATH BODY [HEADER...]: a request as a remote agent;
+	# sets hl_code, hl_hdr and hl_body.
+	hl_post() {
+		local tok=$1 path=$2 body=$3 h=()
+		shift 3
+		for x in "$@"; do h+=(-H "$x"); done
+		[ -n "$tok" ] && h+=(-H "Authorization: Bearer $tok")
+		hl_code=$(curl -s --noproxy '*' -o /root/hl-body -D /root/hl-hdr -w '%{http_code}' \
+			-H 'Content-Type: application/json' -H 'Accept: application/json' "${h[@]}" --data "$body" \
+			"https://gw.vmtest:9443$path")
+		hl_hdr=$(tr -d '\r' </root/hl-hdr)
+		hl_body=$(cat /root/hl-body)
+		echo "  POST $path: $hl_code ${hl_body:0:200}"
+	}
+	hl_init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"vmtest-remote","version":"1"}}}'
+	# hl_open TOKEN: a session at /mcp/fs; sets hl_sid. hl_call TOKEN
+	# TOOL ARGS: a call in it.
+	hl_open() {
+		hl_post "$1" /mcp/fs "$hl_init"
+		hl_sid=$(sed -n 's/^[Mm][Cc][Pp]-[Ss]ession-[Ii][Dd]: *//p' <<<"$hl_hdr")
+		[ "$hl_code" = 200 ] && [ -n "$hl_sid" ] &&
+			hl_post "$1" /mcp/fs '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+				"Mcp-Session-Id: $hl_sid" "MCP-Protocol-Version: 2025-06-18"
+	}
+	hl_call() {
+		hl_post "$1" /mcp/fs "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"$2\",\"arguments\":$3}}" \
+			"Mcp-Session-Id: $hl_sid" "MCP-Protocol-Version: 2025-06-18"
+	}
+	hl_ok() { [ "$hl_code" = 200 ] && grep -qF -- "$1" <<<"$hl_body"; }
+	hl_status() { [ "$hl_code" = "$1" ] && grep -qiF -- "$2" <<<"$hl_hdr"; }
+
+	hl_meta=$(curl -s --noproxy '*' https://gw.vmtest:9443/.well-known/oauth-protected-resource/mcp)
+	echo "  $hl_meta"
+	hl_meta_ok() { jq -e --arg r "$hl_url" '.resource == $r and (.authorization_servers | index("https://idp.vmtest")) != null' >/dev/null <<<"$hl_meta"; }
+	check "the listener announces its resource and issuer (RFC 9728)" hl_meta_ok
+	hl_tok "aud=$hl_url&sub=alice&preferred_username=alice&scope=mcp" >/root/hl-token
+	mcp-gateway-admin setup http -token /root/hl-token >/root/hl-setup-token.txt 2>&1
+	hl_setup_rc=$?
+	sed 's/^/  /' /root/hl-setup-token.txt | head -30
+	check "setup http checks the listener end to end with alice's token" test "$hl_setup_rc" = 0
+
+	hl_post "" /mcp/fs "$hl_init"
+	check "without a token: 401, pointing to the resource metadata" hl_status 401 'www-authenticate: Bearer resource_metadata='
+	for c in "an expired token:exp=-60&aud=$hl_url" "a token for another audience:aud=https://other.vmtest/mcp" \
+		"a token signed with an unknown key:key=other&aud=$hl_url"; do
+		hl_post "$(hl_tok "sub=alice&preferred_username=alice&scope=mcp&${c#*:}")" /mcp/fs "$hl_init"
+		check "${c%%:*}: 401 invalid_token" hl_status 401 'error="invalid_token"'
+	done
+	hl_post "$(hl_tok "aud=$hl_url&sub=alice&preferred_username=alice&scope=openid")" /mcp/fs "$hl_init"
+	check "a token without the scope every token needs: 403 insufficient_scope" hl_status 403 'error="insufficient_scope"'
+
+	hl_alice=$(hl_tok "aud=$hl_url&sub=alice&preferred_username=alice&scope=mcp")
+	hl_open "$hl_alice"
+	check "alice's token opens a session" test -n "$hl_sid"
+	hl_call "$hl_alice" read_file '{"path":"/home/alice/secret.txt"}'
+	check "alice reads her file remotely, as her local account" hl_ok "alice secret"
+	hl_open "$(hl_tok "aud=$hl_url&sub=zed&scope=mcp")"
+	hl_call "$(hl_tok "aud=$hl_url&sub=zed&scope=mcp")" read_file '{"path":"/home/alice/secret.txt"}'
+	hl_refused() { [ "$hl_code" = 200 ] && grep -qF 'no matching permission' <<<"$hl_body" && ! grep -qF 'alice secret' <<<"$hl_body"; }
+	check "a remote principal without a role is refused" hl_refused
+
+	# The role data's scope ceiling: mcp:read reads, writing needs mcp:write.
+	jq '.scopes = {"mcp:read": {"permissions": [{"server": "fs", "tool": "read_*"}]}, "mcp:write": {"roles": ["tester"]}}' \
+		/etc/mcp-gateway/policy/rbac/data.json >/root/hl-data.json &&
+		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	hl_read=$(hl_tok "aud=$hl_url&sub=alice&preferred_username=alice&scope=mcp+mcp:read")
+	hl_open "$hl_read"
+	hl_reads() { hl_call "$hl_read" read_file '{"path":"/home/alice/secret.txt"}' && hl_ok "alice secret"; }
+	check "a token with mcp:read reads" eventually 20 hl_reads
+	hl_call "$hl_read" write_file '{"path":"/home/alice/remote.txt","content":"remote"}'
+	check "writing is outside its scopes: 403, asking for mcp:write (step-up)" hl_status 403 'mcp:write'
+	check "... and nothing is written" test ! -e /home/alice/remote.txt
+	# Decision records: "audit":true with the token's scopes.
+	hl_scopes_audited() { journalctl -u mcp-gateway.service -o cat --since "@$hl_since" | grep -F '"audit":true' | grep -qF '"scopes":"mcp mcp:read"'; }
+	check "the decision is audited with the token's scopes" hl_scopes_audited
+	jq 'del(.scopes)' /etc/mcp-gateway/policy/rbac/data.json >/root/hl-data.json &&
+		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.json
+
+	# An agent of MCP 2026-07-28: no initialize, no session; the protocol
+	# version, method and tool name in headers as in the body.
+	hl_modern() {
+		hl_post "$hl_alice" /mcp/fs '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"/home/alice/secret.txt"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"vmtest-modern","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}' \
+			"MCP-Protocol-Version: 2026-07-28" "Mcp-Method: tools/call" "Mcp-Name: read_file"
+		hl_ok "alice secret"
+	}
+	check "an agent of MCP 2026-07-28 reads it without a session" eventually 20 hl_modern
+	hl_no_session() { ! grep -qi '^mcp-session-id:' <<<"$hl_hdr"; }
+	check "... and gets no session" hl_no_session
+
+	# A renewed certificate: new connections get it, the gateway runs on.
+	hl_fp() { openssl s_client -connect 127.0.0.5:9443 -servername gw.vmtest </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256; }
+	hl_fp_before=$(hl_fp)
+	hl_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
+	hl_cert
+	hl_renewed() { [ -n "$hl_fp_before" ] && [ "$(hl_fp)" != "$hl_fp_before" ]; }
+	check "a renewed certificate is served without a restart" eventually 30 hl_renewed
+	check "... and the gateway was not restarted" test "$(systemctl show -p MainPID --value mcp-gateway.service)" = "$hl_pid"
+	hl_open "$hl_alice"
+	hl_call "$hl_alice" read_file '{"path":"/home/alice/secret.txt"}'
+	check "calls work with the renewed certificate" hl_ok "alice secret"
+
+	rm -f /etc/mcp-gateway/gateway.yaml /etc/pki/trust/anchors/mcp-vmtest-gw.pem /etc/pki/trust/anchors/mcp-vmtest-idp.pem
+	update-ca-certificates
+	systemctl restart mcp-gateway.service
+	wait_socket
+	kill "$idp_pid" 2>/dev/null
+	wait "$idp_pid" 2>/dev/null
+else
+	skip "the HTTPS listener (semanage or openssl not installed)"
 fi
 
 section "Live reload of server definitions"

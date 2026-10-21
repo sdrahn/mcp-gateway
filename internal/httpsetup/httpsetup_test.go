@@ -115,6 +115,28 @@ func TestWrite(t *testing.T) {
 	}
 }
 
+// A file that does not exist yet starts from the package default and is
+// readable by the gateway's account, as the default is: the gateway runs
+// as mcp-gateway, not as the root who runs setup http.
+func TestWriteNewFile(t *testing.T) {
+	dir := t.TempDir()
+	vendor := filepath.Join(dir, "vendor.yaml")
+	if err := os.WriteFile(vendor, []byte("version: 1\nsocket_group: mcp-users\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "gateway.yaml")
+	h := config.HTTP{Listen: ":8443", CertFile: "/c.pem", KeyFile: "/k.pem", Issuer: "https://idp", Audience: "https://gw:8443/mcp"}
+	if _, err := Write(path, vendor, h); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o644 {
+		t.Fatalf("mode %v (%v), want 0644", fi.Mode(), err)
+	}
+	if g, err := config.LoadGateway(path); err != nil || g.SocketGroup != "mcp-users" || g.HTTP.Audience != h.Audience {
+		t.Fatalf("written: %v %+v", err, g)
+	}
+}
+
 const semanageOut = `http_cache_port_t              tcp      8080, 8118, 8123, 10001-10010
 http_port_t                    tcp      80, 81, 443, 488, 8008, 8009, 8443, 9000
 mcp_port_t                     tcp      9443

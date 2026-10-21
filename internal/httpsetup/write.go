@@ -120,12 +120,14 @@ func sequence(n *yaml.Node) []string {
 // returns what changed. A missing file starts from the package default
 // (vendor), as the gateway would read it. The new file must load as the
 // gateway loads it (config.LoadGateway) before it replaces the old one,
-// atomically and with the old one's owner and mode; the gateway notices
-// the change and applies what it can without a restart (http.listen
-// needs one).
+// atomically and with the old one's owner and mode; a new file is 0644,
+// as the default is, so that the gateway's account (not root, who runs
+// this) can read it; it holds no secrets, only the names of files with
+// them. The gateway notices the change and applies what it can without
+// a restart (http.listen needs one).
 func Write(path, vendor string, h config.HTTP) ([]Change, error) {
 	data, err := os.ReadFile(path)
-	mode, uid, gid := fs.FileMode(0o640), -1, -1
+	mode, uid, gid := fs.FileMode(0o644), -1, -1
 	switch {
 	case err == nil:
 		if fi, err := os.Stat(path); err == nil {

@@ -17,7 +17,20 @@ minor release (with a warning) and removed in the next.
   tested when their packages are installed, and skipped otherwise. They
   change the system for good, hence `--disposable`. `test/openqa` has an
   openQA test module and proposals for more tests. The CI's VM test runs
-  the same package.
+  the same package, and now also tests the gateway's own HTTPS listener
+  for remote agents: `setup http`, bearer tokens refused for expiry,
+  audience, an unknown key or a missing scope, the scope ceiling with
+  step-up, an agent of MCP 2026-07-28, and a certificate renewed without
+  a restart.
+
+### Fixed
+
+- `mcp-gateway-admin setup http -write` on a system without
+  `/etc/mcp-gateway/gateway.yaml` (the default on openSUSE, which keeps it
+  in `/usr/etc`) created it readable by root only (0640, root:root): the
+  gateway, which runs as `mcp-gateway`, then failed to start
+  (`ExecStartPre` could not read its configuration). A new file is 0644
+  now, as the default is; an existing one keeps its owner and mode.
 
 ## v1.3.0 — 2026-10-21
 
