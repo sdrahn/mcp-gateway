@@ -3653,7 +3653,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       command, another user sees none, and a running task is cancelled.
 
 36. **Settings from the command line, in a file of their own** (1.3;
-    D10; stages A and B done):
+    D10; done):
     - the problem: a setting of `gateway.yaml` is changed by editing the
       file. A reloadable key is in force as soon as the file is written
       (steps 19 and 20), but nothing says which keys reload, whether the
@@ -3728,7 +3728,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       drop-in sets (it would not be in force); `unset` of the file's last
       key removes the file. A value that starts with `-` comes after `--`,
       after which all are words. The explanation is in chapter 3 next to
-      the drop-ins, not chapter 10;
+      the drop-ins, not chapter 10, which points there; docs/README.md
+      lists the commands' messages;
     - who may: who may write `/etc/mcp-gateway`, that is root; the
       control API changes nothing here. No secret passes the command
       line: `gateway.yaml` holds none, the keys that need one name a
@@ -3737,7 +3738,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       may not write `mcpgw_etc_t` (the `neverallow` every backend
       domain is under, §5.8); `mcp-gateway-admin` run by an
       administrator runs in their domain, as now;
-    - stage C, the docs: the user guide (chapter 3: drop-ins, and the
+    - stage C (done), the docs: the user guide (chapter 3: drop-ins, and the
       reload table names the `tasks` section beside `limits`; chapter
       10 for the commands, chapter 11's command reference),
       `mcp-gateway-admin help`, the CHANGELOG;

@@ -17,7 +17,7 @@ message is explained.
 |---|---|
 | [1. Introduction](01-introduction.md) | What the gateway does, concepts, components, security model |
 | [2. Installation](02-installation.md) | Packages for openSUSE/SLES, first start, installing from source, development mode |
-| [3. Configuration](03-configuration.md) | `gateway.yaml` reference, file layout |
+| [3. Configuration](03-configuration.md) | File layout, drop-ins, settings from the command line (`mcp-gateway-admin config`), `gateway.yaml` reference |
 | [4. MCP servers](04-mcp-servers.md) | Registering MCP servers, isolation, sandbox, Landlock, secrets, SELinux domains, packaging |
 | [5. Connecting clients](05-connecting-clients.md) | Local agents (`mcp-connect`), endpoints and naming, remote agents over HTTPS with OAuth and mTLS, long calls as tasks, agents in NVIDIA OpenShell sandboxes |
 | [6. Policy](06-policy.md) | Roles, permissions, bindings, approver rules, obligations, testing, signed bundles |
