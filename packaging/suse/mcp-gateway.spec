@@ -146,6 +146,41 @@ tools and drafts a definition and roles; profile runs a registered
 server in a permissive SELinux domain and drafts its policy module;
 review scans a server's source for what it does to the system.
 
+%package tests
+Summary:        Functional tests of mcp-gateway, for openQA
+Group:          Development/Tools/Other
+Requires:       %{name} = %{version}
+Requires:       %{name}-exec-server = %{version}
+Requires:       %{name}-fs-server = %{version}
+Requires:       %{name}-selinux = %{version}
+Requires:       %{name}-tools = %{version}
+# What the tests run: the kernel audit log, SELinux tools and policy
+# development files (a backend module of their own), rpm-build (a package
+# of their own), jq and curl (the control API).
+Requires:       audit
+Requires:       curl
+Requires:       jq
+Requires:       make
+Requires:       policycoreutils
+Requires:       polkit
+Requires:       rpm-build
+Requires:       selinux-policy-devel
+Requires:       selinux-tools
+Requires:       util-linux
+
+%description tests
+The functional tests of mcp-gateway on an installed system with SELinux
+enforcing, for openQA and other test systems: domains and MCS pairs of
+the gateway and its servers, calls and refusals, approvals, credentials,
+privileged servers, servers over HTTP and sign-ins, reloads, clients and
+tasks, metrics, the self-check, kernel audit records and no SELinux
+denials; the server setups too, when their packages are installed.
+
+/usr/libexec/mcp-gateway/tests/run-tests.sh --disposable --results DIR
+runs them as root and writes TAP and JUnit results. They change the
+system for good (users, role data, configuration, SELinux modules,
+packages): install this package on test systems only.
+
 %package profile-systemd
 Summary:        systemd-mcp behind mcp-gateway
 Group:          System/Management
@@ -247,7 +282,7 @@ building, pushing and removing images need an approval.
 
 %build
 export GOFLAGS="-mod=vendor"
-%make_build build VERSION=%{version} LIBEXECDIR=%{_libexecdir}
+%make_build build build-tests VERSION=%{version} LIBEXECDIR=%{_libexecdir}
 make selinux
 %sysusers_generate_pre packaging/sysusers.d/mcp-gateway.conf %{name} %{name}.conf
 %sysusers_generate_pre profiles/systemd/sysusers.conf %{name}-profile-systemd %{name}-profile-systemd.conf
@@ -256,7 +291,7 @@ make selinux
 %sysusers_generate_pre profiles/snapper/sysusers.conf %{name}-profile-snapper %{name}-profile-snapper.conf
 
 %install
-%make_install install install-tools install-selinux install-cockpit install-desktop install-fs-server install-exec-server install-profiles \
+%make_install install install-tools install-tests install-selinux install-cockpit install-desktop install-fs-server install-exec-server install-profiles \
     PREFIX=%{_prefix} BINDIR=%{_bindir} SBINDIR=%{_sbindir} LIBEXECDIR=%{_libexecdir} \
     DATADIR=%{_datadir} SYSCONFDIR=%{_sysconfdir} DISTCONFDIR=%{_distconfdir} \
     UNITDIR=%{_unitdir} SYSUSERSDIR=%{_sysusersdir} TMPFILESDIR=%{_tmpfilesdir} \
@@ -392,6 +427,13 @@ fi
 %files tools
 %dir %{_libexecdir}/mcp-gateway
 %{_libexecdir}/mcp-gateway/mcp-gateway-tools
+
+%files tests
+%dir %{_libexecdir}/mcp-gateway
+%dir %{_libexecdir}/mcp-gateway/tests
+%{_libexecdir}/mcp-gateway/tests/run-tests.sh
+%{_libexecdir}/mcp-gateway/tests/mcpcall
+%{_libexecdir}/mcp-gateway/tests/privsrv
 
 %files profile-systemd
 %{_datadir}/mcp-gateway/servers.d/systemd.yaml

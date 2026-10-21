@@ -1,21 +1,69 @@
 #!/bin/bash
-# Property tests of the installed gateway on a real openSUSE system with
-# SELinux enforcing: domains, MCS pairs, polkit, credentials, kernel audit
-# and no SELinux denials. Runs inside the VM as root (test/vm/run-vm.sh
-# copies it there), with, next to it:
-#   rpms/     mcp-gateway and its subpackages (selinux, fs-server, exec-server,
-#             tools, the profiles)
+# Functional tests of the installed gateway on a real openSUSE or SLES
+# system with SELinux enforcing: domains, MCS pairs, polkit, credentials,
+# calls, approvals, reloads, kernel audit and no SELinux denials. Package
+# mcp-gateway-tests installs it as /usr/libexec/mcp-gateway/tests/run-tests.sh
+# for openQA and other test systems; the CI VM runs the same (test/vm/run-vm.sh,
+# after test/vm/prepare.sh). Next to it:
 #   mcpcall   the test client (test/vm/mcpcall)
-#   opa       OPA binary, used if the distribution has no opa package
 #   privsrv   test server for privileged backends (test/vm/privsrv)
-#   servers/  the servers of the setup packages (test/vm/build-servers.sh), optional
-# Every check prints PASS or FAIL; the script exits 1 if any failed.
+#
+# Usage: run-tests.sh --disposable [--results DIR] [--rpms DIR] [--servers DIR]
+#
+# It runs as root on a system that is there for testing: it creates users
+# (alice, bob, carol), replaces the role data and gateway.yaml, loads
+# SELinux modules, installs packages and restarts the gateway, and does
+# not undo any of it. --disposable says that this is fine.
+#   --results DIR  writes results.tap (TAP) and results.xml (JUnit) there
+#   --rpms DIR     the packages it was installed from (CI): an update test
+#                  with them, and the setup packages
+#   --servers DIR  the setup packages' servers, laid out like the root file
+#                  system (test/vm/build-servers.sh); without it, the
+#                  setups are tested if their packages are installed
+# Every check prints PASS, FAIL or SKIP; the script exits 1 if any failed,
+# 2 on wrong usage.
 set -u
 dir=$(cd "$(dirname "$0")" && pwd)
 failed=0
+disposable= results= rpms= servers=
+usage() {
+	echo "usage: $0 --disposable [--results DIR] [--rpms DIR] [--servers DIR]" >&2
+	exit 2
+}
+while [ $# -gt 0 ]; do
+	case $1 in
+	--disposable) disposable=1 ;;
+	--results) results=${2:?}; shift ;;
+	--rpms) rpms=$(realpath "${2:?}"); shift ;;
+	--servers) servers=$(realpath "${2:?}"); shift ;;
+	-h | --help) usage ;;
+	*) usage ;;
+	esac
+	shift
+done
+if [ -z "$disposable" ]; then
+	echo "$0: changes this system for good (users, role data, gateway.yaml, SELinux modules, packages);" >&2
+	echo "run it on a system that is there for testing, with --disposable" >&2
+	exit 2
+fi
+[ "$(id -u)" = 0 ] || { echo "$0: runs as root" >&2; exit 2; }
+# Scratch files of the tests.
+mkdir -p /root/vmtest
 
-pass() { echo "PASS: $*"; }
-fail() { echo "FAIL: $*"; failed=1; fail_context; }
+# The results, for TAP and JUnit: one line per check (section, status,
+# description, seconds since the check before).
+current_section=start
+last_check=$SECONDS
+results_list=()
+record() {
+	results_list+=("$current_section"$'\t'"$1"$'\t'"$2"$'\t'"$((SECONDS - last_check))")
+	last_check=$SECONDS
+}
+
+pass() { echo "PASS: $*"; record pass "$*"; }
+fail() { echo "FAIL: $*"; failed=1; record fail "$*"; fail_context; }
+# skip <description>: a check that cannot run here, with why.
+skip() { echo "SKIP: $*"; record skip "$*"; }
 # fail_context prints what the gateway and systemd logged about it and its
 # instances in the seconds before a failure (the journal at the end of
 # the run shows only its last lines): the gateway's errors and warnings,
@@ -30,7 +78,10 @@ check() { # check <description> <command...>
 	shift
 	if "$@"; then pass "$desc"; else fail "$desc"; fi
 }
-section() { printf '\n=== %s\n' "$*"; }
+section() {
+	printf '\n=== %s\n' "$*"
+	current_section=$*
+}
 eventually() { # eventually <seconds> <command...>: retry until it succeeds
 	local deadline=$((SECONDS + $1))
 	shift
@@ -225,39 +276,36 @@ check "SELinux is enforcing" test "$(getenforce)" = Enforcing
 sestatus | grep -E 'policy name|mode'
 
 section "Install"
-# zypper's output only when it fails: which package or repository.
-zypper -n --gpg-auto-import-keys ref >/tmp/zypper.log 2>&1 ||
-	{ tail -n 30 /tmp/zypper.log; die "refreshing the repositories failed"; }
-deps="audit policycoreutils selinux-tools polkit rpm-build jq"
-# shellcheck disable=SC2086 # deps is a list of package names
-if ! zypper -n in --no-recommends $deps selinux-policy-targeted selinux-policy-devel >/tmp/zypper.log 2>&1; then
-	# The image's selinux-policy can be newer than any selinux-policy-devel
-	# in the repositories (Leap 16.0 on 2026-10-16: git412 installed,
-	# devel only at git405, which requires its own policy): the policy at
-	# the devel package's version, then, so that both match.
-	v=$(zypper -n --no-refresh info selinux-policy-devel | sed -n 's/^Version *: *//p' | head -n 1)
-	[ -n "$v" ] || { tail -n 30 /tmp/zypper.log; die "installing dependencies failed"; }
-	had=$(rpm -q --qf '%{version}-%{release}' selinux-policy 2>/dev/null || echo none)
-	# shellcheck disable=SC2086
-	zypper -n in --no-recommends --oldpackage $deps "selinux-policy=$v" "selinux-policy-targeted=$v" \
-		"selinux-policy-devel=$v" >/tmp/zypper.log 2>&1 ||
-		{ tail -n 30 /tmp/zypper.log; die "installing dependencies failed"; }
-	echo "  selinux-policy $v, the devel package's version (the image had $had)"
-fi
+# The packages are installed (CI: test/vm/prepare.sh; openQA: from the
+# product's repositories); the gateway has not run yet, or is stopped
+# here so that its start is the tests'.
+for p in mcp-gateway mcp-gateway-selinux mcp-gateway-fs-server mcp-gateway-exec-server mcp-gateway-tools \
+	mcp-gateway-tests jq curl rpm-build selinux-policy-devel; do
+	rpm -q "$p" >/dev/null 2>&1 || die "package $p is not installed"
+done
+# OPA: the distribution's package, or (CI on Leap) a release binary.
+command -v opa >/dev/null || die "opa is not installed"
+echo "  $(rpm -q mcp-gateway mcp-gateway-tests | tr '\n' ' ')"
+systemctl stop mcp-gateway.service mcp-opa.service 2>/dev/null || true
 systemctl enable --now auditd
-if zypper -n in --no-recommends opa >/dev/null 2>&1; then
-	echo "  opa: distribution package"
-else
-	install -m 0755 "$dir/opa" /usr/bin/opa
-	restorecon /usr/bin/opa
-	echo "  opa: release binary ($(opa version | head -1))"
-fi
 install -m 0755 "$dir/mcpcall" /usr/local/bin/mcpcall
 install -D -m 0755 "$dir/privsrv" /usr/libexec/mcpgw-privtest
+# Audit records and denials count from here.
 since=$(date +%s)
-rpm -Uvh --nodeps "$dir"/rpms/mcp-gateway-[0-9]*.rpm "$dir"/rpms/mcp-gateway-selinux-*.rpm \
-	"$dir"/rpms/mcp-gateway-fs-server-*.rpm "$dir"/rpms/mcp-gateway-exec-server-*.rpm \
-	"$dir"/rpms/mcp-gateway-tools-*.rpm || die "installing the packages failed"
+# The setups (section Server setups): their servers built from upstream
+# (--servers), else the setup packages and their servers as installed.
+setups= missing=
+setup_packages="mcp-gateway-profile-systemd mcp-gateway-profile-firewalld mcp-gateway-profile-zypp
+	mcp-gateway-profile-snapper mcp-gateway-profile-suseconnect mcp-gateway-profile-podman"
+if [ -n "$servers" ]; then
+	setups=built
+else
+	# shellcheck disable=SC2086 # a list of package names
+	missing=$(rpm -q $setup_packages systemd-mcp firewalld-mcp mcp-server-zypp mcp-server-snapper mcp-server-suseconnect \
+		podman-mcp-server 2>/dev/null | sed -n 's/^package \(.*\) is not installed$/\1/p' | tr '\n' ' ')
+	[ -z "$missing" ] && setups=installed
+fi
+echo "  setups: ${setups:-not tested (${missing}not installed)}"
 check "SELinux module mcp_gateway is loaded" bash -c 'semodule -l | grep -qx mcp_gateway'
 # Labels as the packages leave them (no restorecon): a wrong label here is
 # a packaging bug.
@@ -717,16 +765,19 @@ section "Server setups"
 # The setup packages with the real servers, built from upstream
 # (test/vm/build-servers.sh): each server reads through the gateway, and
 # systemd changes a unit after an approval, all with SELinux enforcing.
-if [ -d "$dir/servers" ]; then
-	cp -a "$dir/servers/." /
-	# CI artifacts do not keep file modes.
-	chmod 0755 /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
-		/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp/zypp-mcp-tool /usr/bin/mcp-server-snapper \
-		/usr/bin/podman-mcp-server
-	restorecon -R /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
-		/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp /usr/bin/mcp-server-snapper \
-		/usr/bin/podman-mcp-server
-	rpm -Uvh --nodeps "$dir"/rpms/mcp-gateway-profile-*.rpm >/dev/null || die "installing the setup packages failed"
+if [ -n "$setups" ]; then
+	if [ "$setups" = built ]; then
+		cp -a "$servers/." /
+		# CI artifacts do not keep file modes.
+		chmod 0755 /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
+			/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp/zypp-mcp-tool /usr/bin/mcp-server-snapper \
+			/usr/bin/podman-mcp-server
+		restorecon -R /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
+			/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp /usr/bin/mcp-server-snapper \
+			/usr/bin/podman-mcp-server
+		[ -n "$rpms" ] || die "--servers needs --rpms (the setup packages)"
+		rpm -Uvh --nodeps "$rpms"/mcp-gateway-profile-*.rpm >/dev/null || die "installing the setup packages failed"
+	fi
 	zypper -n in --no-recommends firewalld man >/dev/null && systemctl enable --now firewalld >/dev/null 2>&1
 	zypper -n in --no-recommends snapper btrfsprogs >/dev/null
 	# A snapper config of its own on a small btrfs, whatever the root file
@@ -1006,7 +1057,7 @@ END
 		bash -c "journalctl -q --no-pager -u 'mcp-fwprof-*' -o cat | grep -q 'mcp-landlock: Landlock ABI'"
 	[ "$rc" = 0 ] || journalctl -u 'mcp-fwprof-*' --no-pager -o cat 2>/dev/null | tail -15 | sed 's/^/  [fwprof] /'
 else
-	echo "  no servers given (test/vm/run-vm.sh <...> <servers dir>); skipped"
+	skip "the server setups (${missing}not installed; or --servers)"
 fi
 
 section "MCP server over HTTP"
@@ -1352,11 +1403,15 @@ check "the gateway was not restarted" test "$(systemctl show -p MainPID --value 
 section "Update without restart"
 gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
 ls -li /usr/bin/mcp-gateway | sed 's/^/  before: /'
-rpm -Uvh --force --nodeps "$dir"/rpms/mcp-gateway-[0-9]*.rpm >/dev/null 2>&1
-sleep 2
-ls -li /usr/bin/mcp-gateway | sed 's/^/  after:  /'
-check "a package update does not restart the gateway" \
-	test "$(systemctl show -p MainPID --value mcp-gateway.service)" = "$gw_pid"
+if [ -n "$rpms" ]; then
+	rpm -Uvh --force --nodeps "$rpms"/mcp-gateway-[0-9]*.rpm >/dev/null 2>&1
+	sleep 2
+	ls -li /usr/bin/mcp-gateway | sed 's/^/  after:  /'
+	check "a package update does not restart the gateway" \
+		test "$(systemctl show -p MainPID --value mcp-gateway.service)" = "$gw_pid"
+else
+	skip "a package update does not restart the gateway (no --rpms; the program is replaced below)"
+fi
 # A reinstall of the same build may leave the file as it is; replace it
 # the way an update does (new file renamed over the old one).
 cp -p /usr/bin/mcp-gateway /usr/bin/.mcp-gateway.vmtest && mv /usr/bin/.mcp-gateway.vmtest /usr/bin/mcp-gateway &&
@@ -1496,7 +1551,7 @@ check "doctor: OPA decides" doctor_says '^OK +policy: OPA decides'
 check "doctor: the demo server starts" doctor_says '^OK +server fs: starts: .*[1-9][0-9]* tools'
 check "doctor: names the user without a role" doctor_says '^WARN +principals: .*hold no role'
 check "doctor: ... and it is carol" doctor_says '^ +carol$'
-if [ -d "$dir/servers" ]; then
+if [ -n "$setups" ]; then
 	check "doctor: systemd-mcp starts" doctor_says '^OK +server systemd: starts'
 	check "doctor: a polkit rule names mcp-sysmgmt" doctor_says '^OK +polkit mcp-sysmgmt: '
 fi
@@ -1622,5 +1677,56 @@ journalctl -u mcp-gateway.service -u mcp-opa.service --no-pager -o short-precise
 journalctl -u 'mcp-fs-*' --no-pager -o short-precise 2>/dev/null | tail -20
 
 section "Result"
+# write_results <dir>: the checks as TAP (results.tap) and JUnit
+# (results.xml, a test suite per section), for openQA's parse_extra_log.
+xml() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g' <<<"$1"; }
+write_results() {
+	local r sec st desc secs n=0 last= tests fails skips
+	mkdir -p "$1" || return
+	{
+		echo "1..${#results_list[@]}"
+		for r in "${results_list[@]}"; do
+			IFS=$'\t' read -r sec st desc secs <<<"$r"
+			n=$((n + 1))
+			desc=${desc//#/\\#} # not a TAP directive
+			case $st in
+			pass) echo "ok $n - $sec: $desc" ;;
+			skip) echo "ok $n - $sec: $desc # SKIP" ;;
+			*) echo "not ok $n - $sec: $desc" ;;
+			esac
+		done
+	} >"$1/results.tap"
+	{
+		echo '<?xml version="1.0" encoding="UTF-8"?>'
+		printf '<testsuites name="mcp-gateway" tests="%d">\n' "${#results_list[@]}"
+		for r in "${results_list[@]}" ""; do
+			IFS=$'\t' read -r sec st desc secs <<<"$r"
+			if [ "$sec" != "$last" ] && [ -n "$last" ]; then
+				tests=$(printf '%s\n' "${results_list[@]}" | awk -F'\t' -v s="$last" '$1 == s' | wc -l)
+				fails=$(printf '%s\n' "${results_list[@]}" | awk -F'\t' -v s="$last" '$1 == s && $2 == "fail"' | wc -l)
+				skips=$(printf '%s\n' "${results_list[@]}" | awk -F'\t' -v s="$last" '$1 == s && $2 == "skip"' | wc -l)
+				printf '  <testsuite name="%s" tests="%d" failures="%d" errors="0" skipped="%d">\n' \
+					"$(xml "$last")" "$tests" "$fails" "$skips"
+				printf '%s' "$cases"
+				echo '  </testsuite>'
+			fi
+			[ -z "$r" ] && break
+			[ "$sec" != "$last" ] && cases=
+			last=$sec
+			cases+=$(printf '    <testcase classname="mcp-gateway.%s" name="%s" time="%s">' "$(xml "$sec")" "$(xml "$desc")" "$secs")
+			case $st in
+			fail) cases+='<failure message="failed"/>' ;;
+			skip) cases+='<skipped/>' ;;
+			esac
+			cases+=$'</testcase>\n'
+		done
+		echo '</testsuites>'
+	} >"$1/results.xml"
+	echo "  results: $1/results.tap, $1/results.xml"
+}
+[ -n "$results" ] && write_results "$results"
+n_fail=$(printf '%s\n' "${results_list[@]}" | awk -F'\t' '$2 == "fail"' | wc -l)
+n_skip=$(printf '%s\n' "${results_list[@]}" | awk -F'\t' '$2 == "skip"' | wc -l)
+echo "  ${#results_list[@]} checks: $n_fail failed, $n_skip skipped"
 if [ "$failed" = 0 ]; then echo "all checks passed"; else echo "some checks FAILED"; fi
 exit "$failed"

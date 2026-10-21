@@ -36,13 +36,17 @@ LDFLAGS := -X github.com/sdrahn/mcp-gateway/internal/version.Version=$(VERSION) 
 
 BINARIES := bin/mcp-gateway bin/mcp-gateway-admin bin/mcp-gateway-tools bin/mcp-connect bin/mcp-gateway-notify bin/mcp-server-fs bin/mcp-server-exec bin/mcp-http-connector bin/mcp-oauth-helper bin/mcp-landlock
 
+# The functional tests (test/vm/run-tests.sh), their test client and
+# privileged test server, packaged as mcp-gateway-tests (openQA).
+TESTBINARIES := bin/tests/mcpcall bin/tests/privsrv
+
 # Server setups (profiles/<name>, SELinux module selinux/mcp_<name>.te),
 # packaged as mcp-gateway-profile-<name>.
 PROFILES := systemd firewalld zypp suseconnect snapper podman
 
 .PHONY: all build test vet lint fmt-check policy-check policy-test selinux check \
 	install install-gateway install-tools install-selinux install-cockpit install-desktop install-fs-server install-demo install-exec-server \
-	install-profiles clean
+	install-profiles build-tests install-tests clean
 
 all: build
 
@@ -50,6 +54,11 @@ build: $(BINARIES)
 
 bin/%: FORCE
 	$(GOBUILD) -ldflags '$(LDFLAGS)' -o $@ ./cmd/$*
+
+build-tests: $(TESTBINARIES)
+
+bin/tests/%: FORCE
+	$(GOBUILD) -o $@ ./test/vm/$*
 
 FORCE:
 
@@ -139,6 +148,11 @@ install-gateway:
 # The onboarding commands (mcp-gateway-admin inspect, profile, review).
 install-tools:
 	install -Dm0755 bin/mcp-gateway-tools $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/mcp-gateway-tools
+
+install-tests:
+	install -Dm0755 test/vm/run-tests.sh $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/tests/run-tests.sh
+	install -Dm0755 bin/tests/mcpcall $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/tests/mcpcall
+	install -Dm0755 bin/tests/privsrv $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/tests/privsrv
 
 install-selinux: selinux
 	install -d $(DESTDIR)$(SELINUXDIR)

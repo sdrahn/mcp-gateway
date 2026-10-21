@@ -7,6 +7,18 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Package `mcp-gateway-tests`: the functional tests, for openQA and other
+  test systems that test a product with the packages from its
+  repositories. `/usr/libexec/mcp-gateway/tests/run-tests.sh --disposable
+  --results DIR` runs them as root and writes TAP and JUnit results (a
+  test suite per section, each check a test case); the server setups are
+  tested when their packages are installed, and skipped otherwise. They
+  change the system for good, hence `--disposable`. `test/openqa` has an
+  openQA test module and proposals for more tests. The CI's VM test runs
+  the same package.
+
 ## v1.3.0 — 2026-10-21
 
 Settings without copying the whole default, and from the command line.
