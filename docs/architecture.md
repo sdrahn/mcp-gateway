@@ -3652,6 +3652,87 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       a user lists their `mcp-connect` client and ends it with the
       command, another user sees none, and a running task is cancelled.
 
+36. **Settings from the command line, in a file of their own** (1.3;
+    D10):
+    - the problem: a setting of `gateway.yaml` is changed by editing the
+      file. A reloadable key is in force as soon as the file is written
+      (steps 19 and 20), but nothing says which keys reload, whether the
+      change took, or where a value in force comes from, the file or
+      the built-in default. And there is one file:
+      `/etc/mcp-gateway/gateway.yaml` replaces
+      `/usr/etc/mcp-gateway/gateway.yaml` as a whole, so changing one
+      key means copying the whole default and freezing every other
+      default in it, which package updates then no longer reach;
+    - the gateway does not change its own configuration: the file stays
+      the only record of it. A command that changed the running gateway
+      only would be lost at the next start, leave a file that no longer
+      says what runs, and be undone unseen by the next edit or by
+      configuration management. The commands of this step write files,
+      and the gateway reloads them as any edit; it runs as
+      `mcp-gateway` with `/etc` read-only (`ProtectSystem=strict`) and
+      keeps no way to write there;
+    - stage A, drop-ins: `/etc/mcp-gateway/gateway.d/*.yaml`, read in
+      the order of their names over the file in force (`/etc`'s, else
+      `/usr/etc`'s, else the built-in defaults), key by key: a section
+      (a map) merges, a value or a list replaces. Each drop-in has the
+      format version and the known keys of `gateway.yaml` (D10: its
+      deprecations warn by file); the whole is checked before anything
+      changes, as a reload does now, and a drop-in that does not parse
+      or validate keeps the configuration in force and is reported by
+      its name (`config_error`, the doctor, Cockpit's reload status,
+      `mcp-config-reload` with `file=gateway.d/NAME`). The directory is
+      watched as `gateway.yaml` is, its files labeled `mcpgw_etc_t`.
+      `mcp-gateway --check` checks the whole; `show_config` of the
+      `gateway-admin` server shows the drop-ins too. With
+      `--config FILE`, no drop-ins are read, so that a test reads what
+      it names;
+    - stage B, the commands: `mcp-gateway-admin config get KEY` prints
+      the value in force and where it comes from (the file and line, or
+      "default"), and, when the files say otherwise and the key needs a
+      restart, that value too, waiting for the next start.
+      `mcp-gateway-admin config set KEY VALUE` writes the key into
+      `/etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml` (created
+      with a comment that says who writes it; other comments kept),
+      after checking the whole configuration it would make; it writes
+      the file under a temporary name and renames it, then waits for the
+      gateway's reload and says what happened: in force, takes effect at
+      the next start (`restart_needed`), or the reload's error.
+      `config unset KEY` removes the key from that file, so the value
+      below it is in force again. `config show` lists every key in
+      force with its source; `--json` for scripts. A key is named as
+      the file has it (`limits.tasks_per_principal`); a value is YAML
+      (`64`, `15m`, `[a, b]`). Exit status as step 35's commands: 0, 1
+      for an unknown key or a value the check refuses (nothing is
+      written), 2 for wrong usage, 3 when the gateway does not answer
+      (the file is written all the same; the message says it applies
+      when the gateway reads it);
+    - who may: who may write `/etc/mcp-gateway`, that is root; the
+      control API changes nothing here. No secret passes the command
+      line: `gateway.yaml` holds none, the keys that need one name a
+      file (`notifications.email.password_file`). Not an agent's tool:
+      the `gateway-admin` server gets no `config set`, and its domain
+      may not write `mcpgw_etc_t` (the `neverallow` every backend
+      domain is under, §5.8); `mcp-gateway-admin` run by an
+      administrator runs in their domain, as now;
+    - stage C, the docs: the user guide (chapter 3: drop-ins, and the
+      reload table names the `tasks` section beside `limits`; chapter
+      10 for the commands, chapter 11's command reference),
+      `mcp-gateway-admin help`, the CHANGELOG;
+    - not in this step: Cockpit editing settings (it could run the same
+      command for an administrator; a step of its own if asked for),
+      server definitions and role data (they have their directories
+      already), settings per user;
+    - tests: drop-ins merge in order (a section merges, a list
+      replaces), an unknown key or a bad value in one keeps the
+      configuration in force and names the file, a change in a drop-in
+      reloads; `config set` of a reloadable key is in force without a
+      restart and `get` names the drop-in, a restart key is reported as
+      waiting, `unset` returns to the value below, a refused value
+      writes nothing, without root nothing is
+      written; in the VMs, `config set limits.tasks_per_principal`
+      takes effect while a client stays connected, and the drop-in has
+      `mcpgw_etc_t`.
+
 ## 12. Open items
 
 - Per-conversation state for modern agents (D18): servers marked
