@@ -22,6 +22,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -39,8 +40,17 @@ var serverVersion = version.Version
 
 type rootFlags []string
 
-func (r *rootFlags) String() string     { return strings.Join(*r, ",") }
-func (r *rootFlags) Set(v string) error { *r = append(*r, v); return nil }
+func (r *rootFlags) String() string { return strings.Join(*r, ",") }
+
+// Set refuses an empty directory, which filepath.Abs would make the
+// working directory: "--root ${HOME}" for a principal without a home.
+func (r *rootFlags) Set(v string) error {
+	if v == "" {
+		return errors.New("an empty directory")
+	}
+	*r = append(*r, v)
+	return nil
+}
 
 func main() {
 	var roots rootFlags

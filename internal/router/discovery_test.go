@@ -24,7 +24,7 @@ func sharedRouter(t *testing.T) (*Router, *fakeLauncher) {
 func bob() principal.Principal {
 	p := alice()
 	uid := uint32(1002)
-	p.Sub, p.UID = "bob", &uid
+	p.Sub, p.UID, p.Home = "bob", &uid, "/home/bob"
 	return p
 }
 

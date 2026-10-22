@@ -108,7 +108,8 @@ Account choices, from most to least isolated:
 
 - `run_as: dynamic`: a throwaway account per instance, no home;
 - `run_as: principal` for remote principals without a local account:
-  also a throwaway account;
+  also a throwaway account (servers working in the home, whose
+  definition names `${HOME}`, are not offered to them at all);
 - `run_as: principal` for local users: the user's own account (needed
   to work on their files), confined by the sandbox and the domain;
 - `run_as: <account>`: a fixed service account shared by all instances,

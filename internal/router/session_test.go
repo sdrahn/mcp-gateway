@@ -53,7 +53,7 @@ var sessionCounter int
 func alice() principal.Principal {
 	sessionCounter++
 	uid := uint32(1001)
-	return principal.Principal{Sub: "alice", UID: &uid, Transport: principal.TransportUnix,
+	return principal.Principal{Sub: "alice", UID: &uid, Home: "/home/alice", Transport: principal.TransportUnix,
 		SessionID: "s" + string(rune('a'+sessionCounter%26)) + time.Now().Format("150405.000000000")}
 }
 

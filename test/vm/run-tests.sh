@@ -1408,6 +1408,47 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	hl_call "$hl_alice" read_file '{"path":"/home/alice/secret.txt"}'
 	check "calls work with the renewed certificate" hl_ok "alice secret"
 
+	# A remote principal without a local account (zed: no account on
+	# this host, none its token names), with roles for fs and exec. fs
+	# works in the user's home (--root ${HOME}), which zed has not: it is
+	# not offered (its root would be "/", the working directory of the
+	# dynamic user it would run as). exec, whose definition names no
+	# home, is.
+	jq '.bindings.users.zed = ["tester", "commands"]' /etc/mcp-gateway/policy/rbac/data.json >/root/hl-data.json &&
+		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	hl_zed=$(hl_tok "aud=$hl_url&sub=zed&scope=mcp")
+	# hl_agg TOKEN BODY: a request at the aggregated endpoint, in the
+	# session hl_agg_open opened (hl_agg_sid).
+	hl_agg() { hl_post "$1" /mcp "$2" ${hl_agg_sid:+"Mcp-Session-Id: $hl_agg_sid"} "MCP-Protocol-Version: 2025-06-18"; }
+	hl_agg_open() {
+		hl_agg_sid=
+		hl_post "$1" /mcp "$hl_init"
+		hl_agg_sid=$(sed -n 's/^[Mm][Cc][Pp]-[Ss]ession-[Ii][Dd]: *//p' <<<"$hl_hdr")
+		[ -n "$hl_agg_sid" ] && hl_agg "$1" '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+	}
+	hl_zed_tools() {
+		hl_agg_open "$hl_zed" && hl_agg "$hl_zed" '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' &&
+			jq -e '[.result.tools[].name] | (index("exec__echo_word") != null) and (map(select(startswith("fs__"))) | length == 0)' \
+				<<<"$hl_body" >/dev/null
+	}
+	check "no local account: exec is in its tool list, fs (--root \${HOME}) is not" eventually 20 hl_zed_tools
+	hl_no_home="server fs works in the user's home directory; a principal without a local account has none"
+	hl_has() { grep -qF -- "$1" <<<"$hl_body"; }
+	hl_agg "$hl_zed" '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"fs__read_file","arguments":{"path":"/etc/os-release"}}}'
+	check "... a call to fs is refused: no home directory" hl_has "$hl_no_home"
+	check "... and nothing of the file is sent" bash -c '! grep -qF PRETTY_NAME <<<"$1"' _ "$hl_body"
+	hl_post "$hl_zed" /mcp/fs "$hl_init"
+	check "... and no session opens at fs's own endpoint" hl_has "$hl_no_home"
+	hl_agg "$hl_zed" '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"exec__echo_word","arguments":{"word":"remote"}}}'
+	check "... exec runs for it" bash -c 'jq -e ".result.isError == false" <<<"$1" >/dev/null && grep -qF remote <<<"$1"' _ "$hl_body"
+	hl_no_home_logged() {
+		journalctl -u mcp-gateway.service -o cat --since "@$hl_since" |
+			grep -F "server not offered to a principal without a home" | grep -q 'server=fs'
+	}
+	check "... the gateway says why" hl_no_home_logged
+	jq 'del(.bindings.users.zed)' /etc/mcp-gateway/policy/rbac/data.json >/root/hl-data.json &&
+		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.json
+
 	# Limits (D14): at limits.sessions_per_principal, the principal's
 	# longest-idle HTTP session makes room for a new one, as agents often
 	# leave without ending theirs. bob, whose account the token names
