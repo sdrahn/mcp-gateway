@@ -250,4 +250,6 @@ loaded otherwise.
 
 `/etc/mcp-gateway` (your configuration) and `/var/lib/mcp-gateway`
 (grants, pending approvals, audit key) are left in place; remove them by
-hand if they are no longer needed.
+hand if they are no longer needed. The role data came with the package:
+changed, it is kept as `/etc/mcp-gateway/policy/rbac/data.json.rpmsave`
+(rename it back after installing again), unchanged, it is removed.

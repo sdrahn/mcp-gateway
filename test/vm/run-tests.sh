@@ -2281,7 +2281,8 @@ section "Uninstall"
 # the script it opened). Chapter 2, "Uninstalling", without stopping the
 # services by hand first: the packages' scripts stop and disable them,
 # the SELinux modules are unloaded, nothing of the gateway keeps
-# running, and /etc/mcp-gateway and /var/lib/mcp-gateway stay. As the
+# running, and /etc/mcp-gateway (the role data as data.json.rpmsave) and
+# /var/lib/mcp-gateway stay. As the
 # chapter says, what was built on the gateway's SELinux types goes first:
 # the tests' own modules (a privileged server's, profile's) and the ports
 # given mcp_port_t and mcp_metrics_port_t; the gateway's module cannot be
@@ -2330,7 +2331,10 @@ semodule -l | awk '{print $1}' | grep -E '^mcp_' | sed 's/^/  still loaded: /'
 check "the programs are gone" bash -c '! test -e /usr/bin/mcp-gateway && ! test -e /usr/libexec/mcp-servers/mcp-server-fs'
 check "the polkit rules are gone" bash -c '! ls /usr/share/polkit-1/rules.d/*mcp-gateway* >/dev/null 2>&1'
 check "the gateway's sockets are gone" test ! -S /run/mcp-gateway/mcp.sock
-check "the configuration stays (/etc/mcp-gateway)" test -s /etc/mcp-gateway/policy/rbac/data.json
+# The role data came with the package (%config): changed, rpm keeps it as
+# data.json.rpmsave; what the tests added stays as it is.
+check "the changed role data is kept (data.json.rpmsave)" test -s /etc/mcp-gateway/policy/rbac/data.json.rpmsave
+check "the configuration added stays (/etc/mcp-gateway/exec.d)" test -s /etc/mcp-gateway/exec.d/vmtest.yaml
 check "the state stays (/var/lib/mcp-gateway)" test -d /var/lib/mcp-gateway
 
 section "Result"

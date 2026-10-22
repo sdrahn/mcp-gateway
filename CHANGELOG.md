@@ -41,7 +41,10 @@ minor release (with a warning) and removed in the next.
 - User guide chapter 2, "Uninstalling", now says to remove first what was
   built on the gateway's SELinux types (an administrator's modules for
   MCP servers, ports given `mcp_port_t` or `mcp_metrics_port_t`): the
-  gateway's module cannot be removed while they use them.
+  gateway's module cannot be removed while they use them. And that the
+  role data, which comes with the package, is kept as
+  `data.json.rpmsave` when changed: it said all of `/etc/mcp-gateway`
+  stays.
 - `mcp-policy-bundle` recorded the policy files under its temporary
   build directory (`/tmp/tmp.…/src/mcp/authz.rego`), which became part of
   every module id in OPA: each bundle built changed the gateway's policy
