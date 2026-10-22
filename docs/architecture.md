@@ -3756,7 +3756,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       written; in the VMs, `config set limits.tasks_per_principal`
       takes effect while a client stays connected, and the drop-in has
       `mcpgw_etc_t`.
-37. **Role data in YAML** (1.5; D10):
+37. **Role data in YAML** (1.5; D10; done):
     - the problem: the role data (roles, bindings, approver rules, scope
       ceilings; `data.mcp.rbac`) is JSON, `policy/rbac/data.json`. It is
       the one file administrators write by hand, and JSON has no

@@ -388,16 +388,18 @@ where the gateway's files are (chapter 5).
 Users need a role for it: the shipped `viewer` and `developer` roles
 include it, and the shipped role `gateway-docs-reader` grants only it:
 
-```json
-"bindings": {"groups": {"mcp-users": ["gateway-docs-reader"]}}
+```yaml
+bindings:
+  groups:
+    mcp-users: [gateway-docs-reader]
 ```
 
 A role of your own (such as `sysops` in chapter 13) gets it with two
 permissions, or by binding `gateway-docs-reader` next to it:
 
-```json
-{"server": "gateway-docs", "tool": "*"},
-{"server": "gateway-docs", "resource": "*"}
+```yaml
+- {server: gateway-docs, tool: '*'}
+- {server: gateway-docs, resource: '*'}
 ```
 
 It runs as a throwaway user in the domain `mcpsrv_docs_t`, which reads
@@ -441,8 +443,10 @@ The shipped role `gateway-admin` grants these; the `admin` role, which
 allows everything, includes them without approval. Bind it to the
 administrators who debug the gateway with an agent:
 
-```json
-"bindings": {"users": {"alice": ["gateway-admin", "gateway-docs-reader"]}}
+```yaml
+bindings:
+  users:
+    alice: [gateway-admin, gateway-docs-reader]
 ```
 
 Nothing in it changes the system; the agent suggests the changes, you

@@ -1,7 +1,7 @@
 # 12. Custom policy (Rego)
 
 The shipped policy (chapter 6) is driven by data: roles, permissions,
-bindings and approver rules in `data.json`. When data is not enough (you
+bindings and approver rules in the role data (`data.yaml`). When data is not enough (you
 need time windows, decisions on client certificates or SELinux contexts,
 approvals that last a fixed time, managers approving their team's
 requests, or a completely different model), write your own policy in
@@ -274,7 +274,7 @@ several definitions:
 |---|---|---|
 | `mcp.authz.denied` | boolean | denies more requests ("denied by policy"); a deny always wins |
 | `mcp.authz.roles` | set | gives principals additional roles |
-| `mcp.authz.perms` | set | adds permissions (objects as in `data.json`) |
+| `mcp.authz.perms` | set | adds permissions (objects as in the role data) |
 | `mcp.approvals.allow`, `manage_grant`, `manage_instance`, `manage_task`, `manage_session` | boolean | lets more approvers act |
 | `mcp.approvals.notify` | set | mails more people |
 | `mcp.log.mask` | set | removes more from the decision log |
@@ -380,16 +380,19 @@ roles contains "ci" if {
 }
 ```
 
-Define the role `ci` in `data.json` as usual. Certificates are verified
+Define the role `ci` in the role data as usual. Certificates are verified
 against `http.client_ca_file` before they reach the policy (chapter 5).
 
 #### Example: managers approve their team's requests
 
-Data, in `/etc/mcp-gateway/policy/rbac/managers/data.json` (below
+Data, in `/etc/mcp-gateway/policy/rbac/managers/data.yaml` (below
 `rbac`, see [Custom data](#custom-data)):
 
-```json
-{"alice": "bob", "carol": "bob", "dave": "erin"}
+```yaml
+# employee: manager
+alice: bob
+carol: bob
+dave: erin
 ```
 
 ```rego
@@ -410,7 +413,7 @@ notify contains sprintf("user:%s", [manager]) if {
 }
 ```
 
-The approver rules of `data.json` still apply in addition; this adds
+The approver rules of the role data still apply in addition; this adds
 the manager.
 
 #### Example: masking more in the decision log
@@ -656,13 +659,13 @@ mask contains "/input/args"
 mask contains "/input/request/args"
 ```
 
-This policy ignores `data.json`, so Cockpit's role editor has no effect
+This policy ignores the role data, so Cockpit's role editor has no effect
 with it. The `default decision` makes sure the decision is never
 undefined; the `else` chain makes the precedence explicit.
 
 ## Custom data
 
-Put data your rules use into `data.json` files below
+Put data your rules use into `data.yaml` (or `data.json`) files below
 `/etc/mcp-gateway/policy/`, preferably **below `rbac/`**
 (`/etc/mcp-gateway/policy/rbac/<name>/data.json` or `data.yaml` →
 `data.mcp.rbac.<name>`, rendered for OPA by `mcp-policy-render.service`,
