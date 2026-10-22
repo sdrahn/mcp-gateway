@@ -5,7 +5,13 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.3.1 — 2026-10-22
+
+Fixes, one of them for security: a remote principal without a local
+account no longer gets the servers that work in the user's home, where
+the shipped file server served `/`. Upgrading from 1.3.0 needs no
+changes. After the update, restart the gateway (`systemctl restart
+mcp-gateway.service`); the package does not.
 
 ### Fixed
 
