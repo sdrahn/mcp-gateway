@@ -34,7 +34,7 @@ DESTDIR     ?=
 LDFLAGS := -X github.com/sdrahn/mcp-gateway/internal/version.Version=$(VERSION) \
 	-X github.com/sdrahn/mcp-gateway/internal/version.LibexecDir=$(LIBEXECDIR)
 
-BINARIES := bin/mcp-gateway bin/mcp-gateway-admin bin/mcp-gateway-tools bin/mcp-connect bin/mcp-gateway-notify bin/mcp-server-fs bin/mcp-server-exec bin/mcp-http-connector bin/mcp-oauth-helper bin/mcp-landlock
+BINARIES := bin/mcp-gateway bin/mcp-gateway-admin bin/mcp-gateway-tools bin/mcp-connect bin/mcp-gateway-notify bin/mcp-server-fs bin/mcp-server-exec bin/mcp-http-connector bin/mcp-oauth-helper bin/mcp-landlock bin/mcp-policy-render
 
 # The functional tests (test/vm/run-tests.sh), their test client and
 # privileged test server, packaged as mcp-gateway-tests (openQA).
@@ -107,6 +107,8 @@ install-gateway:
 	install -Dm0755 bin/mcp-oauth-helper $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/mcp-oauth-helper
 	# Starts the instances of definitions with landlock (config.LandlockLauncher).
 	install -Dm0755 bin/mcp-landlock $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/mcp-landlock
+	# Renders the role data for OPA (mcp-policy-render.service, as root).
+	install -Dm0755 bin/mcp-policy-render $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/mcp-policy-render
 	install -Dm0755 tools/mcp-policy-bundle $(DESTDIR)$(SBINDIR)/mcp-policy-bundle
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/opa
 	install -m0644 packaging/opa/* $(DESTDIR)$(DATADIR)/mcp-gateway/opa/
@@ -124,6 +126,7 @@ install-gateway:
 	install -Dm0644 policy/mcp/rbac/data.json $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/policy/rbac/data.json
 	install -Dm0644 systemd/mcp-gateway.service $(DESTDIR)$(UNITDIR)/mcp-gateway.service
 	install -Dm0644 systemd/mcp-opa.service $(DESTDIR)$(UNITDIR)/mcp-opa.service
+	install -Dm0644 systemd/mcp-policy-render.service $(DESTDIR)$(UNITDIR)/mcp-policy-render.service
 	install -Dm0644 packaging/sysusers.d/mcp-gateway.conf $(DESTDIR)$(SYSUSERSDIR)/mcp-gateway.conf
 	install -Dm0644 packaging/tmpfiles.d/mcp-gateway.conf $(DESTDIR)$(TMPFILESDIR)/mcp-gateway.conf
 	install -Dm0644 packaging/polkit/50-mcp-gateway.rules $(DESTDIR)$(POLKITDIR)/50-mcp-gateway.rules

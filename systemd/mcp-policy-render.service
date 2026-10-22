@@ -1,0 +1,45 @@
+[Unit]
+Description=MCP gateway role data for the policy engine
+Documentation=https://github.com/sdrahn/mcp-gateway/blob/main/docs/architecture.md
+# OPA does not read /etc/mcp-gateway/policy/rbac itself: it would merge
+# data.yaml and data.json where both exist. This writes the file in force
+# of each directory there (data.yaml before data.json) as JSON to
+# /run/mcp-opa/rbac, which mcp-opa.service loads as data.mcp.rbac: once
+# before OPA starts (ready then), and again on every change below rbac/,
+# which it watches itself. Role data that does not parse is not
+# rendered: the last rendering stays in force.
+Before=mcp-opa.service
+After=systemd-tmpfiles-setup.service
+
+[Service]
+Type=notify
+# As root, without the gateway's or OPA's rights: neither can write
+# /run/mcp-opa (tmpfiles.d/mcp-gateway.conf), so a compromised gateway
+# cannot change the role data it is held to.
+ExecStart=/usr/libexec/mcp-gateway/mcp-policy-render -watch
+Restart=on-failure
+RestartSec=2s
+ReadWritePaths=/run/mcp-opa
+UMask=0022
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+MemoryDenyWriteExecute=yes

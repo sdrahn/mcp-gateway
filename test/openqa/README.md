@@ -70,8 +70,12 @@ What the tests cover now: the domains, users and MCS pairs of the
 gateway, OPA and the instances; calls and refusals by policy, with
 argument constraints; the obligations under the real OPA and the shipped
 policy (redaction, pseudonymization and the session's vault,
-re-identification, the size limit, the rate limit, full audit); the
-limits per principal, lowered with `mcp-gateway-admin config set` (a
+re-identification, the size limit, the rate limit, full audit); role
+data in YAML (`data.yaml` in force over `data.json`, rendered for OPA to
+`/run/mcp-opa/rbac` by `mcp-policy-render.service`, which the gateway's
+account cannot write; a change in force within seconds, YAML that does
+not parse keeping the role data in force, a subdirectory rendered along,
+the doctor naming the ignored file); the limits per principal, lowered with `mcp-gateway-admin config set` (a
 session, an instance and a task refused, room again once a session ends
 or an instance is idle, an idle HTTP session making room, the refusals
 counted and audited); failing closed and recovering (OPA stopped

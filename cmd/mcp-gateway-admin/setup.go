@@ -141,7 +141,7 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 		if *policyData != "" {
 			// Unreadable role data (no administrative access) leaves the
 			// ceiling out.
-			roleData, _ = os.ReadFile(*policyData)
+			_, roleData, _, _ = policydata.Read(*policyData)
 		}
 		rs = append(rs, httpsetup.Token(ctx, h, client, token, roleData)...)
 	}

@@ -51,6 +51,7 @@ type adminServer struct {
 	policyData string // the role data
 	shipped    string // the shipped policy: Rego and the setups' roles
 	etcPolicy  string // the administrator's policy directory (data.mcp)
+	rendered   string // the role data as OPA loads it (data.mcp.rbac)
 	opa        string // the opa program, for explain_decision
 	// journal runs journalctl with args (a variable for tests).
 	journal func(ctx context.Context, args ...string) ([]byte, error)
@@ -68,6 +69,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&a.policyData, "policy-data", policydata.DefaultPath, "role data")
 	fs.StringVar(&a.shipped, "shipped-policy", policydata.DefaultShippedDir, "shipped policy (Rego, roles of the server setups)")
 	fs.StringVar(&a.etcPolicy, "etc-policy", filepath.Dir(filepath.Dir(policydata.DefaultPath)), "the administrator's policy directory, loaded below data.mcp")
+	fs.StringVar(&a.rendered, "rendered-policy", policydata.RenderDir, "the role data as OPA loads it (mcp-policy-render), loaded as data.mcp.rbac")
 	fs.StringVar(&a.opa, "opa", "/usr/bin/opa", "the opa program, to evaluate the policy")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -290,6 +292,7 @@ func (a *adminServer) doctorRun(only string, since time.Duration) *doctorRun {
 		isolated:   true,
 		policyData: a.policyData,
 		shipped:    a.shipped,
+		rendered:   a.rendered,
 		only:       only,
 		noStart:    true,
 		since:      since,
@@ -314,7 +317,8 @@ type explainArgs struct {
 
 // explain evaluates the policy files with opa, as OPA does with them
 // (mcp-opa.service): the shipped policy as is, the administrator's below
-// data.mcp.
+// data.mcp, and the role data as rendered for OPA (mcp-policy-render)
+// as data.mcp.rbac.
 func (a *adminServer) explain(ctx context.Context, p explainArgs) map[string]any {
 	if p.User == "" || p.Server == "" || p.Name == "" {
 		return toolError("user, server and name are required")
@@ -354,7 +358,7 @@ func (a *adminServer) explain(ctx context.Context, p explainArgs) map[string]any
 	if err != nil {
 		return toolError("evaluating the policy: %v", err)
 	}
-	notes = append(notes, "evaluated from the policy files ("+a.shipped+", "+a.etcPolicy+
+	notes = append(notes, "evaluated from the policy files ("+a.shipped+", "+a.etcPolicy+", the role data as rendered for OPA in "+a.rendered+
 		"); with signed policy bundles the active policy is the bundle's", "approvals already given (grants) are not taken into account")
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %s %s/%s: %s", p.User, action, p.Server, p.Name, out.Decision.Effect)
@@ -404,8 +408,11 @@ func (a *adminServer) evaluate(ctx context.Context, in pep.Input) (*explanation,
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, a.opa, "eval", "--format", "json", "--stdin-input",
-		"--data", a.shipped, "--data", "mcp:"+a.etcPolicy, explainQuery)
+	if _, err := os.Stat(a.rendered); err != nil {
+		return nil, fmt.Errorf("the role data is not rendered for OPA (%v): systemctl restart mcp-policy-render.service", err)
+	}
+	cmd := exec.CommandContext(ctx, a.opa, "eval", "--format", "json", "--stdin-input", "--ignore", "rbac",
+		"--data", a.shipped, "--data", "mcp:"+a.etcPolicy, "--data", "mcp.rbac:"+a.rendered, explainQuery)
 	cmd.Stdin = bytes.NewReader(input)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -478,9 +485,14 @@ func (a *adminServer) configFiles() []string {
 			files = append(files, execCommandFiles(backends)...)
 		}
 	}
-	files = append(files, a.policyData)
-	shipped, _ := filepath.Glob(filepath.Join(a.shipped, "mcp", "profiles", "*", "data.json"))
-	files = append(files, shipped...)
+	// The role data in force, and the file it overrides if any.
+	inForce, ignored := policydata.InForce(a.policyData)
+	files = append(append(files, inForce), ignored...)
+	shipped, _ := policydata.ShippedDirs(a.shipped)
+	for _, d := range shipped {
+		f, _ := policydata.InForce(filepath.Join(d, policydata.Names[1]))
+		files = append(files, f)
+	}
 	var out []string
 	for _, f := range files {
 		if fi, err := os.Stat(f); err == nil && fi.Mode().IsRegular() && !slices.Contains(out, f) {

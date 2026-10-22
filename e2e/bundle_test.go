@@ -315,6 +315,27 @@ func TestPolicyBundleKeygen(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "bad.tar.gz")); err == nil {
 		t.Fatal("bundle written for invalid role data")
 	}
+	// data.yaml next to data.json: the bundle carries the YAML's role
+	// data only (data.mcp.rbac as mcp-opa.service has it), and no other
+	// file of rbac/.
+	yml := filepath.Join(dir, "yml")
+	writeFile(t, filepath.Join(yml, "rbac", "data.json"), `{"roles": {"old": {"permissions": []}}}`)
+	writeFile(t, filepath.Join(yml, "rbac", "data.yaml"), "# in force\nroles:\n  new: {permissions: []}\n")
+	writeFile(t, filepath.Join(yml, "rbac", "managers", "data.json"), `{"alice": "bob"}`)
+	writeFile(t, filepath.Join(yml, "rbac", "notes.json"), `{"x": 1}`)
+	ymlBundle := filepath.Join(dir, "yml.tar.gz")
+	cmd = exec.Command("sh", filepath.Join("..", "tools", "mcp-policy-bundle"),
+		"-k", key, "-o", ymlBundle, "-n", "-V", filepath.Join("..", "policy"), "-L", yml)
+	cmd.Env = append(os.Environ(), "OPA="+opa, "MCP_GATEWAY="+gateway)
+	b, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(b), filepath.Join(yml, "rbac", "data.json")+" is ignored: "+filepath.Join(yml, "rbac", "data.yaml")+" is in force") ||
+		!strings.Contains(string(b), filepath.Join(yml, "rbac", "notes.json")+" is not role data") {
+		t.Fatalf("bundle from data.yaml: %v %s", err, b)
+	}
+	b, err = exec.Command(opa, "eval", "--format", "raw", "--bundle", ymlBundle, "json.marshal(data.mcp.rbac)").CombinedOutput()
+	if err != nil || strings.TrimSpace(string(b)) != `{"managers":{"alice":"bob"},"roles":{"new":{"permissions":[]}}}` {
+		t.Fatalf("the bundle's role data: %v %s", err, b)
+	}
 	// The bundle verifies with the generated verification key.
 	cmd = exec.Command(opa, "run", "--server", "--addr", "unix://"+filepath.Join(dir, "opa.sock"), "--bundle",
 		"--verification-key", filepath.Join(dir, "bundle", "verify.pem"), bundle)

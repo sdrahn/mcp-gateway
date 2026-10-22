@@ -106,30 +106,35 @@ func TestCheck(t *testing.T) {
 
 func TestShippedRoles(t *testing.T) {
 	dir := t.TempDir()
-	write := func(setup, content string) {
+	write := func(setup, name, content string) {
 		t.Helper()
 		p := filepath.Join(dir, "mcp", "profiles", setup)
 		if err := os.MkdirAll(p, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(p, "data.json"), []byte(content), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(p, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	write("systemd", `{"roles": {"systemd-reader": {"permissions": [{"server": "systemd", "tool": "list_*"}]}}}`)
-	write("zypp", `{"roles": {"zypp-reader": {"permissions": [{"server": "zypp", "tool": "search_packages"}]},
+	write("systemd", "data.json", `{"roles": {"systemd-reader": {"permissions": [{"server": "systemd", "tool": "list_*"}]}}}`)
+	write("zypp", "data.json", `{"roles": {"zypp-reader": {"permissions": [{"server": "zypp", "tool": "search_packages"}]},
 		"systemd-reader": {"permissions": []}}}`)
-	write("broken", `{"roles": {"x": {}}}`)
+	write("broken", "data.json", `{"roles": {"x": {}}}`)
+	// A setup in YAML; its JSON next to it is ignored.
+	write("podman", "data.yaml", "roles:\n  podman-reader:\n    permissions:\n      - {server: podman, tool: container_list}\n")
+	write("podman", "data.json", `{"roles": {"podman-old": {"permissions": []}}}`)
+	write("unparsed", "data.yaml", "roles: [\n")
 
 	roles, problems, err := ShippedRoles(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if roles["systemd-reader"] != "systemd" || roles["zypp-reader"] != "zypp" || len(roles) != 2 {
+	if roles["systemd-reader"] != "systemd" || roles["zypp-reader"] != "zypp" || roles["podman-reader"] != "podman" || len(roles) != 3 {
 		t.Errorf("roles %v", roles)
 	}
-	if len(problems) != 2 || !strings.Contains(problems[0], "broken/data.json") ||
-		!strings.Contains(problems[1], `role "systemd-reader" is shipped by setup "systemd" as well`) {
+	if len(problems) != 3 || !strings.Contains(problems[0], "broken/data.json") ||
+		!strings.Contains(problems[1], "unparsed/data.yaml: not valid YAML") ||
+		!strings.Contains(problems[2], `role "systemd-reader" is shipped by setup "systemd" as well`) {
 		t.Errorf("problems %q", problems)
 	}
 

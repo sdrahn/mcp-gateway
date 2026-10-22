@@ -156,6 +156,7 @@ the same across releases; the texts may change.
 |---|---|---|
 | `configuration` | | configuration |
 | `role-data` | | role data |
+| `role-data-rendering` | | role data for OPA |
 | `unit` | `mcp-gateway.service`, `mcp-opa.service` | the unit |
 | `state-files` | | state files |
 | `tls` | | TLS |

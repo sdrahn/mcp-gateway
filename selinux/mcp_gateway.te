@@ -125,6 +125,15 @@ corecmd_bin_entry_type(mcpopa_t)
 type mcpopa_sock_t;
 mcp_gateway_runtime_file(mcpopa_sock_t)
 
+# The role data as OPA loads it (/run/mcp-opa/rbac), written by
+# mcp-policy-render.service as root; OPA and the gateway read it.
+type mcpopa_rbac_t;
+mcp_gateway_runtime_file(mcpopa_rbac_t)
+optional_policy(`
+	gen_require(`type systemd_tmpfiles_t;')
+	allow systemd_tmpfiles_t mcpopa_rbac_t:dir { manage_dir_perms relabel_dir_perms };
+')
+
 # mcp-landlock (roadmap step 30): the entry point of every backend
 # domain for definitions with landlock (mcp_gateway_backend_template);
 # systemd executes it and enters the domain.
@@ -278,6 +287,10 @@ files_read_usr_files(mcpsrv_admin_t)
 read_files_pattern(mcpsrv_admin_t, mcpgw_etc_t, mcpgw_etc_t)
 list_dirs_pattern(mcpsrv_admin_t, mcpgw_etc_t, mcpgw_etc_t)
 read_lnk_files_pattern(mcpsrv_admin_t, mcpgw_etc_t, mcpgw_etc_t)
+# The doctor compares the role data with its rendering for OPA.
+mcp_gateway_search_runtime(mcpsrv_admin_t)
+read_files_pattern(mcpsrv_admin_t, mcpopa_rbac_t, mcpopa_rbac_t)
+list_dirs_pattern(mcpsrv_admin_t, mcpopa_rbac_t, mcpopa_rbac_t)
 files_list_var_lib(mcpsrv_admin_t)
 list_dirs_pattern(mcpsrv_admin_t, mcpgw_var_lib_t, mcpgw_var_lib_t)
 getattr_files_pattern(mcpsrv_admin_t, mcpgw_var_lib_t, mcpgw_var_lib_t)
@@ -360,6 +373,11 @@ neverallow { mcpgw_t mcpsrv_domain } mcpgw_cred_t:file { read open map };
 # access token from systemd, never from these files.
 neverallow mcpsrv_domain { mcpgw_token_t mcpgw_cred_run_t }:file { read open map };
 
+# The role data OPA decides by is written by the administrator's renderer
+# only: neither the gateway, nor OPA, nor a backend changes it.
+neverallow { mcpgw_t mcpopa_t mcpsrv_domain } mcpopa_rbac_t:file { write append create unlink rename setattr };
+neverallow { mcpgw_t mcpopa_t mcpsrv_domain } mcpopa_rbac_t:dir { write add_name remove_name rename reparent setattr };
+
 # The bundle signing key is for the administrator only: a compromised
 # gateway, policy engine or backend must not be able to sign policy.
 neverallow { mcpgw_t mcpopa_t mcpsrv_domain } mcpgw_signing_key_t:file { read open map };
@@ -391,6 +409,11 @@ gen_require(`
 	type usr_t, cert_t;
 ')
 allow mcpgw_t { mcpgw_etc_t usr_t cert_t }:dir watch;
+# The role data as OPA loads it (mcp-policy-render): watched, for the
+# policy's fingerprint after a change (policywatch.go).
+mcp_gateway_search_runtime(mcpgw_t)
+list_dirs_pattern(mcpgw_t, mcpopa_rbac_t, mcpopa_rbac_t)
+allow mcpgw_t mcpopa_rbac_t:dir watch;
 manage_files_pattern(mcpgw_t, mcpgw_var_lib_t, mcpgw_var_lib_t)
 append_files_pattern(mcpgw_t, mcpgw_log_t, mcpgw_log_t)
 # Sign-in tokens: state_dir/tokens, made by the gateway on first use.
@@ -600,6 +623,11 @@ gen_require(`
 	type usr_t;
 ')
 allow mcpopa_t { mcpgw_etc_t usr_t }:dir watch;
+# The role data, rendered (mcp-policy-render), with --watch.
+mcp_gateway_search_runtime(mcpopa_t)
+read_files_pattern(mcpopa_t, mcpopa_rbac_t, mcpopa_rbac_t)
+list_dirs_pattern(mcpopa_t, mcpopa_rbac_t, mcpopa_rbac_t)
+allow mcpopa_t mcpopa_rbac_t:dir watch;
 
 # Signed bundles (mcp-policy-bundle) in /etc/mcp-gateway/bundle are
 # mcpgw_etc_t, readable above.

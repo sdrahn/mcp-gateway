@@ -499,8 +499,9 @@ A syntax error in a Rego file makes OPA keep the previous policy and log
 an error:
 
 ```bash
-opa check /usr/share/mcp-gateway/policy mcp:/etc/mcp-gateway/policy
+opa check --ignore rbac /usr/share/mcp-gateway/policy mcp:/etc/mcp-gateway/policy mcp.rbac:/run/mcp-opa/rbac
 journalctl -u mcp-opa.service -n 20
+journalctl -u mcp-policy-render.service -n 20   # role data that does not parse
 ```
 
 ## Testing a decision
@@ -518,8 +519,8 @@ cat >/tmp/input.json <<'EOF'
   "grants": []
 }
 EOF
-opa eval -f pretty \
-    -d /usr/share/mcp-gateway/policy -d mcp:/etc/mcp-gateway/policy \
+opa eval -f pretty --ignore rbac \
+    -d /usr/share/mcp-gateway/policy -d mcp:/etc/mcp-gateway/policy -d mcp.rbac:/run/mcp-opa/rbac \
     -i /tmp/input.json 'data.mcp.authz.decision'
 ```
 

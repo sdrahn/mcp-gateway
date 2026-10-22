@@ -2,6 +2,11 @@
 Description=MCP gateway policy engine (OPA)
 Documentation=https://github.com/sdrahn/mcp-gateway/blob/main/docs/architecture.md
 Before=mcp-gateway.service
+# The role data, rendered from /etc/mcp-gateway/policy/rbac (data.yaml or
+# data.json) to /run/mcp-opa/rbac, and again on every change. Wants=: OPA
+# starts without it, and denies what no role allows.
+Wants=mcp-policy-render.service
+After=mcp-policy-render.service
 
 [Service]
 Type=simple
@@ -13,10 +18,13 @@ ReadWritePaths=/run/mcp-gateway
 # The distribution's opa binary, entered into its own SELinux domain here
 # rather than through a file label ("-": ignored where SELinux is off).
 SELinuxContext=-system_u:system_r:mcpopa_t:s0
-# Policy logic (vendor, /usr/share) and role data (administrator, /etc).
-# Everything lives below data.mcp, so the policy can share an OPA with
-# other policies: "mcp:" loads the administrator's data files below it
-# (rbac/data.json is data.mcp.rbac); Rego files keep their packages.
+# Policy logic (vendor, /usr/share), the administrator's policy (/etc)
+# and the role data (rendered, /run/mcp-opa/rbac). Everything lives below
+# data.mcp, so the policy can share an OPA with other policies: "mcp:"
+# loads the administrator's data files below it; Rego files keep their
+# packages. The role data in /etc/mcp-gateway/policy/rbac is not loaded
+# from there (--ignore rbac skips every directory of that name) but as
+# mcp-policy-render.service wrote it, as data.mcp.rbac.
 # For signed bundles (from mcp-policy-bundle or a bundle server) replace
 # ExecStart= with a drop-in from /usr/share/mcp-gateway/opa/.
 # Every decision is logged to the journal; policy/mcp/log.rego masks
@@ -32,9 +40,11 @@ ExecStart=/usr/bin/opa run --server \
     --log-format json \
     --set=decision_logs.console=true \
     --set=decision_logs.mask_decision=/mcp/log/mask \
+    --ignore rbac \
     $OPA_EXTRA_ARGS \
     /usr/share/mcp-gateway/policy \
-    mcp:/etc/mcp-gateway/policy
+    mcp:/etc/mcp-gateway/policy \
+    mcp.rbac:/run/mcp-opa/rbac
 Restart=on-failure
 
 NoNewPrivileges=yes

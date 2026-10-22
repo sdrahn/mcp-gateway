@@ -81,7 +81,8 @@ func TestDecisionLogShipping(t *testing.T) {
 		return unitArgs(t, filepath.Join("..", "systemd", "mcp-opa.service"), env,
 			"/run/mcp-gateway/opa.sock", opaSock,
 			"/usr/share/mcp-gateway/policy", vendor,
-			"/etc/mcp-gateway/policy", filepath.Join(tmp, "data"))
+			"/etc/mcp-gateway/policy", filepath.Join(tmp, "data"),
+			"/run/mcp-opa/rbac", renderRoles(t, filepath.Join(tmp, "data", "rbac"), filepath.Join(tmp, "rendered")))
 	})
 
 	c := newClient(t, e.connect, e.gwSock, "fs")

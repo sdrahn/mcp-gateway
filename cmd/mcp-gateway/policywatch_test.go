@@ -15,14 +15,15 @@ func TestWatchPolicyFiles(t *testing.T) {
 	root := t.TempDir()
 	data := filepath.Join(root, "policy", "rbac", "data.json")
 	shipped := filepath.Join(root, "shipped")
-	for _, d := range []string{filepath.Dir(data), shipped} {
+	rendered := filepath.Join(root, "run", "rbac")
+	for _, d := range []string{filepath.Dir(data), shipped, rendered} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	changed := watchPolicyFiles(ctx, slog.New(slog.DiscardHandler), data, shipped)
+	changed := watchPolicyFiles(ctx, slog.New(slog.DiscardHandler), data, rendered, shipped)
 	if changed == nil {
 		t.Skip("no inotify")
 	}
@@ -47,6 +48,10 @@ func TestWatchPolicyFiles(t *testing.T) {
 	}
 	write(data)
 	expect("role data")
+	write(filepath.Join(filepath.Dir(data), "data.yaml"))
+	expect("role data in YAML")
+	write(filepath.Join(rendered, "data.json"))
+	expect("the role data rendered for OPA")
 	write(filepath.Join(root, "policy", "custom.rego"))
 	expect("a rule next to the role data")
 	if err := os.MkdirAll(filepath.Join(shipped, "mcp", "profiles"), 0o755); err != nil {

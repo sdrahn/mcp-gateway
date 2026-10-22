@@ -14,7 +14,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"io/fs"
 	"log/slog"
 	"maps"
@@ -114,19 +113,19 @@ func main() {
 // server setup packages (-shipped-policy).
 var shippedPolicy string
 
-// checkPolicyData validates the role data at path ("-": standard input)
-// against its schema, printing each problem to standard error. A missing
-// file is an error only if required (the policy may come from a bundle).
+// checkPolicyData validates the role data in force for path ("-":
+// standard input; YAML or JSON) against its schema, printing each problem
+// to standard error: for .../rbac/data.json or data.yaml, the first of
+// data.yaml and data.json in that directory (policydata.InForce). A
+// missing file is an error only if required (the policy may come from a
+// bundle).
 func checkPolicyData(log *slog.Logger, path string, required bool) error {
 	if path == "" {
 		return nil
 	}
-	var data []byte
-	var err error
-	if path == "-" {
-		data, err = io.ReadAll(os.Stdin)
-	} else {
-		data, err = os.ReadFile(path)
+	path, data, ignored, err := policydata.Read(path)
+	for _, f := range ignored {
+		log.Warn("role data ignored: another file is in force", "path", f, "in_force", path)
 	}
 	if errors.Is(err, fs.ErrNotExist) && !required {
 		log.Info("no role data to check", "path", path)
@@ -399,7 +398,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	// local policy file is written, and every policy.watch_interval.
 	go r.WatchPolicy(ctx, reloader.Interval, opa.Fingerprint, func() {
 		auditLog.Event("mcp-policy-change", true, map[string]string{"revision": bundleRevisions(ctx, opa)})
-	}, watchPolicyFiles(ctx, log, policyData, shippedPolicy))
+	}, watchPolicyFiles(ctx, log, policyData, policydata.RenderDir, shippedPolicy))
 	if revs := bundleRevisions(ctx, opa); revs != "" {
 		log.Info("policy bundles", "revisions", revs)
 	}

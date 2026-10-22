@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/policydata"
 )
 
 func TestAdminUsage(t *testing.T) {
@@ -47,8 +48,23 @@ func testAdmin(t *testing.T) (*adminServer, string) {
 		"\npolicy:\n  opa_socket: "+filepath.Join(dir, "opa.sock")+"\napprovals:\n  control_socket: "+filepath.Join(dir, "control.sock")+"\n")
 	rbac := write("etc-policy/rbac/data.json", `{"roles": {"reader": {"permissions": [{"server": "sys", "tool": "read_*"}]}},
 "bindings": {"users": {"`+currentUser(t)+`": ["reader"]}}}`)
-	return &adminServer{configPath: cfg, policyData: rbac, shipped: filepath.Join(dir, "shipped"),
-		etcPolicy: filepath.Join(dir, "etc-policy"), opa: "opa"}, dir
+	a := &adminServer{configPath: cfg, policyData: rbac, shipped: filepath.Join(dir, "shipped"),
+		etcPolicy: filepath.Join(dir, "etc-policy"), rendered: filepath.Join(dir, "run", "rbac"), opa: "opa"}
+	renderRoles(t, a)
+	return a, dir
+}
+
+// renderRoles renders a's role data for OPA, as mcp-policy-render.service
+// does.
+func renderRoles(t *testing.T, a *adminServer) {
+	t.Helper()
+	p, err := policydata.PlanRender(filepath.Dir(a.policyData), a.shipped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := p.Render(a.rendered); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func currentUser(t *testing.T) string {
@@ -297,6 +313,34 @@ func TestExplainDecision(t *testing.T) {
 	}
 	if text, isErr, _ := callTool(t, a, "explain_decision", map[string]any{"user": me, "server": "sys", "name": "x", "kind": "file"}); !isErr {
 		t.Errorf("unknown kind: %s", text)
+	}
+
+	// data.yaml next to data.json: OPA has the YAML (as rendered) and
+	// never both; the explanation follows what OPA has.
+	yml := filepath.Join(filepath.Dir(a.policyData), "data.yaml")
+	if err := os.WriteFile(yml, []byte("# writers now\nroles:\n  writer:\n    permissions:\n      - {server: sys, tool: write_file}\n"+
+		"bindings:\n  users:\n    "+me+": [writer]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	text, _, _ = callTool(t, a, "explain_decision", map[string]any{"user": me, "server": "sys", "name": "write_file"})
+	if !strings.Contains(text, ": deny") {
+		t.Errorf("before rendering, OPA has the old role data:\n%s", text)
+	}
+	renderRoles(t, a)
+	text, _, _ = callTool(t, a, "explain_decision", map[string]any{"user": me, "server": "sys", "name": "write_file"})
+	if !strings.Contains(text, ": allow") || !strings.Contains(text, "roles: writer") {
+		t.Errorf("YAML in force:\n%s", text)
+	}
+	text, _, _ = callTool(t, a, "explain_decision", map[string]any{"user": me, "server": "sys", "name": "read_file"})
+	if !strings.Contains(text, ": deny") {
+		t.Errorf("the JSON's role is gone:\n%s", text)
+	}
+	if err := os.RemoveAll(a.rendered); err != nil {
+		t.Fatal(err)
+	}
+	if text, isErr, _ := callTool(t, a, "explain_decision", map[string]any{"user": me, "server": "sys", "name": "x"}); !isErr ||
+		!strings.Contains(text, "systemctl restart mcp-policy-render.service") {
+		t.Errorf("not rendered: %s", text)
 	}
 }
 
