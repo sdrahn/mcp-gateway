@@ -11,9 +11,9 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -130,18 +130,21 @@ func checkVersion(inst any) string {
 // role data, or a role two setups ship, is a problem (prefixed with the
 // file); the policy would fail on the latter. A missing dir is no error.
 func ShippedRoles(dir string) (map[string]string, []string, error) {
-	files, err := filepath.Glob(filepath.Join(dir, "mcp", "profiles", "*", "data.json"))
+	dirs, err := ShippedDirs(dir)
 	if err != nil {
 		return nil, nil, err
 	}
-	sort.Strings(files)
 	roles := map[string]string{}
 	var problems []string
-	for _, f := range files {
-		setup := filepath.Base(filepath.Dir(f))
-		data, err := os.ReadFile(f)
+	for _, sd := range dirs {
+		setup := filepath.Base(sd)
+		f, data, problem, err := readShipped(sd)
 		if err != nil {
 			return nil, nil, err
+		}
+		if problem != "" {
+			problems = append(problems, f+": "+problem)
+			continue
 		}
 		ps, err := Check(data)
 		if err != nil {
@@ -168,6 +171,26 @@ func ShippedRoles(dir string) (map[string]string, []string, error) {
 		}
 	}
 	return roles, problems, nil
+}
+
+// ShippedDirs are the directories of the setups' shipped roles below dir
+// (DefaultShippedDir): those of mcp/profiles/* with a role data file
+// (Names), sorted.
+func ShippedDirs(dir string) ([]string, error) {
+	var out []string
+	for _, n := range Names {
+		files, err := filepath.Glob(filepath.Join(dir, "mcp", "profiles", "*", n))
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range files {
+			if d := filepath.Dir(f); !slices.Contains(out, d) {
+				out = append(out, d)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // collect adds the leaf errors of a validation error. The alternatives of
