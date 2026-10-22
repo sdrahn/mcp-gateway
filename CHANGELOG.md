@@ -43,6 +43,27 @@ minor release (with a warning) and removed in the next.
   once, without the call's arguments, and no mail without
   `mcpgw_can_send_mail`.
 
+### Changed
+
+- `mcp-gateway-admin setup http --write` sets the keys of the `http`
+  block it changes in the drop-in
+  `/etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml`, the one
+  `config set` writes, instead of editing `/etc/mcp-gateway/gateway.yaml`:
+  where there was none (the default on openSUSE), it copied the whole
+  package default there, after which changed defaults of later packages
+  no longer applied. Like `config set` it checks the configuration the
+  drop-in makes, changes nothing when a later drop-in sets one of the
+  keys too, and waits for the gateway to reload it; `config unset
+  http.KEY` takes a key out again. It now also reads the `http` block in
+  force with the drop-ins: it read `gateway.yaml` alone, so that keys set
+  by a drop-in were not seen, and a value it wrote there could stay out
+  of force under one.
+
+### Deprecated
+
+- `mcp-gateway-admin setup http --config FILE`, which edits that file as
+  before, warns and goes away in 1.5.
+
 ### Fixed
 
 - A remote principal without a local account (a token whose

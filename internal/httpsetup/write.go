@@ -43,11 +43,7 @@ func Edit(data []byte, h config.HTTP) ([]byte, []Change, error) {
 		setNode(root, "http", block)
 	}
 	var changes []Change
-	for _, kv := range []struct{ key, v string }{
-		{"listen", h.Listen}, {"cert_file", h.CertFile}, {"key_file", h.KeyFile},
-		{"issuer", h.Issuer}, {"audience", h.Audience},
-		{"groups_claim", h.GroupsClaim}, {"local_user_claim", h.LocalUserClaim},
-	} {
+	for _, kv := range scalars(h) {
 		old := ""
 		if n := value(block, kv.key); n != nil {
 			old = n.Value
@@ -76,6 +72,53 @@ func Edit(data []byte, h config.HTTP) ([]byte, []Change, error) {
 		return nil, nil, err
 	}
 	return buf.Bytes(), changes, nil
+}
+
+// scalars are the keys of the http block the setup asks about, but
+// scopes, with their values in h ("" keeps what the block has).
+func scalars(h config.HTTP) []struct{ key, v string } {
+	return []struct{ key, v string }{
+		{"listen", h.Listen}, {"cert_file", h.CertFile}, {"key_file", h.KeyFile},
+		{"issuer", h.Issuer}, {"audience", h.Audience},
+		{"groups_claim", h.GroupsClaim}, {"local_user_claim", h.LocalUserClaim},
+	}
+}
+
+// Changes returns what setting the keys the setup asks about from h
+// changes in cur, the http block in force (gateway.yaml and its
+// drop-ins), as Edit would in a file that has cur.
+func Changes(cur, h config.HTTP) []Change {
+	var out []Change
+	have := map[string]string{}
+	for _, kv := range scalars(cur) {
+		have[kv.key] = kv.v
+	}
+	for _, kv := range scalars(h) {
+		if kv.v != "" && kv.v != have[kv.key] {
+			out = append(out, Change{"http." + kv.key, have[kv.key], kv.v})
+		}
+	}
+	if h.Scopes != nil && fmt.Sprint(cur.Scopes) != fmt.Sprint(h.Scopes) {
+		out = append(out, Change{"http.scopes", fmt.Sprint(cur.Scopes), fmt.Sprint(h.Scopes)})
+	}
+	return out
+}
+
+// Node is the YAML value of key (http.listen, …) in h, as Edit writes it.
+func Node(h config.HTTP, key string) *yaml.Node {
+	if key == "http.scopes" {
+		seq := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle, Tag: "!!seq"}
+		for _, s := range h.Scopes {
+			seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: s})
+		}
+		return seq
+	}
+	for _, kv := range scalars(h) {
+		if "http."+kv.key == key {
+			return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: kv.v}
+		}
+	}
+	return nil
 }
 
 func value(m *yaml.Node, key string) *yaml.Node {

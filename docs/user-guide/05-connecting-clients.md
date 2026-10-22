@@ -144,8 +144,12 @@ systemctl restart mcp-gateway.service           # http.listen takes effect at st
 mcp-gateway-admin setup http --token token.jwt  # a token from the IdP, end to end
 ```
 
-It writes the `http` block (without `--write` it shows what it would
-change) and checks that the IdP's metadata and keys come as the gateway
+It sets the keys of the `http` block it asks about in the drop-in
+`/etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml`, the one
+`mcp-gateway-admin config set` writes (chapter 3, "Drop-ins"), so that
+the rest of the configuration still follows the package's default;
+without `--write` it shows what it would change. `mcp-gateway-admin
+config unset http.KEY` takes a key out again. Then it checks that the IdP's metadata and keys come as the gateway
 fetches them, the certificate and key, the SELinux labels of the port and
 of the IdP's port, the firewall, the listener as a client reaches it, and
 with `--token` whom a token makes the principal, with which groups, or

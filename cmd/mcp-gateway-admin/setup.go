@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -27,8 +29,10 @@ const setupUsage = `usage: mcp-gateway-admin setup http [flags]
 
 Sets up the HTTP listener for remote agents and checks it end to end.
 From the gateway's public URL and the identity provider's issuer it
-fills in the http block of gateway.yaml (with -write; without, it shows
-what it would change), keeping the keys it does not ask about. Then it
+sets the keys of the http block it asks about in the drop-in
+/etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml, the one config set
+writes (with -write; without, it shows what it would change), over the
+http block in force, and waits for the gateway to reload it. Then it
 checks what else has to be right: the identity provider's metadata and
 keys, as the gateway fetches them; the certificate and key, as the
 gateway's account and SELinux domain read them; the SELinux labels of
@@ -62,7 +66,8 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprint(stderr, setupUsage)
 		fs.PrintDefaults()
 	}
-	configPath := fs.String("config", config.DefaultConfigPath, "gateway configuration to set up (a missing one starts from the package default)")
+	configPath := fs.String("config", "", "deprecated, goes away in 1.5: edit this file (a missing one starts from the package default) instead of the drop-in")
+	socket := fs.String("socket", "", "the gateway's control socket, to wait for its reload (default: approvals.control_socket of gateway.yaml)")
 	var a httpsetup.Answers
 	fs.StringVar(&a.URL, "url", "", "the gateway's public MCP URL, as clients use it, e.g. https://gw.example.com:8443/mcp (http.audience; http.listen takes its port)")
 	fs.StringVar(&a.Issuer, "issuer", "", "the identity provider's issuer URL, e.g. https://idp.example.com/realms/mcp (http.issuer)")
@@ -97,7 +102,19 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 		}
 	})
 
-	cur, err := currentHTTP(*configPath)
+	c := &configCmd{stdout: stdout, stderr: stderr, socket: *socket}
+	legacy := *configPath != ""
+	if legacy {
+		sayf(stderr, "mcp-gateway-admin setup http: -config is deprecated and goes away in 1.5; without it, setup http writes %s",
+			filepath.Join(configDropInDir, adminDropIn))
+	}
+	var cur config.HTTP
+	var err error
+	if legacy {
+		cur, err = currentHTTP(*configPath)
+	} else {
+		cur, err = c.httpInForce()
+	}
 	if err != nil {
 		say(stderr, "mcp-gateway-admin setup http:", err)
 		return 1
@@ -126,7 +143,11 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 	root := os.Geteuid() == 0
 
 	var rs []doctor.Result
-	rs = append(rs, blockResult(*configPath, cur, h, *write))
+	if legacy {
+		rs = append(rs, blockResult(*configPath, cur, h, *write))
+	} else {
+		rs = append(rs, c.dropInResult(cur, h, *write))
+	}
 	rs = append(rs, httpsetup.IdentityProvider(ctx, h, client)...)
 	rs = append(rs, setupTLS(h, root)...)
 	rs = append(rs, setupPorts(h, root)...)
@@ -152,6 +173,96 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return doctorExit(rs, false)
+}
+
+// httpInForce returns the http block as the gateway reads it:
+// gateway.yaml (else the package default) with the drop-ins over it.
+func (c *configCmd) httpInForce() (config.HTTP, error) {
+	base, dropIns, err := c.files()
+	if err != nil {
+		return config.HTTP{}, err
+	}
+	g, err := config.ResolveFiles(base, dropIns)
+	if err != nil {
+		return config.HTTP{}, err
+	}
+	return g.HTTP, nil
+}
+
+// dropInResult sets the keys of the http block that h changes in the
+// drop-in config set writes (with write), checked as config set checks
+// it, and waits for the gateway to reload it; or says what writing it
+// would change.
+func (c *configCmd) dropInResult(cur, h config.HTTP, write bool) doctor.Result {
+	r := doctor.Result{Check: "http block", Status: doctor.OK}
+	target := filepath.Join(configDropInDir, adminDropIn)
+	changes := httpsetup.Changes(cur, h)
+	if len(changes) == 0 {
+		r.Summary = "the configuration in force has this http block"
+		return r
+	}
+	lines := changeLines(changes)
+	// Where a key comes from now, if not from the drop-in: it stays
+	// there, and the drop-in's value is read over it.
+	if base, dropIns, err := c.files(); err == nil {
+		if src, err := config.Sources(base, dropIns); err == nil {
+			for i, ch := range changes {
+				if s, ok := src[ch.Key]; ok && s.File != target {
+					lines[i] += fmt.Sprintf(", set in %s (line %d)", s.File, s.Line)
+				}
+			}
+		}
+	}
+	if !write {
+		r.Status, r.Summary, r.Details = doctor.Warn, "not written yet: run again with -write to set in "+target+":", lines
+		return r
+	}
+	doc, old, err := readDropIn(target)
+	if err != nil {
+		r.Status, r.Summary = doctor.Fail, err.Error()
+		return r
+	}
+	keys := make([]string, len(changes))
+	for i, ch := range changes {
+		keys[i] = ch.Key
+		setKey(doc.Content[0], strings.Split(ch.Key, "."), httpsetup.Node(h, ch.Key))
+	}
+	w, err := c.writeDropIn(target, doc, old, keys)
+	if err != nil {
+		r.Status, r.Summary = doctor.Fail, err.Error()
+		return r
+	}
+	r.Summary, r.Details = "wrote "+target+":", lines
+	if !w.changed {
+		r.Summary = target + " has this http block already"
+		return r
+	}
+	restart := "http.listen takes effect at start: systemctl restart mcp-gateway.service (the checks below see the gateway as it runs now)"
+	switch {
+	case w.statusErr != nil:
+		r.Details = append(r.Details, "the gateway does not answer; it reads the file when it runs")
+		return r
+	case w.before.ConfigReloads == nil:
+		r.Details = append(r.Details, "this gateway does not report its reloads: see mcp-gateway-admin doctor whether it took the change")
+		if cur.Listen != h.Listen {
+			r.Details = append(r.Details, restart)
+		}
+		return r
+	}
+	st, err := c.awaitReload(*w.before.ConfigReloads, w.next)
+	switch {
+	case err != nil:
+		r.Status = doctor.Warn
+		r.Details = append(r.Details, err.Error())
+	case st.ConfigError != "":
+		r.Status = doctor.Fail
+		r.Details = append(r.Details, "the gateway did not load it and runs with the configuration it had: "+st.ConfigError)
+	case slices.Contains(st.RestartNeeded, "http.listen"):
+		r.Details = append(r.Details, restart)
+	default:
+		r.Details = append(r.Details, "in force")
+	}
+	return r
 }
 
 // currentHTTP returns the http block of the configuration at path, or
