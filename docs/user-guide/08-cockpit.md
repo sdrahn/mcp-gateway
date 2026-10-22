@@ -142,11 +142,22 @@ Cockpit: `mcp-gateway-admin tasks` (chapter 10, "Clients and tasks").
 - **Policy status**: whether OPA loads the policy directories or a
   bundle, and the active bundle revisions.
 - **Role bindings**: which users and groups hold which roles; add and
-  remove bindings.
+  remove bindings. The file in force is named (`data.yaml`, `data.json`,
+  or the shipped default). Saving always writes
+  `/etc/mcp-gateway/policy/rbac/data.yaml`: a change made here is merged
+  into it, and the comments and order of everything else stay as they
+  are. Where only `data.json` existed, or the shipped default was in
+  force, `data.yaml` is new and in force from then on; the page then
+  names `data.json` as ignored (you may remove it; the page does not).
 - **Roles and their permissions** (folded; open it to read them):
   the permissions of each role, read-only.
-- **Edit the role data as JSON**: the whole `data.json`, including
-  roles and approver rules; **Save** writes it (validated as JSON).
+- **Edit the role data as YAML**: the whole file in force, including
+  roles, approver rules and comments; **Save** checks it and writes it to
+  `data.yaml` as it is.
+
+The page leaves reading and writing YAML to `mcp-gateway-admin policy
+show` and `policy write` (chapter 11), run with administrative access
+for saving.
 
 Before any change is saved, the page checks it against the role data's
 schema (chapter 6) and asks the gateway **what it changes**: for every

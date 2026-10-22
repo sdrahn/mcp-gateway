@@ -14,11 +14,23 @@ import (
 )
 
 const policyUsage = `usage: mcp-gateway-admin policy convert [FILE] [options]   write role data in JSON as YAML
+       mcp-gateway-admin policy show [options]             the role data in force, as JSON
+       mcp-gateway-admin policy write [options] < DATA     check role data and write it to data.yaml
 
-FILE is the role data in JSON (default: ` + policydata.DefaultPath + `).
+convert: FILE is the role data in JSON (default: ` + policydata.DefaultPath + `).
 The YAML goes next to it as data.yaml (or FILE with .yaml), which is then
 in force; FILE stays as it is, ignored, until you remove it. The data and
 the order of keys stay the same.
+
+show: {"file", "origin" (yaml, json or default), "ignored", "data", "yaml"
+(the YAML text: the file's, or the data converted), "error"} of the role
+data in force.
+
+write: DATA on standard input is the role data as JSON, written into
+data.yaml where it keeps the comments and order of what is unchanged;
+with --yaml, YAML written as it is. Data the schema refuses is not
+written (exit status 1). Prints {"file", "written", "problems", "data",
+"yaml", "ignored"}. --dry-run only checks.
 
 `
 
@@ -30,13 +42,24 @@ func runPolicy(args []string, stdout, stderr io.Writer) int {
 		fset.PrintDefaults()
 	}
 	f := adminFlags{fs: fset}
-	out := f.fs.String("o", "", `where to write the YAML ("-": standard output)`)
-	force := f.fs.Bool("force", false, "replace the YAML file if it exists")
+	out := f.fs.String("o", "", `convert: where to write the YAML ("-": standard output)`)
+	force := f.fs.Bool("force", false, "convert: replace the YAML file if it exists")
+	asYAML := f.fs.Bool("yaml", false, "write: the data on standard input is YAML, written as it is")
+	dryRun := f.fs.Bool("dry-run", false, "write: check only")
+	pc := policyCmd{stdout: stdout, stderr: stderr}
+	f.fs.StringVar(&pc.path, "policy-data", policydata.DefaultPath, "show, write: the role data")
+	f.fs.StringVar(&pc.def, "default-policy-data", policydata.DefaultData, "show, write: the shipped default role data")
+	f.fs.StringVar(&pc.shipped, "shipped-policy", policydata.DefaultShippedDir, "write: the shipped policy, for the setups' roles")
 	words, rc := f.parse(args)
 	if rc >= 0 {
 		return rc
 	}
-	if len(words) == 0 || words[0] != "convert" || len(words) > 2 {
+	switch {
+	case len(words) == 1 && words[0] == "show":
+		return pc.show()
+	case len(words) == 1 && words[0] == "write":
+		return pc.write(stdin, *asYAML, *dryRun)
+	case len(words) == 0 || words[0] != "convert" || len(words) > 2:
 		f.fs.Usage()
 		return exitUsage
 	}
