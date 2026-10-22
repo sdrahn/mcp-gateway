@@ -171,6 +171,7 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 	need(d.roleData())
 	if d.only == "" {
 		add(d.rendering())
+		add(d.jsonFiles())
 		add(d.services()...)
 		add(d.stateFiles())
 		add(d.tls()...)
@@ -354,6 +355,29 @@ func (d *doctorRun) rendering() doctor.Result {
 			r.Details = append(r.Details, f+" is not loaded: only data.yaml or data.json is role data (a rule belongs in "+
 				filepath.Dir(filepath.Dir(d.policyData))+")")
 		}
+	}
+	return r
+}
+
+// jsonFiles names the files of the local policy in JSON, deprecated since
+// 1.6 (step 38): role data in force and the data of custom Rego, each with
+// the command that converts it.
+func (d *doctorRun) jsonFiles() doctor.Result {
+	r := doctor.Result{Check: "policy data in JSON"}
+	rbac := filepath.Dir(d.policyData)
+	files, err := policydata.JSONFiles(filepath.Dir(rbac), rbac)
+	if err != nil {
+		return skipOrFail(r, err)
+	}
+	if len(files) == 0 {
+		r.Status, r.Summary = doctor.OK, "none: the role data and the policy data below "+filepath.Dir(rbac)+" are YAML"
+		return r
+	}
+	r.Status = doctor.Warn
+	r.Summary = fmt.Sprintf("%d file(s) in JSON, deprecated since %s: the next minor release no longer reads them",
+		len(files), policydata.DeprecatedSince)
+	for _, f := range files {
+		r.Details = append(r.Details, f+": "+policydata.ConvertCommand(f))
 	}
 	return r
 }

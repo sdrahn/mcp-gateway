@@ -251,6 +251,7 @@ account, a path) that stay the same across releases (chapter 11).
 |---|---|
 | configuration | `gateway.yaml` and the server definitions; deprecated keys warn |
 | role data | the schema and references (as `--check-policy-data`); skipped when the file does not exist (policy from a bundle) |
+| policy data in JSON | the role data in force and the data of custom Rego below `/etc/mcp-gateway/policy` that are JSON, deprecated since 1.6 and no longer read by 1.7: warns, naming each file with the `mcp-gateway-admin policy convert` line that converts it (chapter 6, "YAML or JSON") |
 | services, gateway status | `mcp-gateway.service` and `mcp-opa.service` active; the running version, and whether an update waits for a restart |
 | state files | that `mcp-gateway` owns every file in `/var/lib/mcp-gateway`; a file root owns (the gateway was run as root) keeps the service from starting |
 | TLS | with `http.listen`: that `cert_file` and `key_file` load as a pair, and that `mcp-gateway` (every directory on the way too) and the gateway's SELinux domain can read them (`mcpgw_etc_t` under `/etc/mcp-gateway`, `cert_t` under `/etc/pki`, or `usr_t`): without, the gateway does not start, and `mcp-gateway --check`, which runs as root, does not notice. Also that the certificate has not expired (a warning 14 days before) and names the host of `http.audience` (clients refuse it otherwise); notes a self-signed certificate, which clients must trust. Needs root |

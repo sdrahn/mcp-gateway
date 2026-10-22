@@ -226,7 +226,7 @@ func (a *adminServer) call(ctx context.Context, name string, raw json.RawMessage
 		d := a.doctorRun("", 0)
 		rs := []doctor.Result{d.configuration(a.configPath)}
 		if d.gw != nil {
-			rs = append(rs, d.roleData())
+			rs = append(rs, d.roleData(), d.jsonFiles())
 		}
 		return a.results(rs), nil
 	case "explain_decision":

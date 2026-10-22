@@ -160,6 +160,7 @@ the same across releases; the texts may change.
 | `configuration` | | configuration |
 | `role-data` | | role data |
 | `role-data-rendering` | | role data for OPA |
+| `json-policy-data` | | policy data in JSON |
 | `unit` | `mcp-gateway.service`, `mcp-opa.service` | the unit |
 | `state-files` | | state files |
 | `tls` | | TLS |
@@ -359,7 +360,7 @@ Desktop notifications for pending approvals; `--socket` defaults to
 ### mcp-gateway-admin policy
 
 ```
-mcp-gateway-admin policy convert [FILE] [-o OUT] [--force]
+mcp-gateway-admin policy convert [FILE] [--to yaml|json] [-o OUT] [--force]
 mcp-gateway-admin policy show [--policy-data FILE]
 mcp-gateway-admin policy write [--yaml] [--dry-run] [--policy-data FILE] < DATA
 ```
@@ -378,13 +379,19 @@ written). Cockpit's role editor uses both (chapter 8).
 
 `convert`:
 
-Writes role data in JSON (default: `/etc/mcp-gateway/policy/rbac/data.json`)
-as YAML, the same data with the keys in their order, next to it as
-`data.yaml` (or `-o OUT`; `-`: standard output). `data.yaml` is then in
-force, and `data.json` stays as it is, ignored, until you remove it. An
-existing YAML file is replaced only with `--force`. Exit status 0; 1 if
-the file is missing, YAML already, not valid JSON, or the YAML exists; 2
-on usage errors.
+Writes data in JSON as YAML, the same data with the keys in their order,
+next to it with `.yaml` for `.json` (or `-o OUT`; `-`: standard output):
+role data (default FILE: `/etc/mcp-gateway/policy/rbac/data.json`), or a
+data file of custom Rego below `/etc/mcp-gateway/policy` (chapter 12).
+JSON there is deprecated since 1.6. Role data's `data.yaml` is then in
+force, and `data.json` stays as it is, ignored, until you remove it;
+other data, which OPA loads itself and refuses twice, is removed once
+the YAML is written. `--to json` converts YAML back to JSON, without its
+comments, for an earlier release (default FILE: `data.yaml` of the role
+data), and likewise removes custom data's YAML. An existing file is
+replaced only with `--force`. Exit status 0; 1 if the file is missing,
+in the format already, does not parse, or the file to write exists; 2 on
+usage errors.
 
 ### mcp-policy-render
 

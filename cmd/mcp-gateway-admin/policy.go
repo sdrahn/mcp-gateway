@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -8,19 +10,24 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sdrahn/mcp-gateway/internal/policydata"
 )
 
-const policyUsage = `usage: mcp-gateway-admin policy convert [FILE] [options]   write role data in JSON as YAML
+const policyUsage = `usage: mcp-gateway-admin policy convert [FILE] [options]   write data in JSON as YAML (or back, --to json)
        mcp-gateway-admin policy show [options]             the role data in force, as JSON
        mcp-gateway-admin policy write [options] < DATA     check role data and write it to data.yaml
 
-convert: FILE is the role data in JSON (default: ` + policydata.DefaultPath + `).
-The YAML goes next to it as data.yaml (or FILE with .yaml), which is then
-in force; FILE stays as it is, ignored, until you remove it. The data and
-the order of keys stay the same.
+convert: FILE is the role data in JSON (default: ` + policydata.DefaultPath + `),
+or a data file of custom Rego below /etc/mcp-gateway/policy; JSON there is
+deprecated since 1.6, and 1.7 no longer reads it. The data and the order of
+keys stay the same. The YAML goes next to FILE, with .yaml for .json:
+role data's is then in force, and FILE stays as it is, ignored, until you
+remove it; for other data, which OPA loads itself and refuses twice, FILE
+is removed. --to json converts YAML back, without its comments (for an
+earlier release; default FILE: data.yaml of the role data).
 
 show: {"file", "origin" (yaml, json or default), "ignored", "data", "yaml"
 (the YAML text: the file's, or the data converted), "error"} of the role
@@ -42,12 +49,13 @@ func runPolicy(args []string, stdout, stderr io.Writer) int {
 		fset.PrintDefaults()
 	}
 	f := adminFlags{fs: fset}
-	out := f.fs.String("o", "", `convert: where to write the YAML ("-": standard output)`)
-	force := f.fs.Bool("force", false, "convert: replace the YAML file if it exists")
+	out := f.fs.String("o", "", `convert: where to write the converted file ("-": standard output)`)
+	force := f.fs.Bool("force", false, "convert: replace the file it writes if it exists")
+	to := f.fs.String("to", "yaml", "convert: yaml (from JSON) or json (from YAML, to go back to an earlier release)")
 	asYAML := f.fs.Bool("yaml", false, "write: the data on standard input is YAML, written as it is")
 	dryRun := f.fs.Bool("dry-run", false, "write: check only")
 	pc := policyCmd{stdout: stdout, stderr: stderr}
-	f.fs.StringVar(&pc.path, "policy-data", policydata.DefaultPath, "show, write: the role data")
+	f.fs.StringVar(&pc.path, "policy-data", policydata.DefaultPath, "the role data; convert: also the local policy two directories up")
 	f.fs.StringVar(&pc.def, "default-policy-data", policydata.DefaultData, "show, write: the shipped default role data")
 	f.fs.StringVar(&pc.shipped, "shipped-policy", policydata.DefaultShippedDir, "write: the shipped policy, for the setups' roles")
 	words, rc := f.parse(args)
@@ -63,60 +71,149 @@ func runPolicy(args []string, stdout, stderr io.Writer) int {
 		f.fs.Usage()
 		return exitUsage
 	}
-	src := policydata.DefaultPath
+	src := ""
 	if len(words) == 2 {
 		src = words[1]
 	}
+	return pc.convert(src, *out, *to, *force)
+}
+
+// convert is "policy convert": src (role data or the data of custom Rego)
+// from JSON to YAML, or with to "json" back, to dst ("": next to src,
+// "-": standard output). Configuration in JSON is deprecated since 1.6
+// (step 38). Role data converted next to its file is in force by the
+// file's name (InForce), the other stays, ignored; OPA loads the other
+// data below the policy directory itself, and refuses both, so there the
+// source goes once the conversion is written.
+func (c policyCmd) convert(src, dst, to string, force bool) int {
 	fail := func(format string, a ...any) int {
-		sayf(stderr, "mcp-gateway-admin: "+format, a...)
+		sayf(c.stderr, "mcp-gateway-admin: "+format, a...)
 		return exitRefused
 	}
-	if strings.EqualFold(filepath.Ext(src), ".yaml") || strings.EqualFold(filepath.Ext(src), ".yml") {
+	toJSON := false
+	switch to {
+	case "yaml":
+	case "json":
+		toJSON = true
+	default:
+		return fail("--to is yaml or json, not %q", to)
+	}
+	rbacDir := filepath.Dir(c.path)
+	if src == "" {
+		src = c.path
+		if toJSON {
+			src = filepath.Join(rbacDir, policydata.Names[0])
+		}
+	}
+	ext := strings.ToLower(filepath.Ext(src))
+	isYAML := ext == ".yaml" || ext == ".yml"
+	switch {
+	case !toJSON && isYAML:
 		return fail("%s is YAML already", src)
+	case toJSON && ext == ".json":
+		return fail("%s is JSON already", src)
 	}
 	data, err := os.ReadFile(src)
-	if errors.Is(err, fs.ErrNotExist) && src == policydata.DefaultPath {
+	if errors.Is(err, fs.ErrNotExist) && !toJSON && src == c.path {
 		return fail("%s does not exist: the shipped default (%s) is in force; to change it, copy it to %s and edit that",
-			src, policydata.DefaultData, filepath.Join(filepath.Dir(src), "data.yaml"))
+			src, c.def, filepath.Join(rbacDir, policydata.Names[0]))
 	}
 	if err != nil {
 		return fail("%v", err)
 	}
-	dst := *out
+	newExt := ".yaml"
+	if toJSON {
+		newExt = ".json"
+	}
 	if dst == "" {
-		dst = strings.TrimSuffix(src, filepath.Ext(src)) + ".yaml"
+		dst = strings.TrimSuffix(src, filepath.Ext(src)) + newExt
 	}
-	header := "Role data (docs/user-guide/06-policy.md), converted from " + filepath.Base(src) +
-		"\nby mcp-gateway-admin policy convert."
-	if dst != "-" && filepath.Base(dst) == "data.yaml" && filepath.Dir(dst) == filepath.Dir(src) && filepath.Base(src) == "data.json" {
-		header += " data.json next to this file is ignored\nwhile it exists; remove it when you no longer need it."
-	}
-	y, err := policydata.ToYAML(data, header)
-	if err != nil {
-		return fail("%s: %v", src, err)
+	custom := c.customData(src)
+	var conv []byte
+	if toJSON {
+		j, err := policydata.ToJSON(data)
+		if err == nil {
+			var buf bytes.Buffer
+			if err = json.Indent(&buf, j, "", "  "); err == nil {
+				conv = append(buf.Bytes(), '\n')
+			}
+		}
+		if err != nil {
+			return fail("%s: %v", src, err)
+		}
+	} else {
+		header := "Role data (docs/user-guide/06-policy.md), converted from " + filepath.Base(src) +
+			"\nby mcp-gateway-admin policy convert."
+		if custom {
+			header = "Policy data, converted from " + filepath.Base(src) + " by mcp-gateway-admin policy convert."
+		} else if dst != "-" && filepath.Base(dst) == "data.yaml" && filepath.Dir(dst) == filepath.Dir(src) && filepath.Base(src) == "data.json" {
+			header += " data.json next to this file is ignored\nwhile it exists; remove it when you no longer need it."
+		}
+		if conv, err = policydata.ToYAML(data, header); err != nil {
+			return fail("%s: %v", src, err)
+		}
 	}
 	if dst == "-" {
-		_, _ = stdout.Write(y)
+		_, _ = c.stdout.Write(conv)
 		return 0
 	}
-	if _, err := os.Stat(dst); err == nil && !*force {
+	if _, err := os.Stat(dst); err == nil && !force {
 		return fail("%s exists; --force replaces it", dst)
 	}
 	mode := fs.FileMode(0o644)
 	if fi, err := os.Stat(src); err == nil {
 		mode = fi.Mode().Perm()
 	}
-	if err := writeFileAtomic(dst, y, mode); err != nil {
+	if err := writeFileAtomic(dst, conv, mode); err != nil {
 		return fail("%v", err)
 	}
-	inForce, ignored := policydata.InForce(dst)
-	sayf(stdout, "wrote %s", dst)
-	if inForce == dst {
-		for _, ig := range ignored {
-			sayf(stdout, "%s is in force now; %s is ignored (remove it when you no longer need it)", dst, ig)
+	sayf(c.stdout, "wrote %s", dst)
+	if custom && filepath.Dir(dst) == filepath.Dir(src) {
+		// OPA keeps the data it had while it finds both, then loads dst.
+		if err := os.Remove(src); err != nil {
+			return fail("%s and %s both exist, which OPA refuses: %v", src, dst, err)
 		}
+		back := "--to json "
+		if toJSON {
+			back = ""
+		}
+		sayf(c.stdout, "removed %s: OPA loads every data file below %s and refuses the same data twice (mcp-gateway-admin policy convert %s%s brings it back)",
+			src, c.policyDir(), back, dst)
+		return 0
+	}
+	inForce, ignored := policydata.InForce(dst)
+	switch {
+	case inForce == dst:
+		for _, ig := range ignored {
+			sayf(c.stdout, "%s is in force now; %s is ignored (remove it when you no longer need it)", dst, ig)
+		}
+	case slices.Contains(policydata.Names, filepath.Base(dst)):
+		sayf(c.stdout, "%s stays in force while it exists; to go back to 1.4 or earlier, which load both files and refuse them, remove it", inForce)
 	}
 	return 0
+}
+
+// policyDir is the directory of the local policy OPA loads
+// (/etc/mcp-gateway/policy, above the role data's).
+func (c policyCmd) policyDir() string { return filepath.Dir(filepath.Dir(c.path)) }
+
+// customData reports whether file is data OPA loads from the local policy
+// directory itself: below it, and not below a directory named rbac (the
+// role data's, which mcp-opa.service ignores).
+func (c policyCmd) customData(file string) bool {
+	abs, err := filepath.Abs(file)
+	if err != nil {
+		return false
+	}
+	dir, err := filepath.Abs(c.policyDir())
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(dir, abs)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return false
+	}
+	return !slices.Contains(strings.Split(filepath.Dir(rel), string(filepath.Separator)), "rbac")
 }
 
 // writeFileAtomic writes data to path through a temporary file next to

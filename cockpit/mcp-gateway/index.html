@@ -118,7 +118,12 @@
                 <p class="muted">Which users and groups hold which roles
                 (<code id="rbac-path"></code>). Saving needs administrative access; the
                 policy engine picks the change up within seconds.</p>
-                <p id="rbac-origin" class="note" hidden></p>
+                <div id="rbac-origin" class="note" hidden>
+                    <p id="rbac-origin-text"></p>
+                    <div class="actions" id="rbac-convert-actions" hidden>
+                        <button id="rbac-convert">Convert to YAML</button>
+                    </div>
+                </div>
                 <div id="bundle-note" class="note" hidden>
                     <p id="bundle-note-text"></p>
                     <div class="actions" id="bundle-sign-actions" hidden>

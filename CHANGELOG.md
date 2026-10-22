@@ -7,6 +7,24 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Deprecated
+
+- Role data and the data of custom Rego in JSON (`data.json` below
+  `/etc/mcp-gateway/policy`; step 38): still read, but 1.7 no longer
+  reads them. Each such file warns with its name and the command that
+  converts it: the gateway at start, `mcp-gateway --check` and
+  `--check-policy-data`, the doctor (new check `policy data in JSON`,
+  `json-policy-data`; also in the `check_config` tool of gateway-admin)
+  and Cockpit's Policy tab. Nothing converts your files by itself.
+
+### Added
+
+- `mcp-gateway-admin policy convert` converts the data files of custom
+  Rego too; as OPA loads those itself and refuses the same data twice,
+  the JSON is removed once the YAML is written. `--to json` converts YAML
+  back, for going back to an earlier release.
+- Cockpit's Policy tab offers **Convert to YAML** for role data in JSON.
+
 ## v1.5.0 — 2026-10-22
 
 Role data in YAML. The role data, the one file administrators write by

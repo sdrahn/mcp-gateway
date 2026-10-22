@@ -684,6 +684,62 @@ mv /root/vmtest/ry-data.json "$rbac_dir/data.json"
 ry_own() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac | jq -e '.result.roles | has("tester") and (has("viewer") | not)' >/dev/null; }
 check "data.json back: its roles are in force, not the default's" eventually 15 ry_own
 
+section "Configuration in JSON"
+# Step 38: role data and the data of custom Rego in JSON are deprecated
+# since 1.6 (1.7 no longer reads them). Each such file warns with its name
+# and the command that converts it, and the converted file gives the same
+# data, so the same decisions. The test's role data is data.json.
+jd_cmd="mcp-gateway-admin policy convert $rbac_dir/data.json"
+check "mcp-gateway --check warns about data.json, naming the command" \
+	bash -c 'mcp-gateway --check 2>&1 | grep -F "deprecated since 1.6" | grep -F "path=$1/data.json" | grep -qF "convert=\"$2\""' _ "$rbac_dir" "$jd_cmd"
+check "mcp-gateway --check-policy-data warns about it too" \
+	bash -c 'mcp-gateway --check-policy-data 2>&1 | grep -F "deprecated since 1.6" | grep -qF "path=$1/data.json"' _ "$rbac_dir"
+check "the gateway warned about it at start" \
+	bash -c 'journalctl -b -u mcp-gateway.service -o cat | grep -F "deprecated since 1.6" | grep -qF "path=$1/data.json"' _ "$rbac_dir"
+# Data of custom Rego (chapter 12), which OPA loads itself.
+jd_dir=/etc/mcp-gateway/policy/vmtest_custom
+mkdir -p "$jd_dir"
+echo '{"answer": 42, "words": ["yes", "on", "010"], "nested": {"limit": 1.5}}' >"$jd_dir/data.json"
+restorecon -R "$jd_dir"
+# jd_opa: OPA's data.mcp.vmtest_custom, sorted.
+jd_opa() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/vmtest_custom | jq -S -c .result; }
+jd_loaded() { [ "$(jd_opa)" = '{"answer":42,"nested":{"limit":1.5},"words":["yes","on","010"]}' ]; }
+check "OPA loads the custom data in JSON" eventually 15 jd_loaded
+check "doctor: both files in JSON named, each with its command" ry_doctor \
+	"[.[] | select(.id == \"json-policy-data\" and .status == \"warn\") | .details[]] | (any(. == \"$rbac_dir/data.json: $jd_cmd\")) and (any(. == \"$jd_dir/data.json: mcp-gateway-admin policy convert $jd_dir/data.json\"))"
+jd_out=$(mcp-gateway-admin policy convert "$jd_dir/data.json")
+echo "$jd_out" | sed 's/^/  /'
+check "policy convert: the custom data written as YAML" test -s "$jd_dir/data.yaml"
+check "... and data.json removed, as OPA refuses the same data twice" test ! -e "$jd_dir/data.json"
+check "... saying so" grep -qF "removed $jd_dir/data.json" <<<"$jd_out"
+check "the YAML is labeled as the policy is" bash -c '[ "$(stat -c %C "$1/data.yaml" | cut -d: -f3)" = "$(stat -c %C /etc/mcp-gateway/policy | cut -d: -f3)" ]' _ "$jd_dir"
+sleep 3
+check "OPA reads the YAML as the same data" eventually 15 jd_loaded
+check "policy convert --to json brings the JSON back" mcp-gateway-admin policy convert --to json "$jd_dir/data.yaml"
+check "... and removes the YAML" test ! -e "$jd_dir/data.yaml"
+sleep 3
+check "... with the same data" eventually 15 jd_loaded
+mcp-gateway-admin policy convert "$jd_dir/data.json" >/dev/null
+# The role data: converted, data.yaml is in force with the same data (the
+# rendering is the same JSON), and calls are decided as before.
+jd_rendered_before=$(jq -S -c . /run/mcp-opa/rbac/data.json)
+ry_bob_refused
+jd_bob_before=$rc
+jd_since=$(date +%s)
+jd_out=$(mcp-gateway-admin policy convert)
+echo "$jd_out" | sed 's/^/  /'
+check "policy convert: data.yaml written next to data.json" grep -qF "$rbac_dir/data.yaml is in force now; $rbac_dir/data.json is ignored" <<<"$jd_out"
+jd_same() { [ "$(jq -S -c . /run/mcp-opa/rbac/data.json)" = "$jd_rendered_before" ] && journalctl -u mcp-policy-render.service -o cat --since "@$jd_since" | grep -qF "$rbac_dir/data.json is ignored"; }
+check "... and the rendering of data.yaml is the role data it was" eventually 15 jd_same
+stool bob exec echo_word '{"word":"yaml"}'
+check "... so bob's call is decided as before" test "$rc" = "$jd_bob_before"
+check "doctor: no JSON left" ry_doctor '.[] | select(.id == "json-policy-data" and .status == "ok")'
+check "mcp-gateway --check: no JSON warning" bash -c '! mcp-gateway --check 2>&1 | grep -qF "deprecated since 1.6"'
+check "policy convert --to json: the role data back as JSON, the same data" \
+	bash -c 'mcp-gateway-admin policy convert --to json -o - | jq -S . | cmp -s - <(jq -S . "$1/data.json")' _ "$rbac_dir"
+rm -r "$jd_dir" "$rbac_dir/data.yaml"
+check "data.yaml removed: data.json is in force again" eventually 15 ry_own
+
 section "Instances"
 systemctl list-units --type=service --plain --no-legend 'mcp-*' | awk '{print "  " $1, $4}'
 a_pid=$(instance_pid alice)
