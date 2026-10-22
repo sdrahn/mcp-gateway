@@ -178,8 +178,10 @@ outside_dontaudit_off() {
 # Denials in a permissive domain (permissive=1) are those mcp-gateway
 # profile records on purpose.
 # The file server refused ~/.config without mcpsrv_fs_manage_xdg and
-# ~/.ssh always, on purpose ("Files written through the gateway").
-expected_denial='scontext=[^ ]*:mcpsrv_fs_t:[^ ]* tcontext=[^ ]*:(config_home_t|ssh_home_t):'
+# ~/.ssh always, and the gateway the mail server without
+# mcpgw_can_send_mail, on purpose ("Files written through the gateway",
+# "E-mail approvals").
+expected_denial='scontext=[^ ]*:mcpsrv_fs_t:[^ ]* tcontext=[^ ]*:(config_home_t|ssh_home_t):|scontext=[^ ]*:mcpgw_t:[^ ]* tcontext=[^ ]*:smtp_port_t:'
 no_mcp_denials() {
 	! outside_dontaudit_off <<<"$avc" | grep -E 'mcpgw_|mcpopa_|mcpsrv_|mcp_port_t' | grep -v 'permissive=1' |
 		grep -vE "$expected_denial" | grep -q .
@@ -2174,6 +2176,87 @@ systemctl restart mcp-opa.service
 check "OPA back on the policy directories" eventually 30 pb_opa_up
 check "GET /v1/policy: directories mode" \
 	bash -c 'curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/policy | jq -e ".mode == \"directories\"" >/dev/null'
+
+section "E-mail approvals"
+# Chapter 7, "E-mail": notifications.email with the local postfix. hank's
+# calls of fs/read_file need an approval from group:mailers, whose members
+# are frank (listed in the group) and gina (her primary group). Without
+# the boolean mcpgw_can_send_mail the gateway may not connect to the mail
+# server: no mail, the approval as before. With it, both approvers get one
+# mail (undisclosed recipients) without the call's arguments; hank, who
+# is no approver, gets none.
+if zypper -n in --no-recommends postfix >/root/vmtest/mail-install.log 2>&1; then
+	systemctl enable --now postfix >/dev/null 2>&1
+	groupadd mailers
+	useradd -m hank
+	useradd -m -G mailers frank
+	useradd -m -g mailers gina
+	for u in hank frank gina; do usermod -aG mcp-users "$u"; done
+	runuser -u hank -- sh -c 'echo "hank notes" >/home/hank/notes.txt'
+	cp /etc/mcp-gateway/policy/rbac/data.json /root/ml-data-before.json
+	jq '.roles.mailed = {"permissions": [{"server": "fs", "tool": "read_file", "require_approval": true, "approval_channel": "oob"}]}
+		| .bindings.users.hank = ["mailed"] | .approvers.fs = ["group:mailers"]' \
+		/root/ml-data-before.json >/root/ml-data.json &&
+		cat /root/ml-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	check "notifications.email: config set from" sh -c 'mcp-gateway-admin config set notifications.email.from mcp-gateway@localhost | grep -qF "is in force"'
+	check "notifications.email: config set smtp localhost:25" sh -c 'mcp-gateway-admin config set notifications.email.smtp localhost:25 | grep -qF "is in force"'
+	ml_listening() { (exec 3<>/dev/tcp/127.0.0.1/25) 2>/dev/null; }
+	check "postfix listens on port 25" eventually 20 ml_listening
+	ml_mail() { cat "/var/spool/mail/$1" 2>/dev/null; }
+	# ml_call: hank's read_file, approved by frank once it waits; sets
+	# ml_id (the approval) and leaves the result in /root/vmtest/ml-call.out.
+	ml_call() {
+		runuser -u hank -- /usr/local/bin/mcpcall --server fs --method tools/call \
+			--params '{"name":"read_file","arguments":{"path":"/home/hank/notes.txt"}}' >/root/vmtest/ml-call.out 2>&1 &
+		local pid=$!
+		ml_id=
+		for _ in $(seq 30); do
+			ml_id=$(control frank GET /v1/approvals | jq -r '.[] | select(.name == "read_file" and .principal.sub == "hank") | .id' 2>/dev/null | head -1)
+			[ -n "$ml_id" ] && break
+			sleep 1
+		done
+		echo "  approval: ${ml_id:-none}"
+		[ -n "$ml_id" ] && control frank POST "/v1/approvals/$ml_id" '{"decision":"approve","scope":"once"}' >/dev/null
+		wait "$pid"
+		grep -q '"isError":false' /root/vmtest/ml-call.out
+	}
+
+	# Without the boolean: refused by SELinux, logged, the approval works.
+	setsebool mcpgw_can_send_mail off
+	ml_since=$(date +%s)
+	check "without mcpgw_can_send_mail: frank, an approver by group, approves hank's call" ml_call
+	ml_not_sent() {
+		journalctl -u mcp-gateway.service -o cat --since "@$ml_since" | grep -F "approval mail not sent" | grep -qF "$ml_id"
+	}
+	check "... the mail is not sent, and the gateway says so" eventually 20 ml_not_sent
+	check "... nothing reached frank" bash -c '! grep -qF "$1" "/var/spool/mail/frank" 2>/dev/null' _ "$ml_id"
+
+	# With it: one mail to both approvers.
+	setsebool mcpgw_can_send_mail on
+	check "with mcpgw_can_send_mail: frank approves hank's call" ml_call
+	ml_got() { ml_mail "$1" | grep -qF "$ml_id"; }
+	check "... frank, a listed member of the approvers' group, got the mail" eventually 30 ml_got frank
+	check "... and gina, whose primary group it is" eventually 30 ml_got gina
+	ml_mail frank | grep -E '^(From|To|Subject):' | tail -3 | sed 's/^/  | /'
+	check "... its subject names the call and the principal" \
+		bash -c 'grep -qF "Subject: [mcp-gateway] Approval needed: fs/read_file for hank" <<<"$1"' _ "$(ml_mail frank)"
+	check "... to undisclosed recipients (no approver sees the others)" \
+		bash -c 'grep -qF "To: undisclosed-recipients:;" <<<"$1" && ! grep -qF gina <<<"$1"' _ "$(ml_mail frank)"
+	check "... without the call's arguments (include_args: false)" bash -c '! grep -qF /home/hank/notes.txt <<<"$1"' _ "$(ml_mail frank)"
+	check "hank, who asked and is no approver, got no mail" bash -c '! grep -qF "$1" /var/spool/mail/hank 2>/dev/null' _ "$ml_id"
+	ml_sent() {
+		journalctl -u mcp-gateway.service -o cat --since "@$ml_since" | grep -F "approval mail sent" | grep -F "$ml_id" | grep -q 'recipients=2'
+	}
+	check "the gateway logs the mail, to 2 recipients" ml_sent
+
+	mcp-gateway-admin config unset notifications.email.smtp >/dev/null
+	mcp-gateway-admin config unset notifications.email.from >/dev/null
+	setsebool mcpgw_can_send_mail off
+	cat /root/ml-data-before.json >/etc/mcp-gateway/policy/rbac/data.json
+else
+	tail -5 /root/vmtest/mail-install.log | sed 's/^/  | /'
+	skip "e-mail approvals (postfix not installable)"
+fi
 
 section "Self-check"
 # carol may connect (mcp-users) but holds no role: the doctor names her.

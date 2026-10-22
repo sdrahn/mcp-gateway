@@ -89,7 +89,9 @@ state kept); a remote principal without a local account (servers
 working in the home not offered to it, others are); users from a
 directory (389 Directory Server and SSSD: users and groups not in
 /etc/passwd, the socket's group a directory group, roles bound to it,
-approvals by a directory group); approvals through the control API;
+approvals by a directory group); e-mail approvals (a local postfix,
+approvers by group, members listed and by primary group, no mail
+without `mcpgw_can_send_mail`); approvals through the control API;
 files written through the file server and what SELinux keeps from it;
 polkit; credentials; a privileged backend and its own SELinux module; the six
 server setups with their real servers (systemd changes a unit after an
@@ -131,16 +133,13 @@ of its own (what openQA does well and CI cannot):
    gateway.
 5. **Desktop approvals:** `mcp-gateway-desktop` in a GNOME session: the
    notification appears, "Approve" lets the waiting call through.
-6. **E-mail approvals:** a local postfix, `notifications.email`, the
-   mail with the approval link reaches the approver (also members by
-   primary group).
-7. **FIPS mode** (SLES with `fips=1` and the FIPS crypto policy): the
+6. **FIPS mode** (SLES with `fips=1` and the FIPS crypto policy): the
    HTTPS listener and the connector's TLS, the AES-GCM token store of
    sign-ins, and the OAuth helper still work, with only FIPS-approved
    algorithms.
-8. **Other architectures:** aarch64, ppc64le and s390x. The packages
+7. **Other architectures:** aarch64, ppc64le and s390x. The packages
    build there, but the tests have run on x86_64 only; MCS pairs,
    Landlock ABIs and the audit records differ by kernel and
    architecture.
-9. **Longer runs:** many sessions and instances for an hour (memory,
+8. **Longer runs:** many sessions and instances for an hour (memory,
    file descriptors, journal volume), and `logrotate` of the audit log.
