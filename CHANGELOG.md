@@ -66,6 +66,21 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
+- User guide chapter 3: `socket_group` other than `mcp-users` (a
+  directory group, say) needs the group added to `mcp-gateway.service`
+  (`SupplementaryGroups=`), or the gateway cannot give it the sockets
+  and does not start.
+
+## v1.3.1 — 2026-10-22
+
+Fixes, one of them for security: a remote principal without a local
+account no longer gets the servers that work in the user's home, where
+the shipped file server served `/`. Upgrading from 1.3.0 needs no
+changes. After the update, restart the gateway (`systemctl restart
+mcp-gateway.service`); the package does not.
+
+### Fixed
+
 - A remote principal without a local account (a token whose
   `local_user_claim` names no account on the host) got the servers that
   work in the user's home with that home empty: the shipped `fs`
@@ -78,17 +93,6 @@ minor release (with a warning) and removed in the next.
   and calls and sessions at its endpoint are refused ("server fs works
   in the user's home directory; a principal without a local account has
   none"). `mcp-server-fs` also refuses an empty `--root`.
-- User guide chapter 3: `socket_group` other than `mcp-users` (a
-  directory group, say) needs the group added to `mcp-gateway.service`
-  (`SupplementaryGroups=`), or the gateway cannot give it the sockets
-  and does not start.
-- User guide chapter 2, "Uninstalling", now says to remove first what was
-  built on the gateway's SELinux types (an administrator's modules for
-  MCP servers, ports given `mcp_port_t` or `mcp_metrics_port_t`): the
-  gateway's module cannot be removed while they use them. And that the
-  role data, which comes with the package, is kept as
-  `data.json.rpmsave` when changed: it said all of `/etc/mcp-gateway`
-  stays.
 - `mcp-policy-bundle` recorded the policy files under its temporary
   build directory (`/tmp/tmp.…/src/mcp/authz.rego`), which became part of
   every module id in OPA: each bundle built changed the gateway's policy
@@ -104,14 +108,20 @@ minor release (with a warning) and removed in the next.
   the home failed with "…: permission denied", and so did
   `directory_tree`, `search_files` and the other searches starting there.
   Such entries are now listed by name, as `[?]` ("unknown" in
-  `directory_tree`), and the rest as before. Found by the new obligations
-  tests.
+  `directory_tree`), and the rest as before.
 - `mcp-gateway-admin setup http -write` on a system without
   `/etc/mcp-gateway/gateway.yaml` (the default on openSUSE, which keeps it
   in `/usr/etc`) created it readable by root only (0640, root:root): the
   gateway, which runs as `mcp-gateway`, then failed to start
   (`ExecStartPre` could not read its configuration). A new file is 0644
   now, as the default is; an existing one keeps its owner and mode.
+- User guide chapter 2, "Uninstalling", now says to remove first what was
+  built on the gateway's SELinux types (an administrator's modules for
+  MCP servers, ports given `mcp_port_t` or `mcp_metrics_port_t`): the
+  gateway's module cannot be removed while they use them. And that the
+  role data, which comes with the package, is kept as
+  `data.json.rpmsave` when changed: it said all of `/etc/mcp-gateway`
+  stays.
 
 ## v1.3.0 — 2026-10-21
 
