@@ -316,7 +316,7 @@ func (d *doctorRun) rendering() doctor.Result {
 		r.Status, r.Summary = doctor.Skip, "no role data read"
 		return r
 	}
-	fix := "systemctl start mcp-policy-render.service; journalctl -u mcp-policy-render.service"
+	fix := "systemctl restart mcp-policy-render.service; journalctl -u mcp-policy-render.service"
 	p, err := policydata.PlanRender(filepath.Dir(d.rbacFile), d.shipped)
 	if err != nil {
 		return skipOrFail(r, err)

@@ -35,10 +35,8 @@ trees into one policy:
   `data.mcp.rbac.managers`. Below `rbac/`, OPA does not read the files
   itself (`--ignore rbac`): `mcp-policy-render.service` writes the file
   in force of each directory there (`data.yaml` before `data.json`) as
-  JSON to `/run/mcp-opa/rbac/`, which OPA loads as `data.mcp.rbac`, on
-  every change of `rbac/` (`mcp-policy-render.path`). A change in a
-  subdirectory only (`rbac/managers/`) is rendered with the next change
-  of `rbac/` itself, or with `systemctl start mcp-policy-render.service`.
+  JSON to `/run/mcp-opa/rbac/`, which OPA loads as `data.mcp.rbac`, and
+  again on every change below `rbac/`, subdirectories included.
   Other files below `rbac/` are not loaded (the doctor names them): put
   `.rego` files elsewhere in `/etc/mcp-gateway/policy/`. The shipped policy directory is loaded the
   same way: the server setup packages put their roles in
@@ -667,8 +665,8 @@ undefined; the `else` chain makes the precedence explicit.
 Put data your rules use into `data.json` files below
 `/etc/mcp-gateway/policy/`, preferably **below `rbac/`**
 (`/etc/mcp-gateway/policy/rbac/<name>/data.json` or `data.yaml` →
-`data.mcp.rbac.<name>`; rendered with the next run of
-`mcp-policy-render.service`, see [How OPA loads the policy](#how-opa-loads-the-policy)):
+`data.mcp.rbac.<name>`, rendered for OPA by `mcp-policy-render.service`,
+see [How OPA loads the policy](#how-opa-loads-the-policy)):
 the gateway notices policy changes by comparing the loaded Rego modules
 and `data.mcp.rbac`, and only then tells agents to list their tools again
 and writes a `mcp-policy-change` audit event. Changes to data elsewhere

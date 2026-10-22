@@ -127,7 +127,6 @@ install-gateway:
 	install -Dm0644 systemd/mcp-gateway.service $(DESTDIR)$(UNITDIR)/mcp-gateway.service
 	install -Dm0644 systemd/mcp-opa.service $(DESTDIR)$(UNITDIR)/mcp-opa.service
 	install -Dm0644 systemd/mcp-policy-render.service $(DESTDIR)$(UNITDIR)/mcp-policy-render.service
-	install -Dm0644 systemd/mcp-policy-render.path $(DESTDIR)$(UNITDIR)/mcp-policy-render.path
 	install -Dm0644 packaging/sysusers.d/mcp-gateway.conf $(DESTDIR)$(SYSUSERSDIR)/mcp-gateway.conf
 	install -Dm0644 packaging/tmpfiles.d/mcp-gateway.conf $(DESTDIR)$(TMPFILESDIR)/mcp-gateway.conf
 	install -Dm0644 packaging/polkit/50-mcp-gateway.rules $(DESTDIR)$(POLKITDIR)/50-mcp-gateway.rules

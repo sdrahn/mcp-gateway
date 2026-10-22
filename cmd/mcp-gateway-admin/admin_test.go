@@ -339,7 +339,7 @@ func TestExplainDecision(t *testing.T) {
 		t.Fatal(err)
 	}
 	if text, isErr, _ := callTool(t, a, "explain_decision", map[string]any{"user": me, "server": "sys", "name": "x"}); !isErr ||
-		!strings.Contains(text, "systemctl start mcp-policy-render.service") {
+		!strings.Contains(text, "systemctl restart mcp-policy-render.service") {
 		t.Errorf("not rendered: %s", text)
 	}
 }

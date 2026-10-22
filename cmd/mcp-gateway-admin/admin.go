@@ -409,7 +409,7 @@ func (a *adminServer) evaluate(ctx context.Context, in pep.Input) (*explanation,
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if _, err := os.Stat(a.rendered); err != nil {
-		return nil, fmt.Errorf("the role data is not rendered for OPA (%v): systemctl start mcp-policy-render.service", err)
+		return nil, fmt.Errorf("the role data is not rendered for OPA (%v): systemctl restart mcp-policy-render.service", err)
 	}
 	cmd := exec.CommandContext(ctx, a.opa, "eval", "--format", "json", "--stdin-input", "--ignore", "rbac",
 		"--data", a.shipped, "--data", "mcp:"+a.etcPolicy, "--data", "mcp.rbac:"+a.rendered, explainQuery)

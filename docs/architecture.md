@@ -3802,7 +3802,13 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       chapter 12) must be rendered along. The alternative is to refuse
       both files instead of preferring one (the doctor fails, OPA's
       merge error stands), which needs nothing new but is not the
-      priority asked for;
+      priority asked for. As built: the renderer is a service of its own
+      (`mcp-policy-render.service`, `Type=notify`, ready after the first
+      rendering, `Before=mcp-opa.service`) that watches `rbac/` with
+      inotify, subdirectories included, and checks every minute, rather
+      than a oneshot run by a path unit: systemd does not start a path
+      unit's service again while it runs, so a change during a rendering
+      could stay unrendered (the VM test found it);
     - stage B, Cockpit writes YAML: the role editor (Policy tab) reads
       the file in force and saves `data.yaml`, through a YAML library that
       keeps comments and key order where the structure is unchanged

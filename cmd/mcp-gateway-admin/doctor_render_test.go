@@ -34,7 +34,7 @@ func TestDoctorRendering(t *testing.T) {
 		t.Errorf("JSON alone: %+v", r)
 	}
 	if r := d.rendering(); r.Status != doctor.Fail || !strings.Contains(r.Summary, "OPA has no role data") ||
-		!strings.Contains(details(r), "systemctl start mcp-policy-render.service") {
+		!strings.Contains(details(r), "systemctl restart mcp-policy-render.service") {
 		t.Errorf("not rendered: %+v", r)
 	}
 

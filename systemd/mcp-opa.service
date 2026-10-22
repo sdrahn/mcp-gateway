@@ -5,7 +5,7 @@ Before=mcp-gateway.service
 # The role data, rendered from /etc/mcp-gateway/policy/rbac (data.yaml or
 # data.json) to /run/mcp-opa/rbac, and again on every change. Wants=: OPA
 # starts without it, and denies what no role allows.
-Wants=mcp-policy-render.service mcp-policy-render.path
+Wants=mcp-policy-render.service
 After=mcp-policy-render.service
 
 [Service]
