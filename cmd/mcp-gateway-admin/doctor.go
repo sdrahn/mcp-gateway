@@ -62,6 +62,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	configPath := fs.String("config", "", "gateway configuration")
 	policyData := fs.String("policy-data", policydata.DefaultPath, "role data")
 	shipped := fs.String("shipped-policy", policydata.DefaultShippedDir, "shipped policy with the roles of the server setups")
+	rendered := fs.String("rendered-policy", policydata.RenderDir, "the role data as OPA loads it (mcp-policy-render)")
 	only := fs.String("server", "", "check only this server (start, roles)")
 	noStart := fs.Bool("no-start", false, "do not start the servers")
 	since := fs.Duration("since", 24*time.Hour, "how far back to look for SELinux denials (within the current boot)")
@@ -83,6 +84,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 		root:       os.Geteuid() == 0,
 		policyData: *policyData,
 		shipped:    *shipped,
+		rendered:   *rendered,
 		only:       *only,
 		noStart:    *noStart,
 		since:      *since,
@@ -123,6 +125,7 @@ type doctorRun struct {
 	// server cannot reach the gateway's sockets or OPA.
 	isolated            bool
 	policyData, shipped string
+	rendered            string // the role data as OPA loads it
 	only                string
 	noStart             bool
 	since, timeout      time.Duration
@@ -133,6 +136,7 @@ type doctorRun struct {
 	gw       *config.Gateway
 	backends map[string]*config.Backend
 	rbac     []byte // the role data, if read
+	rbacFile string // the file it was read from (the one in force)
 	// versions are what the servers that started reported, by name.
 	versions map[string]string
 	// failed are the servers that did not start; denials the SELinux
@@ -163,6 +167,7 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 	}
 	need(d.roleData())
 	if d.only == "" {
+		add(d.rendering())
 		add(d.services()...)
 		add(d.stateFiles())
 		add(d.tls()...)
@@ -260,15 +265,20 @@ func (d *doctorRun) configuration(path string) doctor.Result {
 
 func (d *doctorRun) roleData() doctor.Result {
 	r := doctor.Result{Check: "role data"}
-	data, err := os.ReadFile(d.policyData)
+	file, data, ignored, err := policydata.Read(d.policyData)
 	if errors.Is(err, fs.ErrNotExist) {
 		r.Status, r.Summary = doctor.Skip, d.policyData+" does not exist (policy from a bundle?): not checked"
 		return r
 	}
 	if err != nil {
-		return skipOrFail(r, err)
+		if errors.Is(err, fs.ErrPermission) {
+			return skipOrFail(r, err)
+		}
+		r.Status, r.Summary = doctor.Fail, err.Error()
+		r.Details = []string{"OPA keeps the role data it had; the file does not parse"}
+		return r
 	}
-	d.rbac = data
+	d.rbac, d.rbacFile = data, file
 	var shipped map[string]string
 	var problems []string
 	if d.shipped != "" {
@@ -284,10 +294,60 @@ func (d *doctorRun) roleData() doctor.Result {
 	}
 	problems = append(problems, own...)
 	if len(problems) > 0 {
-		r.Status, r.Summary, r.Details = doctor.Fail, fmt.Sprintf("%s: %d problems; the policy treats invalid data as absent", d.policyData, len(problems)), problems
+		r.Status, r.Summary, r.Details = doctor.Fail, fmt.Sprintf("%s: %d problems; the policy treats invalid data as absent", file, len(problems)), problems
 		return r
 	}
-	r.Status, r.Summary = doctor.OK, fmt.Sprintf("%s valid (%d shipped roles known)", d.policyData, len(shipped))
+	r.Status, r.Summary = doctor.OK, fmt.Sprintf("%s valid (%d shipped roles known)", file, len(shipped))
+	if len(ignored) > 0 {
+		r.Status = doctor.Warn
+		for _, f := range ignored {
+			r.Details = append(r.Details, fmt.Sprintf("%s is ignored: %s is in force; remove it, or merge what it has into %s", f, file, filepath.Base(file)))
+		}
+	}
+	return r
+}
+
+// rendering checks that OPA has the role data in force: that
+// mcp-policy-render wrote it (to d.rendered) as it now is, and that no
+// file below the role data's directory is left out.
+func (d *doctorRun) rendering() doctor.Result {
+	r := doctor.Result{Check: "role data for OPA"}
+	if d.rbacFile == "" {
+		r.Status, r.Summary = doctor.Skip, "no role data read"
+		return r
+	}
+	fix := "systemctl start mcp-policy-render.service; journalctl -u mcp-policy-render.service"
+	p, err := policydata.PlanRender(filepath.Dir(d.rbacFile), d.shipped)
+	if err != nil {
+		return skipOrFail(r, err)
+	}
+	if _, err := os.Stat(d.rendered); errors.Is(err, fs.ErrNotExist) {
+		r.Status, r.Summary, r.Details = doctor.Fail, d.rendered+" does not exist: OPA has no role data", []string{fix}
+		return r
+	}
+	write, remove, err := p.Stale(d.rendered)
+	if err != nil {
+		return skipOrFail(r, err)
+	}
+	for _, f := range write {
+		r.Details = append(r.Details, "not current: "+filepath.Join(d.rendered, f))
+	}
+	for _, f := range remove {
+		r.Details = append(r.Details, "left over: "+filepath.Join(d.rendered, f))
+	}
+	if len(r.Details) > 0 {
+		r.Status, r.Summary = doctor.Warn, "OPA decides by role data that is not the one in force"
+		r.Details = append(r.Details, fix)
+		return r
+	}
+	r.Status, r.Summary = doctor.OK, d.rendered+" is current"
+	if len(p.Unloaded) > 0 {
+		r.Status = doctor.Warn
+		for _, f := range p.Unloaded {
+			r.Details = append(r.Details, f+" is not loaded: only data.yaml or data.json is role data (a rule belongs in "+
+				filepath.Dir(filepath.Dir(d.rbacFile))+")")
+		}
+	}
 	return r
 }
 
@@ -585,12 +645,12 @@ func rolesResult(name, version, runAs string, msgs []string) *doctor.Result {
 func (d *doctorRun) roleFiles() []inspect.RoleFile {
 	var files []inspect.RoleFile
 	if d.rbac != nil {
-		files = append(files, inspect.RoleFile{Name: d.policyData, Data: d.rbac})
+		files = append(files, inspect.RoleFile{Name: d.rbacFile, Data: d.rbac})
 	}
 	if d.shipped != "" {
-		paths, _ := filepath.Glob(filepath.Join(d.shipped, "mcp", "profiles", "*", "data.json"))
-		for _, p := range paths {
-			if data, err := os.ReadFile(p); err == nil {
+		dirs, _ := policydata.ShippedDirs(d.shipped)
+		for _, dir := range dirs {
+			if p, data, _, err := policydata.Read(filepath.Join(dir, policydata.Names[1])); err == nil {
 				files = append(files, inspect.RoleFile{Name: p, Data: data})
 			}
 		}

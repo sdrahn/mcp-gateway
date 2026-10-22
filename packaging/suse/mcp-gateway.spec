@@ -302,21 +302,21 @@ export GOFLAGS="-mod=vendor"
 go test ./internal/... ./profiles/...
 
 %pre -f %{name}.pre
-%service_add_pre mcp-gateway.service mcp-opa.service
+%service_add_pre mcp-gateway.service mcp-opa.service mcp-policy-render.service mcp-policy-render.path
 
 %post
 %tmpfiles_create %{_tmpfilesdir}/%{name}.conf
-%service_add_post mcp-gateway.service mcp-opa.service
+%service_add_post mcp-gateway.service mcp-opa.service mcp-policy-render.service mcp-policy-render.path
 
 %preun
-%service_del_preun mcp-gateway.service mcp-opa.service
+%service_del_preun mcp-gateway.service mcp-opa.service mcp-policy-render.service mcp-policy-render.path
 
 %postun
 # The gateway is not restarted on update: an update made through a
 # privileged MCP server (package installation) would wait for itself. It
 # logs, and the Cockpit page shows, that a restart is pending.
 %service_del_postun_without_restart mcp-gateway.service
-%service_del_postun mcp-opa.service
+%service_del_postun mcp-opa.service mcp-policy-render.path
 
 %pre profile-systemd -f %{name}-profile-systemd.pre
 
@@ -352,6 +352,7 @@ fi
 %{_libexecdir}/mcp-gateway/mcp-http-connector
 %{_libexecdir}/mcp-gateway/mcp-oauth-helper
 %{_libexecdir}/mcp-gateway/mcp-landlock
+%{_libexecdir}/mcp-gateway/mcp-policy-render
 %{_sbindir}/mcp-policy-bundle
 %dir %{_sysconfdir}/mcp-gateway
 %dir %{_sysconfdir}/mcp-gateway/servers.d
@@ -384,6 +385,8 @@ fi
 %{_datadir}/mcp-gateway/policy/mcp/profiles/gateway-admin
 %{_unitdir}/mcp-gateway.service
 %{_unitdir}/mcp-opa.service
+%{_unitdir}/mcp-policy-render.service
+%{_unitdir}/mcp-policy-render.path
 %{_sysusersdir}/%{name}.conf
 %{_tmpfilesdir}/%{name}.conf
 %{_datadir}/polkit-1/rules.d/50-mcp-gateway.rules

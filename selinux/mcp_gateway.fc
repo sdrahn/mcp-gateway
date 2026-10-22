@@ -32,3 +32,4 @@
 /run/mcp-gateway/control\.sock				-s	gen_context(system_u:object_r:mcpgw_ctl_sock_t,s0)
 /run/mcp-gateway/opa\.sock				-s	gen_context(system_u:object_r:mcpopa_sock_t,s0)
 /run/mcp-gateway/credentials(/.*)?				gen_context(system_u:object_r:mcpgw_cred_run_t,s0)
+/run/mcp-opa(/.*)?						gen_context(system_u:object_r:mcpopa_rbac_t,s0)

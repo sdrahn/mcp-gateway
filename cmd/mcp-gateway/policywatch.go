@@ -10,20 +10,24 @@ import (
 
 // watchPolicyFiles tells, on the returned channel, when a file of the
 // local policy changed: the role data's directories (policyData is
-// .../policy/rbac/data.json; OPA loads .../policy as a whole) and the
-// shipped policy, with their subdirectories, the trees mcp-opa.service
-// runs with --watch. Policy from a bundle server is not on disk: it is
+// .../policy/rbac/data.json; OPA loads .../policy as a whole), the role
+// data rendered for OPA (rendered, policydata.RenderDir: OPA reloads after
+// mcp-policy-render wrote it, a moment after the role data changed) and
+// the shipped policy, with their subdirectories, the trees
+// mcp-opa.service runs with --watch. Policy from a bundle server is not on disk: it is
 // noticed by polling only. Directories that cannot be watched are logged
 // once while they stay so. It returns nil without inotify.
-func watchPolicyFiles(ctx context.Context, log *slog.Logger, policyData, shipped string) <-chan struct{} {
+func watchPolicyFiles(ctx context.Context, log *slog.Logger, policyData, rendered, shipped string) <-chan struct{} {
 	fsw, err := fswatch.New()
 	if err != nil {
 		log.Warn("policy changes are noticed by polling only", "err", err)
 		return nil
 	}
 	roots := []string{filepath.Dir(filepath.Dir(policyData)), filepath.Dir(policyData)}
-	if shipped != "" {
-		roots = append(roots, shipped)
+	for _, d := range []string{rendered, shipped} {
+		if d != "" {
+			roots = append(roots, d)
+		}
 	}
 	unwatched := map[string]bool{}
 	set := func() {

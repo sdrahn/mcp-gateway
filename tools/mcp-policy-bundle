@@ -23,7 +23,8 @@ Usage: mcp-policy-bundle [-k SIGNING_KEY] [-o OUTPUT] [-r REVISION] [-n]
   -r  revision recorded in the bundle (default: UTC timestamp)
   -n  do not restart mcp-opa.service
   -V  policy logic (default: /usr/share/mcp-gateway/policy)
-  -L  role data (default: /etc/mcp-gateway/policy)
+  -L  the administrator's policy and role data (default:
+      /etc/mcp-gateway/policy; in rbac/, data.yaml before data.json)
 
 Environment: OPA (default: opa from PATH), MCP_GATEWAY (default:
 mcp-gateway from PATH; checks the role data before building, if found).
@@ -80,11 +81,12 @@ if [ ! -r "$key" ]; then
 fi
 
 # The role data must match its schema; mcp-gateway checks it where it is
-# installed (a bundle built elsewhere, e.g. in CI, may lack it).
+# installed (a bundle built elsewhere, e.g. in CI, may lack it). It checks
+# the file in force: data.yaml if there is one, else data.json.
 gateway=${MCP_GATEWAY:-mcp-gateway}
-if [ -f "$local/rbac/data.json" ] && command -v "$gateway" >/dev/null 2>&1; then
+if { [ -f "$local/rbac/data.yaml" ] || [ -f "$local/rbac/data.json" ]; } && command -v "$gateway" >/dev/null 2>&1; then
 	if ! "$gateway" --check-policy-data --policy-data "$local/rbac/data.json"; then
-		echo "mcp-policy-bundle: $local/rbac/data.json has problems (above); no bundle built" >&2
+		echo "mcp-policy-bundle: the role data in $local/rbac has problems (above); no bundle built" >&2
 		exit 1
 	fi
 fi
@@ -93,12 +95,27 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/src"
 cp -R "$vendor/." "$tmp/src/"
+# The role data comes from the administrator's directory only.
+rm -rf "$tmp/src/mcp/rbac"
 # The administrator's files: Rego files at their relative path, so a file
 # at a shipped path replaces the shipped one; data files below data.mcp,
-# as mcp-opa.service loads them ("mcp:/etc/mcp-gateway/policy"), so
-# rbac/data.json is data.mcp.rbac.
+# as mcp-opa.service loads them ("mcp:/etc/mcp-gateway/policy"). Below
+# rbac/, as mcp-opa.service has it (mcp-policy-render): in each directory
+# the file in force only, data.yaml before data.json, as data.mcp.rbac;
+# nothing else.
 (cd "$local" && find . -type f ! -name '.manifest') | while IFS= read -r f; do
 	case $f in
+	./rbac/*/data.json | ./rbac/data.json)
+		y=${f%.json}.yaml
+		if [ -f "$local/$y" ]; then
+			echo "mcp-policy-bundle: $local/${f#./} is ignored: $local/${y#./} is in force" >&2
+			continue
+		fi
+		dest="$tmp/src/mcp/$f" ;;
+	./rbac/*/data.yaml | ./rbac/data.yaml) dest="$tmp/src/mcp/$f" ;;
+	./rbac/*)
+		echo "mcp-policy-bundle: $local/${f#./} is not role data (data.yaml or data.json); not in the bundle" >&2
+		continue ;;
 	*/data.json | */data.yaml | */data.yml) dest="$tmp/src/mcp/$f" ;;
 	*) dest="$tmp/src/$f" ;;
 	esac

@@ -1,0 +1,10 @@
+[Unit]
+Description=MCP gateway role data changes
+Documentation=https://github.com/sdrahn/mcp-gateway/blob/main/docs/architecture.md
+# Pulled in by mcp-opa.service. A change below a subdirectory of rbac/
+# (rbac/<name>/, chapter 12) is rendered with the next change of rbac/
+# itself, or with: systemctl start mcp-policy-render.service
+
+[Path]
+PathChanged=/etc/mcp-gateway/policy/rbac
+Unit=mcp-policy-render.service
