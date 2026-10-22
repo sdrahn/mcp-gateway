@@ -2131,6 +2131,9 @@ grep 'state files' /root/doctor-state.txt | sed 's/^/  /'
 check "doctor: names the state file root owns" \
 	grep -qE '^FAIL +state files: not owned by mcp-gateway: 1 ' /root/doctor-state.txt
 restarted=$(date +%s)
+# (reset-failed: the starts before, "Failing closed" among them, must not
+# reach systemd's start limit.)
+systemctl reset-failed mcp-gateway.service
 systemctl restart mcp-gateway.service 2>/dev/null
 state_error() { journalctl -u mcp-gateway.service -o cat --since "@$restarted" | grep 'state files not owned by mcp-gateway' | grep -q 'stray.json'; }
 check "the gateway names the state file root owns" eventually 30 state_error
