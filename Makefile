@@ -161,8 +161,9 @@ install-tests:
 	install -Dm0755 test/vm/run-tests.sh $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/tests/run-tests.sh
 	install -Dm0755 bin/tests/mcpcall $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/tests/mcpcall
 	install -Dm0755 bin/tests/privsrv $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/tests/privsrv
-	# The default role data of 1.4, for the update test (an unchanged copy goes).
-	install -Dm0644 test/compat/1.4/policy/rbac/data.json $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/tests/default-1.4.json
+	# The default role data of 1.4, the last in /etc, for the update test (an
+	# unchanged copy goes; packaging/rbac/previous-defaults.sha256).
+	install -Dm0644 test/vm/default-1.4.json $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/tests/default-1.4.json
 
 install-selinux: selinux
 	install -d $(DESTDIR)$(SELINUXDIR)

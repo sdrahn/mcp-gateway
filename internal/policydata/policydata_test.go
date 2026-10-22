@@ -1,6 +1,8 @@
 package policydata
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +22,23 @@ func TestShippedData(t *testing.T) {
 		if err != nil || len(problems) > 0 {
 			t.Errorf("%s: %v %q", file, err, problems)
 		}
+	}
+}
+
+// The update test's copy of 1.4's default (test/vm/default-1.4.json) is
+// one the package removes from /etc on update: its checksum is listed.
+func TestPreviousDefault(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "test", "vm", "default-1.4.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sums, err := os.ReadFile(filepath.Join("..", "..", "packaging", "rbac", "previous-defaults.sha256"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(b)
+	if !strings.Contains("\n"+string(sums), "\n"+hex.EncodeToString(sum[:])+"\n") {
+		t.Errorf("previous-defaults.sha256 does not list test/vm/default-1.4.json (%x)", sum)
 	}
 }
 
