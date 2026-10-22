@@ -2,8 +2,8 @@
 # Functional tests of the installed gateway on a real openSUSE or SLES
 # system with SELinux enforcing: domains, MCS pairs, polkit, credentials,
 # calls, approvals, obligations, limits, failing closed, signed policy
-# bundles, reloads, kernel audit, no SELinux denials, and uninstalling.
-# Package mcp-gateway-tests installs it as
+# bundles, users from a directory, reloads, kernel audit, no SELinux
+# denials, and uninstalling. Package mcp-gateway-tests installs it as
 # /usr/libexec/mcp-gateway/tests/run-tests.sh for openQA and other test
 # systems; the CI VM runs the same (test/vm/run-vm.sh, after
 # test/vm/prepare.sh). Next to it:
@@ -2290,6 +2290,141 @@ mcp-gateway doctor --no-start >/root/doctor-moved.txt 2>&1
 check "mcp-gateway doctor: unknown, naming mcp-gateway-admin doctor" \
 	grep -q '"mcp-gateway-admin doctor" since 0.7' /root/doctor-moved.txt
 userdel -r carol 2>/dev/null
+
+section "Users from a directory"
+# Principals that are not in /etc/passwd: users and groups of an LDAP
+# directory (389 Directory Server on this host) through SSSD. dirk and
+# dana are directory users, mcp-dir (both) and dir-approvers (dana) are
+# directory groups. The socket's group is mcp-dir (socket_group, with the
+# group added to the gateway's unit), roles are bound to mcp-dir, and
+# approvals for fs are decided by group:dir-approvers. The packages come
+# from the distribution's repositories; without them the section is
+# skipped.
+if zypper -n in --no-recommends 389-ds sssd sssd-ldap openldap2-client >/root/vmtest/dir-install.log 2>&1; then
+	dir_pw=Vmtest-dir-1
+	cat >/root/vmtest/dir.inf <<'END'
+[general]
+full_machine_name = localhost
+strict_host_checking = False
+[slapd]
+instance_name = vmtest
+root_password = Vmtest-dir-1
+port = 389
+self_sign_cert = False
+[backend-userroot]
+suffix = dc=vmtest,dc=example
+create_suffix_entry = True
+sample_entries = no
+END
+	check "a directory server is set up (389 Directory Server)" bash -c 'dscreate from-file /root/vmtest/dir.inf >/root/vmtest/dscreate.log 2>&1'
+	tail -3 /root/vmtest/dscreate.log | sed 's/^/  | /'
+	dir_entry() { # dir_entry <uid> <number> <groups...>: a directory user with a group of its own
+		printf 'dn: uid=%s,ou=People,dc=vmtest,dc=example\nobjectClass: top\nobjectClass: inetOrgPerson\nobjectClass: posixAccount\ncn: %s\nsn: %s\nuid: %s\nuidNumber: %s\ngidNumber: %s\nhomeDirectory: /home/%s\nloginShell: /bin/bash\n\n' \
+			"$1" "$1" "$1" "$1" "$2" "$2" "$1"
+		printf 'dn: cn=%s,ou=Groups,dc=vmtest,dc=example\nobjectClass: top\nobjectClass: posixGroup\ncn: %s\ngidNumber: %s\n\n' "$1" "$1" "$2"
+	}
+	{
+		printf 'dn: ou=People,dc=vmtest,dc=example\nobjectClass: top\nobjectClass: organizationalUnit\nou: People\n\n'
+		printf 'dn: ou=Groups,dc=vmtest,dc=example\nobjectClass: top\nobjectClass: organizationalUnit\nou: Groups\n\n'
+		dir_entry dirk 20001
+		dir_entry dana 20002
+		printf 'dn: cn=mcp-dir,ou=Groups,dc=vmtest,dc=example\nobjectClass: top\nobjectClass: posixGroup\ncn: mcp-dir\ngidNumber: 20100\nmemberUid: dirk\nmemberUid: dana\n\n'
+		printf 'dn: cn=dir-approvers,ou=Groups,dc=vmtest,dc=example\nobjectClass: top\nobjectClass: posixGroup\ncn: dir-approvers\ngidNumber: 20101\nmemberUid: dana\n\n'
+	} >/root/vmtest/dir.ldif
+	check "the users and groups are in the directory" bash -c \
+		'ldapadd -x -H ldap://127.0.0.1 -D "cn=Directory Manager" -w "$1" -f /root/vmtest/dir.ldif >/root/vmtest/ldapadd.log 2>&1' _ "$dir_pw"
+	install -d -m 0700 /etc/sssd
+	cat >/etc/sssd/sssd.conf <<END
+[sssd]
+services = nss
+domains = vmtest
+
+[domain/vmtest]
+id_provider = ldap
+auth_provider = none
+ldap_uri = ldap://127.0.0.1
+ldap_search_base = dc=vmtest,dc=example
+ldap_schema = rfc2307
+ldap_default_bind_dn = cn=Directory Manager
+ldap_default_authtok = $dir_pw
+ldap_id_use_start_tls = false
+ldap_auth_disable_tls_never_use_in_production = true
+cache_credentials = false
+END
+	chmod 0600 /etc/sssd/sssd.conf
+	[ -e /etc/nsswitch.conf ] || cp /usr/etc/nsswitch.conf /etc/nsswitch.conf
+	sed -i -E '/^(passwd|group):/{/ sss( |$)/!s/$/ sss/}' /etc/nsswitch.conf
+	grep -E '^(passwd|group):' /etc/nsswitch.conf | sed 's/^/  /'
+	systemctl enable --now sssd >/dev/null 2>&1
+	dir_known() { getent passwd dirk >/dev/null && id -nG dana | grep -qw dir-approvers; }
+	check "SSSD serves the directory's users and groups" eventually 30 dir_known
+	echo "  $(getent passwd dirk); dana: $(id dana)"
+	check "... and they are not in /etc/passwd" bash -c '! grep -qE "^(dirk|dana):" /etc/passwd'
+	for u in dirk dana; do
+		install -d -m 0700 -o "$u" -g "$u" "/home/$u"
+		runuser -u "$u" -- sh -c "echo '$u from the directory' >/home/$u/notes.txt"
+	done
+	restorecon -R /home/dirk /home/dana
+
+	# The socket's group a directory group: the gateway must be a member
+	# to give it the socket.
+	mcp-gateway-admin config set socket_group mcp-dir >/dev/null
+	systemctl reset-failed mcp-gateway.service
+	systemctl restart mcp-gateway.service 2>/dev/null
+	sleep 2
+	dir_no_start() { ! systemctl is-active -q mcp-gateway.service; }
+	check "socket_group a group the gateway is not in: the gateway does not start" dir_no_start
+	journalctl -u mcp-gateway.service -o cat --since "-30s" | grep -iE 'chown|not permitted|socket' | tail -2 | cut -c1-200 | sed 's/^/  | /'
+	mkdir -p /etc/systemd/system/mcp-gateway.service.d
+	printf '[Service]\nSupplementaryGroups=mcp-dir\n' >/etc/systemd/system/mcp-gateway.service.d/vmtest-socket-group.conf
+	systemctl daemon-reload
+	systemctl reset-failed mcp-gateway.service
+	systemctl restart mcp-gateway.service
+	wait_socket
+	check "... with the group added to its unit, it does" systemctl is-active -q mcp-gateway.service
+	check "the socket belongs to the directory group" test "$(stat -c %G /run/mcp-gateway/mcp.sock)" = mcp-dir
+
+	# Roles and approvers by directory group.
+	jq '.bindings.groups["mcp-dir"] = ["tester", "dir-asked"]
+		| .roles["dir-asked"] = {"permissions": [{"server": "fs", "tool": "get_file_info", "require_approval": true, "approval_channel": "oob"}]}
+		| .approvers.fs = ["group:dir-approvers"]' \
+		/etc/mcp-gateway/policy/rbac/data.json >/root/dir-data.json &&
+		cat /root/dir-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	dir_read() { tool dirk read_file '{"path":"/home/dirk/notes.txt"}' && succeeded_with "dirk from the directory"; }
+	check "a directory user reads his file (role through a directory group)" eventually 30 dir_read
+	dir_inst=$(instance_pid dirk)
+	check "... his instance runs as him" test "$(ps -o uid= -p "${dir_inst:-1}" 2>/dev/null | tr -d ' ')" = 20001
+	check "... in mcpsrv_fs_t" proc_has_type "${dir_inst:-1}" mcpsrv_fs_t
+	tool dana read_file '{"path":"/home/dirk/notes.txt"}'
+	check "another directory user cannot read it" failed_without "dirk from the directory"
+
+	# dirk's call waits for an approval only dir-approvers may give.
+	runuser -u dirk -- /usr/local/bin/mcpcall --server fs --method tools/call \
+		--params '{"name":"get_file_info","arguments":{"path":"/home/dirk/notes.txt"}}' >/root/vmtest/dir-call.out 2>&1 &
+	dir_call=$!
+	dir_pending() { control dana GET /v1/approvals | jq -e '.[] | select(.name == "get_file_info")' >/dev/null; }
+	check "a member of the approvers' directory group sees the approval" eventually 30 dir_pending
+	dir_hidden() { control dirk GET /v1/approvals | jq -e 'type == "array" and (map(select(.name == "get_file_info")) | length == 0)' >/dev/null; }
+	check "... the requester, not a member, does not" dir_hidden
+	dir_id=$(control dana GET /v1/approvals | jq -r '.[] | select(.name == "get_file_info") | .id')
+	control dana POST "/v1/approvals/$dir_id" '{"decision":"approve","scope":"once"}' >/dev/null
+	wait "$dir_call"
+	check "... and approves it: the call runs" grep -q '"isError":false' /root/vmtest/dir-call.out
+
+	# Back to mcp-users.
+	jq 'del(.approvers.fs)' /etc/mcp-gateway/policy/rbac/data.json >/root/dir-data.json &&
+		cat /root/dir-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	mcp-gateway-admin config unset socket_group >/dev/null
+	rm -f /etc/systemd/system/mcp-gateway.service.d/vmtest-socket-group.conf
+	systemctl daemon-reload
+	systemctl reset-failed mcp-gateway.service
+	systemctl restart mcp-gateway.service
+	wait_socket
+	check "the gateway serves mcp-users again" bash -c 'test "$(stat -c %G /run/mcp-gateway/mcp.sock)" = mcp-users'
+else
+	tail -5 /root/vmtest/dir-install.log | sed 's/^/  | /'
+	skip "users from a directory (389-ds or SSSD not installable)"
+fi
 
 section "Kernel audit"
 echo "  auditd: $(systemctl is-active auditd); records since the install: $(audit_since ALL | wc -l)"

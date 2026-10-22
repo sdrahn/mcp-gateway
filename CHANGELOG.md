@@ -35,7 +35,10 @@ minor release (with a warning) and removed in the next.
   refused; and uninstalling: the services stopped by the packages'
   scripts, no instance left, the SELinux modules unloaded, the
   configuration and state kept; and a remote principal without a local
-  account: servers working in the home not offered to it, others are.
+  account: servers working in the home not offered to it, others are;
+  and users from a directory (389 Directory Server and SSSD): the
+  socket's group a directory group, roles bound to it, approvals by a
+  directory group.
 
 ### Fixed
 
@@ -51,6 +54,10 @@ minor release (with a warning) and removed in the next.
   and calls and sessions at its endpoint are refused ("server fs works
   in the user's home directory; a principal without a local account has
   none"). `mcp-server-fs` also refuses an empty `--root`.
+- User guide chapter 3: `socket_group` other than `mcp-users` (a
+  directory group, say) needs the group added to `mcp-gateway.service`
+  (`SupplementaryGroups=`), or the gateway cannot give it the sockets
+  and does not start.
 - User guide chapter 2, "Uninstalling", now says to remove first what was
   built on the gateway's SELinux types (an administrator's modules for
   MCP servers, ports given `mcp_port_t` or `mcp_metrics_port_t`): the

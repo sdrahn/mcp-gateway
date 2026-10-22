@@ -414,7 +414,7 @@ first key that exists applies (`<server>`, else `default`, else
 |---|---|
 | `self` | the principal themself (same local uid); not available for remote principals without a local account |
 | `role:<role>` | users holding the role through the bindings |
-| `group:<group>` | members of a local group |
+| `group:<group>` | members of a group (local, or of a directory through SSSD) |
 | `user:<user>` | a local user |
 
 The same rules decide who may **see and revoke grants**, who may
