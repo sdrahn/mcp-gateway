@@ -3756,6 +3756,90 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       written; in the VMs, `config set limits.tasks_per_principal`
       takes effect while a client stays connected, and the drop-in has
       `mcpgw_etc_t`.
+37. **Role data in YAML** (1.5; D10):
+    - the problem: the role data (roles, bindings, approver rules, scope
+      ceilings; `data.mcp.rbac`) is JSON, `policy/rbac/data.json`. It is
+      the one file administrators write by hand, and JSON has no
+      comments, so it cannot say why a role allows what it does or who
+      asked for a binding. Everything else they write is YAML
+      (`gateway.yaml`, its drop-ins, server definitions);
+    - the policy stays as it is: users write data, the shipped Rego
+      (`mcp.authz`, `mcp.approvals`, …) evaluates it, and custom Rego
+      (chapter 12) remains the way to add logic. The YAML is the same
+      data with the same schema (`rbac.schema.json`) and the same
+      `version`; nothing is compiled to Rego. Generating Rego from YAML
+      would repeat what the shipped policy does with the data, make every
+      role change a code change, and put what runs outside the shipped
+      tests, what-if and the denial reasons;
+    - stage A, the format and its priority:
+      `/etc/mcp-gateway/policy/rbac/data.yaml` holds the role data in
+      YAML. Where both it and `data.json` exist, **the YAML is in force**,
+      and `data.json` is ignored: the doctor warns about it and names
+      it, `mcp-gateway --check-policy-data` says which file it checked.
+      `data.json` alone works as before (D10: no deprecation; the
+      server setup packages keep shipping theirs as JSON). Every reader
+      of the role data reads the file in force: the checker
+      (`internal/policydata`, `--check-policy-data`), the control API's
+      what-if and Cockpit's role editor, the doctor, the gateway's
+      policy watch (`policywatch.go`, the fingerprint), `mcp-policy-bundle`
+      (a bundle carries the file in force) and the tests;
+    - stage A, how OPA follows the priority (to decide when the stage is
+      built): OPA reads `data.yaml` natively, in directory mode as in a
+      bundle, but merges every data file it finds, so with both files in
+      `rbac/` it would merge them, refuse the overlapping keys and keep
+      the previous policy (or, at start, deny everything). OPA must
+      therefore see one of them only. Recommended: OPA no longer loads
+      the role data from `/etc/mcp-gateway/policy/rbac` itself; a
+      oneshot run by a path unit (`mcp-policy-render.path`, as root, on
+      changes of `rbac/`) checks the file in force and writes it as JSON
+      to `/run/mcp-opa/rbac/data.json`, which OPA loads as `mcp.rbac`;
+      a file that does not check leaves the last one in place, as OPA
+      keeps its previous policy now. This keeps the gateway without
+      write access outside its runtime directory, gives OPA one input,
+      and is where drop-ins of roles would merge (below). Its costs: a
+      path unit and a runtime directory with a type of their own that
+      `mcpopa_t` reads, and the data below `rbac/` (`rbac/managers/`,
+      chapter 12) must be rendered along. The alternative is to refuse
+      both files instead of preferring one (the doctor fails, OPA's
+      merge error stands), which needs nothing new but is not the
+      priority asked for;
+    - stage B, Cockpit writes YAML: the role editor (Policy tab) reads
+      the file in force and saves `data.yaml`, through a YAML library that
+      keeps comments and key order where the structure is unchanged
+      (comments in edited entries stay with their keys); the raw editor
+      shows and checks YAML. Saving where only `data.json` exists
+      writes `data.yaml` and leaves `data.json` in place, ignored from
+      then on (stage A's priority), with a note that it may go; Cockpit
+      does not delete it. The page has no third-party code so far;
+      rather than vendoring a JavaScript YAML library, it can leave YAML
+      to `mcp-gateway-admin` (run with `cockpit.spawn` as the
+      administrator, as the page runs other commands): the command reads
+      the file in force as JSON for the page, and writes the page's
+      changes into `data.yaml` with the Go YAML library, which keeps
+      comments (to decide when the stage is built). Either way the
+      result is checked against the schema before it is written, as now;
+    - stage C, the docs: chapter 6 (role data, with YAML examples and
+      JSON as the alternative), chapter 8 (Cockpit's editor), chapter 12
+      (how OPA loads the role data now), chapter 11
+      (`--check-policy-data`), the CHANGELOG, and the upgrade note that a
+      `data.json` keeps working and how to convert it (one command:
+      `mcp-gateway-admin policy convert`, which writes `data.yaml` from
+      `data.json` and leaves `data.json` as it is);
+    - not in this step: drop-ins of role data (`rbac.d/*.yaml`, a file per
+      team or setup, merged in order as `gateway.d` is), which the
+      rendering of stage A would make possible (a step of its own if
+      asked for); YAML for the server setup packages' shipped roles;
+      Rego generated from YAML;
+    - tests: `data.yaml` alone, `data.json` alone and both present
+      (YAML in force, `data.json` reported); the checker names a YAML
+      error's line; what-if and the denial reasons are the same for the
+      same data in either format; a change to `data.yaml` is in force
+      within seconds and changes the fingerprint (`list_changed`); a
+      broken `data.yaml` keeps the previous role data; Cockpit saves YAML
+      with comments kept and refuses data the schema refuses; a signed
+      bundle built from `data.yaml`; in the VMs, the shipped role data
+      converted to YAML gives the same decisions, and OPA never loads
+      both files.
 
 ## 12. Open items
 
