@@ -186,6 +186,18 @@ socket_group: mcp-users     # default: empty (the gateway's own group)
 | `socket` | `/run/mcp-gateway/mcp.sock` | unix socket for local agents (mode 0660) |
 | `socket_group` | empty | group owning the socket and the control socket; its members may connect. The shipped file sets `mcp-users`. |
 
+The gateway must be a member of `socket_group` to give it the sockets;
+`mcp-gateway.service` adds it to `mcp-users` only. For another group,
+for example a group of a directory (LDAP, Active Directory) served by
+SSSD, add it to the unit as well, or the gateway does not start
+("operation not permitted"):
+
+```bash
+mkdir -p /etc/systemd/system/mcp-gateway.service.d
+printf '[Service]\nSupplementaryGroups=mcp-dir\n' >/etc/systemd/system/mcp-gateway.service.d/socket-group.conf
+systemctl daemon-reload && systemctl restart mcp-gateway.service
+```
+
 ### MCP server definitions and state
 
 | Key | Default | Meaning |
