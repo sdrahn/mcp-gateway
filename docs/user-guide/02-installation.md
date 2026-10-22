@@ -238,6 +238,18 @@ systemctl disable --now mcp-gateway.service mcp-opa.service
 zypper remove mcp-gateway mcp-gateway-selinux mcp-gateway-cockpit mcp-gateway-desktop mcp-gateway-fs-server
 ```
 
+Before that, remove what you built on the gateway's SELinux types: the
+gateway's module cannot be removed while they use them, and stays
+loaded otherwise.
+
+- Your own modules for MCP servers (`semodule -l | grep mcp_`, for
+  example one made with `mcp-gateway profile`, chapter 4):
+  `semodule -r mcp_git`.
+- Ports you gave `mcp_port_t` or `mcp_metrics_port_t`
+  (`semanage port -l | grep mcp_`): `semanage port -d -p tcp 8443`.
+
 `/etc/mcp-gateway` (your configuration) and `/var/lib/mcp-gateway`
 (grants, pending approvals, audit key) are left in place; remove them by
-hand if they are no longer needed.
+hand if they are no longer needed. The role data came with the package:
+changed, it is kept as `/etc/mcp-gateway/policy/rbac/data.json.rpmsave`
+(rename it back after installing again), unchanged, it is removed.

@@ -2,10 +2,11 @@
 # Functional tests of the installed gateway on a real openSUSE or SLES
 # system with SELinux enforcing: domains, MCS pairs, polkit, credentials,
 # calls, approvals, obligations, limits, failing closed, signed policy
-# bundles, reloads, kernel audit and no SELinux denials. Package
-# mcp-gateway-tests installs it as /usr/libexec/mcp-gateway/tests/run-tests.sh
-# for openQA and other test systems; the CI VM runs the same (test/vm/run-vm.sh,
-# after test/vm/prepare.sh). Next to it:
+# bundles, reloads, kernel audit, no SELinux denials, and uninstalling.
+# Package mcp-gateway-tests installs it as
+# /usr/libexec/mcp-gateway/tests/run-tests.sh for openQA and other test
+# systems; the CI VM runs the same (test/vm/run-vm.sh, after
+# test/vm/prepare.sh). Next to it:
 #   mcpcall   the test client (test/vm/mcpcall)
 #   privsrv   test server for privileged backends (test/vm/privsrv)
 #
@@ -2274,6 +2275,67 @@ check "no denials involving the gateway, OPA or MCP servers" no_mcp_denials
 section "Logs"
 journalctl -u mcp-gateway.service -u mcp-opa.service --no-pager -o short-precise | tail -60
 journalctl -u 'mcp-fs-*' --no-pager -o short-precise 2>/dev/null | tail -20
+
+section "Uninstall"
+# Last, as it removes the gateway (this package too: bash keeps reading
+# the script it opened). Chapter 2, "Uninstalling", without stopping the
+# services by hand first: the packages' scripts stop and disable them,
+# the SELinux modules are unloaded, nothing of the gateway keeps
+# running, and /etc/mcp-gateway (the role data as data.json.rpmsave) and
+# /var/lib/mcp-gateway stay. As the
+# chapter says, what was built on the gateway's SELinux types goes first:
+# the tests' own modules (a privileged server's, profile's) and the ports
+# given mcp_port_t and mcp_metrics_port_t; the gateway's module cannot be
+# removed while they use its types.
+# un_units: the gateway's units still running or stopping.
+un_units() {
+	systemctl list-units --plain --no-legend --state=active,activating,deactivating,reloading 'mcp-*' 2>/dev/null |
+		awk '{print $1}'
+}
+# A setup package first, if they are installed: its server and polkit
+# rule go; the gateway keeps running without the server.
+if rpm -q mcp-gateway-profile-systemd >/dev/null 2>&1; then
+	check "a setup package is removed" rpm -e --nodeps mcp-gateway-profile-systemd
+	check "... its polkit rule is gone" test ! -e /usr/share/polkit-1/rules.d/60-mcp-gateway-systemd.rules
+	un_no_systemd() { ! curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/servers | jq -e '.[] | select(.name == "systemd" and (.removed | not))' >/dev/null; }
+	check "... and the gateway no longer offers its server" eventually 30 un_no_systemd
+	echo "  its account: $(getent passwd mcp-sysmgmt >/dev/null && echo kept || echo removed)"
+else
+	skip "removing a setup package (none installed)"
+fi
+for m in mcp_privtest mcp_fwprof; do
+	semodule -l | awk '{print $1}' | grep -qx "$m" && semodule -r "$m" >/dev/null
+done
+# (-C: the local changes only; "mcp_port_t  tcp  9443, 8443")
+semanage port -l -C 2>/dev/null | awk '$1 ~ /^mcp_(metrics_)?port_t$/ {for (i = 3; i <= NF; i++) print $2, $i}' |
+	tr -d ',' | while read -r proto port; do semanage port -d -p "$proto" "$port"; done
+# Something running: an instance of alice's.
+tool alice read_file '{"path":"/home/alice/secret.txt"}' >/dev/null
+echo "  before: $(un_units | tr '\n' ' ')"
+un_packages=$(rpm -qa --qf '%{NAME}\n' 'mcp-gateway*' | sort | tr '\n' ' ')
+echo "  removing: $un_packages"
+# shellcheck disable=SC2086 # a list of package names
+rpm -e --nodeps $un_packages >/root/vmtest/uninstall.log 2>&1
+un_rc=$?
+sed 's/^/  | /' /root/vmtest/uninstall.log | head -20
+check "the packages are removed" test "$un_rc" = 0 -a -z "$(rpm -qa 'mcp-gateway*')"
+check "the gateway and OPA are stopped" \
+	bash -c '! systemctl is-active -q mcp-gateway.service && ! systemctl is-active -q mcp-opa.service'
+check "... and their units are gone" bash -c '! systemctl cat mcp-gateway.service mcp-opa.service >/dev/null 2>&1'
+un_none() { [ -z "$(un_units)" ]; }
+check "no instance of an MCP server is left" eventually 30 un_none
+un_units | sed 's/^/  left: /'
+un_modules_gone() { ! semodule -l | awk '{print $1}' | grep -qE '^mcp_(gateway|systemd|firewalld|zypp|snapper|suseconnect|podman)$'; }
+check "the SELinux modules are unloaded" un_modules_gone
+semodule -l | awk '{print $1}' | grep -E '^mcp_' | sed 's/^/  still loaded: /'
+check "the programs are gone" bash -c '! test -e /usr/bin/mcp-gateway && ! test -e /usr/libexec/mcp-servers/mcp-server-fs'
+check "the polkit rules are gone" bash -c '! ls /usr/share/polkit-1/rules.d/*mcp-gateway* >/dev/null 2>&1'
+check "the gateway's sockets are gone" test ! -S /run/mcp-gateway/mcp.sock
+# The role data came with the package (%config): changed, rpm keeps it as
+# data.json.rpmsave; what the tests added stays as it is.
+check "the changed role data is kept (data.json.rpmsave)" test -s /etc/mcp-gateway/policy/rbac/data.json.rpmsave
+check "the configuration added stays (/etc/mcp-gateway/exec.d)" test -s /etc/mcp-gateway/exec.d/vmtest.yaml
+check "the state stays (/var/lib/mcp-gateway)" test -d /var/lib/mcp-gateway
 
 section "Result"
 # write_results <dir>: the checks as TAP (results.tap) and JUnit

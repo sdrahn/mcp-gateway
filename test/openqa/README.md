@@ -28,11 +28,13 @@ zypper -n in mcp-gateway-tests
 /usr/libexec/mcp-gateway/tests/run-tests.sh --disposable --results /var/tmp/mcp-gateway-tests
 ```
 
-- **They change the system for good:** users `alice`, `bob`, `carol`, `dora` and `erin`,
-  the role data, `gateway.yaml` and drop-ins, a test SELinux module and
-  package, booleans, and the gateway's state. Without `--disposable`
-  they refuse to start (exit status 2). Run them on a snapshot or a
-  throwaway VM, and only once per system.
+- **They change the system for good:** users `alice`, `bob`, `carol`,
+  `dora` and `erin`, the role data, `gateway.yaml` and drop-ins, a test
+  SELinux module and package, booleans, and the gateway's state; and
+  they end by removing the gateway's packages, this one included (the
+  last section, "Uninstall"). Without `--disposable` they refuse to
+  start (exit status 2). Run them on a snapshot or a throwaway VM, and
+  only once per system.
 - **Results:** every check prints `PASS:`, `FAIL:` or `SKIP:` on
   standard output, in sections (`=== Calls`). With `--results DIR`,
   `results.tap` (TAP) and `results.xml` (JUnit, a test suite per
@@ -78,7 +80,12 @@ backed off, a killed gateway started again by systemd with its
 grants and pending approvals); signed policy bundles (a change previewed
 with what-if, OPA in bundle mode with a key made by `mcp-policy-bundle`,
 unsigned role data without effect, a tampered bundle and one signed with
-another key refused, everything denied until a valid one is back); approvals through the control API; files written
+another key refused, everything denied until a valid one is back);
+uninstalling (a setup package's server and polkit rule gone; all
+packages removed without stopping anything first: the services stopped
+and disabled, no instance left, the SELinux modules unloaded once the
+modules and ports built on their types are gone, configuration and
+state kept); approvals through the control API; files written
 through the file server and what SELinux keeps from it; polkit;
 credentials; a privileged backend and its own SELinux module; the six
 server setups with their real servers (systemd changes a unit after an
@@ -98,11 +105,7 @@ the clients (`e2e/`, `test/clients`) without SELinux.
 Proposed additions, the most valuable first. **In the tests** (more
 sections of `run-tests.sh`, no extra machinery):
 
-1. **SELinux booleans and uninstall:** `mcpsrv_fs_manage_xdg` off and
-   on (`~/.config` refused, then allowed); removing the packages unloads
-   the modules and leaves no instance units, and removing a setup
-   package removes its account and polkit rule.
-2. **Users from a directory:** principals from SSSD (LDAP or AD) rather
+1. **Users from a directory:** principals from SSSD (LDAP or AD) rather
    than `/etc/passwd`, with `mcp-users` as a directory group; approver
    rules by group; a principal without a local account (`${HOME}`,
    `${UID}` left out).
@@ -110,42 +113,42 @@ sections of `run-tests.sh`, no extra machinery):
 **As openQA test modules of their own** (what openQA does well and CI
 cannot):
 
-3. **Reboot:** after the tests' setup, reboot and check that the
+2. **Reboot:** after the tests' setup, reboot and check that the
    gateway and OPA come up, `/run/mcp-gateway` and its sockets are back
    with their groups and labels, the doctor is clean, and grants made
    before the reboot still apply.
-4. **Transactional systems** (SL Micro, openSUSE MicroOS): install
+3. **Transactional systems** (SL Micro, openSUSE MicroOS): install
    with `transactional-update pkg install` and reboot, then the tests;
    `/usr` read-only, `/etc` as an overlay, the SELinux relabel after
    the snapshot, and the documented "read-only file system" message for
    the commands that would write `/usr`.
-5. **Upgrade and migration:** install the previous release from the
+4. **Upgrade and migration:** install the previous release from the
    product's maintenance repository, set it up (drop-ins, grants,
    sign-in tokens), update to the new one with `zypper up`, and run the
    tests against the kept state: restart notice, configuration kept,
    deprecation warnings, `test/compat` on the product. And a service
    pack migration (SLES 16.0 to 16.1) with the gateway installed.
-6. **Cockpit in a browser:** log in to Cockpit (`https://host:9090`),
+5. **Cockpit in a browser:** log in to Cockpit (`https://host:9090`),
    open "MCP Gateway", approve a pending call that `mcpcall` waits on,
    end a client, cancel a task, reload the configuration, with needles
    for the tabs. Kit's page (cockpit-kit) the same way, against this
    gateway.
-7. **Desktop approvals:** `mcp-gateway-desktop` in a GNOME session: the
+6. **Desktop approvals:** `mcp-gateway-desktop` in a GNOME session: the
    notification appears, "Approve" lets the waiting call through.
-8. **E-mail approvals:** a local postfix, `notifications.email`, the
+7. **E-mail approvals:** a local postfix, `notifications.email`, the
    mail with the approval link reaches the approver (also members by
    primary group).
-9. **FIPS mode** (SLES with `fips=1` and the FIPS crypto policy): the
+8. **FIPS mode** (SLES with `fips=1` and the FIPS crypto policy): the
    HTTPS listener and the connector's TLS, the AES-GCM token store of
    sign-ins, and the OAuth helper still work, with only FIPS-approved
    algorithms.
-10. **Other architectures:** aarch64, ppc64le and s390x. The packages
-    build there, but the tests have run on x86_64 only; MCS pairs,
-    Landlock ABIs and the audit records differ by kernel and
-    architecture.
-11. **Longer runs:** many sessions and instances for an hour (memory,
+9. **Other architectures:** aarch64, ppc64le and s390x. The packages
+   build there, but the tests have run on x86_64 only; MCS pairs,
+   Landlock ABIs and the audit records differ by kernel and
+   architecture.
+10. **Longer runs:** many sessions and instances for an hour (memory,
     file descriptors, journal volume), and `logrotate` of the audit log.
 
-Items 1 and 2 extend this package's tests and run wherever it runs;
-items 3 to 11 need openQA's reboots, snapshots, browsers, machines and
+Item 1 extends this package's tests and runs wherever it runs;
+items 2 to 10 need openQA's reboots, snapshots, browsers, machines and
 product flavors.
