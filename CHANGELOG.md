@@ -7,6 +7,38 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v1.4.0 — 2026-10-22
+
+Functional tests for openQA, and `setup http` in a drop-in. The package
+`mcp-gateway-tests` holds the functional tests the CI runs in its VMs,
+for openQA and other systems that test a product with the packages from
+its repositories, and they cover much more now: the HTTPS listener for
+remote agents, the obligations under the real OPA, the limits per
+principal, failing closed and recovering, signed policy bundles,
+uninstalling, users from a directory and e-mail approvals.
+`mcp-gateway-admin setup http --write` sets only the `http` keys it
+changes, in the drop-in `config set` writes, so that the rest of the
+configuration still follows the package's default. 1.4.0 has the fixes
+of 1.3.1 too.
+
+Upgrading from 1.3.x needs no changes to `gateway.yaml`, server
+definitions, role data or custom policies. After the update, restart
+the gateway (`systemctl restart mcp-gateway.service`); the package does
+not. The SELinux modules do not change. Things to know:
+
+- **A `gateway.yaml` that `setup http` wrote before** stays as it is,
+  and in force: a later `setup http --write` sets the keys it changes in
+  the drop-in over it (the dry run names where each key is set now). To
+  follow the package's defaults again, keep only your own settings in
+  `/etc/mcp-gateway/gateway.yaml`, or move them to drop-ins and remove
+  the file.
+- **`setup http --config FILE`** still edits that file, but warns: it
+  goes away in 1.5. Leave it out, or set keys with `mcp-gateway-admin
+  config set`.
+- **`mcp-gateway-tests` is for test systems only:** its tests change the
+  system for good (users, role data, configuration, SELinux modules,
+  packages).
+
 ### Added
 
 - Package `mcp-gateway-tests`: the functional tests, for openQA and other
