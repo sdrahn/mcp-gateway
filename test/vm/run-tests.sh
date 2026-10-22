@@ -634,6 +634,28 @@ check "doctor: the role data fails, with the line" ry_doctor \
 	'.[] | select(.id == "role-data" and .status == "fail" and (.summary | contains("is already defined")))'
 cat /root/vmtest/ry-good.yaml >"$rbac_dir/data.yaml"
 check "fixed again, it is rendered" eventually 15 ry_bob_exec
+# What Cockpit's role editor runs (chapter 8): policy show gives the role
+# data in force as JSON, policy write merges a change into data.yaml,
+# keeping its comments, and refuses what the schema refuses.
+ry_show=$(mcp-gateway-admin policy show)
+check "policy show: data.yaml in force, as JSON" \
+	bash -c 'jq -e --arg f "$2/data.yaml" ".file == \$f and .origin == \"yaml\" and (.data.bindings.users.bob | index(\"commands\"))" <<<"$1" >/dev/null' _ "$ry_show" "$rbac_dir"
+check "policy show: data.json named as ignored" bash -c 'jq -e ".ignored | length == 1" <<<"$1" >/dev/null' _ "$ry_show"
+jq '.data | .bindings.users.dora = ["tester"]' <<<"$ry_show" >/root/vmtest/ry-edit.json
+ry_write=$(mcp-gateway-admin policy write </root/vmtest/ry-edit.json)
+echo "  $(jq -c '{file, written, problems}' <<<"$ry_write")"
+check "policy write: the change written to data.yaml" bash -c 'jq -e ".written" <<<"$1" >/dev/null' _ "$ry_write"
+check "... keeping its comment" grep -qF "# Role data in YAML (chapter 6)" "$rbac_dir/data.yaml"
+ry_dora() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/bindings/users/dora | jq -e '.result == ["tester"]' >/dev/null; }
+check "... and in force" eventually 15 ry_dora
+cp "$rbac_dir/data.yaml" /root/vmtest/ry-before-bad.yaml
+check "policy write refuses data the schema refuses" \
+	bash -c '! jq ".data | .roles.tester.permissions[0].require_aproval = true" <<<"$1" | mcp-gateway-admin policy write >/root/vmtest/ry-bad.json' _ "$ry_show"
+check "... names the problem" grep -qF "'require_aproval' not allowed" /root/vmtest/ry-bad.json
+check "... and leaves data.yaml as it was" cmp -s "$rbac_dir/data.yaml" /root/vmtest/ry-before-bad.yaml
+check "policy write --yaml writes YAML as it is" \
+	bash -c '{ cat "$1"; echo "# added by hand"; } | mcp-gateway-admin policy write --yaml >/dev/null && tail -1 "$1" | grep -qx "# added by hand"' _ "$rbac_dir/data.yaml"
+cat /root/vmtest/ry-good.yaml >"$rbac_dir/data.yaml"
 # A subdirectory (rbac/<name>/, chapter 12) is rendered along, as
 # data.mcp.rbac.<name>, also when only it changes.
 mkdir -p "$rbac_dir/vmtest"

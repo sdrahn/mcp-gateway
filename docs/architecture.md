@@ -3823,7 +3823,15 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       the file in force as JSON for the page, and writes the page's
       changes into `data.yaml` with the Go YAML library, which keeps
       comments (to decide when the stage is built). Either way the
-      result is checked against the schema before it is written, as now;
+      result is checked against the schema before it is written, as now.
+      As built: `mcp-gateway-admin policy show` (the role data in force
+      as JSON, its origin and its YAML text) and `policy write` (JSON
+      merged into `data.yaml` by `policydata.UpdateYAML`, which keeps
+      the comments, style and key order of what is unchanged and the
+      comments of an edited entry, and checks that the result reads
+      back as the data; or, with `--yaml`, the raw editor's text as it
+      is; `--dry-run` checks only). The page needs no YAML library;
+      the raw editor shows and saves YAML;
     - stage A2, the shipped role data leaves `/etc`: the package installs
       its default role data (the roles `viewer`, `developer`, …, the
       default approvers) as `/usr/share/mcp-gateway/policy/rbac/data.yaml`

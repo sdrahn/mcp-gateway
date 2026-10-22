@@ -360,7 +360,23 @@ Desktop notifications for pending approvals; `--socket` defaults to
 
 ```
 mcp-gateway-admin policy convert [FILE] [-o OUT] [--force]
+mcp-gateway-admin policy show [--policy-data FILE]
+mcp-gateway-admin policy write [--yaml] [--dry-run] [--policy-data FILE] < DATA
 ```
+
+`show` prints the role data in force as JSON: `{"file", "origin"
+("yaml", "json" or "default"), "ignored", "data", "yaml"}`, with
+`"yaml"` the file's text (or the data converted, for `data.json`), and
+`"error"` and the text instead of `"data"` when the file does not parse.
+`write` reads role data on standard input (JSON; with `--yaml`, YAML)
+and checks it against the schema; JSON is merged into `data.yaml` next
+to `--policy-data`, keeping the comments and order of what it does not
+change, YAML is written as it is. It prints `{"file", "written",
+"problems", "data", "yaml", "ignored"}`; `--dry-run` only checks. Exit
+status 1 if the data does not parse or the schema refuses it (nothing is
+written). Cockpit's role editor uses both (chapter 8).
+
+`convert`:
 
 Writes role data in JSON (default: `/etc/mcp-gateway/policy/rbac/data.json`)
 as YAML, the same data with the keys in their order, next to it as

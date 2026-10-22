@@ -1,6 +1,9 @@
 /* Policy tab: what OPA has loaded, and the role data (roles, bindings,
- * approver rules, token scope ceilings) in /etc/mcp-gateway/policy/rbac/data.json, edited with
- * administrative access. OPA picks changes up by itself (--watch); with a
+ * approver rules, token scope ceilings) in force, edited with
+ * administrative access and saved to /etc/mcp-gateway/policy/rbac/data.yaml.
+ * The page leaves YAML to "mcp-gateway-admin policy show" (the role data
+ * in force as JSON, and its YAML text) and "policy write" (checks it and
+ * writes data.yaml, keeping its comments). OPA picks changes up by itself (--watch); with a
  * signed bundle file they take effect once the bundle is rebuilt, which
  * the page does with mcp-policy-bundle if the signing key is on this host.
  */
@@ -15,13 +18,26 @@ let shippedRoles = {};
 let policySource = "directories";
 let signingKey = false; // the signing key exists on this host
 let unsigned = false; // role data saved since the active bundle was built
-// Where the role data shown comes from: "file" (RBAC_FILE), "default" (no
-// role data in /etc: the shipped default, as rendered), or "yaml"
-// (RBAC_YAML is in force: shown as rendered, not editable here).
-let rbacOrigin = "file";
+// The role data in force as "policy show" gave it: { file, origin
+// ("yaml", "json" or "default"), ignored, data, yaml, error }.
+let rbacShown = null;
 
-function rbacFile() {
-    return cockpit.file(RBAC_FILE, { superuser: "try" });
+/* policyRun runs "mcp-gateway-admin policy ARGS" with input; it resolves
+ * to { ok, out (its JSON output, or null), ex }. "policy write" prints its
+ * result also when it refuses the data (exit status 1). */
+function policyRun(args, input, superuser) {
+    return new Promise(resolve => {
+        const parse = text => { try { return JSON.parse(text) } catch (e) { return null } };
+        const proc = cockpit.spawn(["mcp-gateway-admin", "policy", ...args], { superuser, err: "message" });
+        if (input !== undefined) proc.input(input);
+        proc.then(out => resolve({ ok: true, out: parse(out) }),
+                  (ex, out) => resolve({ ok: false, ex, out: parse(out) }));
+    });
+}
+
+function failureText(r) {
+    if (r.ex && r.ex.problem === "access-denied") return "Saving needs administrative access (turn it on in Cockpit's top bar).";
+    return ((r.ex && (r.ex.message || r.ex.problem)) || "no answer").trim();
 }
 
 /* validateRBAC returns the problems that would make the role data unusable. */
@@ -69,20 +85,6 @@ function validateRBAC(d) {
     return problems;
 }
 
-/* schemaProblems checks the role data against its JSON Schema with
- * "mcp-gateway --check-policy-data" (unknown fields, wrong values, invalid
- * regular expressions). Each problem is a line starting with its location
- * (a JSON pointer). If the check cannot run, nothing is reported. */
-async function schemaProblems(data) {
-    try {
-        await cockpit.spawn(["mcp-gateway", "--check-policy-data", "--policy-data", "-"], { err: "message" })
-                .input(JSON.stringify(data));
-        return [];
-    } catch (ex) {
-        return ((ex && ex.message) || "").split("\n").filter(l => l.startsWith("/"));
-    }
-}
-
 /* previewChanges asks the gateway which decisions the role data would
  * change (POST /v1/policy/whatif); null if it cannot tell (not running,
  * or the user may not review policy changes). */
@@ -98,7 +100,7 @@ const EFFECT_TEXT = { allow: "allowed", ask: "needs approval", deny: "denied" };
 const KIND_TEXT = { tool: "tool", prompt: "prompt", resource_template: "resource template", client: "request to the agent" };
 
 /* showPreview lists the changes and saves on confirmation. */
-function showPreview(preview, data) {
+function showPreview(preview, data, yaml) {
     const n = preview.changes.length;
     document.getElementById("whatif-text").textContent =
         "This change alters " + n + " decision" + (n === 1 ? "" : "s") + " (without arguments; " +
@@ -119,19 +121,32 @@ function showPreview(preview, data) {
     box.scrollIntoView({ block: "nearest" });
     const save = document.getElementById("whatif-save");
     const cancel = document.getElementById("whatif-cancel");
-    save.onclick = () => { box.hidden = true; saveRBAC(data, true) };
+    save.onclick = () => { box.hidden = true; saveRBAC(data, true, yaml) };
     cancel.onclick = () => { box.hidden = true; renderRBAC() };
 }
 
-/* saveRBAC checks the role data and, unless confirmed, shows which
- * decisions it would change before writing it. */
-async function saveRBAC(data, confirmed) {
-    if (rbacOrigin === "yaml") {
-        showError("Not saved: " + RBAC_YAML + " is in force, and this page does not edit YAML yet; edit that file instead.");
-        return false;
+/* saveRBAC checks the role data (data, or the raw editor's YAML text) and,
+ * unless confirmed, shows which decisions it would change before writing
+ * it to data.yaml: changes made on the page are merged into the file,
+ * keeping its comments; YAML from the raw editor is written as it is. */
+async function saveRBAC(data, confirmed, yaml) {
+    const args = yaml === undefined ? [] : ["--yaml"];
+    const input = yaml === undefined ? JSON.stringify(data) : yaml;
+    let problems = data ? validateRBAC(data) : [];
+    if (problems.length === 0) {
+        // The schema (unknown fields, wrong values, regular expressions)
+        // and, for YAML, the syntax; data as the command read it.
+        const check = await policyRun(["write", "--dry-run", ...args], input, "try");
+        if (!check.out) {
+            showError("Not saved: checking the role data failed: " + failureText(check));
+            return false;
+        }
+        problems = check.out.problems || [];
+        if (problems.length === 0) {
+            data = check.out.data;
+            problems = validateRBAC(data);
+        }
     }
-    let problems = validateRBAC(data);
-    if (problems.length === 0) problems = await schemaProblems(data);
     if (problems.length > 0) {
         showError("Not saved: " + problems.join(" "));
         return false;
@@ -140,21 +155,17 @@ async function saveRBAC(data, confirmed) {
         const preview = await previewChanges(data);
         if (preview && preview.changes.length > 0) {
             showError(null);
-            showPreview(preview, data);
+            showPreview(preview, data, yaml);
             return false;
         }
     }
-    try {
-        await rbacFile().replace(JSON.stringify(data, null, 2) + "\n");
-    } catch (ex) {
-        showError(ex && ex.problem === "access-denied"
-            ? "Saving needs administrative access (turn it on in Cockpit's top bar)."
-            : "Saving failed: " + ((ex && (ex.message || ex.problem)) || ex));
+    const r = await policyRun(["write", ...args], input, "require");
+    if (!r.ok || !r.out || !r.out.written) {
+        const p = (r.out && r.out.problems) || [];
+        showError(p.length ? "Not saved: " + p.join(" ") : "Saving failed: " + failureText(r));
         return false;
     }
-    rbac = data;
-    rbacOrigin = "file";
-    renderOrigin();
+    await loadRBAC();
     showError(null);
     if (policySource === "bundle-file") unsigned = true;
     renderBundleNote();
@@ -301,7 +312,7 @@ function renderRBAC() {
 
     box.append(scopesCard(rbac.scopes));
 
-    document.getElementById("rbac-json").value = JSON.stringify(rbac, null, 2);
+    document.getElementById("rbac-yaml").value = rbacShown ? rbacShown.yaml : "";
 }
 
 /* scopesCard shows the token scope ceilings (user guide chapter 6, "Token
@@ -332,21 +343,51 @@ function scopesCard(scopes) {
               ...notes.map(n => el("div", { class: "muted" }, n)));
 }
 
-/* renderOrigin says where the role data shown comes from. */
+/* renderOrigin says where the role data shown comes from, and where
+ * saving puts it. */
 function renderOrigin() {
+    const st = rbacShown;
+    document.getElementById("rbac-path").textContent = st.file;
     const note = document.getElementById("rbac-origin");
-    note.hidden = rbacOrigin === "file";
-    note.textContent = rbacOrigin === "yaml"
-        ? RBAC_YAML + " is in force (" + RBAC_FILE + " is ignored). This page shows it but does not edit YAML yet: edit the file instead."
-        : "No role data in " + RBAC_FILE.replace(/\/[^/]*$/, "") + ": the shipped default is in force. Saving writes " +
-          RBAC_FILE + ", which then replaces the default as a whole.";
-    for (const id of ["rbac-save", "rbac-json"]) document.getElementById(id).disabled = rbacOrigin === "yaml";
+    const notes = [];
+    if (st.origin === "default") {
+        notes.push("No role data in " + RBAC_DIR + ": the shipped default is in force. Saving writes " + RBAC_YAML +
+                   ", which then replaces the default as a whole.");
+    } else if (st.origin === "json") {
+        notes.push("Saving writes " + RBAC_YAML + " (YAML, with the same data), which is in force from then on; " +
+                   st.file + " stays as it is, ignored, until you remove it.");
+    }
+    for (const f of st.ignored || []) notes.push(f + " is ignored: " + st.file + " is in force. You may remove it.");
+    note.hidden = notes.length === 0;
+    note.textContent = notes.join(" ");
+}
+
+/* loadRBAC reads the role data in force. Data that does not parse is put
+ * into the raw editor to fix. */
+async function loadRBAC() {
+    const r = await policyRun(["show"], undefined, "try");
+    if (!r.ok || !r.out) {
+        const err = new Error("role data unreadable");
+        err.userMessage = "Reading the role data failed: " + failureText(r);
+        throw err;
+    }
+    rbacShown = r.out;
+    renderOrigin();
+    if (rbacShown.error) {
+        rbac = null;
+        document.getElementById("rbac-yaml").value = rbacShown.yaml || "";
+        document.getElementById("rbac-raw").open = true;
+        const err = new Error("bad role data");
+        err.userMessage = rbacShown.file + " does not parse (" + rbacShown.error + "); fix it below.";
+        throw err;
+    }
+    rbac = rbacShown.data || {};
+    renderRBAC();
 }
 
 tabs.policy = {
     intervalMs: 0,
     init() {
-        document.getElementById("rbac-path").textContent = RBAC_FILE;
         document.getElementById("binding-add").addEventListener("submit", ev => {
             ev.preventDefault();
             const f = ev.target;
@@ -362,18 +403,11 @@ tabs.policy = {
             saveRBAC(d).then(ok => { if (ok) f.elements["name"].value = "" });
         });
         document.getElementById("rbac-save").addEventListener("click", () => {
-            let d;
-            try {
-                d = JSON.parse(document.getElementById("rbac-json").value);
-            } catch (ex) {
-                showError("Not saved: the text is not valid JSON (" + ex.message + ").");
-                return;
-            }
-            saveRBAC(d);
+            saveRBAC(null, false, document.getElementById("rbac-yaml").value);
         });
         document.getElementById("bundle-sign").addEventListener("click", signBundle);
         document.getElementById("rbac-reset").addEventListener("click", () => {
-            if (rbac) document.getElementById("rbac-json").value = JSON.stringify(rbac, null, 2);
+            if (rbacShown) document.getElementById("rbac-yaml").value = rbacShown.yaml || "";
         });
     },
     async refresh() {
@@ -400,26 +434,6 @@ tabs.policy = {
         } catch (ex) {
             status.textContent = "Policy status unavailable: " + describeFailure(ex);
         }
-        // The file in force: data.yaml before data.json, else the
-        // shipped default (both shown as rendered for OPA).
-        let text = await rbacFile().read();
-        rbacOrigin = "file";
-        if (await cockpit.file(RBAC_YAML, { superuser: "try" }).read() !== null) {
-            rbacOrigin = "yaml";
-        } else if (text === null) {
-            rbacOrigin = "default";
-        }
-        if (rbacOrigin !== "file") text = await cockpit.file(RBAC_RENDERED).read();
-        renderOrigin();
-        try {
-            rbac = JSON.parse(text || "{}");
-        } catch (ex) {
-            const err = new Error("bad role data");
-            err.userMessage = RBAC_FILE + " is not valid JSON (" + ex.message + "); fix it below.";
-            document.getElementById("rbac-json").value = text;
-            document.getElementById("rbac-raw").open = true;
-            throw err;
-        }
-        renderRBAC();
+        await loadRBAC();
     },
 };

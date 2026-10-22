@@ -147,42 +147,62 @@ function site() {
           scopesText.includes("mcp:git: server git: tool *") && scopesText.includes("Without \"default\""), "token scope ceilings shown");
     check(await page.$eval("#binding-add select[name=role]", s => [...s.options].some(o => o.value === "systemd-reader")),
           "shipped role offered for bindings");
+    // data.json in force: saving writes data.yaml, and says so.
+    check((await page.textContent("#rbac-origin")).includes("Saving writes /etc/mcp-gateway/policy/rbac/data.yaml"),
+          "saving to data.yaml beside data.json noted");
+    check((await page.textContent("#rbac-path")) === "/etc/mcp-gateway/policy/rbac/data.json", "the file in force named");
     await page.fill("#binding-add input[name=name]", "alice");
     await page.selectOption("#binding-add select[name=role]", "developer");
-    const replacesBefore = (await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length;
+    const writes = () => page.evaluate(() => __calls.filter(c => c[0] === "policy-write"));
+    const writesBefore = (await writes()).length;
     await page.click("#binding-add button[type=submit]");
     // What changes: shown first, saved on confirmation.
     await page.waitForSelector("#whatif:not([hidden])");
     const preview = await page.textContent("#whatif");
     check(preview.includes("alters 1 decision") && preview.includes("write_file") && preview.includes("needs approval") &&
           preview.includes("Not checked: db"), "changes previewed: " + preview.replace(/\s+/g, " ").slice(0, 200));
-    check((await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length === replacesBefore,
-          "not saved before confirmation");
+    check((await writes()).length === writesBefore, "not saved before confirmation");
+    check((await page.evaluate(() => __calls)).some(c => c[0] === "policy-check" && c[1] === "write --dry-run"),
+          "checked with policy write --dry-run first");
     await page.click("#whatif-save");
     await page.waitForFunction(() => document.querySelector("#bindings").textContent.includes("alice"));
     check(await page.isHidden("#whatif"), "preview closed after saving");
-    let saved = (await page.evaluate(() => __calls)).filter(c => c[0] === "replace").pop();
-    check(saved && JSON.parse(saved[2]).bindings.users.alice[0] === "developer", "binding saved to file");
+    let saved = (await writes()).pop();
+    check(saved && saved[1] === "write" && JSON.parse(saved[2]).bindings.users.alice[0] === "developer", "binding saved with policy write");
+    check((await page.evaluate(() => __calls)).some(c => c[0] === "spawn" && c[1] === "mcp-gateway-admin policy write" && c[2] === "require"),
+          "written with administrative access");
+    check((await page.textContent("#rbac-path")) === "/etc/mcp-gateway/policy/rbac/data.yaml" &&
+          (await page.textContent("#rbac-origin")).includes("data.json is ignored"), "data.yaml in force now, data.json named as ignored");
     await page.click("#bindings button[aria-label='Remove role developer from alice']");
     await page.waitForFunction(() => !document.querySelector("#bindings").textContent.includes("alice"));
-    saved = (await page.evaluate(() => __calls)).filter(c => c[0] === "replace").pop();
+    saved = (await writes()).pop();
     check(!("alice" in JSON.parse(saved[2]).bindings.users), "binding removed");
-    // Invalid raw JSON is refused.
+    // The raw editor shows YAML, comments included, and saves it as it is.
     await page.click("#rbac-raw summary");
-    const before = (await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length;
-    await page.fill("#rbac-json", JSON.stringify({ roles: {}, bindings: { users: { x: ["nope"] } } }));
+    check((await page.inputValue("#rbac-yaml")).includes("# who may do what: ticket 7"), "the raw editor shows the YAML with its comments");
+    const before = (await writes()).length;
+    await page.fill("#rbac-yaml", "# a role nobody has\n" + JSON.stringify({ roles: {}, bindings: { users: { x: ["nope"] } } }));
     await page.click("#rbac-save");
     await page.waitForTimeout(200);
     check((await page.textContent("#error")).includes("unknown role"), "validation error shown");
-    check((await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length === before, "invalid data not saved");
-    // So is data the schema check (mcp-gateway --check-policy-data) rejects.
-    await page.fill("#rbac-json", JSON.stringify({ roles: { developer: { permissions: [
+    check((await writes()).length === before, "invalid data not saved");
+    // So is data the schema check (policy write --dry-run) refuses.
+    await page.fill("#rbac-yaml", JSON.stringify({ roles: { developer: { permissions: [
         { server: "fs", tool: "write_file", require_aproval: true }] } } }));
     await page.click("#rbac-save");
     await page.waitForTimeout(200);
     check((await page.textContent("#error")).includes("'require_aproval' not allowed"), "schema problem shown");
-    check(!(await page.textContent("#error")).includes("level="), "only the problems, not the log line");
-    check((await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length === before, "data failing the schema not saved");
+    check((await writes()).length === before, "data failing the schema not saved");
+    await page.fill("#rbac-yaml", "roles: [");
+    await page.click("#rbac-save");
+    await page.waitForTimeout(200);
+    check((await page.textContent("#error")).includes("not valid YAML"), "YAML that does not parse refused");
+    const yamlRaw = "# mine, with a comment\n" + JSON.stringify(JSON.parse(await page.evaluate(() => JSON.stringify(rbac))));
+    await page.fill("#rbac-yaml", yamlRaw);
+    await page.click("#rbac-save");
+    await page.waitForFunction(n => __calls.filter(c => c[0] === "policy-write").length > n, before);
+    saved = (await writes()).pop();
+    check(saved[1] === "write --yaml" && saved[2] === yamlRaw, "raw YAML written as it is (policy write --yaml)");
 
     // Signing from the page: the key is on the host (stub default).
     check(await page.isVisible("#bundle-sign"), "sign button with a local key");
@@ -194,14 +214,14 @@ function site() {
           "signs as administrator with a named revision: " + (sign && sign[1]));
     check(!(await page.textContent("#bundle-note-text")).includes("not active yet"), "signed changes no longer noted");
 
-    // No role data in /etc: the shipped default (as rendered) is shown;
-    // saving writes data.json, which replaces it.
+    // No role data in /etc: the shipped default is shown; saving writes
+    // data.yaml, which replaces it.
     await page.goto(url.replace("index.html", "index.html?default") + "#/policy");
     await page.waitForSelector("#bindings tbody tr td");
     check(await page.isVisible("#rbac-origin") && (await page.textContent("#rbac-origin")).includes("the shipped default is in force"),
           "the shipped default in force is noted");
-    check((await page.evaluate(() => __calls)).some(c => c[0] === "read" && c[1] === "/run/mcp-opa/rbac/data.json"),
-          "the default is read as rendered for OPA");
+    check((await page.evaluate(() => __calls)).some(c => c[0] === "spawn" && c[1] === "mcp-gateway-admin policy show"),
+          "the role data in force read with policy show");
     await page.fill("#binding-add input[name=name]", "erin");
     await page.selectOption("#binding-add select[name=role]", "admin");
     await page.click("#binding-add button");
@@ -209,22 +229,23 @@ function site() {
                                document.querySelector("#bindings").textContent.includes("erin"));
     if (await page.isVisible("#whatif-save")) await page.click("#whatif-save");
     await page.waitForFunction(() => document.querySelector("#bindings").textContent.includes("erin"));
-    saved = (await page.evaluate(() => __calls)).filter(c => c[0] === "replace").pop();
-    check(saved && saved[1] === "/etc/mcp-gateway/policy/rbac/data.json" && JSON.parse(saved[2]).roles.developer,
-          "saving writes data.json with the default's roles and the change");
-    check(await page.isHidden("#rbac-origin"), "the note goes once data.json is written");
-    // data.yaml in force: shown, not editable here.
+    saved = (await writes()).pop();
+    check(saved && JSON.parse(saved[2]).roles.developer && JSON.parse(saved[2]).bindings.users.erin,
+          "saving writes the default's roles and the change");
+    check(await page.isHidden("#rbac-origin"), "the note goes once data.yaml is written");
+    // data.yaml in force: edited like any role data.
     await page.goto(url.replace("index.html", "index.html?yaml") + "#/policy");
     await page.waitForSelector("#bindings tbody tr td");
-    check((await page.textContent("#rbac-origin")).includes("data.yaml is in force"), "data.yaml in force is noted");
-    check(await page.$eval("#rbac-save", b => b.disabled), "the raw editor cannot save over data.yaml");
-    const replaces = (await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length;
+    check(await page.isHidden("#rbac-origin") && (await page.textContent("#rbac-path")).endsWith("data.yaml"), "data.yaml in force, nothing to note");
+    check(!(await page.$eval("#rbac-save", b => b.disabled)), "the raw editor saves data.yaml");
     await page.fill("#binding-add input[name=name]", "frank");
     await page.selectOption("#binding-add select[name=role]", "admin");
     await page.click("#binding-add button");
-    await page.waitForTimeout(300);
-    check((await page.textContent("#error")).includes("does not edit YAML yet") &&
-          (await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length === replaces, "no binding saved over data.yaml");
+    await page.waitForFunction(() => document.querySelector("#whatif") && !document.querySelector("#whatif").hidden ||
+                               document.querySelector("#bindings").textContent.includes("frank"));
+    if (await page.isVisible("#whatif-save")) await page.click("#whatif-save");
+    await page.waitForFunction(() => document.querySelector("#bindings").textContent.includes("frank"));
+    check(JSON.parse((await writes()).pop()[2]).bindings.users.frank, "a binding saved into data.yaml");
 
     const policyPage = url.replace("index.html", "index.html?source=server");
     await page.goto(policyPage + "#/policy");

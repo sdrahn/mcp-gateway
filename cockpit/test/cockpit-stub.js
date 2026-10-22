@@ -140,6 +140,7 @@
                     ? Promise.reject(new Error("Job for mcp-gateway.service failed because the control process exited with error code."))
                     : Promise.resolve("");
             }
+            if (args[0] === "mcp-gateway-admin" && args[1] === "policy") return policy(args.slice(2));
             if (args[0] === "mcp-gateway-admin") {
                 return Promise.resolve(JSON.stringify([
                     { check: "configuration", id: "configuration", status: "ok", summary: "3 servers" },
@@ -148,14 +149,6 @@
                       details: ["carol", "bind them to a role (Cockpit's Roles tab, or bindings in data.json), or remove them from mcp-users"] },
                     { check: "SELinux", id: "selinux-denials", status: "skip", summary: "reading the audit log needs root" },
                 ]));
-            }
-            if (args[0] === "mcp-gateway") {
-                // --check-policy-data: a misspelt field is the one problem it knows.
-                const result = data => data.includes("require_aproval")
-                    ? Promise.reject(new Error("/roles/developer/permissions/0: additional properties 'require_aproval' not allowed\n" +
-                                               "level=ERROR msg=\"role data invalid\""))
-                    : Promise.resolve("");
-                return { input: result };
             }
             if (args.includes("mcp-gateway.service")) return Promise.resolve(journal);
             if (args[0] === "test") {
@@ -167,6 +160,7 @@
             return Promise.resolve("2026-09-27T08:00:00 host mcp-fs[1]: started\n" +
                                    "2026-09-27T08:00:01 host mcp-fs[1]: /srv/x: permission denied\n");
         },
+        // mcp-gateway-admin policy show / write (see policy below).
         file(path, opts) {
             const etc = "/etc/mcp-gateway/policy/rbac/";
             return {
@@ -180,4 +174,60 @@
             };
         },
     };
+    // The role data in force: data.json (stub default), the shipped default
+    // (?default) or data.yaml (?yaml), as "mcp-gateway-admin policy show"
+    // gives it; "policy write" refuses a misspelt field (the one schema
+    // problem it knows) and YAML it cannot read (comment lines aside, the
+    // stub reads JSON, which is YAML too).
+    const etc = "/etc/mcp-gateway/policy/rbac/";
+    let origin = query.has("default") ? "default" : query.has("yaml") ? "yaml" : "json";
+    let yamlText = origin === "yaml" ? "# who may do what: ticket 7\n" + rbac + "\n" : null;
+    let ignored = [];
+    // proc is a cockpit.spawn process: input(), then(ok, fail(ex, stdout)).
+    function proc(run) {
+        let input = "";
+        const p = {
+            input(x) { input = x; return p; },
+            then(ok, fail) {
+                return Promise.resolve().then(() => {
+                    const r = run(input);
+                    return r.ok ? ok(r.out) : fail(new Error(r.err || "exit status 1"), r.out);
+                });
+            },
+        };
+        return p;
+    }
+    function policy(args) {
+        return proc(input => {
+            if (args[0] === "show") {
+                const file = origin === "default" ? "/usr/share/mcp-gateway/rbac/data.yaml" : etc + (origin === "yaml" ? "data.yaml" : "data.json");
+                return { ok: true, out: JSON.stringify({ file, origin, ignored, data: JSON.parse(rbac),
+                                                         yaml: yamlText || "# converted\n" + rbac + "\n" }) };
+            }
+            const yaml = args.includes("--yaml"), dry = args.includes("--dry-run");
+            log.push([dry ? "policy-check" : "policy-write", args.join(" "), input]);
+            const res = { file: etc + "data.yaml", written: false, problems: [] };
+            let data;
+            try {
+                data = JSON.parse(yaml ? input.split("\n").filter(l => !l.startsWith("#")).join("\n") : input);
+            } catch (ex) {
+                res.problems = ["not valid YAML: " + ex.message];
+                return { ok: false, out: JSON.stringify(res) };
+            }
+            if (input.includes("require_aproval")) {
+                res.problems = ["/roles/developer/permissions/0: additional properties 'require_aproval' not allowed"];
+                return { ok: false, out: JSON.stringify(res) };
+            }
+            res.data = data;
+            if (!dry) {
+                if (origin === "json") ignored = [etc + "data.json"];
+                yamlText = yaml ? input : "# who may do what: ticket 7\n" + JSON.stringify(data, null, 2) + "\n";
+                rbac = JSON.stringify(data);
+                origin = "yaml";
+                res.written = true;
+                res.ignored = ignored;
+            }
+            return { ok: true, out: JSON.stringify(res) };
+        });
+    }
 })();

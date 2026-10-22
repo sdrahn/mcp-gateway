@@ -34,7 +34,7 @@ minor release (with a warning) and removed in the next.
   data. The package installs nothing there any more. Your own file
   replaces the default as before (no merging: a role you deleted stays
   deleted). Cockpit's role editor starts from the default then, and
-  saving writes `data.json`.
+  saving writes `data.yaml`.
 
 ### Changed
 
@@ -54,9 +54,14 @@ minor release (with a warning) and removed in the next.
   `mcp-policy-render` renders it, where it is installed: YAML read as
   the gateway reads it, as in directory mode; without role data in
   `/etc`, the shipped default (`-D`).
-- Cockpit's role editor shows the role data in force when `data.yaml`
-  is in force, and does not save over it (it edits YAML in a later
-  step).
+- Cockpit's role editor saves `data.yaml`: a change made on the page is
+  merged into it, keeping its comments and the order of keys; the raw
+  editor shows and saves YAML, as written. Where `data.json` was in
+  force, saving writes `data.yaml` beside it, and the page names
+  `data.json` as ignored; it does not delete it. The page leaves YAML to
+  the new `mcp-gateway-admin policy show` and `policy write`
+  (`--yaml`, `--dry-run`), which check the role data against the schema
+  before writing.
 - `mcp-opa.service` runs OPA with `--ignore rbac` and
   `mcp.rbac:/run/mcp-opa/rbac`. A drop-in that replaces `ExecStart=` for
   directory mode (chapter 12, approach B) needs both, or OPA loads no
