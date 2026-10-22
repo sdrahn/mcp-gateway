@@ -1488,6 +1488,11 @@ func (s *Session) exposeContents(server string, result json.RawMessage) json.Raw
 // instance's, so that initializing does not start the principal's
 // instance, else the principal's instance's.
 func (s *Session) backendInit(ctx context.Context, server string) (initResult, error) {
+	if b := s.endpoint().backends[server]; b != nil && b.NeedsHome() && s.snapshotPrincipal().Home == "" {
+		// Not offered to it (pool.acquire), though the shared discovery
+		// instance, which has a home, would answer.
+		return initResult{}, &NoHomeError{Server: server}
+	}
 	if b := s.endpoint().backends[server]; b != nil && b.Discovery == config.DiscoveryShared {
 		init, err := s.r.sharedInit(ctx, b)
 		if err == nil {
