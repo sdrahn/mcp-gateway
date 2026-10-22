@@ -11,7 +11,7 @@
 # Usage: run-tests.sh --disposable [--results DIR] [--rpms DIR] [--servers DIR]
 #
 # It runs as root on a system that is there for testing: it creates users
-# (alice, bob, carol, dora), replaces the role data and gateway.yaml, loads
+# (alice, bob, carol, dora, erin), replaces the role data and gateway.yaml, loads
 # SELinux modules, installs packages and restarts the gateway, and does
 # not undo any of it. --disposable says that this is fine.
 #   --results DIR  writes results.tap (TAP) and results.xml (JUnit) there
@@ -1406,6 +1406,28 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	hl_call "$hl_alice" read_file '{"path":"/home/alice/secret.txt"}'
 	check "calls work with the renewed certificate" hl_ok "alice secret"
 
+	# Limits (D14): at limits.sessions_per_principal, the principal's
+	# longest-idle HTTP session makes room for a new one, as agents often
+	# leave without ending theirs. A principal of its own (sub), so that
+	# the sessions above do not count.
+	check "limits: config set lowers sessions_per_principal to 2" \
+		sh -c 'mcp-gateway-admin config set limits.sessions_per_principal 2 | grep -qF "is in force"'
+	hl_lim=$(hl_tok "aud=$hl_url&sub=alice-limits&preferred_username=alice&scope=mcp")
+	hl_open "$hl_lim"
+	hl_lim1=$hl_sid
+	hl_open "$hl_lim"
+	hl_lim2=$hl_sid
+	check "limits: a third HTTP session at the limit is admitted" hl_open "$hl_lim"
+	hl_sid=$hl_lim1
+	hl_call "$hl_lim" read_file '{"path":"/home/alice/secret.txt"}'
+	check "limits: ... the longest-idle one made room (404)" test "$hl_code" = 404
+	hl_sid=$hl_lim2
+	hl_call "$hl_lim" read_file '{"path":"/home/alice/secret.txt"}'
+	check "limits: ... and the other goes on" hl_ok "alice secret"
+	check "limits: ... the gateway says which it ended" \
+		journal_since_start_has "ended an idle session for a new one at the session limit"
+	mcp-gateway-admin config unset limits.sessions_per_principal >/dev/null
+
 	rm -f /etc/mcp-gateway/gateway.yaml /etc/pki/trust/anchors/mcp-vmtest-gw.pem /etc/pki/trust/anchors/mcp-vmtest-idp.pem
 	update-ca-certificates
 	systemctl restart mcp-gateway.service
@@ -1750,6 +1772,118 @@ check "the cancelled call's command is ended" eventually 20 tk_sleep_gone
 exec 8>&-
 kill "$task_client" 2>/dev/null
 wait "$task_client" 2>/dev/null
+
+section "Limits"
+# The limits per principal (decision D14), lowered with mcp-gateway-admin
+# config set while the gateway runs: a session, an instance and a task
+# refused at the limit, room again once a session ends or an instance is
+# idle, each refusal counted (mcp_gateway_limit_refusals_total) and
+# audited (mcp-limit). erin's are the only sessions and instances of hers.
+lm_since=$(date +%s)
+useradd -m erin
+usermod -aG mcp-users erin
+jq '.bindings.users.erin = ["tester", "commands"]' /etc/mcp-gateway/policy/rbac/data.json >/root/lm-data.json &&
+	cat /root/lm-data.json >/etc/mcp-gateway/policy/rbac/data.json
+# lm_refusals <limit>: the counter of refusals at <limit> (0 before the first).
+lm_refusals() {
+	local n
+	n=$(curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/metrics |
+		sed -n "s/^mcp_gateway_limit_refusals_total{limit=\"$1\"} //p")
+	echo "${n:-0}"
+}
+lm_before_sessions=$(lm_refusals sessions)
+lm_before_instances=$(lm_refusals instances_per_principal)
+lm_before_tasks=$(lm_refusals tasks_per_principal)
+# lm_set <key> <value>: a limit in force (config set waits for the reload).
+lm_set() { mcp-gateway-admin config set "limits.$1" "$2" | grep -qF "limits.$1 is in force"; }
+# lm_hold <name> <server>: a session of erin's held open, with a call made
+# in it, so that it uses an instance (a local client holds its connection:
+# it is never ended to make room). lm_release <name> ends it.
+declare -A lm_pid lm_fd
+lm_hold() {
+	local fd
+	rm -f "/root/vmtest/lm-$1.in"
+	mkfifo "/root/vmtest/lm-$1.in"
+	runuser -u erin -- mcp-connect --server "$2" <"/root/vmtest/lm-$1.in" >"/root/vmtest/lm-$1.out" 2>&1 &
+	lm_pid[$1]=$!
+	exec {fd}>"/root/vmtest/lm-$1.in"
+	lm_fd[$1]=$fd
+	printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"vmtest-limits","version":"1"}}}' >&"$fd"
+	eventually 10 grep -q '"id":1,"result"' "/root/vmtest/lm-$1.out" || return 1
+	printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+		'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_allowed_directories","arguments":{}}}' >&"$fd"
+	eventually 20 grep -q '"id":2,"result"' "/root/vmtest/lm-$1.out"
+}
+lm_release() {
+	eval "exec ${lm_fd[$1]}>&-"
+	kill "${lm_pid[$1]}" 2>/dev/null
+	wait "${lm_pid[$1]}" 2>/dev/null
+}
+lm_audited() { # lm_audited <limit>: an mcp-limit record in the journal and the kernel audit trail
+	journalctl -u mcp-gateway.service -o cat --since "@$lm_since" | grep -F '"event":"mcp-limit"' |
+		grep -F '"principal":"erin"' | grep -qF "\"limit\":\"$1\"" &&
+		audit_since TRUSTED_APP | grep 'op=mcp-limit' | grep 'principal=erin' | grep -q "limit=$1"
+}
+
+# Sessions: local sessions are never ended to make room, so a third is
+# refused; once one ends, there is room again.
+check "limits: config set lowers sessions_per_principal to 2" lm_set sessions_per_principal 2
+check "limits: erin holds a session" lm_hold one fs
+check "limits: ... and a second" lm_hold two fs
+call erin --method tools/call --params '{"name":"list_allowed_directories","arguments":{}}'
+check "limits: a third session is refused (session limit reached (2))" \
+	bash -c '[ "$2" = 1 ] && grep -qF "session limit reached (2)" <<<"$1"' _ "$out" "$rc"
+check "limits: ... and audited (mcp-limit)" eventually 10 lm_audited sessions
+lm_release two
+lm_room() { call erin --method tools/call --params '{"name":"list_allowed_directories","arguments":{}}' && succeeded_with /home/erin; }
+check "limits: once a session ends, a new one is admitted" eventually 10 lm_room
+mcp-gateway-admin config unset limits.sessions_per_principal >/dev/null
+
+# Instances: the held session uses erin's fs instance, so exec, which needs
+# a second, is refused; once the fs instance is idle, it makes room.
+check "limits: config set lowers instances_per_principal to 1" lm_set instances_per_principal 1
+stool erin exec echo_word '{"word":"limits"}'
+check "limits: a second instance is refused while the first is in use (instance limit reached (1))" \
+	bash -c '[ "$2" != 0 ] && grep -qF "instance limit reached (1)" <<<"$1"' _ "$out" "$rc"
+check "limits: ... and audited" eventually 10 lm_audited instances_per_principal
+lm_release one
+lm_exec() { stool erin exec echo_word '{"word":"limits"}' && [ "$rc" = 0 ] && grep -qF limits <<<"$out"; }
+check "limits: once the first is idle, it makes room for the second" eventually 20 lm_exec
+lm_fs_gone() { [ -z "$(instance_pid erin)" ]; }
+check "limits: ... and the idle fs instance is stopped" eventually 20 lm_fs_gone
+mcp-gateway-admin config unset limits.instances_per_principal >/dev/null
+
+# Tasks: one task (running, or done and kept) at a time; a second is
+# refused. The first is cancelled afterwards.
+check "limits: config set lowers tasks_per_principal to 1" lm_set tasks_per_principal 1
+rm -f /root/vmtest/lm-task.in
+mkfifo /root/vmtest/lm-task.in
+runuser -u erin -- mcp-connect --server exec </root/vmtest/lm-task.in >/root/vmtest/lm-task.out 2>&1 &
+lm_task_client=$!
+exec {lm_task_fd}>/root/vmtest/lm-task.in
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{"tasks":{}},"clientInfo":{"name":"vmtest-limits","version":"1"}}}' >&"$lm_task_fd"
+eventually 10 grep -q '"protocolVersion":"2025-11-25"' /root/vmtest/lm-task.out
+printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+	'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"wait","arguments":{},"task":{"ttl":600000}}}' >&"$lm_task_fd"
+lm_task1() { grep -q '"id":2,"result":{"task":' /root/vmtest/lm-task.out; }
+check "limits: erin's first task is created" eventually 10 lm_task1
+printf '%s\n' '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"wait","arguments":{},"task":{"ttl":600000}}}' >&"$lm_task_fd"
+lm_task2() { grep '"id":3' /root/vmtest/lm-task.out | grep -qF "task limit reached (1)"; }
+check "limits: a second task is refused (task limit reached (1))" eventually 10 lm_task2
+grep '"id":3' /root/vmtest/lm-task.out | cut -c1-200 | sed 's/^/  /'
+check "limits: ... and audited" eventually 10 lm_audited tasks_per_principal
+lm_task_id=$(control erin GET /v1/tasks | jq -r '[.[] | select(.status == "working")][0].id // empty')
+[ -n "$lm_task_id" ] && runuser -u erin -- mcp-gateway-admin tasks cancel "$lm_task_id" >/dev/null
+exec {lm_task_fd}>&-
+kill "$lm_task_client" 2>/dev/null
+wait "$lm_task_client" 2>/dev/null
+mcp-gateway-admin config unset limits.tasks_per_principal >/dev/null
+
+lm_counted() { [ "$(lm_refusals "$1")" -gt "$2" ]; }
+check "limits: the refusals are counted, by limit (sessions)" lm_counted sessions "$lm_before_sessions"
+check "limits: ... (instances_per_principal)" lm_counted instances_per_principal "$lm_before_instances"
+check "limits: ... (tasks_per_principal)" lm_counted tasks_per_principal "$lm_before_tasks"
+check "limits: config unset leaves no drop-in" test ! -e /etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml
 
 section "Metrics"
 # The counters start with each gateway process, and earlier sections
