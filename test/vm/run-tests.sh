@@ -1408,24 +1408,27 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 
 	# Limits (D14): at limits.sessions_per_principal, the principal's
 	# longest-idle HTTP session makes room for a new one, as agents often
-	# leave without ending theirs. A principal of its own (sub), so that
-	# the sessions above do not count.
+	# leave without ending theirs. bob, whose account the token names
+	# (local_user_claim), has no HTTP sessions above to count.
 	check "limits: config set lowers sessions_per_principal to 2" \
 		sh -c 'mcp-gateway-admin config set limits.sessions_per_principal 2 | grep -qF "is in force"'
-	hl_lim=$(hl_tok "aud=$hl_url&sub=alice-limits&preferred_username=alice&scope=mcp")
+	hl_lim=$(hl_tok "aud=$hl_url&sub=bob&preferred_username=bob&scope=mcp")
 	hl_open "$hl_lim"
 	hl_lim1=$hl_sid
 	hl_open "$hl_lim"
 	hl_lim2=$hl_sid
 	check "limits: a third HTTP session at the limit is admitted" hl_open "$hl_lim"
 	hl_sid=$hl_lim1
-	hl_call "$hl_lim" read_file '{"path":"/home/alice/secret.txt"}'
+	hl_call "$hl_lim" read_file '{"path":"/home/bob/secret.txt"}'
 	check "limits: ... the longest-idle one made room (404)" test "$hl_code" = 404
 	hl_sid=$hl_lim2
-	hl_call "$hl_lim" read_file '{"path":"/home/alice/secret.txt"}'
-	check "limits: ... and the other goes on" hl_ok "alice secret"
-	check "limits: ... the gateway says which it ended" \
-		journal_since_start_has "ended an idle session for a new one at the session limit"
+	hl_call "$hl_lim" read_file '{"path":"/home/bob/secret.txt"}'
+	check "limits: ... and the other goes on" hl_ok "bob secret"
+	hl_evicted() {
+		journalctl -u mcp-gateway.service -o cat --since "@$hl_since" |
+			grep -F "ended an idle session for a new one at the session limit" | grep -q 'sub=bob'
+	}
+	check "limits: ... the gateway says which it ended" hl_evicted
 	mcp-gateway-admin config unset limits.sessions_per_principal >/dev/null
 
 	rm -f /etc/mcp-gateway/gateway.yaml /etc/pki/trust/anchors/mcp-vmtest-gw.pem /etc/pki/trust/anchors/mcp-vmtest-idp.pem
