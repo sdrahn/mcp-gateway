@@ -32,10 +32,16 @@ minor release (with a warning) and removed in the next.
   and keeps its grants and pending approvals; and signed policy bundles:
   a change previewed with what-if, OPA in bundle mode, unsigned role data
   without effect, a tampered bundle and one signed with another key
-  refused.
+  refused; and uninstalling: the services stopped by the packages'
+  scripts, no instance left, the SELinux modules unloaded, the
+  configuration and state kept.
 
 ### Fixed
 
+- User guide chapter 2, "Uninstalling", now says to remove first what was
+  built on the gateway's SELinux types (an administrator's modules for
+  MCP servers, ports given `mcp_port_t` or `mcp_metrics_port_t`): the
+  gateway's module cannot be removed while they use them.
 - `mcp-policy-bundle` recorded the policy files under its temporary
   build directory (`/tmp/tmp.…/src/mcp/authz.rego`), which became part of
   every module id in OPA: each bundle built changed the gateway's policy
