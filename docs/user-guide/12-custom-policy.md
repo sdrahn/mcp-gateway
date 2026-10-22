@@ -22,7 +22,8 @@ trees into one policy:
 | Directory | Contents |
 |---|---|
 | `/usr/share/mcp-gateway/policy/` | the shipped logic: `mcp/authz.rego` (with `mcp/reasons.rego`, the reasons of denials, and `mcp/builtin.rego`, the gateway's own tools), `mcp/filter.rego`, `mcp/approvals.rego`, `mcp/log.rego` |
-| `/etc/mcp-gateway/policy/` | your files: `rbac/data.json`, and any `.rego` and `data.json` files you add |
+| `/etc/mcp-gateway/policy/` | your files: `rbac/data.yaml` or `rbac/data.json`, and any `.rego` and `data.json` files you add |
+| `/run/mcp-opa/rbac/` | the role data as OPA loads it: what `mcp-policy-render.service` renders from `/etc/mcp-gateway/policy/rbac/` |
 
 - A `.rego` file defines rules in the package it declares
   (`package mcp.authz`), wherever the file lies. Files declaring the same
@@ -31,7 +32,15 @@ trees into one policy:
   becomes data below `data.mcp`, at the path of its directory:
   `/etc/mcp-gateway/policy/rbac/data.json` is `data.mcp.rbac`,
   `/etc/mcp-gateway/policy/rbac/managers/data.json` is
-  `data.mcp.rbac.managers`. The shipped policy directory is loaded the
+  `data.mcp.rbac.managers`. Below `rbac/`, OPA does not read the files
+  itself (`--ignore rbac`): `mcp-policy-render.service` writes the file
+  in force of each directory there (`data.yaml` before `data.json`) as
+  JSON to `/run/mcp-opa/rbac/`, which OPA loads as `data.mcp.rbac`, on
+  every change of `rbac/` (`mcp-policy-render.path`). A change in a
+  subdirectory only (`rbac/managers/`) is rendered with the next change
+  of `rbac/` itself, or with `systemctl start mcp-policy-render.service`.
+  Other files below `rbac/` are not loaded (the doctor names them): put
+  `.rego` files elsewhere in `/etc/mcp-gateway/policy/`. The shipped policy directory is loaded the
   same way: the server setup packages put their roles in
   `/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.json`
   (`data.mcp.profiles.<setup>.roles`); the shipped `mcp.authz` merges
@@ -476,10 +485,16 @@ ExecStart=/usr/bin/opa run --server \
     --log-format json \
     --set=decision_logs.console=true \
     --set=decision_logs.mask_decision=/mcp/log/mask \
+    --ignore rbac \
     $OPA_EXTRA_ARGS \
     /etc/mcp-gateway/policy-logic \
-    mcp:/etc/mcp-gateway/policy
+    mcp:/etc/mcp-gateway/policy \
+    mcp.rbac:/run/mcp-opa/rbac
 ```
+
+Keep `--ignore rbac` and `mcp.rbac:/run/mcp-opa/rbac` as the shipped
+unit has them: they load the role data as rendered (the file in force),
+not both `data.yaml` and `data.json`.
 
 ```bash
 systemctl daemon-reload && systemctl restart mcp-opa.service
@@ -651,7 +666,9 @@ undefined; the `else` chain makes the precedence explicit.
 
 Put data your rules use into `data.json` files below
 `/etc/mcp-gateway/policy/`, preferably **below `rbac/`**
-(`/etc/mcp-gateway/policy/rbac/<name>/data.json` → `data.mcp.rbac.<name>`):
+(`/etc/mcp-gateway/policy/rbac/<name>/data.json` or `data.yaml` →
+`data.mcp.rbac.<name>`; rendered with the next run of
+`mcp-policy-render.service`, see [How OPA loads the policy](#how-opa-loads-the-policy)):
 the gateway notices policy changes by comparing the loaded Rego modules
 and `data.mcp.rbac`, and only then tells agents to list their tools again
 and writes a `mcp-policy-change` audit event. Changes to data elsewhere
@@ -745,7 +762,7 @@ test_colleague_may_not_approve if {
 Run them together with the policy exactly as OPA loads it:
 
 ```bash
-P="/usr/share/mcp-gateway/policy mcp:/etc/mcp-gateway/policy"   # approach B/C: /etc/mcp-gateway/policy-logic instead of /usr/share/…
+P="--ignore rbac /usr/share/mcp-gateway/policy mcp:/etc/mcp-gateway/policy mcp.rbac:/run/mcp-opa/rbac"   # approach B/C: /etc/mcp-gateway/policy-logic instead of /usr/share/…
 opa fmt --list /etc/mcp-gateway/policy /etc/mcp-gateway/policy-tests   # lists files that need formatting
 opa check --strict $P                                                  # what mcp-policy-bundle requires
 opa test -v $P /etc/mcp-gateway/policy-tests
@@ -753,7 +770,9 @@ opa test -v $P /etc/mcp-gateway/policy-tests
 
 `mcp:` in front of `/etc/mcp-gateway/policy` loads its data files below
 `data.mcp`, as `mcp-opa.service` does; without it the role data would be
-`data.rbac` and the shipped rules would find none.
+`data.rbac` and the shipped rules would find none. `--ignore rbac` and
+`mcp.rbac:/run/mcp-opa/rbac` take the role data as rendered (the file in
+force), as `mcp-opa.service` does.
 
 `opa check` does not catch rules defined twice with different values
 (see approach A); only evaluation does, so test the cases where your
@@ -766,8 +785,8 @@ suits custom policy as well (`regal lint /etc/mcp-gateway/policy`).
 ### Single decisions
 
 ```bash
-opa eval -f pretty -d /usr/share/mcp-gateway/policy -d mcp:/etc/mcp-gateway/policy \
-    -i input.json 'data.mcp.authz.decision'
+opa eval -f pretty --ignore rbac -d /usr/share/mcp-gateway/policy -d mcp:/etc/mcp-gateway/policy \
+    -d mcp.rbac:/run/mcp-opa/rbac -i input.json 'data.mcp.authz.decision'
 opa eval -f pretty … -i input.json --explain=notes 'data.mcp.authz.decision'   # with trace() notes
 opa eval … -i input.json --profile 'data.mcp.authz.decision'                   # where the time goes
 ```
@@ -793,8 +812,8 @@ with arguments masked; the gateway's audit record with the same
 install -D -m0644 office_hours.rego /etc/mcp-gateway/policy/custom/office_hours.rego.new
 mv /etc/mcp-gateway/policy/custom/office_hours.rego.new /etc/mcp-gateway/policy/custom/office_hours.rego
 restorecon -R /etc/mcp-gateway/policy
-opa check --strict /usr/share/mcp-gateway/policy mcp:/etc/mcp-gateway/policy \
-  && opa test /usr/share/mcp-gateway/policy mcp:/etc/mcp-gateway/policy /etc/mcp-gateway/policy-tests
+P="--ignore rbac /usr/share/mcp-gateway/policy mcp:/etc/mcp-gateway/policy mcp.rbac:/run/mcp-opa/rbac"
+opa check --strict $P && opa test $P /etc/mcp-gateway/policy-tests
 journalctl -u mcp-opa.service -n 5 -o cat          # a load error shows up as "Processed file watch event." with "err"
 journalctl -u mcp-gateway.service -o cat | grep mcp-policy-change | tail -1
 ```

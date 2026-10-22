@@ -502,6 +502,8 @@ check "gateway-admin: doctor reads the audit log" bash -c '! grep -q "reading th
 # matchpathcon is in /usr/sbin, which the server's PATH lacks: the doctor
 # finds it there and compares the programs' labels with the policy's.
 check "gateway-admin: doctor gets the policy's labels" bash -c '! grep -q "the policy.s label for" <<<"$1" && grep -q "labeled as the policy says" <<<"$1"' _ "$out"
+# It reads the role data as OPA has it (mcpopa_rbac_t) and finds it current.
+check "gateway-admin: doctor compares the role data with OPA's" succeeded_with "/run/mcp-opa/rbac is current"
 stool alice gateway-admin check_config '{}'
 check "gateway-admin: check_config" succeeded_with "role data: /etc/mcp-gateway/policy/rbac/data.json valid"
 stool_approved alice gateway-admin explain_decision '{"user":"bob","server":"fs","name":"delete_file"}'
@@ -563,6 +565,86 @@ stool bob exec system_info '{}'
 check "exec: not for bob, who holds no role for it" failed_without "Linux"
 check "no server output reached the gateway as invalid messages" \
 	bash -c "! journalctl -u mcp-gateway.service -o cat | grep -q 'invalid message from backend'"
+
+section "Role data in YAML"
+# Chapter 6: data.yaml in /etc/mcp-gateway/policy/rbac is in force over
+# data.json. OPA does not load that directory itself (it would merge both
+# files) but its rendering by mcp-policy-render.service (root, started by
+# mcp-policy-render.path on each change): /run/mcp-opa/rbac, which neither
+# the gateway nor OPA can write.
+rbac_dir=/etc/mcp-gateway/policy/rbac
+ry_since=$(date +%s)
+opa_pid=$(systemctl show -p MainPID --value mcp-opa.service)
+check "mcp-policy-render.path watches the role data" systemctl is-active --quiet mcp-policy-render.path
+check "OPA skips rbac/ and loads the rendering as data.mcp.rbac" \
+	bash -c 'tr "\0" " " </proc/$1/cmdline | grep -qF -- "--ignore rbac" && tr "\0" " " </proc/$1/cmdline | grep -qF "mcp.rbac:/run/mcp-opa/rbac"' _ "$opa_pid"
+ls -ldZ /run/mcp-opa/rbac /run/mcp-opa/rbac/* 2>&1 | sed 's/^/  /'
+check "/run/mcp-opa/rbac is labeled mcpopa_rbac_t" file_has_type /run/mcp-opa/rbac mcpopa_rbac_t
+check "/run/mcp-opa/rbac/data.json is labeled mcpopa_rbac_t" file_has_type /run/mcp-opa/rbac/data.json mcpopa_rbac_t
+check "/run/mcp-opa/rbac belongs to root, writable by root only" test "$(stat -c %U:%a /run/mcp-opa/rbac)" = root:755
+# ry_rendered <file>: the rendering has the role data of <file> (JSON).
+ry_rendered() { jq -S . "$1" | cmp -s - <(jq -S . /run/mcp-opa/rbac/data.json); }
+check "the rendering is the role data in force (data.json)" ry_rendered "$rbac_dir/data.json"
+check "the gateway's account cannot change the rendering" as_gateway_user_fails touch /run/mcp-opa/rbac/data.json
+check "the gateway's account cannot add to the rendering" as_gateway_user_fails touch /run/mcp-opa/rbac/x.json
+# A data.yaml next to data.json: block style, a comment, and one change
+# (bob gets the role "commands", which data.json does not give him).
+ry_yaml() {
+	echo "# Role data in YAML (chapter 6): data.json next to it is ignored."
+	jq -r '.bindings.users.bob += ["commands"] | to_entries[] | "\(.key): \(.value | tojson)"' "$rbac_dir/data.json"
+}
+ry_yaml >"$rbac_dir/data.yaml"
+restorecon "$rbac_dir/data.yaml"
+sed 's/^/  /' "$rbac_dir/data.yaml" | head -3
+ry_bob_exec() { stool bob exec echo_word '{"word":"yaml"}' && [ "$rc" = 0 ] && grep -qF yaml <<<"$out"; }
+ry_bob_refused() { stool bob exec echo_word '{"word":"yaml"}'; failed_without yaml; }
+check "data.yaml is in force within seconds (bob gets the role it binds)" eventually 15 ry_bob_exec
+check "the rendering has data.yaml's role data" bash -c 'jq -e ".bindings.users.bob | index(\"commands\")" /run/mcp-opa/rbac/data.json >/dev/null'
+check "OPA has one role data, not both files merged" \
+	bash -c 'curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/bindings/users/bob | jq -e ".result | index(\"commands\")" >/dev/null'
+check "mcp-policy-render says data.json is ignored" \
+	bash -c 'journalctl -u mcp-policy-render.service -o cat --since "@$1" | grep -qF "$2/data.json is ignored: $2/data.yaml is in force"' _ "$ry_since" "$rbac_dir"
+check "mcp-gateway --check-policy-data checks data.yaml" \
+	bash -c 'mcp-gateway --check-policy-data 2>&1 | grep -qF "path=$1/data.yaml"' _ "$rbac_dir"
+check "... and says data.json is ignored" bash -c 'mcp-gateway --check-policy-data 2>&1 | grep -qF "role data ignored"'
+# ry_doctor <jq filter>: the doctor's results (without starting servers) match.
+ry_doctor() {
+	mcp-gateway-admin doctor --no-start --json >/root/vmtest/ry-doctor.json 2>/dev/null
+	jq -e "$1" /root/vmtest/ry-doctor.json >/dev/null
+}
+check "doctor: data.yaml valid, data.json named as ignored" ry_doctor \
+	'.[] | select(.id == "role-data" and .status == "warn" and (.summary | contains("data.yaml valid"))) | .details[] | select(contains("data.json is ignored"))'
+check "doctor: OPA's role data is current" ry_doctor '.[] | select(.id == "role-data-rendering" and .status == "ok")'
+# data.yaml that does not parse: not rendered, the role data in force
+# stays, and the path unit keeps rendering after failures.
+cp "$rbac_dir/data.yaml" /root/vmtest/ry-good.yaml
+for _ in 1 2 3 4 5 6; do
+	echo 'roles: {}' >>"$rbac_dir/data.yaml"
+	sleep 0.3
+done
+ry_failed() { journalctl -u mcp-policy-render.service -o cat --since "@$ry_since" | grep -qF 'key "roles" is already defined'; }
+check "data.yaml that does not parse is not rendered (its line named)" eventually 15 ry_failed
+check "... and the last rendering stays in force (bob keeps the role)" ry_bob_exec
+check "doctor: the role data fails, with the line" ry_doctor \
+	'.[] | select(.id == "role-data" and .status == "fail" and (.summary | contains("is already defined")))'
+cat /root/vmtest/ry-good.yaml >"$rbac_dir/data.yaml"
+check "fixed again, it is rendered (no start limit after failures)" eventually 15 ry_bob_exec
+# A subdirectory (rbac/<name>/, chapter 12) is rendered along, as
+# data.mcp.rbac.<name>, with the next run.
+mkdir -p "$rbac_dir/vmtest"
+echo 'note: from a subdirectory' >"$rbac_dir/vmtest/data.yaml"
+restorecon -R "$rbac_dir/vmtest"
+systemctl start mcp-policy-render.service
+ry_sub() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/vmtest | jq -e '.result.note == "from a subdirectory"' >/dev/null; }
+check "a subdirectory's data.yaml reaches OPA as data.mcp.rbac.vmtest" eventually 15 ry_sub
+rm -r "$rbac_dir/vmtest"
+systemctl start mcp-policy-render.service
+check "... and goes once the subdirectory is gone" test ! -e /run/mcp-opa/rbac/vmtest
+# Without data.yaml, data.json is in force again.
+rm "$rbac_dir/data.yaml"
+check "data.yaml removed: data.json is in force again (bob loses the role)" eventually 15 ry_bob_refused
+check "the rendering is data.json's again" ry_rendered "$rbac_dir/data.json"
+check "doctor: the role data is valid again, nothing ignored" ry_doctor '.[] | select(.id == "role-data" and .status == "ok")'
 
 section "Instances"
 systemctl list-units --type=service --plain --no-legend 'mcp-*' | awk '{print "  " $1, $4}'

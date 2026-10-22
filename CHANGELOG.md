@@ -7,6 +7,39 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Role data in YAML: `/etc/mcp-gateway/policy/rbac/data.yaml`, the same
+  data and schema as `data.json`, with comments. Where both exist,
+  `data.yaml` is in force and `data.json` is ignored (the doctor, `mcp-gateway
+  --check-policy-data` and `mcp-policy-render` name it). `data.json`
+  alone works as before. The same holds in each subdirectory of `rbac/`
+  and for the setups' shipped roles. An error in YAML names its line;
+  duplicate keys and merge keys (`<<`) are refused.
+- `mcp-policy-render.service` and `mcp-policy-render.path`: OPA no longer
+  reads `/etc/mcp-gateway/policy/rbac` itself (it would merge both
+  files) but `/run/mcp-opa/rbac`, where the renderer (as root) writes
+  the file in force of each directory as JSON on every change of
+  `rbac/`. Role data that does not parse is not rendered, and the role
+  data in force stays, as OPA kept its previous data before. Neither
+  the gateway nor OPA can write `/run/mcp-opa` (SELinux type
+  `mcpopa_rbac_t`).
+- The doctor's check "role data for OPA" (`role-data-rendering`): the
+  rendering is current, and no file below `rbac/` is left out.
+
+### Changed
+
+- `mcp-opa.service` runs OPA with `--ignore rbac` and
+  `mcp.rbac:/run/mcp-opa/rbac`. A drop-in that replaces `ExecStart=` for
+  directory mode (chapter 12, approach B) needs both, or OPA loads no
+  role data. Files other than `data.yaml` and `data.json` below `rbac/`
+  are no longer loaded; the doctor names them. A change in a
+  subdirectory of `rbac/` only is in force with the next change of
+  `rbac/` itself, or `systemctl start mcp-policy-render.service`.
+- `explain_decision` (server `gateway-admin`) evaluates the role data as
+  rendered for OPA; `mcp-policy-bundle` puts the file in force of each
+  directory below `rbac/` into the bundle, and nothing else from there.
+
 ### Removed
 
 - `mcp-gateway-admin setup http --config FILE`, deprecated in 1.4: setup

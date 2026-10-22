@@ -55,6 +55,7 @@ type Result struct {
 var checkIDs = map[string]string{
 	"configuration":       "configuration",
 	"role data":           "role-data",
+	"role data for OPA":   "role-data-rendering",
 	"policy":              "policy",
 	"state files":         "state-files",
 	"gateway status":      "gateway-status",
