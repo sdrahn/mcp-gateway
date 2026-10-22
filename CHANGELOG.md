@@ -7,6 +7,43 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v1.5.0 — 2026-10-22
+
+Role data in YAML. The role data, the one file administrators write by
+hand, can be `data.yaml` now, with comments that say why a role allows
+what it does or who asked for a binding; `data.json` keeps working, and
+where both exist `data.yaml` is in force. OPA loads the role data as
+`mcp-policy-render.service` renders it (as root, on every change), so
+that it sees one file only, and neither the gateway nor OPA can change
+what it decides by. The default role data is the package's, in
+`/usr/share/mcp-gateway/rbac/data.yaml`, until you write your own.
+Cockpit's role editor saves `data.yaml` and keeps its comments;
+`mcp-gateway-admin policy convert` turns a `data.json` into YAML.
+
+Upgrading from 1.4.x needs no changes to `gateway.yaml`, server
+definitions or role data. The update restarts OPA, which then loads the
+rendered role data; restart the gateway too (`systemctl restart
+mcp-gateway.service`), which the package does not do. The SELinux
+module changes (the type `mcpopa_rbac_t` of `/run/mcp-opa`). Things to
+know:
+
+- **Your `data.json`**: unchanged from an earlier package's default, it
+  is removed on update, and the shipped default is in force from then
+  on (the update says so). Changed, it stays in force, as JSON; convert
+  it when you like (chapter 2, "Updating from 1.4 or earlier").
+- **A drop-in that replaces `ExecStart=` of `mcp-opa.service`** for
+  directory mode (chapter 12, approach B) needs `--ignore rbac` and
+  `mcp.rbac:/run/mcp-opa/rbac`, as the shipped unit has them, or OPA
+  loads no role data. The signed-bundle and bundle-server drop-ins need
+  nothing.
+- **Files below `/etc/mcp-gateway/policy/rbac`** other than `data.yaml`
+  and `data.json` are no longer loaded (the doctor names them): move a
+  `.rego` file there to `/etc/mcp-gateway/policy/`.
+- **Scripts that read the setups' roles** as
+  `/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.json` find
+  them as `data.yaml` now.
+- **`setup http --config`**, deprecated in 1.4, is gone.
+
 ### Added
 
 - Role data in YAML: `/etc/mcp-gateway/policy/rbac/data.yaml`, the same
