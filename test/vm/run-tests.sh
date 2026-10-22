@@ -2241,7 +2241,7 @@ if zypper -n in --no-recommends postfix >/root/vmtest/mail-install.log 2>&1; the
 	check "... its subject names the call and the principal" \
 		bash -c 'grep -qF "Subject: [mcp-gateway] Approval needed: fs/read_file for hank" <<<"$1"' _ "$(ml_mail frank)"
 	check "... to undisclosed recipients (no approver sees the others)" \
-		bash -c 'grep -qF "To: undisclosed-recipients:;" <<<"$1" && ! grep -qF gina <<<"$1"' _ "$(ml_mail frank)"
+		bash -c 'grep -qF "To: undisclosed-recipients:;" <<<"$1" && ! grep -qw gina <<<"$1"' _ "$(ml_mail frank)"
 	check "... without the call's arguments (include_args: false)" bash -c '! grep -qF /home/hank/notes.txt <<<"$1"' _ "$(ml_mail frank)"
 	check "hank, who asked and is no approver, got no mail" bash -c '! grep -qF "$1" /var/spool/mail/hank 2>/dev/null' _ "$ml_id"
 	ml_sent() {
@@ -2253,6 +2253,8 @@ if zypper -n in --no-recommends postfix >/root/vmtest/mail-install.log 2>&1; the
 	mcp-gateway-admin config unset notifications.email.from >/dev/null
 	setsebool mcpgw_can_send_mail off
 	cat /root/ml-data-before.json >/etc/mcp-gateway/policy/rbac/data.json
+	# Out of mcp-users again: without roles, the self-check would name them.
+	for u in hank frank gina; do gpasswd -d "$u" mcp-users >/dev/null; done
 else
 	tail -5 /root/vmtest/mail-install.log | sed 's/^/  | /'
 	skip "e-mail approvals (postfix not installable)"
