@@ -85,8 +85,10 @@ uninstalling (a setup package's server and polkit rule gone; all
 packages removed without stopping anything first: the services stopped
 and disabled, no instance left, the SELinux modules unloaded once the
 modules and ports built on their types are gone, configuration and
-state kept); approvals through the control API; files written
-through the file server and what SELinux keeps from it; polkit;
+state kept); a remote principal without a local account (servers
+working in the home not offered to it, others are); approvals through
+the control API; files written through the file server and what
+SELinux keeps from it; polkit;
 credentials; a privileged backend and its own SELinux module; the six
 server setups with their real servers (systemd changes a unit after an
 approval, `inspect`, `profile`); servers over HTTP, over HTTPS through a
@@ -107,8 +109,7 @@ sections of `run-tests.sh`, no extra machinery):
 
 1. **Users from a directory:** principals from SSSD (LDAP or AD) rather
    than `/etc/passwd`, with `mcp-users` as a directory group; approver
-   rules by group; a principal without a local account (`${HOME}`,
-   `${UID}` left out).
+   rules by group.
 
 **As openQA test modules of their own** (what openQA does well and CI
 cannot):
