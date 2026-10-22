@@ -3846,7 +3846,19 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       updated with it. The server setup packages' and subpackages' role
       files (`profiles/*/roles.json`, `packaging/*/…-roles.json`,
       installed as `…/profiles/<setup>/data.json`) become YAML too; they
-      are package files, so they change without a deprecation;
+      are package files, so they change without a deprecation. As
+      built: the default is `/usr/share/mcp-gateway/rbac/data.yaml`,
+      outside the trees OPA loads (below `policy/` it would rest on
+      `--ignore rbac` alone, and a bundle built with `-V` would carry
+      it); `previous-defaults.sha256` next to it holds the checksums of
+      the defaults of 0.4 to 1.4, which `%posttrans` compares. On
+      `rpm -e`, a `%ghost %config(noreplace)` file stays in place
+      without `.rpmsave` (checked with rpm 4.18; the VM test checks the
+      distribution's rpm), so chapter 2 says that the role data stays.
+      `mcp-policy-bundle` puts the role data into a bundle as rendered,
+      where `mcp-policy-render` is installed: OPA would read a YAML file
+      in a bundle with its own YAML parser, which resolves some plain
+      scalars (`yes`, `on`) otherwise than the gateway's;
     - stage C, the docs: chapter 6 (role data, with YAML examples and
       JSON as the alternative), chapter 8 (Cockpit's editor), chapter 12
       (how OPA loads the role data now), chapter 11

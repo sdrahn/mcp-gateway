@@ -336,6 +336,40 @@ func TestPolicyBundleKeygen(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(b)) != `{"managers":{"alice":"bob"},"roles":{"new":{"permissions":[]}}}` {
 		t.Fatalf("the bundle's role data: %v %s", err, b)
 	}
+	// With mcp-policy-render (as installed), the bundle carries the role
+	// data as rendered for directory mode: YAML read as the gateway reads
+	// it ("yes" a string; OPA's YAML parser would read true).
+	render := buildBinary(t, filepath.Join(dir, "bin"), "./cmd/mcp-policy-render")
+	writeFile(t, filepath.Join(yml, "rbac", "managers", "data.yaml"), "alice: yes\n")
+	cmd = exec.Command("sh", filepath.Join("..", "tools", "mcp-policy-bundle"),
+		"-k", key, "-o", ymlBundle, "-n", "-V", filepath.Join("..", "policy"), "-L", yml, "-D", "")
+	cmd.Env = append(os.Environ(), "OPA="+opa, "MCP_GATEWAY="+gateway, "MCP_POLICY_RENDER="+render)
+	if b, err = cmd.CombinedOutput(); err != nil {
+		t.Fatalf("bundle with mcp-policy-render: %v %s", err, b)
+	}
+	b, err = exec.Command(opa, "eval", "--format", "raw", "--bundle", ymlBundle, "json.marshal(data.mcp.rbac)").CombinedOutput()
+	if err != nil || strings.TrimSpace(string(b)) != `{"managers":{"alice":"yes"},"roles":{"new":{"permissions":[]}}}` {
+		t.Fatalf("the rendered bundle's role data: %v %s", err, b)
+	}
+	// No role data of the administrator's: the shipped default, taken whole.
+	none := filepath.Join(dir, "none")
+	if err := os.MkdirAll(filepath.Join(none, "rbac"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	def := filepath.Join(dir, "default.yaml")
+	writeFile(t, def, "roles:\n  viewer: {permissions: []}\n")
+	for _, env := range [][]string{nil, {"MCP_POLICY_RENDER=" + render}} {
+		cmd = exec.Command("sh", filepath.Join("..", "tools", "mcp-policy-bundle"),
+			"-k", key, "-o", ymlBundle, "-n", "-V", filepath.Join("..", "policy"), "-L", none, "-D", def)
+		cmd.Env = append(append(os.Environ(), "OPA="+opa, "MCP_GATEWAY="+gateway), env...)
+		if b, err = cmd.CombinedOutput(); err != nil {
+			t.Fatalf("bundle from the default %v: %v %s", env, err, b)
+		}
+		b, err = exec.Command(opa, "eval", "--format", "raw", "--bundle", ymlBundle, "json.marshal(data.mcp.rbac)").CombinedOutput()
+		if err != nil || strings.TrimSpace(string(b)) != `{"roles":{"viewer":{"permissions":[]}}}` {
+			t.Fatalf("the default in the bundle %v: %v %s", env, err, b)
+		}
+	}
 	// The bundle verifies with the generated verification key.
 	cmd = exec.Command(opa, "run", "--server", "--addr", "unix://"+filepath.Join(dir, "opa.sock"), "--bundle",
 		"--verification-key", filepath.Join(dir, "bundle", "verify.pem"), bundle)

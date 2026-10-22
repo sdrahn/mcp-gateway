@@ -58,7 +58,7 @@ func testAdmin(t *testing.T) (*adminServer, string) {
 // does.
 func renderRoles(t *testing.T, a *adminServer) {
 	t.Helper()
-	p, err := policydata.PlanRender(filepath.Dir(a.policyData), a.shipped)
+	p, err := policydata.PlanRender(filepath.Dir(a.policyData), "", a.shipped)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +374,7 @@ func TestAdminDefinition(t *testing.T) {
 // gateway-admin without approval through a pattern meant for other
 // servers (viewer allows read_* on every server).
 func TestAdminToolsOutsideDefaultRoles(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "policy", "mcp", "rbac", "data.json"))
+	_, data, _, err := policydata.Read(filepath.Join("..", "..", "policy", "mcp", "rbac", "data.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,7 +1,8 @@
 // Command mcp-policy-render writes the role data in force below
 // /etc/mcp-gateway/policy/rbac (data.yaml before data.json, in every
-// directory) as JSON to /run/mcp-opa/rbac, which OPA loads as
-// data.mcp.rbac (docs/architecture.md, roadmap step 37). With -watch it
+// directory; for the top, the shipped default while it has none) as JSON
+// to /run/mcp-opa/rbac, which OPA loads as data.mcp.rbac
+// (docs/architecture.md, roadmap step 37). With -watch it
 // runs as root as mcp-policy-render.service, renders, tells systemd it is
 // ready (OPA starts after it) and renders again on every change below
 // the role data's directory (inotify, and a check every minute). Role
@@ -47,6 +48,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&r.src, "source", policydata.DefaultDir, "the role data's directory")
 	fs.StringVar(&r.out, "out", policydata.RenderDir, "the directory OPA loads as data.mcp.rbac")
 	fs.StringVar(&r.shipped, "shipped", policydata.DefaultShippedDir, "the shipped policy, for the setups' roles")
+	fs.StringVar(&r.def, "default", policydata.DefaultData, "the shipped default role data, in force while the role data's directory has none (empty: none)")
 	check := fs.Bool("check", false, "only report whether the rendering is current (exit status 1 if not)")
 	watch := fs.Bool("watch", false, "render, then again on every change, until stopped (mcp-policy-render.service)")
 	showVersion := fs.Bool("version", false, "print the version and exit")
@@ -86,13 +88,14 @@ func sdNotify(state string) error {
 
 type renderer struct {
 	src, out, shipped string
+	def               string // the shipped default role data ("": none)
 	say               func(format string, a ...any)
 }
 
 // plan reads the role data in force and reports what is ignored, not
 // loaded or not valid.
 func (r renderer) plan() (policydata.Plan, bool) {
-	p, err := policydata.PlanRender(r.src, r.shipped)
+	p, err := policydata.PlanRender(r.src, r.def, r.shipped)
 	if err != nil {
 		r.say("%s: %v", name, err)
 		r.say("%s: role data not rendered; the last rendering in %s stays in force", name, r.out)
@@ -161,7 +164,8 @@ func (r renderer) check() int {
 }
 
 // watch renders, tells systemd it is ready, and renders again after each
-// change below r.src (and of r.src itself, watched in its parent) until
+// change below r.src (and of r.src itself, watched in its parent) and of
+// the shipped default (in its directory) until
 // ctx ends. A change during a render is not lost: the watcher keeps it
 // for the next round. Role data that does not parse is reported and
 // waited out.
@@ -171,7 +175,13 @@ func (r renderer) watch(ctx context.Context, notify func(string) error) int {
 		r.say("%s: %v; changes are noticed every %s only", name, err, recheck)
 	}
 	defer func() { _ = fsw.Close() }()
-	dirs := func() []string { return append(fswatch.Tree(r.src), filepath.Dir(r.src)) }
+	dirs := func() []string {
+		d := append(fswatch.Tree(r.src), filepath.Dir(r.src))
+		if r.def != "" {
+			d = append(d, filepath.Dir(r.def))
+		}
+		return d
+	}
 	if fsw != nil {
 		fsw.Set(dirs())
 	}

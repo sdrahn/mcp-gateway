@@ -25,9 +25,13 @@ Usage: mcp-policy-bundle [-k SIGNING_KEY] [-o OUTPUT] [-r REVISION] [-n]
   -V  policy logic (default: /usr/share/mcp-gateway/policy)
   -L  the administrator's policy and role data (default:
       /etc/mcp-gateway/policy; in rbac/, data.yaml before data.json)
+  -D  the default role data, in force while LOCAL_POLICY_DIR/rbac has
+      none (default: /usr/share/mcp-gateway/rbac/data.yaml; "": none)
 
 Environment: OPA (default: opa from PATH), MCP_GATEWAY (default:
-mcp-gateway from PATH; checks the role data before building, if found).
+mcp-gateway from PATH; checks the role data before building, if found),
+MCP_POLICY_RENDER (default: /usr/libexec/mcp-gateway/mcp-policy-render;
+renders the role data as mcp-opa.service has it, if found).
 -G needs openssl.
 USAGE
 	exit 2
@@ -37,7 +41,8 @@ key=/etc/mcp-gateway/bundle/signing.pem alg=RS256
 out=/etc/mcp-gateway/bundle/policy.tar.gz
 revision=$(date -u +%Y%m%dT%H%M%SZ) restart=yes genkey=no
 vendor=/usr/share/mcp-gateway/policy local=/etc/mcp-gateway/policy
-while getopts k:a:o:r:nGV:L:h opt; do
+default=/usr/share/mcp-gateway/rbac/data.yaml
+while getopts k:a:o:r:nGV:L:D:h opt; do
 	case $opt in
 	k) key=$OPTARG ;;
 	G) genkey=yes ;;
@@ -47,10 +52,12 @@ while getopts k:a:o:r:nGV:L:h opt; do
 	n) restart=no ;;
 	V) vendor=$OPTARG ;;
 	L) local=$OPTARG ;;
+	D) default=$OPTARG ;;
 	*) usage ;;
 	esac
 done
 opa=${OPA:-opa}
+render=${MCP_POLICY_RENDER:-/usr/libexec/mcp-gateway/mcp-policy-render}
 
 # relabel gives new files their SELinux label (e.g. mcpgw_signing_key_t).
 relabel() {
@@ -102,8 +109,16 @@ rm -rf "$tmp/src/mcp/rbac"
 # as mcp-opa.service loads them ("mcp:/etc/mcp-gateway/policy"). Below
 # rbac/, as mcp-opa.service has it (mcp-policy-render): in each directory
 # the file in force only, data.yaml before data.json, as data.mcp.rbac;
-# nothing else.
+# nothing else. With mcp-policy-render, the bundle carries what it
+# renders, the JSON OPA loads in directory mode (YAML read as the gateway
+# reads it, not by OPA's YAML parser); without it (a bundle built
+# elsewhere), the file in force as it is.
+userender=no
+command -v "$render" >/dev/null 2>&1 && userender=yes
 (cd "$local" && find . -type f ! -name '.manifest') | while IFS= read -r f; do
+	case $f in
+	./rbac/*) [ "$userender" = no ] || continue ;;
+	esac
 	case $f in
 	./rbac/*/data.json | ./rbac/data.json)
 		y=${f%.json}.yaml
@@ -122,6 +137,18 @@ rm -rf "$tmp/src/mcp/rbac"
 	mkdir -p "$(dirname "$dest")"
 	cp "$local/$f" "$dest"
 done
+if [ "$userender" = yes ]; then
+	if ! "$render" -source "$local/rbac" -out "$tmp/src/mcp/rbac" -shipped "$vendor" -default "$default"; then
+		echo "mcp-policy-bundle: the role data in $local/rbac does not parse (above); no bundle built" >&2
+		exit 1
+	fi
+# No role data of the administrator's: the shipped default, taken whole.
+elif [ ! -f "$tmp/src/mcp/rbac/data.yaml" ] && [ ! -f "$tmp/src/mcp/rbac/data.json" ] &&
+	[ -n "$default" ] && [ -f "$default" ]; then
+	mkdir -p "$tmp/src/mcp/rbac"
+	cp "$default" "$tmp/src/mcp/rbac/data.yaml"
+	echo "mcp-policy-bundle: no role data in $local/rbac: the shipped default $default is in force" >&2
+fi
 find "$tmp/src" -name '*_test.rego' -exec rm -f {} +
 # The bundle claims only data.mcp, so it can share an OPA with other
 # bundles; opa build rejects Rego packages and data outside it.

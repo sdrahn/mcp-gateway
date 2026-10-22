@@ -16,16 +16,27 @@ rm -rf "$out"
 mkdir -p "$out/servers.d" "$out/admin-servers.d" "$out/policy/rbac"
 
 show() { git show "$tag:$1" >"$2"; }
+has() { git cat-file -e "$tag:$1" 2>/dev/null; }
 show config/gateway.yaml "$out/gateway.yaml"
 show config/servers.d/fs.yaml "$out/servers.d/fs.yaml"
-show policy/mcp/rbac/data.json "$out/policy/rbac/data.json"
+# The default role data: data.json until 1.4, data.yaml from 1.5 on
+# (installed in /usr/share then, and in force while /etc has none).
+if has policy/mcp/rbac/data.yaml; then
+	show policy/mcp/rbac/data.yaml "$out/policy/rbac/data.yaml"
+else
+	show policy/mcp/rbac/data.json "$out/policy/rbac/data.json"
+fi
 # Server setups (from 0.4 on).
 profiles=$(git ls-tree --name-only "$tag:profiles" 2>/dev/null || true)
 for p in $profiles; do
 	git cat-file -e "$tag:profiles/$p/$p.yaml" 2>/dev/null || continue
 	show "profiles/$p/$p.yaml" "$out/servers.d/$p.yaml"
 	mkdir -p "$out/policy/mcp/profiles/$p"
-	show "profiles/$p/roles.json" "$out/policy/mcp/profiles/$p/data.json"
+	if has "profiles/$p/roles.yaml"; then
+		show "profiles/$p/roles.yaml" "$out/policy/mcp/profiles/$p/data.yaml"
+	else
+		show "profiles/$p/roles.json" "$out/policy/mcp/profiles/$p/data.json"
+	fi
 done
 # The privileged variant, as an administrator links it into
 # /etc/mcp-gateway/servers.d.

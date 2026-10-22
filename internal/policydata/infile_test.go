@@ -113,3 +113,32 @@ func TestIsYAML(t *testing.T) {
 		}
 	}
 }
+
+// The shipped default is in force where the directory has neither file.
+func TestReadOr(t *testing.T) {
+	dir := t.TempDir()
+	def := filepath.Join(t.TempDir(), "data.yaml")
+	if err := os.WriteFile(def, []byte("roles: {shipped: {}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	js := filepath.Join(dir, "data.json")
+	if f, data, _, err := ReadOr(js, def); err != nil || f != def || !strings.Contains(string(data), "shipped") {
+		t.Errorf("default: %s %s %v", f, data, err)
+	}
+	if f, _ := InForceOr(js, ""); f != js {
+		t.Errorf("no default: %s", f)
+	}
+	if f, _ := InForceOr(js, filepath.Join(dir, "missing.yaml")); f != js {
+		t.Errorf("missing default: %s", f)
+	}
+	if err := os.WriteFile(js, []byte(`{"roles": {"mine": {}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if f, data, _, err := ReadOr(js, def); err != nil || f != js || !strings.Contains(string(data), "mine") {
+		t.Errorf("own: %s %s %v", f, data, err)
+	}
+	// Another name than data.json or data.yaml has no default.
+	if f, _ := InForceOr(filepath.Join(dir, "other.json"), def); f != filepath.Join(dir, "other.json") {
+		t.Errorf("other name: %s", f)
+	}
+}

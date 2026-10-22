@@ -63,6 +63,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	policyData := fs.String("policy-data", policydata.DefaultPath, "role data")
 	shipped := fs.String("shipped-policy", policydata.DefaultShippedDir, "shipped policy with the roles of the server setups")
 	rendered := fs.String("rendered-policy", policydata.RenderDir, "the role data as OPA loads it (mcp-policy-render)")
+	defaultData := fs.String("default-policy-data", policydata.DefaultData, "the shipped default role data, in force while -policy-data's directory has none")
 	only := fs.String("server", "", "check only this server (start, roles)")
 	noStart := fs.Bool("no-start", false, "do not start the servers")
 	since := fs.Duration("since", 24*time.Hour, "how far back to look for SELinux denials (within the current boot)")
@@ -81,16 +82,17 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	d := &doctorRun{
-		root:       os.Geteuid() == 0,
-		policyData: *policyData,
-		shipped:    *shipped,
-		rendered:   *rendered,
-		only:       *only,
-		noStart:    *noStart,
-		since:      *since,
-		allBoots:   *previousBoots,
-		timeout:    *timeout,
-		log:        slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelError})),
+		root:        os.Geteuid() == 0,
+		policyData:  *policyData,
+		shipped:     *shipped,
+		rendered:    *rendered,
+		defaultData: *defaultData,
+		only:        *only,
+		noStart:     *noStart,
+		since:       *since,
+		allBoots:    *previousBoots,
+		timeout:     *timeout,
+		log:         slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelError})),
 	}
 	rs := d.run(*configPath)
 	doctor.Identify(rs)
@@ -126,6 +128,7 @@ type doctorRun struct {
 	isolated            bool
 	policyData, shipped string
 	rendered            string // the role data as OPA loads it
+	defaultData         string // the shipped default role data
 	only                string
 	noStart             bool
 	since, timeout      time.Duration
@@ -265,10 +268,14 @@ func (d *doctorRun) configuration(path string) doctor.Result {
 
 func (d *doctorRun) roleData() doctor.Result {
 	r := doctor.Result{Check: "role data"}
-	file, data, ignored, err := policydata.Read(d.policyData)
+	file, data, ignored, err := policydata.ReadOr(d.policyData, d.defaultData)
 	if errors.Is(err, fs.ErrNotExist) {
 		r.Status, r.Summary = doctor.Skip, d.policyData+" does not exist (policy from a bundle?): not checked"
 		return r
+	}
+	shippedDefault := ""
+	if file == d.defaultData {
+		shippedDefault = fmt.Sprintf(" (the shipped default: %s has no role data)", filepath.Dir(d.policyData))
 	}
 	if err != nil {
 		if errors.Is(err, fs.ErrPermission) {
@@ -297,7 +304,7 @@ func (d *doctorRun) roleData() doctor.Result {
 		r.Status, r.Summary, r.Details = doctor.Fail, fmt.Sprintf("%s: %d problems; the policy treats invalid data as absent", file, len(problems)), problems
 		return r
 	}
-	r.Status, r.Summary = doctor.OK, fmt.Sprintf("%s valid (%d shipped roles known)", file, len(shipped))
+	r.Status, r.Summary = doctor.OK, fmt.Sprintf("%s valid (%d shipped roles known)%s", file, len(shipped), shippedDefault)
 	if len(ignored) > 0 {
 		r.Status = doctor.Warn
 		for _, f := range ignored {
@@ -317,7 +324,7 @@ func (d *doctorRun) rendering() doctor.Result {
 		return r
 	}
 	fix := "systemctl restart mcp-policy-render.service; journalctl -u mcp-policy-render.service"
-	p, err := policydata.PlanRender(filepath.Dir(d.rbacFile), d.shipped)
+	p, err := policydata.PlanRender(filepath.Dir(d.policyData), d.defaultData, d.shipped)
 	if err != nil {
 		return skipOrFail(r, err)
 	}
@@ -345,7 +352,7 @@ func (d *doctorRun) rendering() doctor.Result {
 		r.Status = doctor.Warn
 		for _, f := range p.Unloaded {
 			r.Details = append(r.Details, f+" is not loaded: only data.yaml or data.json is role data (a rule belongs in "+
-				filepath.Dir(filepath.Dir(d.rbacFile))+")")
+				filepath.Dir(filepath.Dir(d.policyData))+")")
 		}
 	}
 	return r

@@ -1,0 +1,14 @@
+# The roles of the server exec (package mcp-gateway-exec-server), installed as
+# /usr/share/mcp-gateway/policy/mcp/profiles/exec/data.yaml.
+# Bind users or groups to them in the role data.
+
+version: 1
+roles:
+  exec-operator:
+    description: 'exec: run the commands the administrator allows, each with approval'
+    permissions:
+      - server: exec
+        tool: '*'
+        require_approval: true
+        approval_channel: oob
+        approval_scopes: [once, session, 1h]

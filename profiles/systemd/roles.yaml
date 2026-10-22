@@ -1,0 +1,33 @@
+# The roles of the server setup systemd (package mcp-gateway-profile-systemd),
+# installed as /usr/share/mcp-gateway/policy/mcp/profiles/systemd/data.yaml.
+# Bind users or groups to them in the role data (chapter 13).
+
+version: 1
+roles:
+  systemd-reader:
+    description: 'systemd: list units, read logs, man pages and unit files'
+    permissions:
+      - {server: systemd, tool: list_loaded_units}
+      - {server: systemd, tool: list_unit_files}
+      - {server: systemd, tool: list_log}
+      - {server: systemd, tool: check_restart_reload}
+      - {server: systemd, tool: get_man_page}
+      - server: systemd
+        tool: get_file
+        args: {path: ^/(etc|usr/lib)/systemd/}
+  systemd-operator:
+    description: 'systemd-reader, and with approval: change units (start, stop, enable, ...) and read other files'
+    permissions:
+      - {server: systemd, tool: list_loaded_units}
+      - {server: systemd, tool: list_unit_files}
+      - {server: systemd, tool: list_log}
+      - {server: systemd, tool: check_restart_reload}
+      - {server: systemd, tool: get_man_page}
+      - server: systemd
+        tool: get_file
+        args: {path: ^/(etc|usr/lib)/systemd/}
+      - server: systemd
+        tool: '*'
+        require_approval: true
+        approval_channel: oob
+        approval_scopes: [once, session, 1h]

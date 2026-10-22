@@ -26,9 +26,37 @@ minor release (with a warning) and removed in the next.
   `mcpopa_rbac_t`).
 - The doctor's check "role data for OPA" (`role-data-rendering`): the
   rendering is current, and no file below `rbac/` is left out.
+- `mcp-gateway-admin policy convert [FILE]` writes role data in JSON as
+  YAML (`data.yaml` next to `data.json`), the same data with the keys in
+  their order; `data.json` stays, ignored, until you remove it.
+- The default role data is the package's: `/usr/share/mcp-gateway/rbac/data.yaml`,
+  in force, taken whole, while `/etc/mcp-gateway/policy/rbac` has no role
+  data. The package installs nothing there any more. Your own file
+  replaces the default as before (no merging: a role you deleted stays
+  deleted). Cockpit's role editor starts from the default then, and
+  saving writes `data.json`.
 
 ### Changed
 
+- **Updating from 1.4**: a `/etc/mcp-gateway/policy/rbac/data.json`
+  unchanged from the default an earlier package installed is removed (the
+  update says so), and the shipped default is in force from then on,
+  with its future changes. A changed one stays, in force. The package
+  owns the file without installing it, so rpm neither replaces it nor
+  saves it as `.rpmsave`: on `rpm -e` your role data stays in place.
+- The roles of the server setups and of the servers `gateway-docs`,
+  `gateway-admin` and `exec` are YAML:
+  `/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.yaml`. A
+  script that reads them as `data.json` needs the new name and a YAML
+  reader, or the roles as OPA has them
+  (`/v1/data/mcp/profiles/<setup>` on OPA's socket).
+- `mcp-policy-bundle` puts the role data into the bundle as
+  `mcp-policy-render` renders it, where it is installed: YAML read as
+  the gateway reads it, as in directory mode; without role data in
+  `/etc`, the shipped default (`-D`).
+- Cockpit's role editor shows the role data in force when `data.yaml`
+  is in force, and does not save over it (it edits YAML in a later
+  step).
 - `mcp-opa.service` runs OPA with `--ignore rbac` and
   `mcp.rbac:/run/mcp-opa/rbac`. A drop-in that replaces `ExecStart=` for
   directory mode (chapter 12, approach B) needs both, or OPA loads no

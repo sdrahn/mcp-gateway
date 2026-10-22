@@ -311,6 +311,11 @@ else
 fi
 echo "  setups: ${setups:-not tested (${missing}not installed)}"
 check "SELinux module mcp_gateway is loaded" bash -c 'semodule -l | grep -qx mcp_gateway'
+# The default role data is the package's, outside /etc (chapter 6): no
+# file in /etc/mcp-gateway/policy/rbac until the administrator writes one.
+check "the package installs no role data in /etc" bash -c '! ls /etc/mcp-gateway/policy/rbac/data.* >/dev/null 2>&1'
+check "the default role data is in /usr/share/mcp-gateway/rbac" test -s /usr/share/mcp-gateway/rbac/data.yaml
+check "the setups' shipped roles are YAML" bash -c '! ls /usr/share/mcp-gateway/policy/mcp/profiles/*/data.json >/dev/null 2>&1 && ls /usr/share/mcp-gateway/policy/mcp/profiles/*/data.yaml >/dev/null'
 # Labels as the packages leave them (no restorecon): a wrong label here is
 # a packaging bug.
 for f in /usr/bin/mcp-gateway:mcpgw_exec_t /usr/bin/mcp-gateway-admin:mcpsrv_admin_exec_t \
@@ -644,6 +649,18 @@ rm "$rbac_dir/data.yaml"
 check "data.yaml removed: data.json is in force again (bob loses the role)" eventually 15 ry_bob_refused
 check "the rendering is data.json's again" ry_rendered "$rbac_dir/data.json"
 check "doctor: the role data is valid again, nothing ignored" ry_doctor '.[] | select(.id == "role-data" and .status == "ok")'
+# Without role data in /etc, the shipped default is in force, taken whole
+# (its roles viewer, developer and admin; the test's roles gone).
+mv "$rbac_dir/data.json" /root/vmtest/ry-data.json
+ry_default() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac | jq -e '.result.roles | has("viewer") and has("developer") and (has("tester") | not)' >/dev/null; }
+check "no role data in /etc: the shipped default is in force" eventually 15 ry_default
+check "doctor: the shipped default is valid and named" ry_doctor \
+	'.[] | select(.id == "role-data" and .status == "ok" and (.summary | contains("/usr/share/mcp-gateway/rbac/data.yaml valid")))'
+check "mcp-gateway --check-policy-data checks the shipped default" \
+	bash -c 'mcp-gateway --check-policy-data 2>&1 | grep -qF "path=/usr/share/mcp-gateway/rbac/data.yaml"'
+mv /root/vmtest/ry-data.json "$rbac_dir/data.json"
+ry_own() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac | jq -e '.result.roles | has("tester") and (has("viewer") | not)' >/dev/null; }
+check "data.json back: its roles are in force, not the default's" eventually 15 ry_own
 
 section "Instances"
 systemctl list-units --type=service --plain --no-legend 'mcp-*' | awk '{print "  " $1, $4}'
@@ -932,7 +949,7 @@ END
 		conf=()
 		[ "$s" = zypp ] && conf=(-config /root/vmtest/inspect-gateway.yaml)
 		mcp-gateway-admin inspect "${conf[@]}" -server "$s" -timeout 60s \
-			-roles "/usr/share/mcp-gateway/policy/mcp/profiles/$s/data.json" >"/root/vmtest/inspect-$s.txt" 2>&1
+			-roles "/usr/share/mcp-gateway/policy/mcp/profiles/$s/data.yaml" >"/root/vmtest/inspect-$s.txt" 2>&1
 		rc=$?
 		sed -n '1p;/^Tools/,$p' "/root/vmtest/inspect-$s.txt" | sed "s/^/  [$s] /"
 		check "inspect: the $s roles name only tools the server has" test "$rc" = 0
@@ -993,7 +1010,9 @@ END
 	out=$(runuser -u alice -- /usr/local/bin/mcpcall --server podman --method tools/list --params '{}' 2>&1)
 	rc=$?
 	echo "  [alice podman/tools/list] rc=$rc ${out:0:300}"
-	podman_missing=$(jq -rn --argjson list "$out" --slurpfile roles /usr/share/mcp-gateway/policy/mcp/profiles/podman/data.json \
+	# The shipped roles (YAML) as OPA has them.
+	curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/profiles/podman | jq .result >/root/vmtest/podman-roles.json
+	podman_missing=$(jq -rn --argjson list "$out" --slurpfile roles /root/vmtest/podman-roles.json \
 		'[$roles[0].roles[].permissions[].tool | select(. != "*")] - [$list.tools[].name] | unique | join(" ")' 2>&1)
 	check "podman: the roles name only tools the server has${podman_missing:+ (missing: $podman_missing)}" \
 		test "$rc" = 0 -a -z "$podman_missing"
@@ -1806,11 +1825,26 @@ section "Update without restart"
 gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
 ls -li /usr/bin/mcp-gateway | sed 's/^/  before: /'
 if [ -n "$rpms" ]; then
+	cp /etc/mcp-gateway/policy/rbac/data.json /root/vmtest/up-data.json
 	rpm -Uvh --force --nodeps "$rpms"/mcp-gateway-[0-9]*.rpm >/dev/null 2>&1
 	sleep 2
 	ls -li /usr/bin/mcp-gateway | sed 's/^/  after:  /'
 	check "a package update does not restart the gateway" \
 		test "$(systemctl show -p MainPID --value mcp-gateway.service)" = "$gw_pid"
+	check "an update keeps a changed data.json as it is" cmp -s /etc/mcp-gateway/policy/rbac/data.json /root/vmtest/up-data.json
+	# An update from 1.4 with its default unchanged in /etc: the copy goes
+	# (%posttrans), and the shipped default is in force from then on.
+	cp "$dir/default-1.4.json" /etc/mcp-gateway/policy/rbac/data.json
+	restorecon /etc/mcp-gateway/policy/rbac/data.json
+	up_out=$(rpm -Uvh --force --nodeps "$rpms"/mcp-gateway-[0-9]*.rpm 2>&1)
+	check "an update removes an unchanged default of 1.4 from /etc" test ! -e /etc/mcp-gateway/policy/rbac/data.json
+	check "... and says so" grep -qF "the default of an earlier package" <<<"$up_out"
+	up_default() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac | jq -e '.result.roles | has("viewer") and (has("tester") | not)' >/dev/null; }
+	check "... and the shipped default is in force" eventually 15 up_default
+	cat /root/vmtest/up-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	restorecon /etc/mcp-gateway/policy/rbac/data.json
+	up_back() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac | jq -e '.result.roles | has("tester")' >/dev/null; }
+	check "the test's role data in force again" eventually 15 up_back
 else
 	skip "a package update does not restart the gateway (no --rpms; the program is replaced below)"
 fi
@@ -2631,7 +2665,7 @@ section "Uninstall"
 # the script it opened). Chapter 2, "Uninstalling", without stopping the
 # services by hand first: the packages' scripts stop and disable them,
 # the SELinux modules are unloaded, nothing of the gateway keeps
-# running, and /etc/mcp-gateway (the role data as data.json.rpmsave) and
+# running, and /etc/mcp-gateway (the role data as it is) and
 # /var/lib/mcp-gateway stay. As the
 # chapter says, what was built on the gateway's SELinux types goes first:
 # the tests' own modules (a privileged server's, profile's) and the ports
@@ -2681,9 +2715,11 @@ semodule -l | awk '{print $1}' | grep -E '^mcp_' | sed 's/^/  still loaded: /'
 check "the programs are gone" bash -c '! test -e /usr/bin/mcp-gateway && ! test -e /usr/libexec/mcp-servers/mcp-server-fs'
 check "the polkit rules are gone" bash -c '! ls /usr/share/polkit-1/rules.d/*mcp-gateway* >/dev/null 2>&1'
 check "the gateway's sockets are gone" test ! -S /run/mcp-gateway/mcp.sock
-# The role data came with the package (%config): changed, rpm keeps it as
-# data.json.rpmsave; what the tests added stays as it is.
-check "the changed role data is kept (data.json.rpmsave)" test -s /etc/mcp-gateway/policy/rbac/data.json.rpmsave
+# The role data is the administrator's (the package owns it as %ghost
+# %config): rpm keeps it in place, without .rpmsave; what the tests added
+# stays as it is.
+check "the role data is kept as it is" test -s /etc/mcp-gateway/policy/rbac/data.json
+check "... not as data.json.rpmsave" test ! -e /etc/mcp-gateway/policy/rbac/data.json.rpmsave
 check "the configuration added stays (/etc/mcp-gateway/exec.d)" test -s /etc/mcp-gateway/exec.d/vmtest.yaml
 check "the state stays (/var/lib/mcp-gateway)" test -d /var/lib/mcp-gateway
 

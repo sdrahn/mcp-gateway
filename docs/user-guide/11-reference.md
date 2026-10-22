@@ -26,7 +26,8 @@ Any argument is an error (status 2).
 | `--config FILE` | configuration file, read alone (default: `/etc/mcp-gateway/gateway.yaml`, else `/usr/etc/mcp-gateway/gateway.yaml`, else built-in defaults, with the drop-ins of `/etc/mcp-gateway/gateway.d` over it) |
 | `--check` | validate the configuration, all MCP server definitions and the role data (if the file exists), print a summary, exit (status 1 on errors) |
 | `--check-policy-data` | validate only the role data against its schema, print each problem, exit (status 1 on problems) |
-| `--policy-data FILE` | role data for the two checks (default: `/etc/mcp-gateway/policy/rbac/data.json`; `-`: standard input; empty: none) |
+| `--policy-data FILE` | role data for the two checks, YAML or JSON (default: `/etc/mcp-gateway/policy/rbac/data.json`, the file in force: `data.yaml` before `data.json` in its directory, else the shipped default; `-`: standard input; empty: none) |
+| `--default-policy-data FILE` | the shipped default role data, in force while the directory of `--policy-data` has none (default: `/usr/share/mcp-gateway/rbac/data.yaml`; empty: none) |
 | `--shipped-policy DIR` | shipped policy with the roles of the server setups, which bindings may name; its setup role files are checked too (default: `/usr/share/mcp-gateway/policy`; empty: none) |
 | `--debug` | log debug messages |
 | `--allow-root` | run the gateway as root although the `mcp-gateway` account exists; without it the gateway refuses, since the state files it would create as root are unreadable for the service (`--check` runs as root without it) |
@@ -136,7 +137,9 @@ usage errors, 0 otherwise.
 | Flag | Meaning |
 |---|---|
 | `--config FILE` | gateway configuration (as for `mcp-gateway`) |
-| `--policy-data FILE` | role data (default: `/etc/mcp-gateway/policy/rbac/data.json`) |
+| `--policy-data FILE` | role data (default: `/etc/mcp-gateway/policy/rbac/data.json`, the file in force: `data.yaml` before `data.json` in its directory, else the shipped default) |
+| `--default-policy-data FILE` | the shipped default role data (default: `/usr/share/mcp-gateway/rbac/data.yaml`) |
+| `--rendered-policy DIR` | the role data as OPA loads it, compared with the file in force (default: `/run/mcp-opa/rbac`) |
 | `--shipped-policy DIR` | shipped policy with the roles of the server setups (default: `/usr/share/mcp-gateway/policy`; empty: none) |
 | `--server NAME` | check only this server: whether it starts and what its roles name, the SELinux denials of its domain, its type and program label (with its helpers), polkit and snapper for it; the configuration and the role data only when they fail, and none of the gateway's own checks (services, state files, policy, TLS, firewall, principals) |
 | `--no-start` | do not start the servers |
@@ -305,7 +308,9 @@ The MCP server `gateway-admin` on stdin/stdout, which the gateway starts
 | Flag | Meaning |
 |---|---|
 | `--config FILE` | gateway configuration (as for `mcp-gateway`) |
-| `--policy-data FILE` | role data (default: `/etc/mcp-gateway/policy/rbac/data.json`) |
+| `--policy-data FILE` | role data (default: `/etc/mcp-gateway/policy/rbac/data.json`, the file in force: `data.yaml` before `data.json` in its directory, else the shipped default) |
+| `--default-policy-data FILE` | the shipped default role data (default: `/usr/share/mcp-gateway/rbac/data.yaml`) |
+| `--rendered-policy DIR` | the role data as OPA loads it, which `explain_decision` evaluates (default: `/run/mcp-opa/rbac`) |
 | `--shipped-policy DIR` | shipped policy (default: `/usr/share/mcp-gateway/policy`) |
 | `--etc-policy DIR` | the administrator's policy directory, loaded below `data.mcp` (default: `/etc/mcp-gateway/policy`) |
 | `--opa PATH` | the opa program for `explain_decision` (default: `/usr/bin/opa`) |
@@ -351,10 +356,42 @@ Desktop notifications for pending approvals; `--socket` defaults to
 `/run/mcp-gateway/control.sock`, `--url` to
 `https://localhost:9090/mcp-gateway#/approvals/{id}`. Chapter 7.
 
+### mcp-gateway-admin policy
+
+```
+mcp-gateway-admin policy convert [FILE] [-o OUT] [--force]
+```
+
+Writes role data in JSON (default: `/etc/mcp-gateway/policy/rbac/data.json`)
+as YAML, the same data with the keys in their order, next to it as
+`data.yaml` (or `-o OUT`; `-`: standard output). `data.yaml` is then in
+force, and `data.json` stays as it is, ignored, until you remove it. An
+existing YAML file is replaced only with `--force`. Exit status 0; 1 if
+the file is missing, YAML already, not valid JSON, or the YAML exists; 2
+on usage errors.
+
+### mcp-policy-render
+
+```
+/usr/libexec/mcp-gateway/mcp-policy-render [-source DIR] [-out DIR] [-default FILE] [-shipped DIR] [-check | -watch]
+```
+
+Writes the role data in force below `/etc/mcp-gateway/policy/rbac` (in
+each directory `data.yaml` before `data.json`; for the top, the shipped
+default `/usr/share/mcp-gateway/rbac/data.yaml` while it has none) as
+JSON to `/run/mcp-opa/rbac`, which OPA loads as `data.mcp.rbac`.
+`mcp-policy-render.service` runs it as root with `-watch`: it renders,
+is ready (OPA starts after it), and renders again on every change below
+`rbac/` and of the default (inotify, and a check every minute). Role
+data that does not parse is not rendered (exit status 1; with `-watch`,
+reported and waited out), and the last rendering stays in force. `-check` only reports whether the rendering is current
+(exit status 1 if not). Messages go to the journal
+(`journalctl -u mcp-policy-render.service`).
+
 ### mcp-policy-bundle
 
 ```
-mcp-policy-bundle [-k KEY] [-o OUTPUT] [-r REVISION] [-n] [-a ALG] [-V DIR] [-L DIR]
+mcp-policy-bundle [-k KEY] [-o OUTPUT] [-r REVISION] [-n] [-a ALG] [-V DIR] [-L DIR] [-D FILE]
 mcp-policy-bundle -G [-k KEY] [-o OUTPUT]
 ```
 
@@ -362,7 +399,12 @@ Builds and signs a policy bundle, or (`-G`) creates a signing key pair.
 Chapter 6 lists the options. The environment variable `OPA` selects the
 `opa` binary. Before building, the role data is checked with
 `mcp-gateway --check-policy-data` if `mcp-gateway` (or the program in
-`MCP_GATEWAY`) is found; with problems, no bundle is built.
+`MCP_GATEWAY`) is found; with problems, no bundle is built. The role data
+goes into the bundle as `mcp-policy-render` renders it (the program in
+`MCP_POLICY_RENDER`, default `/usr/libexec/mcp-gateway/mcp-policy-render`),
+as in directory mode; without it, the file in force of each directory
+as it is. `-D FILE` is the default role data, in the bundle while `-L`'s
+`rbac/` has none (default: `/usr/share/mcp-gateway/rbac/data.yaml`).
 
 ## Control API
 
@@ -476,8 +518,11 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/usr/share/mcp-gateway/servers.d/` | package server definitions |
 | `/usr/share/mcp-gateway/profiles/` | definitions to link into `/etc/mcp-gateway/servers.d` by hand: `zypp-privileged.yaml`, `snapper-privileged.yaml` (chapter 13) |
 | `/etc/mcp-gateway/servers.d/` | your server definitions |
-| `/usr/share/mcp-gateway/policy/` | policy logic; `mcp/profiles/<setup>/data.json`: roles of setup packages |
-| `/etc/mcp-gateway/policy/rbac/data.json` | role data |
+| `/usr/share/mcp-gateway/policy/` | policy logic; `mcp/profiles/<setup>/data.yaml`: roles of setup packages |
+| `/usr/share/mcp-gateway/rbac/data.yaml` | default role data, in force while `/etc/mcp-gateway/policy/rbac` has none; `previous-defaults.sha256`: the defaults earlier packages installed in `/etc` (an unchanged copy is removed on update) |
+| `/etc/mcp-gateway/policy/rbac/data.yaml`, `data.json` | your role data (`data.yaml` in force where both exist); below it, `<name>/data.yaml` or `data.json` as `data.mcp.rbac.<name>` |
+| `/run/mcp-opa/rbac/` | the role data as OPA loads it, written by `mcp-policy-render` (root, `mcpopa_rbac_t`) |
+| `/usr/libexec/mcp-gateway/mcp-policy-render` | renders the role data for OPA |
 | `/usr/share/mcp-gateway/schema/rbac.schema.json` | JSON Schema (draft-07) of the role data |
 | `/etc/mcp-gateway/credentials/` | MCP server secrets (0700, `mcpgw_cred_t`) |
 | `/etc/mcp-gateway/exec.d/` | commands of the server `exec`; examples in `/usr/share/mcp-gateway/exec/` |
@@ -492,7 +537,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/run/mcp-gateway/credentials/` | an instance's access token (`sign_in`) until systemd has read it (0700, `mcpgw_cred_run_t`) |
 | `/usr/libexec/mcp-gateway/mcp-http-connector`, `mcp-oauth-helper` | the instances of servers defined with `url`; the requests of sign-ins |
 | `/usr/libexec/mcp-gateway/mcp-landlock` | starts the instances of definitions with `landlock`: restricts itself with Landlock, then executes the server; `-version` shows the kernel's Landlock ABI |
-| `/usr/lib/systemd/system/mcp-gateway.service`, `mcp-opa.service` | units |
+| `/usr/lib/systemd/system/mcp-gateway.service`, `mcp-opa.service`, `mcp-policy-render.service` | units |
 | `/usr/lib/sysusers.d/mcp-gateway.conf` | accounts |
 | `/usr/share/polkit-1/rules.d/50-mcp-gateway.rules` | lets the gateway manage `mcp-*.service` |
 | `/usr/share/cockpit/mcp-gateway/` | Cockpit page |

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -45,6 +46,28 @@ func InForce(path string) (string, []string) {
 		return path, nil
 	}
 	return inForce, ignored
+}
+
+// InForceOr is InForce, with def (the shipped default, DefaultData) in
+// force where none of path's directory's files exists ("" or a missing
+// def: path).
+func InForceOr(path, def string) (string, []string) {
+	file, ignored := InForce(path)
+	if _, err := os.Stat(file); errors.Is(err, fs.ErrNotExist) && def != "" && slices.Contains(Names, filepath.Base(path)) {
+		if _, err := os.Stat(def); err == nil {
+			return def, nil
+		}
+	}
+	return file, ignored
+}
+
+// ReadOr is Read of the file InForceOr picks.
+func ReadOr(path, def string) (file string, data []byte, ignored []string, err error) {
+	if f, _ := InForceOr(path, def); f == def {
+		file, data, _, err = Read(def)
+		return file, data, nil, err
+	}
+	return Read(path)
 }
 
 // Read reads the role data in force for path (InForce) as JSON, which is

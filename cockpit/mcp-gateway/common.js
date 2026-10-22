@@ -9,6 +9,11 @@
 
 const SOCKET = "/run/mcp-gateway/control.sock";
 const RBAC_FILE = "/etc/mcp-gateway/policy/rbac/data.json";
+/* In force over RBAC_FILE where it exists; this page does not write YAML. */
+const RBAC_YAML = "/etc/mcp-gateway/policy/rbac/data.yaml";
+/* The role data in force as OPA loads it (mcp-policy-render): the shipped
+ * default while the directory of RBAC_FILE has none. */
+const RBAC_RENDERED = "/run/mcp-opa/rbac/data.json";
 /* Signed bundle mode with a bundle file (packaging/opa/signed-bundle.conf)
  * and, optionally, the signing key on this host (mcp-policy-bundle -G). */
 const BUNDLE_FILE = "/etc/mcp-gateway/bundle/policy.tar.gz";

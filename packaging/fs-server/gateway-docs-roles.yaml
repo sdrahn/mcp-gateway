@@ -1,0 +1,12 @@
+# The roles of the server gateway-docs (package mcp-gateway-fs-server), installed as
+# /usr/share/mcp-gateway/policy/mcp/profiles/gateway-docs/data.yaml.
+# Bind users or groups to them in the role data.
+
+version: 1
+roles:
+  gateway-docs-reader:
+    description: 'gateway-docs: read the gateway''s documentation'
+    permissions:
+      - {server: gateway-docs, tool: '*'}
+      - {server: gateway-docs, resource: '*'}
+      - {server: gateway-docs, prompt: '*'}

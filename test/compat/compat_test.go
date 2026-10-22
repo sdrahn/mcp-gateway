@@ -52,7 +52,7 @@ func TestPreviousRelease(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			data, err := os.ReadFile(filepath.Join(dir, "policy", "rbac", "data.json"))
+			_, data, _, err := policydata.Read(filepath.Join(dir, "policy", "rbac", "data.json"))
 			if err != nil {
 				t.Fatal(err)
 			}

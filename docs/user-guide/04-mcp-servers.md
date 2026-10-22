@@ -73,7 +73,7 @@ the package `mcp-gateway-tools` (`zypper install mcp-gateway-tools`):
 mcp-gateway-admin inspect --server git
 
 # Check role data against the tools the server really has:
-mcp-gateway-admin inspect --server git --roles /etc/mcp-gateway/policy/rbac/data.json
+mcp-gateway-admin inspect --server git --roles /run/mcp-opa/rbac/data.json   # the role data in force
 
 # A server not registered yet, as a child process of yours (without
 # systemd and SELinux, under Landlock; refused as root). Writes the

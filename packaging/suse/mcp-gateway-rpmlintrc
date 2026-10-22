@@ -7,3 +7,7 @@ addFilter("polkit-unauthorized-rules")
 # The package creates its system users through sysusers.
 addFilter("non-standard-uid")
 addFilter("non-standard-gid")
+# The administrator's role data: owned so that rpm keeps it on update and
+# erase, never created (the shipped default in /usr/share is in force
+# while there is none).
+addFilter("ghost-files-without-postin .*/etc/mcp-gateway/policy/rbac/data\.(json|yaml)")

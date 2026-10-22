@@ -1,0 +1,14 @@
+# The roles of the server setup firewalld (package mcp-gateway-profile-firewalld),
+# installed as /usr/share/mcp-gateway/policy/mcp/profiles/firewalld/data.yaml.
+# Bind users or groups to them in the role data (chapter 13).
+
+version: 1
+roles:
+  firewalld-reader:
+    description: 'firewalld: read zones and services (firewalld-mcp has no changing tools)'
+    permissions:
+      - {server: firewalld, tool: get_default_zone}
+      - {server: firewalld, tool: get_active_zones}
+      - {server: firewalld, tool: get_services_for_zone}
+      - {server: firewalld, tool: get_service_info}
+      - {server: firewalld, tool: is_default_zone}

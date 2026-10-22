@@ -53,11 +53,13 @@ type Plan struct {
 
 // PlanRender reads the role data in force below dir, the top and every
 // directory under it (rbac/<name>/, chapter 12), with the shipped roles
-// below shippedDir for the schema check. A file that does not parse, or
-// is not an object, is an error: nothing is to be rendered then, and the
+// below shippedDir for the schema check. Where the top has no role data
+// (or dir does not exist), def (the shipped default, DefaultData; "":
+// none) is in force there, taken whole. A file that does not parse, or is
+// not an object, is an error: nothing is to be rendered then, and the
 // last rendering stays in force (as OPA keeps its previous data when a
-// file does not load). A missing dir has nothing to render.
-func PlanRender(dir, shippedDir string) (Plan, error) {
+// file does not load).
+func PlanRender(dir, def, shippedDir string) (Plan, error) {
 	var p Plan
 	var errs []error
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -84,43 +86,62 @@ func PlanRender(dir, shippedDir string) (Plan, error) {
 		if _, err := os.Stat(file); errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
-		f, data, _, err := Read(file)
-		if err != nil {
+		if err := p.add(rel, file, ignored, shippedDir); err != nil {
 			errs = append(errs, err)
-			return nil
-		}
-		var v any
-		if err := json.Unmarshal(data, &v); err != nil {
-			errs = append(errs, fmt.Errorf("%s: not valid JSON: %w", f, err))
-			return nil
-		}
-		if _, ok := v.(map[string]any); !ok {
-			errs = append(errs, fmt.Errorf("%s: not an object", f))
-			return nil
-		}
-		p.Sources = append(p.Sources, Source{Rel: rel, File: f, Ignored: ignored, JSON: data})
-		if rel == "." {
-			shipped, _, err := ShippedRoles(shippedDir)
-			if err != nil {
-				return err
-			}
-			problems, err := CheckWith(data, shipped)
-			if err != nil {
-				return err
-			}
-			for _, pr := range problems {
-				p.Problems = append(p.Problems, f+": "+pr)
-			}
 		}
 		return nil
 	})
 	if err != nil {
 		return Plan{}, err
 	}
+	if !slices.ContainsFunc(p.Sources, func(s Source) bool { return s.Rel == "." }) && def != "" {
+		if _, err := os.Stat(def); err == nil {
+			if err := p.add(".", def, nil, shippedDir); err != nil {
+				errs = append(errs, err)
+			}
+			// The top first, as the walk has it.
+			n := len(p.Sources) - 1
+			if n > 0 && p.Sources[n].Rel == "." {
+				p.Sources = append([]Source{p.Sources[n]}, p.Sources[:n]...)
+			}
+		}
+	}
 	if len(errs) > 0 {
 		return Plan{}, errors.Join(errs...)
 	}
 	return p, nil
+}
+
+// add adds file, the role data in force in the directory rel, to the
+// plan; the top's (".") is checked against the schema.
+func (p *Plan) add(rel, file string, ignored []string, shippedDir string) error {
+	f, data, _, err := Read(file)
+	if err != nil {
+		return err
+	}
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		return fmt.Errorf("%s: not valid JSON: %w", f, err)
+	}
+	if _, ok := v.(map[string]any); !ok {
+		return fmt.Errorf("%s: not an object", f)
+	}
+	p.Sources = append(p.Sources, Source{Rel: rel, File: f, Ignored: ignored, JSON: data})
+	if rel != "." {
+		return nil
+	}
+	shipped, _, err := ShippedRoles(shippedDir)
+	if err != nil {
+		return err
+	}
+	problems, err := CheckWith(data, shipped)
+	if err != nil {
+		return err
+	}
+	for _, pr := range problems {
+		p.Problems = append(p.Problems, f+": "+pr)
+	}
+	return nil
 }
 
 // Stale returns how out differs from the plan's rendering: the files to

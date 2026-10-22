@@ -122,7 +122,7 @@ contains the policy logic of the version it was built with.
 From 0.4 on, and from 1.0 on as before, these are a stable interface:
 
 - `gateway.yaml` and the server definitions (chapters 3 and 4);
-- the role data, `data.json` (chapter 6);
+- the role data, `data.yaml` or `data.json` (chapter 6);
 - the policy input and decision documents a custom policy reads and
   returns (chapter 12);
 - the control API (`/v1`, chapter 11), which Cockpit and your own
@@ -214,6 +214,7 @@ mcp-gateway-admin doctor
 ```
 OK    configuration: /usr/etc/mcp-gateway/gateway.yaml, 3 servers (firewalld, fs, systemd)
 OK    role data: /etc/mcp-gateway/policy/rbac/data.json valid (7 shipped roles known)
+OK    role data for OPA: /run/mcp-opa/rbac is current
 OK    mcp-gateway.service: active
 OK    mcp-opa.service: active
 OK    state files: /var/lib/mcp-gateway owned by mcp-gateway

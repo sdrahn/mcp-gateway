@@ -1,0 +1,21 @@
+# The roles of the server setup suseconnect (package mcp-gateway-profile-suseconnect),
+# installed as /usr/share/mcp-gateway/policy/mcp/profiles/suseconnect/data.yaml.
+# Bind users or groups to them in the role data (chapter 13).
+
+version: 1
+roles:
+  suseconnect-reader:
+    description: 'suseconnect: registration status and available extensions'
+    permissions:
+      - {server: suseconnect, tool: RegistrationStatus}
+      - {server: suseconnect, tool: ListExtensions}
+  suseconnect-admin:
+    description: 'suseconnect-reader, and with approval: register, activate and deactivate products, deregister'
+    permissions:
+      - {server: suseconnect, tool: RegistrationStatus}
+      - {server: suseconnect, tool: ListExtensions}
+      - server: suseconnect
+        tool: '*'
+        require_approval: true
+        approval_channel: oob
+        approval_scopes: [once, session, 1h]
