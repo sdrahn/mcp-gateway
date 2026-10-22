@@ -54,9 +54,19 @@ func TestNoHomeServerLeftOut(t *testing.T) {
 	}
 }
 
-// At a server's own endpoint, the session cannot open.
+// At a server's own endpoint, the session cannot open, also where the
+// shared discovery instance (home "/") would answer its initialize.
 func TestNoHomeServerEndpoint(t *testing.T) {
+	for _, shared := range []bool{false, true} {
+		t.Run(map[bool]string{false: "instance", true: "shared"}[shared], func(t *testing.T) { noHomeEndpoint(t, shared) })
+	}
+}
+
+func noHomeEndpoint(t *testing.T, shared bool) {
 	r, _ := testRouter(t, 0)
+	if shared {
+		r, _ = sharedRouter(t)
+	}
 	r.Backends["fs"].Command = []string{"/usr/libexec/mcp-servers/mcp-server-fs", "--root", "${HOME}"}
 	cTest, cGw := net.Pipe()
 	conn := jsonrpc.NewConn(cTest)
