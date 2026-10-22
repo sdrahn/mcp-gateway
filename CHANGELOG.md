@@ -29,10 +29,21 @@ minor release (with a warning) and removed in the next.
   counted and audited; and failing closed and recovering: OPA stopped
   denies every call, a killed instance is replaced, one that keeps
   dying is backed off, a killed gateway is started again by systemd
-  and keeps its grants and pending approvals.
+  and keeps its grants and pending approvals; and signed policy bundles:
+  a change previewed with what-if, OPA in bundle mode, unsigned role data
+  without effect, a tampered bundle and one signed with another key
+  refused.
 
 ### Fixed
 
+- `mcp-policy-bundle` recorded the policy files under its temporary
+  build directory (`/tmp/tmp.…/src/mcp/authz.rego`), which became part of
+  every module id in OPA: each bundle built changed the gateway's policy
+  fingerprint, so that even a rebuild of the same policy was announced to
+  clients (`list_changed`) and audited as a policy change
+  (`mcp-policy-change`), and OPA's messages named the temporary
+  directory. The files are now at their paths in the bundle
+  (`/mcp/authz.rego`).
 - The file server could not list a home directory when built with Go 1.26
   or later (as openSUSE builds it): Go then examines each entry of a
   listed directory, and SELinux keeps the server from `~/.cache` and

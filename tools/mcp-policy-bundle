@@ -111,9 +111,14 @@ find "$tmp/src" -name '*_test.rego' -exec rm -f {} +
 rm -f "$tmp/src/.manifest"
 printf '{"roots": ["mcp"]}\n' >"$tmp/src/.manifest"
 
-"$opa" check --strict "$tmp/src"
-"$opa" build --bundle "$tmp/src" --signing-key "$key" --signing-alg "$alg" \
-	--revision "$revision" --output "$tmp/bundle.tar.gz"
+# From inside the tree: opa build records each file under the path it
+# was given, and the temporary directory's would end up in every module
+# id, changing the gateway's policy fingerprint at each build.
+case $key in /*) ;; *) key=$PWD/$key ;; esac
+case $opa in */*) case $opa in /*) ;; *) opa=$PWD/$opa ;; esac ;; esac
+(cd "$tmp/src" && "$opa" check --strict . &&
+	"$opa" build --bundle . --signing-key "$key" --signing-alg "$alg" \
+		--revision "$revision" --output "$tmp/bundle.tar.gz")
 
 mkdir -p "$(dirname "$out")"
 cp "$tmp/bundle.tar.gz" "$out.new"
