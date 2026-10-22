@@ -1,11 +1,16 @@
-// Command mcpcall makes one MCP request through the gateway's unix socket,
+// Command mcpcall makes an MCP request through the gateway's unix socket,
 // as the user running it, and prints the result as JSON. The VM tests
 // (test/vm) use it to drive the installed gateway.
 //
 //	mcpcall --server fs --method tools/call --params '{"name":"read_file","arguments":{"path":"/home/alice/a.txt"}}'
 //
-// It exits with 1 if the request fails (JSON-RPC error) and with 2 if the
-// result is a tool error (isError), printing the error or result.
+// --then PARAMS (repeatable) sends further requests of the same method in
+// the same session, after the first, each printed on its own line: what a
+// session keeps between requests (pseudonyms) can be tested.
+//
+// It exits with 1 if a request fails (JSON-RPC error) and with 2 if the
+// result is a tool error (isError), printing the error or result; the
+// first request that fails ends the run.
 package main
 
 import (
@@ -16,6 +21,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
@@ -40,18 +46,32 @@ func main() {
 	method := flag.String("method", "tools/list", "request method")
 	params := flag.String("params", "{}", "request params (JSON)")
 	timeout := flag.Duration("timeout", 90*time.Second, "overall timeout")
+	var then paramsList
+	flag.Var(&then, "then", "params of a further request in the same session (JSON; repeatable)")
 	flag.Parse()
 
-	code, err := run(*socket, *server, *method, json.RawMessage(*params), *timeout)
+	code, err := run(*socket, *server, *method, append(paramsList{json.RawMessage(*params)}, then...), *timeout)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "mcpcall:", err)
 	}
 	os.Exit(code)
 }
 
-func run(socket, server, method string, params json.RawMessage, timeout time.Duration) (int, error) {
-	if !json.Valid(params) {
-		return 1, errors.New("--params is not valid JSON")
+// paramsList collects the values of --then.
+type paramsList []json.RawMessage
+
+func (l *paramsList) String() string { return fmt.Sprint(len(*l)) }
+
+func (l *paramsList) Set(s string) error {
+	*l = append(*l, json.RawMessage(s))
+	return nil
+}
+
+func run(socket, server, method string, requests paramsList, timeout time.Duration) (int, error) {
+	for _, params := range requests {
+		if !json.Valid(params) {
+			return 1, fmt.Errorf("params %s are not valid JSON", params)
+		}
 	}
 	c, err := net.DialTimeout("unix", socket, 10*time.Second)
 	if err != nil {
@@ -118,23 +138,26 @@ func run(socket, server, method string, params json.RawMessage, timeout time.Dur
 	if err := send(map[string]any{"method": "notifications/initialized"}); err != nil {
 		return 1, err
 	}
-	if err := send(map[string]any{"id": 2, "method": method, "params": params}); err != nil {
-		return 1, err
-	}
-	resp, err := read("2")
-	if err != nil {
-		return 1, fmt.Errorf("%s: %w", method, err)
-	}
-	if resp.Error != nil {
-		fmt.Printf("{\"error\":{\"code\":%d,\"message\":%q}}\n", resp.Error.Code, resp.Error.Message)
-		return 1, nil
-	}
-	fmt.Println(string(resp.Result))
-	var tool struct {
-		IsError bool `json:"isError"`
-	}
-	if json.Unmarshal(resp.Result, &tool) == nil && tool.IsError {
-		return 2, nil
+	for i, params := range requests {
+		id := i + 2
+		if err := send(map[string]any{"id": id, "method": method, "params": params}); err != nil {
+			return 1, err
+		}
+		resp, err := read(strconv.Itoa(id))
+		if err != nil {
+			return 1, fmt.Errorf("%s: %w", method, err)
+		}
+		if resp.Error != nil {
+			fmt.Printf("{\"error\":{\"code\":%d,\"message\":%q}}\n", resp.Error.Code, resp.Error.Message)
+			return 1, nil
+		}
+		fmt.Println(string(resp.Result))
+		var tool struct {
+			IsError bool `json:"isError"`
+		}
+		if json.Unmarshal(resp.Result, &tool) == nil && tool.IsError {
+			return 2, nil
+		}
 	}
 	return 0, nil
 }

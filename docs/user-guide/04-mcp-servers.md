@@ -975,9 +975,12 @@ server:
 setsebool -P mcpsrv_fs_manage_xdg on
 ```
 
-Keys, keyrings and browser profiles stay out of reach either way. `ls
--Z` shows a file's type; a file created in such a directory takes the
-directory's type, and one created directly in the home is `user_home_t`.
+Keys, keyrings and browser profiles stay out of reach either way. A
+listing of the home names these directories all the same; as the server
+may not look at them, they are marked `[?]` (`list_directory`),
+"unknown" in `directory_tree`. `ls -Z` shows a file's type; a file created in such a
+directory takes the directory's type, and one created directly in the
+home is `user_home_t`.
 Dotfiles in the home such as `~/.bashrc` and `~/.profile` are run at the
 user's next login: the shipped roles let agents change files only after
 an approval.

@@ -1,8 +1,8 @@
 #!/bin/bash
 # Functional tests of the installed gateway on a real openSUSE or SLES
 # system with SELinux enforcing: domains, MCS pairs, polkit, credentials,
-# calls, approvals, reloads, kernel audit and no SELinux denials. Package
-# mcp-gateway-tests installs it as /usr/libexec/mcp-gateway/tests/run-tests.sh
+# calls, approvals, obligations, reloads, kernel audit and no SELinux
+# denials. Package mcp-gateway-tests installs it as /usr/libexec/mcp-gateway/tests/run-tests.sh
 # for openQA and other test systems; the CI VM runs the same (test/vm/run-vm.sh,
 # after test/vm/prepare.sh). Next to it:
 #   mcpcall   the test client (test/vm/mcpcall)
@@ -11,7 +11,7 @@
 # Usage: run-tests.sh --disposable [--results DIR] [--rpms DIR] [--servers DIR]
 #
 # It runs as root on a system that is there for testing: it creates users
-# (alice, bob, carol), replaces the role data and gateway.yaml, loads
+# (alice, bob, carol, dora), replaces the role data and gateway.yaml, loads
 # SELinux modules, installs packages and restarts the gateway, and does
 # not undo any of it. --disposable says that this is fine.
 #   --results DIR  writes results.tap (TAP) and results.xml (JUnit) there
@@ -1415,6 +1415,92 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 else
 	skip "the HTTPS listener (semanage or openssl not installed)"
 fi
+
+section "Obligations under the real OPA"
+# The obligations of chapter 6, as the shipped policy merges them and the
+# gateway enforces them: redaction, pseudonymization with
+# re-identification, the size limit, the rate limit and full audit. dora
+# holds only the role "obligated", so that no other permission adds to
+# hers.
+ob_since=$(date +%s)
+useradd -m dora
+usermod -aG mcp-users dora
+runuser -u dora -- sh -c 'umask 077
+	echo "customer CUST-004711 mail dora@example.com password=hunter2 again dora@example.com" >/home/dora/record.txt
+	head -c 4000 /dev/zero | tr "\0" x >/home/dora/large.txt
+	echo "under the limit" >/home/dora/small.txt'
+jq '.roles.obligated = {"permissions": [
+	{"server": "fs", "tool": "read_file", "obligations": {
+		"redact_output": "(?i)password=\\S+",
+		"pseudonymize": {"detect": ["email"], "patterns": {"customer": "CUST-[0-9]{6}"}},
+		"max_output_bytes": 2048, "audit": "full"}},
+	{"server": "fs", "tool": "write_file", "args": {"path": "^${home}/"}, "obligations": {"reidentify": "content"}},
+	{"server": "fs", "tool": "list_directory"},
+	{"server": "fs", "tool": "get_file_info", "obligations": {"rate_limit": "2/m"}}]}
+	| .bindings.users.dora = ["obligated"]' \
+	/etc/mcp-gateway/policy/rbac/data.json >/root/ob-data.json &&
+	cat /root/ob-data.json >/etc/mcp-gateway/policy/rbac/data.json
+check "the role data with obligations is valid" mcp-gateway --check-policy-data
+# The role data takes effect at once; dora's first call waits for it.
+ob_read() { tool dora read_file '{"path":"/home/dora/record.txt"}' && [ "$rc" = 0 ]; }
+check "dora reads her record" eventually 20 ob_read
+check "redact_output: the password is replaced by [redacted]" \
+	bash -c 'grep -qF "[redacted]" <<<"$1" && ! grep -qF hunter2 <<<"$1"' _ "$out"
+check "pseudonymize: the e-mail address is [EMAIL_1], both times" \
+	bash -c 'grep -qF "mail [EMAIL_1] [redacted] again [EMAIL_1]" <<<"$1" && ! grep -qF dora@example.com <<<"$1"' _ "$out"
+check "pseudonymize: the customer number is [CUSTOMER_1]" \
+	bash -c 'grep -qF "customer [CUSTOMER_1]" <<<"$1" && ! grep -qF CUST-004711 <<<"$1"' _ "$out"
+# One session: read, read again, write with the pseudonyms. The session's
+# vault gives the same value the same pseudonym, and write_file (reidentify
+# content) gets the real values.
+call dora --method tools/call --params '{"name":"read_file","arguments":{"path":"/home/dora/record.txt"}}' \
+	--then '{"name":"read_file","arguments":{"path":"/home/dora/record.txt"}}' \
+	--then '{"name":"write_file","arguments":{"path":"/home/dora/reply.txt","content":"to [EMAIL_1] about [CUSTOMER_1]"}}'
+check "pseudonymize: a second read in the session gives the same pseudonyms" \
+	bash -c '[ "$(grep -cF "mail [EMAIL_1] [redacted] again [EMAIL_1]" <<<"$1")" = 2 ]' _ "$out"
+check "reidentify: the session's write reaches the server with the real values" \
+	grep -qx 'to dora@example.com about CUST-004711' /home/dora/reply.txt
+# Another session has another vault: its pseudonyms are not resolved.
+tool dora write_file '{"path":"/home/dora/other.txt","content":"to [EMAIL_1]"}'
+check "reidentify: another session's pseudonyms stay as they are" grep -qxF 'to [EMAIL_1]' /home/dora/other.txt
+# ob_audited <text> [<text>]: an audit record since the section began
+# with both texts.
+ob_audited() {
+	journalctl -u mcp-gateway.service -o cat --since "@$ob_since" | grep -F '"audit":true' | grep -F -- "$1" |
+		grep -qF -- "${2:-$1}"
+}
+ob_no_email() { ! journalctl -u mcp-gateway.service -o cat --since "@$ob_since" | grep -qF dora@example.com; }
+check "audit: what was pseudonymized is recorded, by class" ob_audited '"event":"mcp-pseudonymize"' '"values":"CUSTOMER:1 EMAIL:2"'
+check "audit: the decision on the write names the re-identified pseudonyms" ob_audited '"reidentified":2'
+check "audit: full, read_file's arguments are recorded verbatim" ob_audited '"args":{"path":"/home/dora/record.txt"}'
+check "audit: write_file's arguments only as a digest" ob_audited '"name":"write_file"' '"args_hmac":'
+check "the gateway's journal holds no e-mail address" ob_no_email
+tool dora read_file '{"path":"/home/dora/small.txt"}'
+check "max_output_bytes: a small result is released" succeeded_with "under the limit"
+tool dora read_file '{"path":"/home/dora/large.txt"}'
+check "max_output_bytes: a larger result is withheld" tool_error_with "output withheld: result of"
+check "max_output_bytes: ... and none of it is sent" bash -c '! grep -q xxxxxxxx <<<"$1"' _ "$out"
+# The home directory itself, as an agent lists it first. The server
+# examines each entry (Go 1.26), and SELinux keeps it from ~/.cache and
+# ~/.config: those are listed as [?], the rest as usual.
+tool dora list_directory '{"path":"/home/dora"}'
+check "list_directory lists the home directory itself" succeeded_with "[FILE] record.txt"
+check "... with the entries the server may not examine by name" \
+	bash -c 'grep -qE "\[(DIR|\?)\] \.cache" <<<"$1"' _ "$out"
+# 2/m per principal, server and tool, across sessions.
+call dora --method tools/call --params '{"name":"get_file_info","arguments":{"path":"/home/dora/small.txt"}}' \
+	--then '{"name":"get_file_info","arguments":{"path":"/home/dora/small.txt"}}' \
+	--then '{"name":"get_file_info","arguments":{"path":"/home/dora/small.txt"}}'
+check "rate_limit: two calls a minute, the third is denied" \
+	bash -c '[ "$2" = 2 ] && [ "$(grep -c "\"isError\":false" <<<"$1")" = 2 ] && grep -qF "mcp-gateway: rate limit exceeded" <<<"$1"' _ "$out" "$rc"
+tool dora get_file_info '{"path":"/home/dora/small.txt"}'
+check "rate_limit: ... in a new session too" tool_error_with "rate limit exceeded"
+# The kernel record has the reason hex-encoded (it has spaces).
+ob_rate_hex=$(printf 'rate limit exceeded' | od -An -tx1 | tr -d ' \n' | tr a-f A-F)
+ob_kernel() { audit_since TRUSTED_APP | grep 'op=mcp-decision' | grep 'principal=dora' | grep -q "reason=$ob_rate_hex"; }
+check "rate_limit: the denial is in the kernel audit trail" eventually 10 ob_kernel
+# dora keeps her role: the self-check names users without one, and that
+# is carol alone.
 
 section "Live reload of server definitions"
 # A server added, broken, fixed and removed while the gateway runs: it

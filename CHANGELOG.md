@@ -21,10 +21,21 @@ minor release (with a warning) and removed in the next.
   for remote agents: `setup http`, bearer tokens refused for expiry,
   audience, an unknown key or a missing scope, the scope ceiling with
   step-up, an agent of MCP 2026-07-28, and a certificate renewed without
-  a restart.
+  a restart; and the obligations as the shipped policy merges them under
+  the real OPA: redaction, pseudonymization with the session's vault and
+  re-identification, the size limit, the rate limit and full audit.
 
 ### Fixed
 
+- The file server could not list a home directory when built with Go 1.26
+  or later (as openSUSE builds it): Go then examines each entry of a
+  listed directory, and SELinux keeps the server from `~/.cache` and
+  `~/.config` (without `mcpsrv_fs_manage_xdg`), so `list_directory` of
+  the home failed with "…: permission denied", and so did
+  `directory_tree`, `search_files` and the other searches starting there.
+  Such entries are now listed by name, as `[?]` ("unknown" in
+  `directory_tree`), and the rest as before. Found by the new obligations
+  tests.
 - `mcp-gateway-admin setup http -write` on a system without
   `/etc/mcp-gateway/gateway.yaml` (the default on openSUSE, which keeps it
   in `/usr/etc`) created it readable by root only (0640, root:root): the
