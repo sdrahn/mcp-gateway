@@ -38,7 +38,10 @@ minor release (with a warning) and removed in the next.
   account: servers working in the home not offered to it, others are;
   and users from a directory (389 Directory Server and SSSD): the
   socket's group a directory group, roles bound to it, approvals by a
-  directory group.
+  directory group; and e-mail approvals through a local postfix:
+  approvers by group (a listed member and one by primary group) mailed
+  once, without the call's arguments, and no mail without
+  `mcpgw_can_send_mail`.
 
 ### Fixed
 
