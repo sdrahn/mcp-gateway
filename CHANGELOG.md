@@ -26,7 +26,10 @@ minor release (with a warning) and removed in the next.
   re-identification, the size limit, the rate limit and full audit; and
   the limits per principal: sessions, instances and tasks refused at the
   limit and room again, idle HTTP sessions making room, the refusals
-  counted and audited.
+  counted and audited; and failing closed and recovering: OPA stopped
+  denies every call, a killed instance is replaced, one that keeps
+  dying is backed off, a killed gateway is started again by systemd
+  and keeps its grants and pending approvals.
 
 ### Fixed
 

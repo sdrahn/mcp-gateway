@@ -1,8 +1,9 @@
 #!/bin/bash
 # Functional tests of the installed gateway on a real openSUSE or SLES
 # system with SELinux enforcing: domains, MCS pairs, polkit, credentials,
-# calls, approvals, obligations, reloads, kernel audit and no SELinux
-# denials. Package mcp-gateway-tests installs it as /usr/libexec/mcp-gateway/tests/run-tests.sh
+# calls, approvals, obligations, limits, failing closed, reloads, kernel
+# audit and no SELinux denials. Package mcp-gateway-tests installs it as
+# /usr/libexec/mcp-gateway/tests/run-tests.sh
 # for openQA and other test systems; the CI VM runs the same (test/vm/run-vm.sh,
 # after test/vm/prepare.sh). Next to it:
 #   mcpcall   the test client (test/vm/mcpcall)
@@ -1917,6 +1918,120 @@ else
 	echo "  semanage not available; metrics listener not tested"
 fi
 
+section "Failing closed and recovering"
+# What fails stays closed, and comes back: OPA stopped denies every call;
+# a killed instance is replaced, one that keeps dying is backed off;
+# a killed gateway is restarted by systemd, with its grants and pending
+# approvals (/var/lib/mcp-gateway). erin's role "asked" needs approvals.
+fc_since=$(date +%s)
+jq '.roles.asked = {"permissions": [
+	{"server": "fs", "tool": "get_file_info", "require_approval": true, "approval_channel": "oob", "approval_scopes": ["once", "1h"]},
+	{"server": "fs", "tool": "search_files", "require_approval": true, "approval_channel": "oob"}]}
+	| .bindings.users.erin += ["asked"]' \
+	/etc/mcp-gateway/policy/rbac/data.json >/root/fc-data.json &&
+	cat /root/fc-data.json >/etc/mcp-gateway/policy/rbac/data.json
+runuser -u erin -- sh -c 'echo "erin notes" >/home/erin/notes.txt'
+fc_read() { tool erin read_file '{"path":"/home/erin/notes.txt"}' && succeeded_with "erin notes"; }
+check "erin reads her file" eventually 20 fc_read
+
+# OPA stopped: no decision, no call; back once OPA is.
+systemctl stop mcp-opa.service
+tool erin read_file '{"path":"/home/erin/notes.txt"}'
+check "OPA stopped: the call is denied (policy evaluation failed)" tool_error_with "policy evaluation failed"
+check "... and nothing of the file is sent" failed_without "erin notes"
+systemctl start mcp-opa.service
+check "OPA back: calls are decided again" eventually 30 fc_read
+
+# A killed instance: the next call starts a new one.
+fc_inst=$(instance_pid erin)
+echo "  erin's fs instance: ${fc_inst:-none}"
+[ -n "$fc_inst" ] && kill -KILL "$fc_inst"
+fc_new_inst() { fc_read && [ -n "$(instance_pid erin)" ] && [ "$(instance_pid erin)" != "$fc_inst" ]; }
+check "a killed instance is replaced on the next call" eventually 30 fc_new_inst
+# An instance that keeps dying soon after its start: each restart waits
+# longer (1 s, doubling), and calls meanwhile are told when to retry.
+fc_backoff() {
+	local pid
+	pid=$(instance_pid erin)
+	[ -n "$pid" ] && kill -KILL "$pid"
+	sleep 0.5
+	tool erin read_file '{"path":"/home/erin/notes.txt"}'
+	[ "$rc" != 0 ] && grep -qE "backend unavailable; retry in [0-9]+" <<<"$out"
+}
+check "an instance that keeps dying is backed off (retry in …)" eventually 40 fc_backoff
+fc_delayed() {
+	journalctl -u mcp-gateway.service -o cat --since "@$fc_since" | grep -F "instance restart delayed" |
+		grep -F "server=fs" | grep -qE "failures=[2-9]"
+}
+check "... and the gateway says so" fc_delayed
+check "... until it starts again" eventually 40 fc_read
+
+# fc_approve <scope>: approves erin's first pending approval with <scope>.
+fc_approve() {
+	local id
+	for _ in $(seq 30); do
+		id=$(control erin GET /v1/approvals | jq -r '.[0].id // empty')
+		[ -n "$id" ] && break
+		sleep 1
+	done
+	echo "  approval: ${id:-none} ($1)"
+	[ -n "$id" ] && control erin POST "/v1/approvals/$id" "{\"decision\":\"approve\",\"scope\":\"$1\"}" >/dev/null
+}
+fc_info() { # fc_info [mcpcall options]: get_file_info of erin's notes; sets $out and $rc
+	out=$(runuser -u erin -- /usr/local/bin/mcpcall --server fs "$@" --method tools/call \
+		--params '{"name":"get_file_info","arguments":{"path":"/home/erin/notes.txt"}}' 2>&1)
+	rc=$?
+	echo "  [erin fs/get_file_info] rc=$rc ${out:0:200}"
+}
+# A grant for 1h (a duration scope: stored, not bound to the session).
+fc_info >/root/vmtest/fc-info.out &
+fc_call=$!
+fc_approve 1h
+wait "$fc_call"
+cat /root/vmtest/fc-info.out
+check "an approved call runs" grep -q 'rc=0 .*size' /root/vmtest/fc-info.out
+# A pending approval whose call is lost with the gateway.
+runuser -u erin -- /usr/local/bin/mcpcall --server fs --method tools/call \
+	--params '{"name":"search_files","arguments":{"path":"/home/erin","pattern":"notes.txt"}}' >/root/vmtest/fc-search.out 2>&1 &
+fc_search=$!
+fc_pending() { control erin GET /v1/approvals | jq -e '.[] | select(.name == "search_files" and .waiting)' >/dev/null; }
+check "a call waits for its approval" eventually 30 fc_pending
+fc_pending_id=$(control erin GET /v1/approvals | jq -r '.[] | select(.name == "search_files") | .id')
+
+# The gateway killed: systemd starts it again (Restart=on-failure); the
+# watchdog (WatchdogSec) would end a hung one.
+check "the gateway has a watchdog" test "$(systemctl show -p WatchdogUSec --value mcp-gateway.service)" != 0
+fc_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
+kill -KILL "$fc_pid"
+fc_restarted() {
+	local pid
+	pid=$(systemctl show -p MainPID --value mcp-gateway.service)
+	[ "$pid" != 0 ] && [ "$pid" != "$fc_pid" ] && systemctl is-active -q mcp-gateway.service && [ -S /run/mcp-gateway/mcp.sock ]
+}
+check "a killed gateway is started again by systemd" eventually 60 fc_restarted
+wait "$fc_search" 2>/dev/null
+check "... the waiting call ends with it" bash -c '! grep -q "\"isError\":false" /root/vmtest/fc-search.out'
+check "... calls work again" eventually 30 fc_read
+fc_info --timeout 15s
+check "the 1h grant survives the restart (the call runs without asking)" bash -c '[ "$2" = 0 ] && grep -q size <<<"$1"' _ "$out" "$rc"
+fc_grant() { control erin GET /v1/grants | jq -e '.[] | select(.tool == "get_file_info" and .scope == "duration")' >/dev/null; }
+check "... and is listed" fc_grant
+fc_orphan() {
+	control erin GET /v1/approvals | jq -e --arg id "$fc_pending_id" \
+		'.[] | select(.id == $id and (.waiting | not) and (.scopes | index("session") | not))' >/dev/null
+}
+check "the pending approval survives the restart: no call waiting, no session scope" fc_orphan
+control erin POST "/v1/approvals/$fc_pending_id" '{"decision":"approve","scope":"once"}' >/dev/null
+fc_retry() {
+	out=$(runuser -u erin -- /usr/local/bin/mcpcall --server fs --timeout 15s --method tools/call \
+		--params '{"name":"search_files","arguments":{"path":"/home/erin","pattern":"notes.txt"}}' 2>&1)
+	rc=$?
+	echo "  [erin fs/search_files] rc=$rc ${out:0:200}"
+	[ "$rc" = 0 ] && grep -q notes.txt <<<"$out"
+}
+check "... approved once, the same call runs without asking again" fc_retry
+gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
+
 section "Self-check"
 # carol may connect (mcp-users) but holds no role: the doctor names her.
 useradd -m carol && usermod -aG mcp-users carol
@@ -2016,6 +2131,9 @@ grep 'state files' /root/doctor-state.txt | sed 's/^/  /'
 check "doctor: names the state file root owns" \
 	grep -qE '^FAIL +state files: not owned by mcp-gateway: 1 ' /root/doctor-state.txt
 restarted=$(date +%s)
+# (reset-failed: the starts before, "Failing closed" among them, must not
+# reach systemd's start limit.)
+systemctl reset-failed mcp-gateway.service
 systemctl restart mcp-gateway.service 2>/dev/null
 state_error() { journalctl -u mcp-gateway.service -o cat --since "@$restarted" | grep 'state files not owned by mcp-gateway' | grep -q 'stray.json'; }
 check "the gateway names the state file root owns" eventually 30 state_error
