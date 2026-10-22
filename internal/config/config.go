@@ -1033,6 +1033,22 @@ func (b *Backend) PerPrincipal() bool {
 	return false
 }
 
+// NeedsHome reports whether the backend's command, environment or
+// Landlock trees name the principal's home (${HOME}). A principal without
+// one (a remote principal without a local account) would get it empty,
+// and a server taking it for a directory would use its working directory
+// instead, "/" for a dynamic user: the gateway offers such a server only
+// to principals with a home.
+func (b *Backend) NeedsHome() bool {
+	names := func(in []string) bool {
+		return slices.ContainsFunc(in, func(s string) bool { return strings.Contains(s, "${HOME}") })
+	}
+	if names(b.Command) || names(slices.Collect(maps.Values(b.Env))) {
+		return true
+	}
+	return b.Landlock != nil && (names(b.Landlock.Read) || names(b.Landlock.Write) || names(b.Landlock.Exec))
+}
+
 // ApplyDefaults fills in the defaults of a definition built in code (a
 // file's are filled in by LoadBackends).
 func (b *Backend) ApplyDefaults() { b.setDefaults() }

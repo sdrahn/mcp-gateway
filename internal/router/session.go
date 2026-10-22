@@ -378,6 +378,11 @@ func (s *Session) upstreamOnce(ctx context.Context, name string) (*upstream, err
 		s.r.refused(s.snapshotPrincipal(), limit)
 		return nil, err
 	}
+	var home *NoHomeError
+	if errors.As(err, &home) {
+		s.log.Info("server not offered to a principal without a home", "server", name)
+		return nil, err
+	}
 	if err != nil {
 		s.log.Error("backend unavailable", "server", name, "err", err)
 		return nil, err
@@ -791,6 +796,11 @@ func (s *Session) fetchList(ctx context.Context, server, method string, spec lis
 		if method == "tools/list" {
 			return []listItem{signInItem(server)}, nil
 		}
+		return nil, nil
+	}
+	if b := s.endpoint().backends[server]; b != nil && b.NeedsHome() && s.snapshotPrincipal().Home == "" {
+		// A server working in the home offers nothing to a principal
+		// without one (pool.acquire refuses its instances).
 		return nil, nil
 	}
 	if b := s.endpoint().backends[server]; b != nil && b.Discovery == config.DiscoveryShared && sharedMethods[method] {
@@ -1346,6 +1356,10 @@ func unavailable(err error) *jsonrpc.Error {
 	var limit *LimitError
 	if errors.As(err, &limit) {
 		return rpcError(jsonrpc.CodeInternalError, "mcp-gateway: "+limit.Error())
+	}
+	var home *NoHomeError
+	if errors.As(err, &home) {
+		return rpcError(jsonrpc.CodeInternalError, "mcp-gateway: "+home.Error())
 	}
 	var b *BackoffError
 	if errors.As(err, &b) {

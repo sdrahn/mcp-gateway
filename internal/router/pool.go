@@ -139,6 +139,16 @@ func (e *BackoffError) Error() string {
 	return fmt.Sprintf("%s failed recently; next start in %s", e.Server, e.RetryIn.Round(time.Second))
 }
 
+// NoHomeError is returned for a server whose definition names the
+// principal's home (config.Backend.NeedsHome) and a principal without one.
+type NoHomeError struct {
+	Server string
+}
+
+func (e *NoHomeError) Error() string {
+	return fmt.Sprintf("server %s works in the user's home directory; a principal without a local account has none", e.Server)
+}
+
 // configure sets the idle timeout and the instance limits.
 func (p *pool) configure(idle time.Duration, perPrincipal, total int) {
 	p.mu.Lock()
@@ -243,6 +253,11 @@ func isolation(b *config.Backend, p principal.Principal) config.Isolation {
 // acquire returns a running instance of b for p and a function that must
 // be called when the caller no longer needs it.
 func (p *pool) acquire(ctx context.Context, b *config.Backend, pr principal.Principal) (*upstream, func(), error) {
+	if pr.Home == "" && b.NeedsHome() {
+		// Its ${HOME} would be empty, which the server would take for its
+		// working directory ("/").
+		return nil, nil, &NoHomeError{Server: b.Name}
+	}
 	key := instanceKey(b, pr)
 	for {
 		if p.current != nil && p.current(b.Name) != b {

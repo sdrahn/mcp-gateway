@@ -9,6 +9,18 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
+- A remote principal without a local account (a token whose
+  `local_user_claim` names no account on the host) got the servers that
+  work in the user's home with that home empty: the shipped `fs`
+  (`--root ${HOME}`) then served its working directory, `/` for the
+  dynamic user it ran as, so that roles allowing `read_*` without a path
+  constraint (as the shipped ones do) let such a principal read what
+  SELinux and the sandbox leave readable outside any home. A server
+  whose `command`, `env` or `landlock` trees name `${HOME}` is no longer
+  offered to a principal without a home: it is left out of its lists,
+  and calls and sessions at its endpoint are refused ("server fs works
+  in the user's home directory; a principal without a local account has
+  none"). `mcp-server-fs` also refuses an empty `--root`.
 - `mcp-policy-bundle` recorded the policy files under its temporary
   build directory (`/tmp/tmp.…/src/mcp/authz.rego`), which became part of
   every module id in OPA: each bundle built changed the gateway's policy

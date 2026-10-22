@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/sdrahn/mcp-gateway/internal/landlock"
 )
 
 func writeFile(t *testing.T, dir, name, content string) string {
@@ -584,5 +586,30 @@ func TestPerPrincipal(t *testing.T) {
 	}
 	if b := (Backend{Command: []string{"/usr/bin/x", "${OTHER}"}}); b.PerPrincipal() {
 		t.Error("${OTHER}: per principal")
+	}
+}
+
+// A command, environment or Landlock tree naming ${HOME} needs a home.
+func TestNeedsHome(t *testing.T) {
+	for _, b := range []Backend{
+		{Command: []string{"/usr/bin/x", "--root", "${HOME}"}},
+		{Command: []string{"/usr/bin/x"}, Env: map[string]string{"CONF": "${HOME}/.x"}},
+		{Command: []string{"/usr/bin/x"}, Landlock: &landlock.Rules{Read: []string{"${HOME}"}}},
+		{Command: []string{"/usr/bin/x"}, Landlock: &landlock.Rules{Write: []string{"/tmp", "${HOME}/.cache"}}},
+		{Command: []string{"/usr/bin/x"}, Landlock: &landlock.Rules{Exec: []string{"${HOME}/bin"}}},
+	} {
+		if !b.NeedsHome() {
+			t.Errorf("%+v: needs no home", b)
+		}
+	}
+	for _, b := range []Backend{
+		{Command: []string{"/usr/bin/x", "--user", "${USER}"}},
+		{Command: []string{"/usr/bin/x"}, Env: map[string]string{"XDG_RUNTIME_DIR": "/run/user/${UID}"}},
+		{Command: []string{"/usr/bin/x"}, Landlock: &landlock.Rules{Read: []string{"/usr/share"}}},
+		{URL: "https://mcp.example/mcp"},
+	} {
+		if b.NeedsHome() {
+			t.Errorf("%+v: needs a home", b)
+		}
 	}
 }

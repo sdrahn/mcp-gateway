@@ -595,3 +595,15 @@ func TestInstructions(t *testing.T) {
 		}
 	}
 }
+
+// An empty --root ("${HOME}" of a principal without a home) is refused:
+// filepath.Abs would make it the working directory, "/" for a dynamic user.
+func TestRootFlagEmpty(t *testing.T) {
+	var r rootFlags
+	if err := r.Set(""); err == nil {
+		t.Error("an empty root accepted")
+	}
+	if err := r.Set("/home/alice"); err != nil || len(r) != 1 {
+		t.Errorf("%v %v", r, err)
+	}
+}
