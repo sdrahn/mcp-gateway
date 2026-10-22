@@ -55,8 +55,10 @@ systemctl reload mcp-gateway.service         # or wait 10 s: reads the new defin
 
 Then bind users or groups to the roles, in Cockpit or in the role data:
 
-```json
-"bindings": {"groups": {"sysops": ["systemd-operator", "firewalld-reader", "zypp-reader", "gateway-docs-reader"]}}
+```yaml
+bindings:
+  groups:
+    sysops: [systemd-operator, firewalld-reader, zypp-reader, gateway-docs-reader]
 ```
 
 `gateway-docs-reader` lets the agent read the gateway's own
@@ -597,33 +599,31 @@ approval (chapter 6 explains how permissions combine: one matching
 permission **without** `require_approval` allows the call, so a role like
 the shipped `admin`, which allows everything, never asks):
 
-```json
-"roles": {
-  "sysops": {
-    "description": "systemd, firewalld, snapper: read freely, change only with approval; the gateway documentation",
-    "permissions": [
-      {"server": "gateway-docs", "tool": "*"},
-      {"server": "gateway-docs", "resource": "*"},
-      {"server": "systemd",   "tool": "list_*"},
-      {"server": "systemd",   "tool": "get_man_page"},
-      {"server": "systemd",   "tool": "check_restart_reload"},
-      {"server": "systemd",   "tool": "get_file", "args": {"path": "^/(etc|usr/lib)/systemd/"}},
-      {"server": "systemd",   "tool": "*", "require_approval": true, "approval_channel": "oob"},
-      {"server": "firewalld", "tool": "get_*"},
-      {"server": "firewalld", "tool": "is_default_zone"},
-      {"server": "firewalld", "tool": "*", "require_approval": true, "approval_channel": "oob"},
-      {"server": "snapper",   "tool": "list_*"},
-      {"server": "snapper",   "tool": "*", "require_approval": true, "approval_channel": "oob"}
-    ]
-  }
-},
-"bindings": {"users": {"alice": ["sysops"]}},
-"approvers": {
-  "default": ["self", "role:admin"],
-  "systemd":   ["role:admin"],
-  "firewalld": ["role:admin"],
-  "snapper":   ["role:admin"]
-}
+```yaml
+roles:
+  sysops:
+    description: 'systemd, firewalld, snapper: read freely, change only with approval; the gateway documentation'
+    permissions:
+      - {server: gateway-docs, tool: '*'}
+      - {server: gateway-docs, resource: '*'}
+      - {server: systemd, tool: 'list_*'}
+      - {server: systemd, tool: get_man_page}
+      - {server: systemd, tool: check_restart_reload}
+      - {server: systemd, tool: get_file, args: {path: '^/(etc|usr/lib)/systemd/'}}
+      - {server: systemd, tool: '*', require_approval: true, approval_channel: oob}
+      - {server: firewalld, tool: 'get_*'}
+      - {server: firewalld, tool: is_default_zone}
+      - {server: firewalld, tool: '*', require_approval: true, approval_channel: oob}
+      - {server: snapper, tool: 'list_*'}
+      - {server: snapper, tool: '*', require_approval: true, approval_channel: oob}
+bindings:
+  users:
+    alice: [sysops]
+approvers:
+  default: [self, 'role:admin']
+  systemd: ['role:admin']
+  firewalld: ['role:admin']
+  snapper: ['role:admin']
 ```
 
 - The two `gateway-docs` permissions give the role the gateway's

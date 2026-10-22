@@ -259,4 +259,14 @@ and is in force again after installing again.
 role data as `/etc/mcp-gateway/policy/rbac/data.json`. An unchanged copy
 is removed on update (the update says so), and the shipped default in
 `/usr/share/mcp-gateway/rbac/data.yaml` is in force from then on, with
-its future changes. A changed copy stays, in force, and is yours.
+its future changes. A changed copy stays, in force, and is yours: it
+keeps working as JSON. To have it in YAML, with room for comments:
+
+```bash
+mcp-gateway-admin policy convert      # writes data.yaml next to data.json; data.yaml is in force
+mcp-gateway --check-policy-data       # checks data.yaml
+rm /etc/mcp-gateway/policy/rbac/data.json   # once you no longer need it (ignored meanwhile)
+```
+
+Saving in Cockpit's role editor does the same: it writes `data.yaml`
+and leaves `data.json` in place, ignored.

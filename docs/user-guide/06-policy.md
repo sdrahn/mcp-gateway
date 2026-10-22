@@ -13,32 +13,34 @@ For most installations, editing the data is all that is needed.
 
 ## The role data
 
-```json
-{
-  "version": 1,
-  "roles": {
-    "developer": {
-      "permissions": [
-        {"server": "git", "tool": "*"},
-        {"server": "fs",  "tool": "read_*"},
-        {"server": "fs",  "tool": "list_*"},
-        {"server": "fs",  "resource": "file://${home}/*"},
-        {"server": "fs",  "tool": "write_file", "require_approval": true,
-                          "approval_channel": "url", "args": {"path": "^${home}/"}},
-        {"server": "fs",  "tool": "delete_*", "effect": "deny"},
-        {"server": "*",   "prompt": "*"}
-      ]
-    }
-  },
-  "bindings": {
-    "users":  {"alice": ["developer"]},
-    "groups": {"dev": ["developer"], "wheel": ["admin"]}
-  },
-  "approvers": {
-    "default": ["self", "role:admin"],
-    "db":      ["role:dba"]
-  }
-}
+`/etc/mcp-gateway/policy/rbac/data.yaml`:
+
+```yaml
+version: 1
+roles:
+  # Developers use git freely and their home directory with care.
+  developer:
+    permissions:
+      - {server: git, tool: '*'}
+      - {server: fs, tool: 'read_*'}
+      - {server: fs, tool: 'list_*'}
+      - {server: fs, resource: 'file://${home}/*'}
+      - server: fs
+        tool: write_file
+        require_approval: true          # asked in the browser
+        approval_channel: url
+        args: {path: '^${home}/'}
+      - {server: fs, tool: 'delete_*', effect: deny}
+      - {server: '*', prompt: '*'}
+bindings:
+  users:
+    alice: [developer]                  # ticket 4711
+  groups:
+    dev: [developer]
+    wheel: [admin]
+approvers:
+  default: [self, 'role:admin']
+  db: ['role:dba']
 ```
 
 - **version**: the version of the format (optional, `1`); a gateway
@@ -52,9 +54,36 @@ For most installations, editing the data is all that is needed.
 - **scopes**: what a token's scopes let remote principals do at most
   (optional; see [Token scopes](#token-scopes)).
 
+### YAML or JSON
+
+The role data is YAML, `data.yaml`: comments (`#`) say why a role
+allows what it does or who asked for a binding. The same data as JSON,
+`data.json`, works too, as it did before 1.5; where both exist,
+`data.yaml` is in force and `data.json` is ignored (the doctor, `mcp-gateway
+--check-policy-data` and the journal of `mcp-policy-render.service`
+name it). `mcp-gateway-admin policy convert` writes a `data.json` as
+`data.yaml`, the same data in the same order. Until you write either,
+the shipped default `/usr/share/mcp-gateway/rbac/data.yaml` is in force;
+your file replaces it as a whole.
+
+A few things to know about YAML here:
+
+- Quote values with `*`, `[`, `{`, `:` or `#` in them, and values that
+  start with `'` or `"`, with single quotes: `'read_*'`,
+  `'role:admin'`, `'file://${home}/*'`. Within single quotes a backslash
+  is just a backslash, so regular expressions need no doubling:
+  `'\b\d{16}\b'` (in JSON, `"\\b\\d{16}\\b"`).
+- `yes`, `no`, `on` and `off` are strings, as written; `true` and
+  `false` are booleans.
+- A key given twice, and merge keys (`<<`), are refused, with the line;
+  anchors and aliases (`&x`, `*x`) work.
+- An error in the file leaves the role data in force as it was (chapter
+  12, "How OPA loads the policy"); `mcp-gateway --check-policy-data`
+  names the line.
+
 ### The shipped roles
 
-In the role data (`/etc/mcp-gateway/policy/rbac/data.json`):
+In the shipped default role data (`/usr/share/mcp-gateway/rbac/data.yaml`):
 
 | Role | Permissions |
 |---|---|
@@ -183,15 +212,15 @@ own tool of that name is not covered this way.
 
 Obligations attach conditions to an allowed call:
 
-```json
-{"server": "db", "tool": "query",
- "obligations": {
-   "redact_output": ["\\b\\d{16}\\b", "(?i)password=\\S+"],
-   "max_output_bytes": 65536,
-   "rate_limit": ["10/m", "100/h"],
-   "arg_constraints": {"sql": ["^(?i)\\s*select\\b"]},
-   "audit": "full"
- }}
+```yaml
+- server: db
+  tool: query
+  obligations:
+    redact_output: ['\b\d{16}\b', '(?i)password=\S+']
+    max_output_bytes: 65536
+    rate_limit: [10/m, 100/h]
+    arg_constraints: {sql: ['^(?i)\s*select\b']}
+    audit: full
 ```
 
 | Obligation | Effect |
@@ -231,15 +260,17 @@ or confidential values in results by pseudonyms before the agent sees
 them; `reidentify` lets chosen tools receive the real values again when
 the agent refers to a pseudonym.
 
-```json
-{"server": "crm", "tool": "*",
- "obligations": {"pseudonymize": {
-   "detect": ["email", "phone", "iban"],
-   "patterns": {"customer": "CUST-[0-9]{6}"},
-   "fields": {"name": "person", "email": "email", "birthday": "date"}
- }}},
-{"server": "crm", "tool": "update_customer",
- "obligations": {"reidentify": ["customer", "email"]}}
+```yaml
+- server: crm
+  tool: '*'
+  obligations:
+    pseudonymize:
+      detect: [email, phone, iban]
+      patterns: {customer: 'CUST-[0-9]{6}'}
+      fields: {name: person, email: email, birthday: date}
+- server: crm
+  tool: update_customer
+  obligations: {reidentify: [customer, email]}
 ```
 
 A customer record the server returns as
@@ -335,10 +366,10 @@ MCP servers can ask the agent for things: an LLM completion (sampling),
 input from the user (elicitation), the agent's root directories. These
 are decided like tool calls, with `client` permissions:
 
-```json
-{"server": "research", "client": "sampling/createMessage"},
-{"server": "*",        "client": "roots/list"},
-{"server": "setup",    "client": "elicitation/create", "allow_sensitive": true}
+```yaml
+- {server: research, client: sampling/createMessage}
+- {server: '*', client: roots/list}
+- {server: setup, client: elicitation/create, allow_sensitive: true}
 ```
 
 Without such permissions, servers cannot make these requests (only
@@ -350,14 +381,14 @@ Over HTTP, a token can carry OAuth scopes. The optional `scopes` map
 turns them into a ceiling: a scope names what a token with it may do at
 most, and the principal's roles decide within that.
 
-```json
-"scopes": {
-  "mcp:read":  {"roles": ["viewer"]},
-  "mcp:write": {"roles": ["developer"]},
-  "mcp:git":   {"permissions": [{"server": "git", "tool": "*"}]},
-  "mcp:admin": {"unlimited": true},
-  "default":   {"roles": ["viewer"]}
-}
+```yaml
+scopes:
+  'mcp:read': {roles: [viewer]}
+  'mcp:write': {roles: [developer]}
+  'mcp:git':
+    permissions: [{server: git, tool: '*'}]
+  'mcp:admin': {unlimited: true}
+  default: {roles: [viewer]}
 ```
 
 A scope's ceiling is the permissions of the roles it names, the
@@ -428,15 +459,14 @@ control socket, never by an agent.
 
 Examples:
 
-```json
-"approvers": {
-  "default": ["self", "role:admin"],
-  "db":      ["group:dba"],
-  "prod-*":  ["user:oncall"]
-}
+```yaml
+approvers:
+  default: [self, 'role:admin']
+  db: ['group:dba']
+  'prod-*': ['user:oncall']   # a server literally named so
 ```
 
-(Keys are server names, not globs: `"prod-*"` above would only match a
+(Keys are server names, not globs: `prod-*` above would only match a
 server literally named so. List servers individually.)
 
 For high-risk servers, leave out `self`: then the requesting user cannot
@@ -471,7 +501,8 @@ Check the file first:
 mcp-gateway --check-policy-data
 ```
 
-It validates the file against the role data's JSON Schema
+It checks the file in force (`data.yaml`, else `data.json`): a YAML or
+JSON error with its line, then the file against the role data's JSON Schema
 (`/usr/share/mcp-gateway/schema/rbac.schema.json`) and reports every
 problem with its location, for example
 
@@ -484,17 +515,23 @@ The policy ignores what it does not understand, so without the check a
 misspelt field or role name only shows as denied requests. Besides the
 schema (field names, types and allowed values), it checks that regular
 expressions compile and that bindings and `role:` approver rules name
-existing roles. `mcp-gateway --check` includes it; Cockpit runs it before
-saving, and `mcp-policy-bundle` before signing. Editors that support JSON
-Schema can use the schema file while you edit. A `description` is allowed
-on roles and permissions, for your notes.
+existing roles. `mcp-gateway --check` includes it; Cockpit checks the
+same before saving (`mcp-gateway-admin policy write --dry-run`), and
+`mcp-policy-bundle` before signing. Editors that support JSON Schema can
+use the schema file while you edit; for YAML, a first line
+`# yaml-language-server: $schema=/usr/share/mcp-gateway/schema/rbac.schema.json`
+points the YAML language server (VS Code, Neovim, …) at it. A
+`description` is allowed on roles and permissions, and comments on any
+line, for your notes.
 
 To see which decisions an edit would change before it takes effect
 (Cockpit shows this before saving, chapter 8), send the edited copy to
 the control API, as root or an admin:
 
 ```bash
-cp /run/mcp-opa/rbac/data.json /tmp/rbac.json && vi /tmp/rbac.json   # the role data in force, as JSON
+cp /etc/mcp-gateway/policy/rbac/data.yaml /tmp/rbac.yaml && vi /tmp/rbac.yaml
+# The control API takes JSON: the edited copy as the gateway reads it.
+mcp-gateway-admin policy write --yaml --dry-run </tmp/rbac.yaml | jq .data >/tmp/rbac.json
 curl -s --unix-socket /run/mcp-gateway/control.sock \
     --data-binary @/tmp/rbac.json http://localhost/v1/policy/whatif |
     jq -r '.changes[] | "\(.principal) \(.server) \(.kind) \(.name): \(.before) -> \(.after)"'

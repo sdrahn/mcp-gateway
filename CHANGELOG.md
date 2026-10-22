@@ -28,7 +28,10 @@ minor release (with a warning) and removed in the next.
   rendering is current, and no file below `rbac/` is left out.
 - `mcp-gateway-admin policy convert [FILE]` writes role data in JSON as
   YAML (`data.yaml` next to `data.json`), the same data with the keys in
-  their order; `data.json` stays, ignored, until you remove it.
+  their order; `data.json` stays, ignored, until you remove it. Role data
+  in JSON keeps working; chapter 2 ("Updating from 1.4 or earlier")
+  shows the conversion, chapter 6 the role data in YAML, with what to
+  quote.
 - The default role data is the package's: `/usr/share/mcp-gateway/rbac/data.yaml`,
   in force, taken whole, while `/etc/mcp-gateway/policy/rbac` has no role
   data. The package installs nothing there any more. Your own file
