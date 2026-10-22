@@ -28,7 +28,7 @@ zypper -n in mcp-gateway-tests
 /usr/libexec/mcp-gateway/tests/run-tests.sh --disposable --results /var/tmp/mcp-gateway-tests
 ```
 
-- **They change the system for good:** users `alice`, `bob`, `carol` and `dora`,
+- **They change the system for good:** users `alice`, `bob`, `carol`, `dora` and `erin`,
   the role data, `gateway.yaml` and drop-ins, a test SELinux module and
   package, booleans, and the gateway's state. Without `--disposable`
   they refuse to start (exit status 2). Run them on a snapshot or a
@@ -68,7 +68,11 @@ What the tests cover now: the domains, users and MCS pairs of the
 gateway, OPA and the instances; calls and refusals by policy, with
 argument constraints; the obligations under the real OPA and the shipped
 policy (redaction, pseudonymization and the session's vault,
-re-identification, the size limit, the rate limit, full audit); approvals through the control API; files written
+re-identification, the size limit, the rate limit, full audit); the
+limits per principal, lowered with `mcp-gateway-admin config set` (a
+session, an instance and a task refused, room again once a session ends
+or an instance is idle, an idle HTTP session making room, the refusals
+counted and audited); approvals through the control API; files written
 through the file server and what SELinux keeps from it; polkit;
 credentials; a privileged backend and its own SELinux module; the six
 server setups with their real servers (systemd changes a unit after an
@@ -88,24 +92,20 @@ the clients (`e2e/`, `test/clients`) without SELinux.
 Proposed additions, the most valuable first. **In the tests** (more
 sections of `run-tests.sh`, no extra machinery):
 
-1. **Limits:** sessions and instances per principal reached ("session
-   limit reached (64)"), idle sessions making room, and
-   `mcp_gateway_limit_refusals_total` counting it; tasks per principal
-   (`limits.tasks_per_principal`, changed with `config set`).
-2. **Failing closed and recovering:** OPA stopped means every call is
+1. **Failing closed and recovering:** OPA stopped means every call is
    denied (`policy evaluation failed`), and calls work again once it
    is back; an instance that crashes gets `backend unavailable; retry
    in …` and backs off; the gateway killed is restarted by systemd and
    its watchdog; grants and pending approvals survive a restart.
-3. **Signed policy bundles:** `mcp-policy-bundle` builds and signs a
+2. **Signed policy bundles:** `mcp-policy-bundle` builds and signs a
    bundle, OPA runs in bundle mode; a tampered bundle is refused and
    the policy in force stays; `POST /v1/policy/whatif` names the
    decisions a role change would change.
-4. **SELinux booleans and uninstall:** `mcpsrv_fs_manage_xdg` off and
+3. **SELinux booleans and uninstall:** `mcpsrv_fs_manage_xdg` off and
    on (`~/.config` refused, then allowed); removing the packages unloads
    the modules and leaves no instance units, and removing a setup
    package removes its account and polkit rule.
-5. **Users from a directory:** principals from SSSD (LDAP or AD) rather
+4. **Users from a directory:** principals from SSSD (LDAP or AD) rather
    than `/etc/passwd`, with `mcp-users` as a directory group; approver
    rules by group; a principal without a local account (`${HOME}`,
    `${UID}` left out).
@@ -113,42 +113,42 @@ sections of `run-tests.sh`, no extra machinery):
 **As openQA test modules of their own** (what openQA does well and CI
 cannot):
 
-6. **Reboot:** after the tests' setup, reboot and check that the
+5. **Reboot:** after the tests' setup, reboot and check that the
    gateway and OPA come up, `/run/mcp-gateway` and its sockets are back
    with their groups and labels, the doctor is clean, and grants made
    before the reboot still apply.
-7. **Transactional systems** (SL Micro, openSUSE MicroOS): install
+6. **Transactional systems** (SL Micro, openSUSE MicroOS): install
    with `transactional-update pkg install` and reboot, then the tests;
    `/usr` read-only, `/etc` as an overlay, the SELinux relabel after
    the snapshot, and the documented "read-only file system" message for
    the commands that would write `/usr`.
-8. **Upgrade and migration:** install the previous release from the
+7. **Upgrade and migration:** install the previous release from the
    product's maintenance repository, set it up (drop-ins, grants,
    sign-in tokens), update to the new one with `zypper up`, and run the
    tests against the kept state: restart notice, configuration kept,
    deprecation warnings, `test/compat` on the product. And a service
    pack migration (SLES 16.0 to 16.1) with the gateway installed.
-9. **Cockpit in a browser:** log in to Cockpit (`https://host:9090`),
+8. **Cockpit in a browser:** log in to Cockpit (`https://host:9090`),
    open "MCP Gateway", approve a pending call that `mcpcall` waits on,
    end a client, cancel a task, reload the configuration, with needles
    for the tabs. Kit's page (cockpit-kit) the same way, against this
    gateway.
-10. **Desktop approvals:** `mcp-gateway-desktop` in a GNOME session: the
-    notification appears, "Approve" lets the waiting call through.
-11. **E-mail approvals:** a local postfix, `notifications.email`, the
+9. **Desktop approvals:** `mcp-gateway-desktop` in a GNOME session: the
+   notification appears, "Approve" lets the waiting call through.
+10. **E-mail approvals:** a local postfix, `notifications.email`, the
     mail with the approval link reaches the approver (also members by
     primary group).
-12. **FIPS mode** (SLES with `fips=1` and the FIPS crypto policy): the
+11. **FIPS mode** (SLES with `fips=1` and the FIPS crypto policy): the
     HTTPS listener and the connector's TLS, the AES-GCM token store of
     sign-ins, and the OAuth helper still work, with only FIPS-approved
     algorithms.
-13. **Other architectures:** aarch64, ppc64le and s390x. The packages
+12. **Other architectures:** aarch64, ppc64le and s390x. The packages
     build there, but the tests have run on x86_64 only; MCS pairs,
     Landlock ABIs and the audit records differ by kernel and
     architecture.
-14. **Longer runs:** many sessions and instances for an hour (memory,
+13. **Longer runs:** many sessions and instances for an hour (memory,
     file descriptors, journal volume), and `logrotate` of the audit log.
 
-Items 1 to 5 extend this package's tests and run wherever it runs;
-items 6 to 14 need openQA's reboots, snapshots, browsers, machines and
+Items 1 to 4 extend this package's tests and run wherever it runs;
+items 5 to 13 need openQA's reboots, snapshots, browsers, machines and
 product flavors.

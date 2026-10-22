@@ -23,7 +23,10 @@ minor release (with a warning) and removed in the next.
   step-up, an agent of MCP 2026-07-28, and a certificate renewed without
   a restart; and the obligations as the shipped policy merges them under
   the real OPA: redaction, pseudonymization with the session's vault and
-  re-identification, the size limit, the rate limit and full audit.
+  re-identification, the size limit, the rate limit and full audit; and
+  the limits per principal: sessions, instances and tasks refused at the
+  limit and room again, idle HTTP sessions making room, the refusals
+  counted and audited.
 
 ### Fixed
 
