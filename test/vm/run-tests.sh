@@ -1,9 +1,9 @@
 #!/bin/bash
 # Functional tests of the installed gateway on a real openSUSE or SLES
 # system with SELinux enforcing: domains, MCS pairs, polkit, credentials,
-# calls, approvals, obligations, limits, failing closed, reloads, kernel
-# audit and no SELinux denials. Package mcp-gateway-tests installs it as
-# /usr/libexec/mcp-gateway/tests/run-tests.sh
+# calls, approvals, obligations, limits, failing closed, signed policy
+# bundles, reloads, kernel audit and no SELinux denials. Package
+# mcp-gateway-tests installs it as /usr/libexec/mcp-gateway/tests/run-tests.sh
 # for openQA and other test systems; the CI VM runs the same (test/vm/run-vm.sh,
 # after test/vm/prepare.sh). Next to it:
 #   mcpcall   the test client (test/vm/mcpcall)
@@ -2031,6 +2031,103 @@ fc_retry() {
 }
 check "... approved once, the same call runs without asking again" fc_retry
 gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
+
+section "Signed policy bundles"
+# Chapter 6, "Signed policy bundles": a change previewed with what-if,
+# then OPA switched to a bundle signed on this host (mcp-policy-bundle).
+# In bundle mode only signed policy is enforced: role data written to
+# /etc/mcp-gateway/policy has no effect until it is signed, and OPA
+# refuses a tampered bundle or one signed with another key (the gateway
+# then denies everything). OPA goes back to the policy directories after.
+# The change: erin may use search_text.
+root_control() { curl -s --unix-socket /run/mcp-gateway/control.sock -X "$1" ${3:+--data-binary "$3"} "http://gw$2"; }
+pb_search() { # pb_search: erin's search_text; sets $out and $rc
+	tool erin search_text '{"path":"/home/erin","query":"erin notes"}'
+}
+pb_allowed() { pb_search && [ "$rc" = 0 ] && grep -qF notes.txt <<<"$out"; }
+pb_denied() { pb_search && [ "$rc" != 0 ] && ! grep -qF notes.txt <<<"$out"; }
+pb_read_ok() { tool erin read_file '{"path":"/home/erin/notes.txt"}' && succeeded_with "erin notes"; }
+pb_opa_up() { systemctl is-active -q mcp-opa.service && pb_read_ok; }
+jq '.roles.searcher = {"permissions": [{"server": "fs", "tool": "search_text"}]} | .bindings.users.erin += ["searcher"]' \
+	/etc/mcp-gateway/policy/rbac/data.json >/root/pb-data.json
+check "erin may not search text yet" pb_denied
+
+# What-if: the decisions the edit would change, without applying it.
+root_control POST /v1/policy/whatif "$(cat /root/pb-data.json)" >/root/pb-whatif.json
+jq -c '.changes[]? | select(.principal == "user:erin")' /root/pb-whatif.json | head -5 | sed 's/^/  /'
+check "what-if: erin's search_text would go from deny to allow" \
+	jq -e '.changes[] | select(.principal == "user:erin" and .server == "fs" and .name == "search_text" and .before == "deny" and .after == "allow")' /root/pb-whatif.json
+check "... and nothing changed" pb_denied
+
+# Bundle mode, with a key pair made here.
+check "mcp-policy-bundle -G makes a key pair" mcp-policy-bundle -G
+check "the signing key is labeled mcpgw_signing_key_t" file_has_type /etc/mcp-gateway/bundle/signing.pem mcpgw_signing_key_t
+check "mcp-policy-bundle signs a bundle" mcp-policy-bundle -n -r vmtest-1
+install -D -m0644 /usr/share/mcp-gateway/opa/signed-bundle.conf /etc/systemd/system/mcp-opa.service.d/policy.conf
+systemctl daemon-reload
+systemctl restart mcp-opa.service
+check "OPA runs the signed bundle" eventually 30 pb_opa_up
+root_control GET /v1/policy | jq -c '{mode, bundles}' | sed 's/^/  /'
+check "GET /v1/policy: bundle mode, the bundle's revision" \
+	bash -c 'curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/policy | jq -e ".mode == \"bundle\" and ([.bundles[]] | index(\"vmtest-1\"))" >/dev/null'
+
+# Role data written to the directory is not signed: no effect.
+cat /root/pb-data.json >/etc/mcp-gateway/policy/rbac/data.json
+sleep 3
+check "bundle mode: role data written but not signed has no effect" pb_denied
+check "mcp-policy-bundle signs it and restarts OPA" mcp-policy-bundle -r vmtest-2
+check "... then it is in force" eventually 30 pb_allowed
+
+# A tampered bundle: a policy file changed after signing, the archive
+# repacked with the same entry names (absolute, as opa build writes
+# them), so that the file's digest is what fails.
+rm -rf /root/pb-tamper && mkdir /root/pb-tamper
+cp /etc/mcp-gateway/bundle/policy.tar.gz /root/pb-good.tar.gz
+tar -xzf /root/pb-good.tar.gz -C /root/pb-tamper 2>/dev/null
+pb_rego=$(find /root/pb-tamper -name authz.rego | head -1)
+echo "  tampering with ${pb_rego#/root/pb-tamper}"
+echo '# changed after signing' >>"${pb_rego:-/root/pb-tamper/none}"
+(cd /root/pb-tamper && tar -tzf /root/pb-good.tar.gz 2>/dev/null | sed 's,^/,,' |
+	tar -czPf /etc/mcp-gateway/bundle/policy.tar.gz --transform 's,^,/,' --no-recursion -T -)
+restorecon /etc/mcp-gateway/bundle/policy.tar.gz
+pb_since=$(date +%s)
+systemctl restart mcp-opa.service
+pb_refused() {
+	journalctl -u mcp-opa.service -o cat --since "@$pb_since" | grep -qiE 'verif|signature|digest|hash' &&
+		! systemctl is-active -q mcp-opa.service
+}
+check "OPA refuses a tampered bundle" eventually 30 pb_refused
+journalctl -u mcp-opa.service -o cat --since "@$pb_since" | grep -iE 'verif|signature|digest|hash' | head -2 | cut -c1-240 | sed 's/^/  | /'
+tool erin read_file '{"path":"/home/erin/notes.txt"}'
+check "... and the gateway denies everything (policy evaluation failed)" tool_error_with "policy evaluation failed"
+cp /root/pb-good.tar.gz /etc/mcp-gateway/bundle/policy.tar.gz
+restorecon /etc/mcp-gateway/bundle/policy.tar.gz
+systemctl reset-failed mcp-opa.service
+systemctl restart mcp-opa.service
+check "the signed bundle back: calls are decided again" eventually 30 pb_allowed
+
+# A bundle signed with another key.
+mkdir -p /root/pb-other
+mcp-policy-bundle -G -k /root/pb-other/signing.pem -o /root/pb-other/policy.tar.gz >/dev/null
+pb_since=$(date +%s)
+mcp-policy-bundle -k /root/pb-other/signing.pem -r vmtest-other >/dev/null 2>&1
+check "OPA refuses a bundle signed with another key" eventually 30 pb_refused
+tool erin read_file '{"path":"/home/erin/notes.txt"}'
+check "... and the gateway denies everything" tool_error_with "policy evaluation failed"
+# (mcp-policy-bundle restarts OPA only if it runs: here it does not.)
+check "signed with the right key again" mcp-policy-bundle -n -r vmtest-3
+systemctl reset-failed mcp-opa.service
+systemctl restart mcp-opa.service
+check "... it is in force: calls are decided again" eventually 30 pb_allowed
+
+# Back to the policy directories.
+rm -f /etc/systemd/system/mcp-opa.service.d/policy.conf
+systemctl daemon-reload
+systemctl reset-failed mcp-opa.service
+systemctl restart mcp-opa.service
+check "OPA back on the policy directories" eventually 30 pb_opa_up
+check "GET /v1/policy: directories mode" \
+	bash -c 'curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/policy | jq -e ".mode == \"directories\"" >/dev/null'
 
 section "Self-check"
 # carol may connect (mcp-users) but holds no role: the doctor names her.

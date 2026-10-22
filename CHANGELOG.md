@@ -29,7 +29,10 @@ minor release (with a warning) and removed in the next.
   counted and audited; and failing closed and recovering: OPA stopped
   denies every call, a killed instance is replaced, one that keeps
   dying is backed off, a killed gateway is started again by systemd
-  and keeps its grants and pending approvals.
+  and keeps its grants and pending approvals; and signed policy bundles:
+  a change previewed with what-if, OPA in bundle mode, unsigned role data
+  without effect, a tampered bundle and one signed with another key
+  refused.
 
 ### Fixed
 
