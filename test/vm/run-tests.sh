@@ -2063,6 +2063,10 @@ check "... and nothing changed" pb_denied
 check "mcp-policy-bundle -G makes a key pair" mcp-policy-bundle -G
 check "the signing key is labeled mcpgw_signing_key_t" file_has_type /etc/mcp-gateway/bundle/signing.pem mcpgw_signing_key_t
 check "mcp-policy-bundle signs a bundle" mcp-policy-bundle -n -r vmtest-1
+# Module ids are paths in the bundle: the same for every build, not the
+# build's temporary directory.
+check "... with the policy at its path in the bundle (/mcp/authz.rego)" \
+	bash -c 'tar -tzf /etc/mcp-gateway/bundle/policy.tar.gz 2>/dev/null | grep -qx /mcp/authz.rego'
 install -D -m0644 /usr/share/mcp-gateway/opa/signed-bundle.conf /etc/systemd/system/mcp-opa.service.d/policy.conf
 systemctl daemon-reload
 systemctl restart mcp-opa.service
@@ -2079,8 +2083,8 @@ check "mcp-policy-bundle signs it and restarts OPA" mcp-policy-bundle -r vmtest-
 check "... then it is in force" eventually 30 pb_allowed
 
 # A tampered bundle: a policy file changed after signing, the archive
-# repacked with the same entry names (absolute, as opa build writes
-# them), so that the file's digest is what fails.
+# repacked with the same entry names (with the leading / opa build
+# writes), so that the file's digest is what fails.
 rm -rf /root/pb-tamper && mkdir /root/pb-tamper
 cp /etc/mcp-gateway/bundle/policy.tar.gz /root/pb-good.tar.gz
 tar -xzf /root/pb-good.tar.gz -C /root/pb-tamper 2>/dev/null
