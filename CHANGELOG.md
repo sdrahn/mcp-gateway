@@ -31,6 +31,13 @@ minor release (with a warning) and removed in the next.
   gateway, which runs as `mcp-gateway`, then failed to start
   (`ExecStartPre` could not read its configuration). A new file is 0644
   now, as the default is; an existing one keeps its owner and mode.
+- User guide chapter 2, "Uninstalling", now says to remove first what was
+  built on the gateway's SELinux types (an administrator's modules for
+  MCP servers, ports given `mcp_port_t` or `mcp_metrics_port_t`): the
+  gateway's module cannot be removed while they use them. And that the
+  role data, which comes with the package, is kept as
+  `data.json.rpmsave` when changed: it said all of `/etc/mcp-gateway`
+  stays.
 
 ## v1.3.0 — 2026-10-21
 
