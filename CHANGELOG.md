@@ -36,6 +36,14 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
+- `mcp-policy-bundle` recorded the policy files under its temporary
+  build directory (`/tmp/tmp.…/src/mcp/authz.rego`), which became part of
+  every module id in OPA: each bundle built changed the gateway's policy
+  fingerprint, so that even a rebuild of the same policy was announced to
+  clients (`list_changed`) and audited as a policy change
+  (`mcp-policy-change`), and OPA's messages named the temporary
+  directory. The files are now at their paths in the bundle
+  (`/mcp/authz.rego`).
 - The file server could not list a home directory when built with Go 1.26
   or later (as openSUSE builds it): Go then examines each entry of a
   listed directory, and SELinux keeps the server from `~/.cache` and
