@@ -1437,7 +1437,7 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	hl_agg "$hl_zed" '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"fs__read_file","arguments":{"path":"/etc/os-release"}}}'
 	check "... a call to fs is refused: no home directory" hl_has "$hl_no_home"
 	check "... and nothing of the file is sent" bash -c '! grep -qF PRETTY_NAME <<<"$1"' _ "$hl_body"
-	hl_open "$hl_zed"
+	hl_post "$hl_zed" /mcp/fs "$hl_init"
 	check "... and no session opens at fs's own endpoint" hl_has "$hl_no_home"
 	hl_agg "$hl_zed" '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"exec__echo_word","arguments":{"word":"remote"}}}'
 	check "... exec runs for it" bash -c 'jq -e ".result.isError == false" <<<"$1" >/dev/null && grep -qF remote <<<"$1"' _ "$hl_body"
