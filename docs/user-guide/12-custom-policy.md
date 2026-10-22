@@ -40,7 +40,7 @@ trees into one policy:
   Other files below `rbac/` are not loaded (the doctor names them): put
   `.rego` files elsewhere in `/etc/mcp-gateway/policy/`. The shipped policy directory is loaded the
   same way: the server setup packages put their roles in
-  `/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.json`
+  `/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.yaml`
   (`data.mcp.profiles.<setup>.roles`); the shipped `mcp.authz` merges
   them below the roles of `data.mcp.rbac` (`role_defs`).
 - Everything the gateway uses lives below `mcp`: its packages

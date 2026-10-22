@@ -308,6 +308,16 @@ go test ./internal/... ./profiles/...
 %tmpfiles_create %{_tmpfilesdir}/%{name}.conf
 %service_add_post mcp-gateway.service mcp-opa.service mcp-policy-render.service
 
+%posttrans
+# A data.json unchanged from the default an earlier package installed
+# (before 1.5) goes: the shipped default is in force then, and follows
+# updates. A changed one stays in force.
+f=%{_sysconfdir}/mcp-gateway/policy/rbac/data.json
+if [ -f "$f" ] && grep -qx "$(sha256sum <"$f" | cut -d' ' -f1)" %{_datadir}/mcp-gateway/rbac/previous-defaults.sha256; then
+    rm -f "$f"
+    echo "Removed $f, the default of an earlier package: the shipped default (%{_datadir}/mcp-gateway/rbac/data.yaml) is in force."
+fi
+
 %preun
 %service_del_preun mcp-gateway.service mcp-opa.service mcp-policy-render.service
 
@@ -361,7 +371,12 @@ fi
 %dir %{_sysconfdir}/mcp-gateway/bundle
 %dir %{_sysconfdir}/mcp-gateway/policy
 %dir %{_sysconfdir}/mcp-gateway/policy/rbac
-%config(noreplace) %{_sysconfdir}/mcp-gateway/policy/rbac/data.json
+# The administrator's role data: no file is installed (the default is in
+# %{_datadir}/mcp-gateway/rbac); owned, so that rpm neither replaces nor
+# removes one, nor saves it as .rpmsave.
+%ghost %config(noreplace) %{_sysconfdir}/mcp-gateway/policy/rbac/data.json
+%ghost %config(noreplace) %{_sysconfdir}/mcp-gateway/policy/rbac/data.yaml
+%{_datadir}/mcp-gateway/rbac
 %if "%{_distconfdir}" == "%{_sysconfdir}"
 %config(noreplace) %{_sysconfdir}/mcp-gateway/gateway.yaml
 %else
@@ -436,6 +451,7 @@ fi
 %{_libexecdir}/mcp-gateway/tests/run-tests.sh
 %{_libexecdir}/mcp-gateway/tests/mcpcall
 %{_libexecdir}/mcp-gateway/tests/privsrv
+%{_libexecdir}/mcp-gateway/tests/default-1.4.json
 
 %files profile-systemd
 %{_datadir}/mcp-gateway/servers.d/systemd.yaml

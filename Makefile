@@ -123,7 +123,12 @@ install-gateway:
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp
 	install -m0644 $(filter-out %_test.rego,$(wildcard policy/mcp/*.rego)) $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/
 	install -Dm0644 internal/policydata/rbac.schema.json $(DESTDIR)$(DATADIR)/mcp-gateway/schema/rbac.schema.json
-	install -Dm0644 policy/mcp/rbac/data.json $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/policy/rbac/data.json
+	# The default role data, in force while /etc/mcp-gateway/policy/rbac has
+	# none (mcp-policy-render), and the checksums of the defaults earlier
+	# packages installed there (an unchanged copy is removed on update).
+	install -d $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/policy/rbac
+	install -Dm0644 policy/mcp/rbac/data.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/rbac/data.yaml
+	install -Dm0644 packaging/rbac/previous-defaults.sha256 $(DESTDIR)$(DATADIR)/mcp-gateway/rbac/previous-defaults.sha256
 	install -Dm0644 systemd/mcp-gateway.service $(DESTDIR)$(UNITDIR)/mcp-gateway.service
 	install -Dm0644 systemd/mcp-opa.service $(DESTDIR)$(UNITDIR)/mcp-opa.service
 	install -Dm0644 systemd/mcp-policy-render.service $(DESTDIR)$(UNITDIR)/mcp-policy-render.service
@@ -145,8 +150,8 @@ install-gateway:
 	sed 's|@BINDIR@|$(BINDIR)|g' packaging/admin/gateway-admin.yaml.in \
 		>$(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/gateway-admin.yaml
 	chmod 0644 $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/gateway-admin.yaml
-	install -Dm0644 packaging/admin/gateway-admin-roles.json \
-		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/gateway-admin/data.json
+	install -Dm0644 packaging/admin/gateway-admin-roles.yaml \
+		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/gateway-admin/data.yaml
 
 # The onboarding commands (mcp-gateway-admin inspect, profile, review).
 install-tools:
@@ -156,6 +161,8 @@ install-tests:
 	install -Dm0755 test/vm/run-tests.sh $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/tests/run-tests.sh
 	install -Dm0755 bin/tests/mcpcall $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/tests/mcpcall
 	install -Dm0755 bin/tests/privsrv $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/tests/privsrv
+	# The default role data of 1.4, for the update test (an unchanged copy goes).
+	install -Dm0644 test/compat/1.4/policy/rbac/data.json $(DESTDIR)$(LIBEXECDIR)/mcp-gateway/tests/default-1.4.json
 
 install-selinux: selinux
 	install -d $(DESTDIR)$(SELINUXDIR)
@@ -170,7 +177,7 @@ install-selinux: selinux
 install-profiles:
 	for p in $(PROFILES); do \
 		install -Dm0644 profiles/$$p/$$p.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/$$p.yaml && \
-		install -Dm0644 profiles/$$p/roles.json $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/$$p/data.json && \
+		install -Dm0644 profiles/$$p/roles.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/$$p/data.yaml && \
 		{ [ ! -f profiles/$$p/polkit.rules ] || \
 		  install -Dm0644 profiles/$$p/polkit.rules $(DESTDIR)$(POLKITDIR)/60-mcp-gateway-$$p.rules; } && \
 		{ [ ! -f profiles/$$p/sysusers.conf ] || \
@@ -200,8 +207,8 @@ install-fs-server:
 	sed -e 's|@LIBEXECDIR@|$(LIBEXECDIR)|g' -e 's|@DATADIR@|$(DATADIR)|g' packaging/fs-server/gateway-docs.yaml.in \
 		>$(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/gateway-docs.yaml
 	chmod 0644 $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/gateway-docs.yaml
-	install -Dm0644 packaging/fs-server/gateway-docs-roles.json \
-		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/gateway-docs/data.json
+	install -Dm0644 packaging/fs-server/gateway-docs-roles.yaml \
+		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/gateway-docs/data.yaml
 	# The same server on mcp-docs, for the administrator to enable.
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/profiles
 	sed -e 's|@BINDIR@|$(BINDIR)|g' -e 's|@DATADIR@|$(DATADIR)|g' packaging/fs-server/gateway-docs-mcp-docs.yaml.in \
@@ -221,8 +228,8 @@ install-exec-server:
 	chmod 0644 $(DESTDIR)$(DATADIR)/mcp-gateway/servers.d/exec.yaml
 	install -Dm0644 packaging/exec-server/examples.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/exec/examples.yaml
 	install -d $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/exec.d
-	install -Dm0644 packaging/exec-server/exec-roles.json \
-		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/exec/data.json
+	install -Dm0644 packaging/exec-server/exec-roles.yaml \
+		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/exec/data.yaml
 
 clean:
 	rm -rf bin selinux/tmp selinux/*.pp $(PROFILES:%=selinux/mcp_%.if)

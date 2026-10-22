@@ -1,7 +1,8 @@
 // Stub of the parts of cockpit.js the pages use, with fixtures. The query
 // string selects variants: ?source=server (bundle from a bundle server),
 // ?nokey (no signing key on the host), ?reload (a failed reload and keys
-// that need a restart; systemctl reload fails).
+// that need a restart; systemctl reload fails), ?default (no role data in
+// /etc: the shipped default in force), ?yaml (data.yaml in force).
 (function () {
     const query = new URLSearchParams(window.location.search);
     const log = window.__calls = [];
@@ -167,8 +168,14 @@
                                    "2026-09-27T08:00:01 host mcp-fs[1]: /srv/x: permission denied\n");
         },
         file(path, opts) {
+            const etc = "/etc/mcp-gateway/policy/rbac/";
             return {
-                read() { log.push(["read", path, opts.superuser]); return Promise.resolve(rbac); },
+                read() {
+                    log.push(["read", path, (opts || {}).superuser]);
+                    if (path === etc + "data.yaml") return Promise.resolve(query.has("yaml") ? "roles: {}\n" : null);
+                    if (path === etc + "data.json" && query.has("default")) return Promise.resolve(null);
+                    return Promise.resolve(rbac); // data.json, or as rendered (/run/mcp-opa/rbac/data.json)
+                },
                 replace(content) { log.push(["replace", path, content]); rbac = content; return Promise.resolve(); },
             };
         },

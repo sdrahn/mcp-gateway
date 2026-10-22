@@ -21,7 +21,7 @@ test_self_by_default if {
 }
 
 test_shipped_data_admins if {
-	# policy/mcp/rbac/data.json: default ["self", "role:admin"], wheel → admin
+	# policy/mcp/rbac/data.yaml: default ["self", "role:admin"], wheel → admin
 	approvals.allow with input as {"approver": alice, "request": alice_req}
 	approvals.allow with input as {"approver": carol, "request": alice_req}
 	not approvals.allow with input as {"approver": bob, "request": alice_req}
@@ -113,7 +113,7 @@ test_manage_sign_in if {
 }
 
 test_notify if {
-	# policy/mcp/rbac/data.json: default ["self", "role:admin"], wheel → admin
+	# policy/mcp/rbac/data.yaml: default ["self", "role:admin"], wheel → admin
 	approvals.notify == {"user:alice", "group:wheel"} with input as {"request": alice_req}
 
 	# An unmapped remote principal has no local account to tell.
@@ -128,7 +128,7 @@ test_notify if {
 }
 
 test_review_policy if {
-	# policy/mcp/rbac/data.json: default ["self", "role:admin"], wheel → admin
+	# policy/mcp/rbac/data.yaml: default ["self", "role:admin"], wheel → admin
 	approvals.review_policy with input as {"approver": carol}
 	not approvals.review_policy with input as {"approver": alice}
 

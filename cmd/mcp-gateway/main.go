@@ -62,6 +62,8 @@ func main() {
 	checkData := flag.Bool("check-policy-data", false, "validate only the role data, then exit")
 	policyData := flag.String("policy-data", policydata.DefaultPath,
 		"role data to validate with -check and -check-policy-data (\"-\": standard input; empty: none)")
+	flag.StringVar(&defaultPolicyData, "default-policy-data", policydata.DefaultData,
+		"shipped default role data, in force while -policy-data's directory has none (empty: none)")
 	flag.StringVar(&shippedPolicy, "shipped-policy", policydata.DefaultShippedDir,
 		"shipped policy whose server setup roles bindings may name (empty: none)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
@@ -109,6 +111,10 @@ func main() {
 	}
 }
 
+// defaultPolicyData is the shipped default role data
+// (-default-policy-data).
+var defaultPolicyData string
+
 // shippedPolicy is the shipped policy directory with the roles of the
 // server setup packages (-shipped-policy).
 var shippedPolicy string
@@ -123,7 +129,7 @@ func checkPolicyData(log *slog.Logger, path string, required bool) error {
 	if path == "" {
 		return nil
 	}
-	path, data, ignored, err := policydata.Read(path)
+	path, data, ignored, err := policydata.ReadOr(path, defaultPolicyData)
 	for _, f := range ignored {
 		log.Warn("role data ignored: another file is in force", "path", f, "in_force", path)
 	}

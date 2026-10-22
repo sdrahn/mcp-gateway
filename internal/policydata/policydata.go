@@ -36,6 +36,12 @@ const Version = 1
 // DefaultPath is the role data file of a package installation.
 const DefaultPath = "/etc/mcp-gateway/policy/rbac/data.json"
 
+// DefaultData is the shipped default role data: in force, taken whole,
+// while the administrator's directory (DefaultPath's) has none
+// (docs/architecture.md, roadmap step 37 A2). Outside the trees OPA
+// loads; mcp-policy-render renders it.
+const DefaultData = "/usr/share/mcp-gateway/rbac/data.yaml"
+
 // DefaultShippedDir is the shipped policy (OPA loads it as is): the server
 // setup packages install their roles there, as
 // mcp/profiles/<setup>/data.json (data.mcp.profiles.<setup>.roles).

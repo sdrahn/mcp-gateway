@@ -46,7 +46,7 @@ func TestDoctorRendering(t *testing.T) {
 	}
 	render := func() {
 		t.Helper()
-		p, err := policydata.PlanRender(rbac, "")
+		p, err := policydata.PlanRender(rbac, "", "")
 		if err != nil {
 			t.Fatal(err)
 		}

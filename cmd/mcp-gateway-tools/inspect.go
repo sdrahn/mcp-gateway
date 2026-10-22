@@ -20,6 +20,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/inspect"
 	"github.com/sdrahn/mcp-gateway/internal/landlock"
+	"github.com/sdrahn/mcp-gateway/internal/policydata"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 )
@@ -167,7 +168,8 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 	if len(roles) > 0 {
 		files := make([]inspect.RoleFile, 0, len(roles))
 		for _, path := range roles {
-			data, err := os.ReadFile(path)
+			// YAML or JSON (data.yaml, a setup's roles.yaml).
+			_, data, _, err := policydata.Read(path)
 			if err != nil {
 				say(stderr, err)
 				return 1

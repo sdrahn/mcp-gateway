@@ -17,8 +17,9 @@ change (below `/etc`):
 | `/etc/mcp-gateway/gateway.d/*.yaml` | drop-ins: settings read over the configuration in force, key by key | you |
 | `/usr/share/mcp-gateway/servers.d/*.yaml` | MCP server definitions installed by packages | packages |
 | `/etc/mcp-gateway/servers.d/*.yaml` | your MCP server definitions; a file overrides the package file of the same name, an empty file or a symlink to `/dev/null` disables it | you |
-| `/usr/share/mcp-gateway/policy/` | policy logic (Rego), and the roles of setup packages (`mcp/profiles/<setup>/data.json`) | packages |
-| `/etc/mcp-gateway/policy/rbac/data.json` | roles, bindings, approver rules | you |
+| `/usr/share/mcp-gateway/policy/` | policy logic (Rego), and the roles of setup packages (`mcp/profiles/<setup>/data.yaml`) | packages |
+| `/usr/share/mcp-gateway/rbac/data.yaml` | default role data; in force while `/etc/mcp-gateway/policy/rbac` has none | package |
+| `/etc/mcp-gateway/policy/rbac/data.yaml` | roles, bindings, approver rules; replaces the default as a whole (`data.json` works too; where both exist, `data.yaml` is in force) | you |
 | `/etc/mcp-gateway/credentials/` | secrets for MCP servers (root only) | you |
 | `/etc/mcp-gateway/exec.d/*.yaml` | the commands of the command server `exec` (chapter 4) | you |
 | `/etc/mcp-gateway/bundle/` | signed policy bundle and keys (optional) | you |

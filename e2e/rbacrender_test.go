@@ -16,7 +16,7 @@ import (
 // mcp-policy-render.service does, and returns out.
 func renderRoles(t *testing.T, src, out string) string {
 	t.Helper()
-	p, err := policydata.PlanRender(src, "")
+	p, err := policydata.PlanRender(src, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestRenderedRoleData(t *testing.T) {
 // renderWith runs mcp-policy-render and checks its exit status.
 func renderWith(t *testing.T, render, src, out string, want int) {
 	t.Helper()
-	cmd := exec.Command(render, "-source", src, "-out", out, "-shipped", "")
+	cmd := exec.Command(render, "-source", src, "-out", out, "-shipped", "", "-default", "")
 	b, err := cmd.CombinedOutput()
 	rc := 0
 	if ee, ok := err.(*exec.ExitError); ok {

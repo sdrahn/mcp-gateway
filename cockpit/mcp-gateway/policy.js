@@ -15,6 +15,10 @@ let shippedRoles = {};
 let policySource = "directories";
 let signingKey = false; // the signing key exists on this host
 let unsigned = false; // role data saved since the active bundle was built
+// Where the role data shown comes from: "file" (RBAC_FILE), "default" (no
+// role data in /etc: the shipped default, as rendered), or "yaml"
+// (RBAC_YAML is in force: shown as rendered, not editable here).
+let rbacOrigin = "file";
 
 function rbacFile() {
     return cockpit.file(RBAC_FILE, { superuser: "try" });
@@ -122,6 +126,10 @@ function showPreview(preview, data) {
 /* saveRBAC checks the role data and, unless confirmed, shows which
  * decisions it would change before writing it. */
 async function saveRBAC(data, confirmed) {
+    if (rbacOrigin === "yaml") {
+        showError("Not saved: " + RBAC_YAML + " is in force, and this page does not edit YAML yet; edit that file instead.");
+        return false;
+    }
     let problems = validateRBAC(data);
     if (problems.length === 0) problems = await schemaProblems(data);
     if (problems.length > 0) {
@@ -145,6 +153,8 @@ async function saveRBAC(data, confirmed) {
         return false;
     }
     rbac = data;
+    rbacOrigin = "file";
+    renderOrigin();
     showError(null);
     if (policySource === "bundle-file") unsigned = true;
     renderBundleNote();
@@ -322,6 +332,17 @@ function scopesCard(scopes) {
               ...notes.map(n => el("div", { class: "muted" }, n)));
 }
 
+/* renderOrigin says where the role data shown comes from. */
+function renderOrigin() {
+    const note = document.getElementById("rbac-origin");
+    note.hidden = rbacOrigin === "file";
+    note.textContent = rbacOrigin === "yaml"
+        ? RBAC_YAML + " is in force (" + RBAC_FILE + " is ignored). This page shows it but does not edit YAML yet: edit the file instead."
+        : "No role data in " + RBAC_FILE.replace(/\/[^/]*$/, "") + ": the shipped default is in force. Saving writes " +
+          RBAC_FILE + ", which then replaces the default as a whole.";
+    for (const id of ["rbac-save", "rbac-json"]) document.getElementById(id).disabled = rbacOrigin === "yaml";
+}
+
 tabs.policy = {
     intervalMs: 0,
     init() {
@@ -379,7 +400,17 @@ tabs.policy = {
         } catch (ex) {
             status.textContent = "Policy status unavailable: " + describeFailure(ex);
         }
-        const text = await rbacFile().read();
+        // The file in force: data.yaml before data.json, else the
+        // shipped default (both shown as rendered for OPA).
+        let text = await rbacFile().read();
+        rbacOrigin = "file";
+        if (await cockpit.file(RBAC_YAML, { superuser: "try" }).read() !== null) {
+            rbacOrigin = "yaml";
+        } else if (text === null) {
+            rbacOrigin = "default";
+        }
+        if (rbacOrigin !== "file") text = await cockpit.file(RBAC_RENDERED).read();
+        renderOrigin();
         try {
             rbac = JSON.parse(text || "{}");
         } catch (ex) {

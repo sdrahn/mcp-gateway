@@ -88,7 +88,7 @@ func TestPrivileged(t *testing.T) {
 func TestRoles(t *testing.T) {
 	shipped := t.TempDir()
 	for _, name := range setups {
-		data, err := os.ReadFile(filepath.Join(name, "roles.json"))
+		_, data, _, err := policydata.Read(filepath.Join(name, "roles.yaml"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -122,7 +122,7 @@ func TestRoles(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "data.json"), data, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "data.yaml"), data, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -138,11 +138,11 @@ func TestRoles(t *testing.T) {
 // The roles of the gateway's own servers validate as shipped roles.
 func TestGatewayServerRoles(t *testing.T) {
 	for name, tc := range map[string]struct{ file, role string }{
-		"gateway-docs":  {filepath.Join("fs-server", "gateway-docs-roles.json"), "gateway-docs-reader"},
-		"gateway-admin": {filepath.Join("admin", "gateway-admin-roles.json"), "gateway-admin"},
-		"exec":          {filepath.Join("exec-server", "exec-roles.json"), "exec-operator"},
+		"gateway-docs":  {filepath.Join("fs-server", "gateway-docs-roles.yaml"), "gateway-docs-reader"},
+		"gateway-admin": {filepath.Join("admin", "gateway-admin-roles.yaml"), "gateway-admin"},
+		"exec":          {filepath.Join("exec-server", "exec-roles.yaml"), "exec-operator"},
 	} {
-		data, err := os.ReadFile(filepath.Join("..", "packaging", tc.file))
+		_, data, _, err := policydata.Read(filepath.Join("..", "packaging", tc.file))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -154,7 +154,7 @@ func TestGatewayServerRoles(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "data.json"), data, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "data.yaml"), data, 0o644); err != nil {
 			t.Fatal(err)
 		}
 		roles, problems, err := policydata.ShippedRoles(shipped)

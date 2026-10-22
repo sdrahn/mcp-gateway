@@ -8,7 +8,7 @@ interface they build on.
 | File | Installed as |
 |---|---|
 | `<name>.yaml` | `/usr/share/mcp-gateway/servers.d/<name>.yaml` (active once installed) |
-| `roles.json` | `/usr/share/mcp-gateway/policy/mcp/profiles/<name>/data.json` (roles to bind users to) |
+| `roles.yaml` | `/usr/share/mcp-gateway/policy/mcp/profiles/<name>/data.yaml` (roles to bind users to) |
 | `polkit.rules` | `/usr/share/polkit-1/rules.d/60-mcp-gateway-<name>.rules` |
 | `sysusers.conf` | `/usr/lib/sysusers.d/mcp-gateway-profile-<name>.conf` |
 | `zypp/zypp-privileged.yaml`, `snapper/snapper-privileged.yaml` | `/usr/share/mcp-gateway/profiles/` (opt-in, see chapter 13) |

@@ -47,8 +47,10 @@ EOF
 systemctl reload mcp-gateway.service    # or wait 10 s: definitions are reloaded
 
 # 4. Give the user a role (developers may use git; see chapter 6)
-#    in /etc/mcp-gateway/policy/rbac/data.json:
-#    "bindings": {"users": {"alice": ["developer"]}, ...}
+#    in /etc/mcp-gateway/policy/rbac/data.yaml (a copy of
+#    /usr/share/mcp-gateway/rbac/data.yaml):
+#    bindings:
+#      users: {alice: [developer]}
 
 # 5. As alice, point the agent at the gateway
 #    { "command": "mcp-connect", "args": ["--server", "git"] }

@@ -118,9 +118,10 @@ Out of the box the gateway:
   `/run/mcp-gateway/control.sock`;
 - knows the MCP servers defined in `/usr/share/mcp-gateway/servers.d`
   (installed by packages) and `/etc/mcp-gateway/servers.d` (yours);
-- decides with the shipped policy and the role data in
-  `/etc/mcp-gateway/policy/rbac/data.json` (roles `viewer`, `developer`,
-  `admin`; group `dev` → developer, group `wheel` → admin);
+- decides with the shipped policy and the shipped default role data,
+  `/usr/share/mcp-gateway/rbac/data.yaml` (roles `viewer`, `developer`,
+  `admin`; group `dev` → developer, group `wheel` → admin), until you
+  write your own to `/etc/mcp-gateway/policy/rbac/data.yaml` (chapter 6);
 - does not listen on the network (remote access is off until configured,
   chapter 5).
 
@@ -250,6 +251,12 @@ loaded otherwise.
 
 `/etc/mcp-gateway` (your configuration) and `/var/lib/mcp-gateway`
 (grants, pending approvals, audit key) are left in place; remove them by
-hand if they are no longer needed. The role data came with the package:
-changed, it is kept as `/etc/mcp-gateway/policy/rbac/data.json.rpmsave`
-(rename it back after installing again), unchanged, it is removed.
+hand if they are no longer needed. Your role data
+(`/etc/mcp-gateway/policy/rbac/data.yaml` or `data.json`) stays as it is,
+and is in force again after installing again.
+
+**Updating from 1.4 or earlier**: those packages installed the default
+role data as `/etc/mcp-gateway/policy/rbac/data.json`. An unchanged copy
+is removed on update (the update says so), and the shipped default in
+`/usr/share/mcp-gateway/rbac/data.yaml` is in force from then on, with
+its future changes. A changed copy stays, in force, and is yours.

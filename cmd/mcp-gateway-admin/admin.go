@@ -52,7 +52,10 @@ type adminServer struct {
 	shipped    string // the shipped policy: Rego and the setups' roles
 	etcPolicy  string // the administrator's policy directory (data.mcp)
 	rendered   string // the role data as OPA loads it (data.mcp.rbac)
-	opa        string // the opa program, for explain_decision
+	// defaultData is the shipped default role data, in force while
+	// policyData's directory has none.
+	defaultData string
+	opa         string // the opa program, for explain_decision
 	// journal runs journalctl with args (a variable for tests).
 	journal func(ctx context.Context, args ...string) ([]byte, error)
 }
@@ -69,6 +72,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&a.policyData, "policy-data", policydata.DefaultPath, "role data")
 	fs.StringVar(&a.shipped, "shipped-policy", policydata.DefaultShippedDir, "shipped policy (Rego, roles of the server setups)")
 	fs.StringVar(&a.etcPolicy, "etc-policy", filepath.Dir(filepath.Dir(policydata.DefaultPath)), "the administrator's policy directory, loaded below data.mcp")
+	fs.StringVar(&a.defaultData, "default-policy-data", policydata.DefaultData, "the shipped default role data, in force while -policy-data's directory has none")
 	fs.StringVar(&a.rendered, "rendered-policy", policydata.RenderDir, "the role data as OPA loads it (mcp-policy-render), loaded as data.mcp.rbac")
 	fs.StringVar(&a.opa, "opa", "/usr/bin/opa", "the opa program, to evaluate the policy")
 	if err := fs.Parse(args); err != nil {
@@ -288,15 +292,16 @@ func duration(s string, def time.Duration) (time.Duration, error) {
 // and without the gateway's sockets and OPA, which no server may reach.
 func (a *adminServer) doctorRun(only string, since time.Duration) *doctorRun {
 	return &doctorRun{
-		root:       os.Geteuid() == 0,
-		isolated:   true,
-		policyData: a.policyData,
-		shipped:    a.shipped,
-		rendered:   a.rendered,
-		only:       only,
-		noStart:    true,
-		since:      since,
-		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		root:        os.Geteuid() == 0,
+		isolated:    true,
+		policyData:  a.policyData,
+		shipped:     a.shipped,
+		rendered:    a.rendered,
+		defaultData: a.defaultData,
+		only:        only,
+		noStart:     true,
+		since:       since,
+		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }
 
@@ -486,7 +491,7 @@ func (a *adminServer) configFiles() []string {
 		}
 	}
 	// The role data in force, and the file it overrides if any.
-	inForce, ignored := policydata.InForce(a.policyData)
+	inForce, ignored := policydata.InForceOr(a.policyData, a.defaultData)
 	files = append(append(files, inForce), ignored...)
 	shipped, _ := policydata.ShippedDirs(a.shipped)
 	for _, d := range shipped {

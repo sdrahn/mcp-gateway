@@ -14,7 +14,7 @@ import (
 
 func TestRun(t *testing.T) {
 	src, out, shipped := t.TempDir(), filepath.Join(t.TempDir(), "rbac"), t.TempDir()
-	args := []string{"-source", src, "-out", out, "-shipped", shipped}
+	args := []string{"-source", src, "-out", out, "-shipped", shipped, "-default", ""}
 	render := func(extra ...string) (int, string) {
 		t.Helper()
 		var stdout, stderr bytes.Buffer
@@ -175,4 +175,50 @@ func TestWatch(t *testing.T) {
 	if !strings.Contains(stderr.String(), "role data not rendered; the last rendering") {
 		t.Errorf("stderr: %s", stderr.String())
 	}
+}
+
+// With -watch, the shipped default is in force while the directory has
+// no role data, and an update of it (a package update) is rendered too.
+func TestWatchDefault(t *testing.T) {
+	settle = 20 * time.Millisecond
+	src, out := filepath.Join(t.TempDir(), "rbac"), filepath.Join(t.TempDir(), "rbac")
+	def := filepath.Join(t.TempDir(), "data.yaml")
+	if err := os.WriteFile(def, []byte("roles: {viewer: {permissions: []}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stderr syncBuffer
+	r := renderer{src: src, out: out, def: def, say: func(f string, a ...any) { _, _ = fmt.Fprintf(&stderr, f+"\n", a...) }}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int)
+	go func() { done <- r.watch(ctx, func(string) error { return nil }) }()
+	defer func() { cancel(); <-done }()
+	rendered := func(want string) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			b, _ := os.ReadFile(filepath.Join(out, "data.json"))
+			if got := strings.Join(strings.Fields(string(b)), ""); got == want {
+				return
+			} else if time.Now().After(deadline) {
+				t.Fatalf("%q, want %q\n%s", got, want, stderr.String())
+			}
+		}
+	}
+	rendered(`{"roles":{"viewer":{"permissions":[]}}}`)
+	// A package update replaces the default (a new file renamed over it).
+	tmp := def + ".new"
+	if err := os.WriteFile(tmp, []byte("roles: {viewer: {permissions: []}, auditor: {permissions: []}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, def); err != nil {
+		t.Fatal(err)
+	}
+	rendered(`{"roles":{"viewer":{"permissions":[]},"auditor":{"permissions":[]}}}`)
+	// The administrator's role data replaces it as a whole.
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "data.yaml"), []byte("roles: {mine: {permissions: []}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rendered(`{"roles":{"mine":{"permissions":[]}}}`)
 }

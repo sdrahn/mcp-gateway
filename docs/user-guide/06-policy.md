@@ -7,7 +7,7 @@ The policy has two parts:
 | Part | Where | Who maintains it |
 |---|---|---|
 | **logic** (Rego): how roles, permissions, grants and approver rules are evaluated | `/usr/share/mcp-gateway/policy/` | the package |
-| **data**: roles, bindings, approver rules | `/etc/mcp-gateway/policy/rbac/data.json` | you (by hand or in Cockpit) |
+| **data**: roles, bindings, approver rules | `/etc/mcp-gateway/policy/rbac/data.yaml` (or `data.json`); until you write one, the shipped default `/usr/share/mcp-gateway/rbac/data.yaml` | you (by hand or in Cockpit) |
 
 For most installations, editing the data is all that is needed.
 
@@ -79,7 +79,7 @@ recommendation.
 
 The server setup packages (chapter 13) ship roles for their server, for
 example `systemd-reader`. They are installed as
-`/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.json`, and the
+`/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.yaml`, and the
 policy adds them to the roles of the role data:
 
 - Bind users and groups to them like to your own roles; a setup never
@@ -444,8 +444,18 @@ approve their own agent's calls.
 
 ## Changing the policy
 
-Edit `/etc/mcp-gateway/policy/rbac/data.json` (or use the Policy tab in
-Cockpit, chapter 8). OPA watches the policy directories and loads
+Edit `/etc/mcp-gateway/policy/rbac/data.yaml` (or `data.json`; or use the
+Policy tab in Cockpit, chapter 8). Until you write one, the shipped
+default is in force; start from a copy of it, which then replaces it as a
+whole (the default's later changes no longer apply):
+
+```bash
+cp /usr/share/mcp-gateway/rbac/data.yaml /etc/mcp-gateway/policy/rbac/data.yaml
+```
+
+A `data.json` of yours converts with `mcp-gateway-admin policy convert`,
+which writes `data.yaml` next to it (in force from then on) and leaves
+`data.json` as it is, ignored, until you remove it. OPA watches the policy directories and loads
 changes within seconds; the gateway notices right after OPA has loaded
 them (it watches the same directories), tells connected agents to list
 their tools again and writes a `mcp-policy-change` audit event. No
@@ -484,7 +494,7 @@ To see which decisions an edit would change before it takes effect
 the control API, as root or an admin:
 
 ```bash
-cp /etc/mcp-gateway/policy/rbac/data.json /tmp/rbac.json && vi /tmp/rbac.json
+cp /run/mcp-opa/rbac/data.json /tmp/rbac.json && vi /tmp/rbac.json   # the role data in force, as JSON
 curl -s --unix-socket /run/mcp-gateway/control.sock \
     --data-binary @/tmp/rbac.json http://localhost/v1/policy/whatif |
     jq -r '.changes[] | "\(.principal) \(.server) \(.kind) \(.name): \(.before) -> \(.after)"'

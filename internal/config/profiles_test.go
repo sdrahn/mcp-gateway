@@ -16,6 +16,9 @@ func TestProfiles(t *testing.T) {
 	}
 	withLandlock := map[string]bool{}
 	for _, f := range files {
+		if filepath.Base(f) == "roles.yaml" { // the setup's roles, not a definition
+			continue
+		}
 		data, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)

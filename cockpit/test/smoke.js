@@ -194,6 +194,38 @@ function site() {
           "signs as administrator with a named revision: " + (sign && sign[1]));
     check(!(await page.textContent("#bundle-note-text")).includes("not active yet"), "signed changes no longer noted");
 
+    // No role data in /etc: the shipped default (as rendered) is shown;
+    // saving writes data.json, which replaces it.
+    await page.goto(url.replace("index.html", "index.html?default") + "#/policy");
+    await page.waitForSelector("#bindings tbody tr td");
+    check(await page.isVisible("#rbac-origin") && (await page.textContent("#rbac-origin")).includes("the shipped default is in force"),
+          "the shipped default in force is noted");
+    check((await page.evaluate(() => __calls)).some(c => c[0] === "read" && c[1] === "/run/mcp-opa/rbac/data.json"),
+          "the default is read as rendered for OPA");
+    await page.fill("#binding-add input[name=name]", "erin");
+    await page.selectOption("#binding-add select[name=role]", "admin");
+    await page.click("#binding-add button");
+    await page.waitForFunction(() => document.querySelector("#whatif") && !document.querySelector("#whatif").hidden ||
+                               document.querySelector("#bindings").textContent.includes("erin"));
+    if (await page.isVisible("#whatif-save")) await page.click("#whatif-save");
+    await page.waitForFunction(() => document.querySelector("#bindings").textContent.includes("erin"));
+    saved = (await page.evaluate(() => __calls)).filter(c => c[0] === "replace").pop();
+    check(saved && saved[1] === "/etc/mcp-gateway/policy/rbac/data.json" && JSON.parse(saved[2]).roles.developer,
+          "saving writes data.json with the default's roles and the change");
+    check(await page.isHidden("#rbac-origin"), "the note goes once data.json is written");
+    // data.yaml in force: shown, not editable here.
+    await page.goto(url.replace("index.html", "index.html?yaml") + "#/policy");
+    await page.waitForSelector("#bindings tbody tr td");
+    check((await page.textContent("#rbac-origin")).includes("data.yaml is in force"), "data.yaml in force is noted");
+    check(await page.$eval("#rbac-save", b => b.disabled), "the raw editor cannot save over data.yaml");
+    const replaces = (await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length;
+    await page.fill("#binding-add input[name=name]", "frank");
+    await page.selectOption("#binding-add select[name=role]", "admin");
+    await page.click("#binding-add button");
+    await page.waitForTimeout(300);
+    check((await page.textContent("#error")).includes("does not edit YAML yet") &&
+          (await page.evaluate(() => __calls)).filter(c => c[0] === "replace").length === replaces, "no binding saved over data.yaml");
+
     const policyPage = url.replace("index.html", "index.html?source=server");
     await page.goto(policyPage + "#/policy");
     await page.waitForSelector("#bindings tbody tr td");

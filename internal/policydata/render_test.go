@@ -37,7 +37,7 @@ func TestRender(t *testing.T) {
 	writeFile(t, filepath.Join(src, "empty", "README"), "nothing")
 	writeFile(t, filepath.Join(src, "extra.json"), `{"x": 1}`)
 
-	p, err := PlanRender(src, shipped)
+	p, err := PlanRender(src, "", shipped)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestRender(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(src, "managers")); err != nil {
 		t.Fatal(err)
 	}
-	p, err = PlanRender(src, shipped)
+	p, err = PlanRender(src, "", shipped)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestRender(t *testing.T) {
 func TestRenderBroken(t *testing.T) {
 	src, out := t.TempDir(), t.TempDir()
 	writeFile(t, filepath.Join(src, "data.yaml"), "roles: {}\n")
-	p, err := PlanRender(src, t.TempDir())
+	p, err := PlanRender(src, "", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestRenderBroken(t *testing.T) {
 		} else {
 			writeFile(t, filepath.Join(src, tc.file), tc.content)
 		}
-		if _, err := PlanRender(src, t.TempDir()); err == nil || !strings.Contains(err.Error(), tc.err) {
+		if _, err := PlanRender(src, "", t.TempDir()); err == nil || !strings.Contains(err.Error(), tc.err) {
 			t.Errorf("%s: %v, want %q", tc.name, err, tc.err)
 		}
 	}
@@ -136,11 +136,69 @@ func TestRenderBroken(t *testing.T) {
 func TestRenderNone(t *testing.T) {
 	out := t.TempDir()
 	writeFile(t, filepath.Join(out, "data.json"), `{"roles": {}}`)
-	p, err := PlanRender(filepath.Join(t.TempDir(), "missing"), t.TempDir())
+	p, err := PlanRender(filepath.Join(t.TempDir(), "missing"), "", t.TempDir())
 	if err != nil || len(p.Sources) != 0 {
 		t.Fatalf("%+v %v", p, err)
 	}
 	if _, removed, err := p.Render(out); err != nil || !slices.Equal(removed, []string{"data.json"}) {
 		t.Errorf("%v %v", removed, err)
+	}
+}
+
+// Where the administrator's directory has no role data, the shipped
+// default is in force, taken whole: a role data file of theirs replaces
+// it, and a subdirectory of theirs is rendered beside it.
+func TestRenderDefault(t *testing.T) {
+	src, out := filepath.Join(t.TempDir(), "rbac"), t.TempDir()
+	def := filepath.Join(t.TempDir(), "data.yaml")
+	writeFile(t, def, "# shipped\nroles:\n  viewer: {permissions: []}\n  admin: {permissions: []}\n")
+
+	for _, tc := range []struct{ name, setup, want string }{
+		{"no directory", "", `{"roles":{"viewer":{"permissions":[]},"admin":{"permissions":[]}}}`},
+		{"an empty directory", "mkdir", `{"roles":{"viewer":{"permissions":[]},"admin":{"permissions":[]}}}`},
+		{"the administrator's data.json, taken whole", "data.json", `{"roles":{"mine":{"permissions":[]}}}`},
+	} {
+		switch tc.setup {
+		case "mkdir":
+			if err := os.MkdirAll(filepath.Join(src, "managers"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(src, "managers", "data.json"), `{"alice": "bob"}`)
+		case "data.json":
+			writeFile(t, filepath.Join(src, "data.json"), `{"roles": {"mine": {"permissions": []}}}`)
+		}
+		p, err := PlanRender(src, def, "")
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if len(p.Sources) == 0 || p.Sources[0].Rel != "." {
+			t.Fatalf("%s: %+v", tc.name, p.Sources)
+		}
+		wantFile := def
+		if tc.setup == "data.json" {
+			wantFile = filepath.Join(src, "data.json")
+		}
+		if p.Sources[0].File != wantFile {
+			t.Errorf("%s: in force %s, want %s", tc.name, p.Sources[0].File, wantFile)
+		}
+		if _, _, err := p.Render(out); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(strings.Fields(readFile(t, filepath.Join(out, "data.json"))), ""); got != tc.want {
+			t.Errorf("%s: rendered %s", tc.name, got)
+		}
+		if tc.setup != "" {
+			if got := readFile(t, filepath.Join(out, "managers", "data.json")); got != `{"alice": "bob"}` {
+				t.Errorf("%s: managers %q", tc.name, got)
+			}
+		}
+	}
+	// A default that does not parse is an error, as the administrator's is.
+	writeFile(t, def, "roles: [\n")
+	if err := os.Remove(filepath.Join(src, "data.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PlanRender(src, def, ""); err == nil {
+		t.Error("broken default rendered")
 	}
 }

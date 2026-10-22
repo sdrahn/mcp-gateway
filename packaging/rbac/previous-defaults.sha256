@@ -1,0 +1,11 @@
+# SHA-256 of every default role data file the packages installed as
+# /etc/mcp-gateway/policy/rbac/data.json (0.4 to 1.4). A copy unchanged from one
+# of them is removed on update: the shipped default is then in force.
+36744993f0edbf31ccefeb7d31a70e0f294c2ac9710fbd2a4228a640a49ded15
+6c8c7ac68942d2e3b7d2d34af9d46ebc3478f8980755ca4e03d8a94bd1ab15e1
+93bf1cf62618829facdfab5b2960c6e54d1fd27fcb055cdeaff2f5892e57fc1e
+9997fbf3619505af536a972abb20b768adf9ef2585fef201853bc39c30e24641
+a87fc80b117dbc52b13c2afc19894ac06b70f5eea10e9f728a6366afd73eb21f
+bd022de57471cb8d811b7c9bbf5bc62b167e19bb6dc51e484f4d0b3c3aa587a3
+d1c84d24a258af4db9d325e555f3f59c7f3f50b7e3239e3883a22d614450eb90
+feeabb0f62b84cc1ffdb4e79cad9834b8a1a19c8fdfe321237c103d1011ff6ec
