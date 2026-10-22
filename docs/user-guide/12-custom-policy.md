@@ -22,14 +22,15 @@ trees into one policy:
 | Directory | Contents |
 |---|---|
 | `/usr/share/mcp-gateway/policy/` | the shipped logic: `mcp/authz.rego` (with `mcp/reasons.rego`, the reasons of denials, and `mcp/builtin.rego`, the gateway's own tools), `mcp/filter.rego`, `mcp/approvals.rego`, `mcp/log.rego` |
-| `/etc/mcp-gateway/policy/` | your files: `rbac/data.yaml` or `rbac/data.json`, and any `.rego` and `data.json` files you add |
+| `/etc/mcp-gateway/policy/` | your files: `rbac/data.yaml`, and any `.rego` and `data.yaml` files you add (JSON is still read, but deprecated since 1.6) |
 | `/run/mcp-opa/rbac/` | the role data as OPA loads it: what `mcp-policy-render.service` renders from `/etc/mcp-gateway/policy/rbac/` |
 
 - A `.rego` file defines rules in the package it declares
   (`package mcp.authz`), wherever the file lies. Files declaring the same
   package are **merged** into one package.
-- A file named `data.json` (or `data.yaml`) in `/etc/mcp-gateway/policy/`
-  becomes data below `data.mcp`, at the path of its directory:
+- A data file in `/etc/mcp-gateway/policy/` (`data.yaml`; OPA loads any
+  `*.yaml`, `*.yml` and `*.json` file there) becomes data below
+  `data.mcp`, at the path of its directory:
   `/etc/mcp-gateway/policy/rbac/data.json` is `data.mcp.rbac`,
   `/etc/mcp-gateway/policy/rbac/managers/data.json` is
   `data.mcp.rbac.managers`. Below `rbac/`, OPA does not read the files
@@ -38,7 +39,10 @@ trees into one policy:
   JSON to `/run/mcp-opa/rbac/`, which OPA loads as `data.mcp.rbac`, and
   again on every change below `rbac/`, subdirectories included.
   Other files below `rbac/` are not loaded (the doctor names them): put
-  `.rego` files elsewhere in `/etc/mcp-gateway/policy/`. The shipped policy directory is loaded the
+  `.rego` files elsewhere in `/etc/mcp-gateway/policy/`. Outside `rbac/`,
+  OPA reads each data file itself: two in one directory that set the
+  same keys, such as a `data.json` and the `data.yaml` converted from
+  it, make OPA refuse the policy ("merge error"; it keeps what it had). The shipped policy directory is loaded the
   same way: the server setup packages put their roles in
   `/usr/share/mcp-gateway/policy/mcp/profiles/<setup>/data.yaml`
   (`data.mcp.profiles.<setup>.roles`); the shipped `mcp.authz` merges
@@ -665,9 +669,9 @@ undefined; the `else` chain makes the precedence explicit.
 
 ## Custom data
 
-Put data your rules use into `data.yaml` (or `data.json`) files below
+Put data your rules use into `data.yaml` files below
 `/etc/mcp-gateway/policy/`, preferably **below `rbac/`**
-(`/etc/mcp-gateway/policy/rbac/<name>/data.json` or `data.yaml` →
+(`/etc/mcp-gateway/policy/rbac/<name>/data.yaml` →
 `data.mcp.rbac.<name>`, rendered for OPA by `mcp-policy-render.service`,
 see [How OPA loads the policy](#how-opa-loads-the-policy)):
 the gateway notices policy changes by comparing the loaded Rego modules
@@ -675,6 +679,18 @@ and `data.mcp.rbac`, and only then tells agents to list their tools again
 and writes a `mcp-policy-change` audit event. Changes to data elsewhere
 take effect as well, but agents are not told, so their tool lists may be
 stale until they reconnect.
+
+Data files in JSON are still read, but deprecated since 1.6, as the role
+data in JSON is (chapter 6, "YAML or JSON"): each warns with its name,
+and 1.7 no longer reads them. Convert one with
+
+```bash
+mcp-gateway-admin policy convert /etc/mcp-gateway/policy/limits/data.json
+```
+
+It writes `data.yaml` next to it, the same data, and, outside `rbac/`,
+removes `data.json` (OPA would load both and refuse them); `--to json`
+converts it back, again removing the other.
 
 OPA runs without network access; rules cannot fetch data at decision
 time (`http.send` fails). Deliver data as files, or in bundles from a

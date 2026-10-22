@@ -3891,7 +3891,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       and removes an unchanged one, which then follows the shipped
       default.
 38. **Configuration files in YAML only** (deprecated in 1.6, removed in
-    1.7; D10):
+    1.7; D10; stage A done):
     - the goal: the files administrators write are YAML, and only YAML:
       `gateway.yaml` and its drop-ins, server definitions (already), the
       role data, and the data files of custom Rego below
@@ -3916,6 +3916,17 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       administrator's files by itself: they may belong to configuration
       management, which would write the JSON back. `policy convert
       --to json` goes the other way, for going back to 1.5 or earlier;
+      As built (1.6): `policydata.JSONFiles` lists the files, the role
+      data in force in each directory below `rbac/` that is a
+      `data.json` and every `*.json` OPA loads below the policy
+      directory (outside directories named `rbac`); the gateway lists
+      the directories only, it need not read the files. The doctor's
+      check is `json-policy-data`. Custom data in YAML is read by OPA
+      itself, which reads what `policy convert` writes as the JSON it
+      was (a test runs OPA on it), and refuses a directory with both
+      files ("merge error", keeping the data it had): so `policy
+      convert` removes custom data's JSON once the YAML is written (the
+      role data's stays, ignored), and `--to json` likewise the YAML;
     - stage B, 1.7, the removal: a `.json` role or custom data file is no
       longer read. Silently ignoring it would leave no role data where
       no `data.yaml` exists, and deny everything without saying why; so a

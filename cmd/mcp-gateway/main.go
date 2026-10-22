@@ -93,7 +93,7 @@ func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
 	if *checkData {
-		if err := checkPolicyData(log, *policyData, true); err != nil {
+		if err := checkPolicyData(log, *policyData, true, true); err != nil {
 			log.Error("role data invalid", "err", err)
 			os.Exit(1)
 		}
@@ -124,8 +124,9 @@ var shippedPolicy string
 // to standard error: for .../rbac/data.json or data.yaml, the first of
 // data.yaml and data.json in that directory (policydata.InForce). A
 // missing file is an error only if required (the policy may come from a
-// bundle).
-func checkPolicyData(log *slog.Logger, path string, required bool) error {
+// bundle). With deprecations, role data in JSON warns (deprecated since
+// 1.6).
+func checkPolicyData(log *slog.Logger, path string, required, deprecations bool) error {
 	if path == "" {
 		return nil
 	}
@@ -139,6 +140,9 @@ func checkPolicyData(log *slog.Logger, path string, required bool) error {
 	}
 	if err != nil {
 		return err
+	}
+	if deprecations && path != "-" && filepath.Ext(path) == ".json" {
+		log.Warn(policydata.JSONDeprecation(), "path", path, "convert", policydata.ConvertCommand(path))
 	}
 	var shipped map[string]string
 	var problems []string
@@ -163,6 +167,25 @@ func checkPolicyData(log *slog.Logger, path string, required bool) error {
 	}
 	log.Info("role data valid", "path", path)
 	return nil
+}
+
+// warnJSON warns about each file of the local policy that is configuration
+// in JSON (policydata.JSONFiles), deprecated since 1.6: policyData is
+// .../policy/rbac/data.json, OPA loads .../policy. The gateway only lists
+// the directories; it need not read the files.
+func warnJSON(log *slog.Logger, policyData string) {
+	if policyData == "" || policyData == "-" {
+		return
+	}
+	rbac := filepath.Dir(policyData)
+	files, err := policydata.JSONFiles(filepath.Dir(rbac), rbac)
+	if err != nil {
+		log.Info("the policy files in JSON are not known", "err", err)
+		return
+	}
+	for _, f := range files {
+		log.Warn(policydata.JSONDeprecation(), "path", f, "convert", policydata.ConvertCommand(f))
+	}
 }
 
 func run(log *slog.Logger, configPath string, checkOnly bool, policyData string) error {
@@ -193,8 +216,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if err := config.CheckSignIn(gw, backends); err != nil {
 		return err
 	}
+	warnJSON(log, policyData)
 	if checkOnly {
-		if err := checkPolicyData(log, policyData, false); err != nil {
+		if err := checkPolicyData(log, policyData, false, false); err != nil {
 			return fmt.Errorf("role data: %w", err)
 		}
 		return nil

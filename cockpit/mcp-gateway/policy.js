@@ -354,12 +354,26 @@ function renderOrigin() {
         notes.push("No role data in " + RBAC_DIR + ": the shipped default is in force. Saving writes " + RBAC_YAML +
                    ", which then replaces the default as a whole.");
     } else if (st.origin === "json") {
-        notes.push("Saving writes " + RBAC_YAML + " (YAML, with the same data), which is in force from then on; " +
+        notes.push(st.file + " is JSON, which is deprecated since 1.6: the next release no longer reads it. " +
+                   "Converting it, or saving, writes " + RBAC_YAML + " (YAML, with the same data), which is in force from then on; " +
                    st.file + " stays as it is, ignored, until you remove it.");
     }
     for (const f of st.ignored || []) notes.push(f + " is ignored: " + st.file + " is in force. You may remove it.");
     note.hidden = notes.length === 0;
-    note.textContent = notes.join(" ");
+    document.getElementById("rbac-origin-text").textContent = notes.join(" ");
+    document.getElementById("rbac-convert-actions").hidden = st.origin !== "json" || !!st.error;
+}
+
+/* convertRBAC converts the role data in force from JSON to data.yaml
+ * ("policy convert"), which is in force from then on. */
+async function convertRBAC() {
+    const r = await policyRun(["convert", rbacShown.file], undefined, "require");
+    if (!r.ok) {
+        showError("Converting failed: " + failureText(r));
+        return;
+    }
+    showError(null);
+    await loadRBAC();
 }
 
 /* loadRBAC reads the role data in force. Data that does not parse is put
@@ -406,6 +420,9 @@ tabs.policy = {
             saveRBAC(null, false, document.getElementById("rbac-yaml").value);
         });
         document.getElementById("bundle-sign").addEventListener("click", signBundle);
+        document.getElementById("rbac-convert").addEventListener("click", () => {
+            convertRBAC().catch(ex => showError(ex.userMessage || String(ex)));
+        });
         document.getElementById("rbac-reset").addEventListener("click", () => {
             if (rbacShown) document.getElementById("rbac-yaml").value = rbacShown.yaml || "";
         });

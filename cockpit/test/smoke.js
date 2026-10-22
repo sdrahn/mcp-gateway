@@ -148,9 +148,11 @@ function site() {
     check(await page.$eval("#binding-add select[name=role]", s => [...s.options].some(o => o.value === "systemd-reader")),
           "shipped role offered for bindings");
     // data.json in force: saving writes data.yaml, and says so.
-    check((await page.textContent("#rbac-origin")).includes("Saving writes /etc/mcp-gateway/policy/rbac/data.yaml"),
+    check((await page.textContent("#rbac-origin")).includes("Converting it, or saving, writes /etc/mcp-gateway/policy/rbac/data.yaml"),
           "saving to data.yaml beside data.json noted");
     check((await page.textContent("#rbac-path")) === "/etc/mcp-gateway/policy/rbac/data.json", "the file in force named");
+    check((await page.textContent("#rbac-origin")).includes("data.json is JSON, which is deprecated since 1.6") &&
+          await page.isVisible("#rbac-convert"), "role data in JSON: deprecated, conversion offered");
     await page.fill("#binding-add input[name=name]", "alice");
     await page.selectOption("#binding-add select[name=role]", "developer");
     const writes = () => page.evaluate(() => __calls.filter(c => c[0] === "policy-write"));
@@ -173,6 +175,8 @@ function site() {
           "written with administrative access");
     check((await page.textContent("#rbac-path")) === "/etc/mcp-gateway/policy/rbac/data.yaml" &&
           (await page.textContent("#rbac-origin")).includes("data.json is ignored"), "data.yaml in force now, data.json named as ignored");
+    check(await page.isHidden("#rbac-convert") && !(await page.textContent("#rbac-origin")).includes("deprecated"),
+          "nothing to convert once data.yaml is in force");
     await page.click("#bindings button[aria-label='Remove role developer from alice']");
     await page.waitForFunction(() => !document.querySelector("#bindings").textContent.includes("alice"));
     saved = (await writes()).pop();
@@ -233,6 +237,17 @@ function site() {
     check(saved && JSON.parse(saved[2]).roles.developer && JSON.parse(saved[2]).bindings.users.erin,
           "saving writes the default's roles and the change");
     check(await page.isHidden("#rbac-origin"), "the note goes once data.yaml is written");
+    // data.json in force, converted with the button.
+    await page.goto(url + "#/policy");
+    await page.waitForSelector("#bindings tbody tr td");
+    await page.click("#rbac-convert");
+    await page.waitForFunction(() => document.querySelector("#rbac-path").textContent.endsWith("data.yaml"));
+    check((await page.evaluate(() => __calls)).some(c => c[0] === "spawn" &&
+          c[1] === "mcp-gateway-admin policy convert /etc/mcp-gateway/policy/rbac/data.json" && c[2] === "require"),
+          "converted with policy convert, with administrative access");
+    check(await page.isHidden("#rbac-convert") && (await page.textContent("#rbac-origin")).includes("data.json is ignored") &&
+          (await page.inputValue("#rbac-yaml")).startsWith("# Role data, converted from data.json"),
+          "after converting: data.yaml in force and shown, data.json ignored");
     // data.yaml in force: edited like any role data.
     await page.goto(url.replace("index.html", "index.html?yaml") + "#/policy");
     await page.waitForSelector("#bindings tbody tr td");

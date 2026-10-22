@@ -137,7 +137,7 @@ func TestAdminDoctor(t *testing.T) {
 		t.Errorf("negative since: %s", text)
 	}
 	text, _, _ = callTool(t, a, "check_config", map[string]any{})
-	if !strings.Contains(text, "configuration: ") || !strings.Contains(text, "role data: ") || strings.Contains(text, "polkit") {
+	if !strings.Contains(text, "configuration: ") || !strings.Contains(text, "role data: ") || !strings.Contains(text, "policy data in JSON: ") || strings.Contains(text, "polkit") {
 		t.Errorf("check_config:\n%s", text)
 	}
 }

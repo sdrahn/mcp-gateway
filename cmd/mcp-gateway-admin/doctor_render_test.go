@@ -78,3 +78,44 @@ func TestDoctorRendering(t *testing.T) {
 		t.Errorf("broken: %+v", r)
 	}
 }
+
+// The doctor names each file of the local policy in JSON with the command
+// that converts it (deprecated since 1.6), and is content once all is YAML.
+func TestDoctorJSONFiles(t *testing.T) {
+	policy := filepath.Join(t.TempDir(), "policy")
+	write := func(name, content string) string {
+		t.Helper()
+		p := filepath.Join(policy, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	d := &doctorRun{policyData: filepath.Join(policy, "rbac", "data.json")}
+	if r := d.jsonFiles(); r.Status != doctor.OK || !strings.Contains(r.Summary, "none") {
+		t.Errorf("no policy files: %+v", r)
+	}
+	role := write("rbac/data.json", `{"roles": {}}`)
+	custom := write("limits/data.json", `{"limits": {}}`)
+	r := d.jsonFiles()
+	if r.Status != doctor.Warn || !strings.Contains(r.Summary, "2 file(s) in JSON, deprecated since 1.6") ||
+		strings.Join(r.Details, "\n") != custom+": mcp-gateway-admin policy convert "+custom+"\n"+role+": mcp-gateway-admin policy convert "+role {
+		t.Errorf("JSON: %+v", r)
+	}
+	rs := []doctor.Result{r}
+	doctor.Identify(rs)
+	if rs[0].ID != "json-policy-data" {
+		t.Errorf("id %q", rs[0].ID)
+	}
+	write("rbac/data.yaml", "roles: {}\n")
+	if err := os.Remove(custom); err != nil {
+		t.Fatal(err)
+	}
+	write("limits/data.yaml", "limits: {}\n")
+	if r := d.jsonFiles(); r.Status != doctor.OK {
+		t.Errorf("converted: %+v", r)
+	}
+}

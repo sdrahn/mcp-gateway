@@ -204,6 +204,14 @@
                 return { ok: true, out: JSON.stringify({ file, origin, ignored, data: JSON.parse(rbac),
                                                          yaml: yamlText || "# converted\n" + rbac + "\n" }) };
             }
+            if (args[0] === "convert") {
+                log.push(["policy-convert", args.join(" ")]);
+                if (origin !== "json" || args[1] !== etc + "data.json") return { ok: false, err: args[1] + " is YAML already" };
+                ignored = [etc + "data.json"];
+                yamlText = "# Role data, converted from data.json\n" + rbac + "\n";
+                origin = "yaml";
+                return { ok: true, out: "wrote " + etc + "data.yaml\n" };
+            }
             const yaml = args.includes("--yaml"), dry = args.includes("--dry-run");
             log.push([dry ? "policy-check" : "policy-write", args.join(" "), input]);
             const res = { file: etc + "data.yaml", written: false, problems: [] };
