@@ -252,17 +252,23 @@ mcp-gateway-admin setup http [options]
 ```
 
 Sets up the HTTP listener for remote agents and checks it end to end
-(chapter 5, "Remote agents"). From `--url` and `--issuer` it fills in the
-`http` block of `gateway.yaml` (with `--write`; without, it shows what it
-would change), keeping the keys it does not ask about and the rest of the
-file, comments included; the new file must load before it replaces the
-old one. Options left out keep what the block has, so `setup http
---token FILE` alone checks a running setup. Run it as root. Exit status 1
+(chapter 5, "Remote agents"). From `--url` and `--issuer` it sets the
+keys of the `http` block it asks about that change the block in force
+(`gateway.yaml` with its drop-ins), in the drop-in
+`/etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml` that `config set`
+writes (with `--write`; without, it shows what it would change, and
+where each key is set now). As `config set`, it checks the whole
+configuration the drop-in makes, changes nothing if a later drop-in sets
+one of the keys too, and waits for the gateway to reload it;
+`http.listen` takes effect at the next start. `config unset http.KEY`
+takes a key out again. Options left out keep what the block has, so
+`setup http --token FILE` alone checks a running setup. Run it as root. Exit status 1
 if a check failed, 2 on usage errors, 0 otherwise.
 
 | Flag | Meaning |
 |---|---|
-| `--config FILE` | the configuration to set up (default: `/etc/mcp-gateway/gateway.yaml`; a missing one starts from the package default) |
+| `--config FILE` | deprecated, goes away in 1.5: edit this file instead of the drop-in, as setup http did before 1.4 (a missing one starts from the package default, copied whole) |
+| `--socket PATH` | the gateway's control socket, to wait for its reload (default: `approvals.control_socket`) |
 | `--url URL` | the gateway's public MCP URL, as clients use it (`http.audience`); `http.listen` takes its port (443 if none) |
 | `--issuer URL` | the identity provider's issuer (`http.issuer`) |
 | `--cert FILE`, `--key FILE` | certificate (PEM, with the chain) and private key (`http.cert_file`, `http.key_file`) |
@@ -271,7 +277,7 @@ if a check failed, 2 on usage errors, 0 otherwise.
 | `--scopes LIST` | comma-separated scopes every token must carry (`http.scopes`; `""` for none) |
 | `--token FILE` | an access token to check as the gateway takes it (`-`: standard input); it is never printed |
 | `--policy-data FILE` | role data, for the ceiling of the token's scopes (default: `/etc/mcp-gateway/policy/rbac/data.json`; empty: none; unreadable: left out) |
-| `--write` | write the `http` block |
+| `--write` | write the keys of the `http` block to the drop-in |
 | `--timeout DURATION` | how long to wait for the identity provider and the listener (default `10s`) |
 | `--json` | print the results as JSON, as the doctor does |
 

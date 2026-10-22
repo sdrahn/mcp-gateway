@@ -58,7 +58,8 @@ that file alone.
 
 `mcp-gateway-admin config` shows the settings in force and where each
 comes from, and changes one in a drop-in of its own,
-`/etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml`:
+`/etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml` (`mcp-gateway-admin
+setup http`, chapter 5, writes the `http` keys to the same file):
 
 ```bash
 mcp-gateway-admin config get limits.tasks_per_principal

@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net"
 	"net/http"
@@ -365,5 +366,30 @@ func TestListener(t *testing.T) {
 	_ = l.Close()
 	if rs = Listener(ctx, config.HTTP{Audience: closed}, srv.Client(), ""); rs[0].Status != doctor.Fail || !strings.Contains(strings.Join(rs[0].Details, " "), "systemctl restart mcp-gateway.service") {
 		t.Errorf("closed: %+v", rs[0])
+	}
+}
+
+// Changes compares with the block in force; keys left empty keep it,
+// and Node gives each changed key's value as a drop-in has it.
+func TestChanges(t *testing.T) {
+	cur := config.HTTP{Listen: ":8443", Issuer: "https://idp", GroupsClaim: "groups", Scopes: []string{"mcp"}}
+	h := config.HTTP{Listen: ":8443", Issuer: "https://idp2", Audience: "https://gw:8443/mcp", Scopes: []string{"mcp", "x"}}
+	got := Changes(cur, h)
+	want := []Change{
+		{"http.issuer", "https://idp", "https://idp2"},
+		{"http.audience", "", "https://gw:8443/mcp"},
+		{"http.scopes", "[mcp]", "[mcp x]"},
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("changes %v", got)
+	}
+	if n := Node(h, "http.issuer"); n == nil || n.Value != "https://idp2" {
+		t.Errorf("issuer %+v", n)
+	}
+	if n := Node(h, "http.scopes"); n == nil || len(n.Content) != 2 || n.Content[1].Value != "x" {
+		t.Errorf("scopes %+v", n)
+	}
+	if len(Changes(cur, config.HTTP{})) != 0 {
+		t.Error("an empty block changes something")
 	}
 }

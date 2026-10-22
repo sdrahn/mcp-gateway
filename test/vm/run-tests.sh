@@ -1298,8 +1298,11 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	mcp-gateway-admin setup http -url "$hl_url" -issuer https://idp.vmtest -cert /etc/mcp-gateway/tls/cert.pem \
 		-key /etc/mcp-gateway/tls/key.pem -local-user-claim preferred_username -scopes mcp -write >/root/hl-setup.txt 2>&1
 	sed 's/^/  /' /root/hl-setup.txt | head -30
-	restorecon /etc/mcp-gateway/gateway.yaml
-	check "setup http writes the http block" grep -qF "audience: $hl_url" /etc/mcp-gateway/gateway.yaml
+	hl_dropin=/etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml
+	check "setup http writes the http block to the drop-in" grep -qF "audience: $hl_url" "$hl_dropin"
+	sed 's/^/  | /' "$hl_dropin"
+	check "... and no gateway.yaml: the package default stays in force" test ! -e /etc/mcp-gateway/gateway.yaml
+	check "... the drop-in is labeled mcpgw_etc_t" file_has_type "$hl_dropin" mcpgw_etc_t
 	check "the configuration with the listener is valid" /usr/bin/mcp-gateway --check --policy-data=
 	# http.listen takes effect at the next start.
 	systemctl restart mcp-gateway.service
@@ -1476,7 +1479,12 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	check "limits: ... the gateway says which it ended" hl_evicted
 	mcp-gateway-admin config unset limits.sessions_per_principal >/dev/null
 
-	rm -f /etc/mcp-gateway/gateway.yaml /etc/pki/trust/anchors/mcp-vmtest-gw.pem /etc/pki/trust/anchors/mcp-vmtest-idp.pem
+	# config unset takes setup http's keys out of the drop-in again.
+	for k in listen cert_file key_file issuer audience local_user_claim scopes groups_claim; do
+		mcp-gateway-admin config unset "http.$k" >/dev/null
+	done
+	check "config unset takes setup http's keys out again" bash -c '! grep -qF "http:" "$1" 2>/dev/null' _ "$hl_dropin"
+	rm -f /etc/pki/trust/anchors/mcp-vmtest-gw.pem /etc/pki/trust/anchors/mcp-vmtest-idp.pem
 	update-ca-certificates
 	systemctl restart mcp-gateway.service
 	wait_socket

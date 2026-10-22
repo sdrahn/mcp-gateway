@@ -53,7 +53,7 @@ Options:
 // adminDropIn is the drop-in config set writes.
 const adminDropIn = "50-mcp-gateway-admin.yaml"
 
-const adminDropInHeader = "Written by mcp-gateway-admin config set; its unset removes keys again.\n" +
+const adminDropInHeader = "Written by mcp-gateway-admin config set and setup http; config unset removes keys again.\n" +
 	"Editing by hand works too (user guide, chapter 3)."
 
 // The files the commands read, and how often they look whether the
@@ -374,10 +374,46 @@ func unsetKey(m *yaml.Node, path []string) bool {
 	return false
 }
 
-// write puts doc in place of target, after checking the configuration
-// it makes (and, when it sets key, that no later drop-in sets it too),
-// and waits for the gateway to reload it.
+// write puts doc in place of target (writeDropIn) and waits for the
+// gateway to reload it.
 func (c *configCmd) write(key, target string, doc *yaml.Node, old []byte, sets bool, done string) int {
+	keys := []string(nil)
+	if sets {
+		keys = []string{key}
+	}
+	w, err := c.writeDropIn(target, doc, old, keys)
+	if err != nil {
+		return c.fail(exitRefused, "%v", err)
+	}
+	if !w.changed {
+		say(c.stdout, "nothing to change: "+target+" has it already")
+		return 0
+	}
+	say(c.stdout, done+" ("+target+")")
+	if w.statusErr != nil {
+		return c.fail(exitUnreachable, "written; the gateway reads it when it runs: %v", w.statusErr)
+	}
+	if w.before.ConfigReloads == nil {
+		say(c.stdout, "this gateway does not report its reloads: see mcp-gateway-admin doctor whether it took the change")
+		return 0
+	}
+	return c.await(key, *w.before.ConfigReloads, w.next)
+}
+
+// dropInWrite is what writeDropIn did.
+type dropInWrite struct {
+	changed bool            // false: target has it already
+	next    *config.Gateway // the configuration with it
+	// before is the gateway's status before the write, nil with
+	// statusErr if it does not answer.
+	before    *configStatus
+	statusErr error
+}
+
+// writeDropIn puts doc in place of target (removing it if doc is empty),
+// after checking the configuration it makes and that no later drop-in
+// sets one of keys too, which would win.
+func (c *configCmd) writeDropIn(target string, doc *yaml.Node, old []byte, keys []string) (dropInWrite, error) {
 	empty := len(doc.Content[0].Content) == 0
 	var data []byte
 	if !empty {
@@ -385,26 +421,25 @@ func (c *configCmd) write(key, target string, doc *yaml.Node, old []byte, sets b
 		enc := yaml.NewEncoder(&buf)
 		enc.SetIndent(2)
 		if err := enc.Encode(doc); err != nil {
-			return c.fail(exitRefused, "%v", err)
+			return dropInWrite{}, err
 		}
 		_ = enc.Close()
 		data = buf.Bytes()
 	}
 	if old != nil && bytes.Equal(data, old) {
-		say(c.stdout, "nothing to change: "+target+" has it already")
-		return 0
+		return dropInWrite{}, nil
 	}
 	base, dropIns, err := c.files()
 	if err != nil {
-		return c.fail(exitRefused, "%v", err)
+		return dropInWrite{}, err
 	}
 	// The drop-ins with the new one in its place, written under a hidden
 	// name the gateway does not read.
-	tmp := filepath.Join(configDropInDir, "."+adminDropIn+"."+strconv.Itoa(os.Getpid()))
+	tmp := filepath.Join(configDropInDir, "."+filepath.Base(target)+"."+strconv.Itoa(os.Getpid()))
 	list := slices.DeleteFunc(slices.Clone(dropIns), func(p string) bool { return p == target })
 	if !empty {
 		if err := os.WriteFile(tmp, data, 0o644); err != nil {
-			return c.fail(exitRefused, "writing %s: %v", target, err)
+			return dropInWrite{}, fmt.Errorf("writing %s: %w", target, err)
 		}
 		defer func() { _ = os.Remove(tmp) }()
 		list = append(list, tmp)
@@ -414,16 +449,18 @@ func (c *configCmd) write(key, target string, doc *yaml.Node, old []byte, sets b
 	}
 	next, err := config.ResolveFiles(base, list)
 	if err != nil {
-		return c.fail(exitRefused, "not changed: %s", strings.ReplaceAll(err.Error(), tmp, target))
+		return dropInWrite{}, fmt.Errorf("not changed: %s", strings.ReplaceAll(err.Error(), tmp, target))
 	}
-	if sets {
+	if len(keys) > 0 {
 		sources, err := config.Sources(base, list)
 		if err != nil {
-			return c.fail(exitRefused, "%v", err)
+			return dropInWrite{}, err
 		}
-		if src := sources[key]; src.File != tmp {
-			return c.fail(exitRefused, "not changed: %s sets %s too (line %d) and is read after %s, so it would win; change it there",
-				src.File, key, src.Line, target)
+		for _, key := range keys {
+			if src := sources[key]; src.File != tmp {
+				return dropInWrite{}, fmt.Errorf("not changed: %s sets %s too (line %d) and is read after %s, so it would win; change it there",
+					src.File, key, src.Line, target)
+			}
 		}
 	}
 	before, serr := c.status()
@@ -433,17 +470,9 @@ func (c *configCmd) write(key, target string, doc *yaml.Node, old []byte, sets b
 		err = os.Rename(tmp, target)
 	}
 	if err != nil {
-		return c.fail(exitRefused, "writing %s: %v", target, err)
+		return dropInWrite{}, fmt.Errorf("writing %s: %w", target, err)
 	}
-	say(c.stdout, done+" ("+target+")")
-	if serr != nil {
-		return c.fail(exitUnreachable, "written; the gateway reads it when it runs: %v", serr)
-	}
-	if before.ConfigReloads == nil {
-		say(c.stdout, "this gateway does not report its reloads: see mcp-gateway-admin doctor whether it took the change")
-		return 0
-	}
-	return c.await(key, *before.ConfigReloads, next)
+	return dropInWrite{changed: true, next: next, before: before, statusErr: serr}, nil
 }
 
 // dropInName sorts the hidden file in place of target.
@@ -454,10 +483,27 @@ func dropInName(p, tmp, target string) string {
 	return filepath.Base(p)
 }
 
-// await waits for the gateway to reload after reloads, at the latest a
-// round of polling (policy.watch_interval) and a margin later, and says
-// what the reload left.
+// await waits for the gateway to reload (awaitReload) and says what the
+// reload left for key.
 func (c *configCmd) await(key string, reloads int, next *config.Gateway) int {
+	st, err := c.awaitReload(reloads, next)
+	switch {
+	case err != nil:
+		return c.fail(exitUnreachable, "%v", err)
+	case st.ConfigError != "":
+		return c.fail(exitRefused, "the gateway did not load it and runs with the configuration it had: %s", st.ConfigError)
+	case slices.Contains(st.RestartNeeded, key):
+		say(c.stdout, key+" takes effect at the next start: systemctl restart mcp-gateway.service (it ends all sessions)")
+	default:
+		say(c.stdout, key+" is in force")
+	}
+	return 0
+}
+
+// awaitReload waits for the gateway to reload after reloads, at the
+// latest a round of polling (policy.watch_interval) and a margin later,
+// and returns its status then.
+func (c *configCmd) awaitReload(reloads int, next *config.Gateway) (*configStatus, error) {
 	wait := next.Policy.WatchInterval
 	if wait <= 0 {
 		wait = config.DefaultWatchInterval
@@ -466,21 +512,13 @@ func (c *configCmd) await(key string, reloads int, next *config.Gateway) int {
 	for {
 		st, err := c.status()
 		if err != nil {
-			return c.fail(exitUnreachable, "written; the gateway reads it when it runs: %v", err)
+			return nil, fmt.Errorf("written; the gateway reads it when it runs: %w", err)
 		}
 		if st.ConfigReloads != nil && *st.ConfigReloads > reloads {
-			switch {
-			case st.ConfigError != "":
-				return c.fail(exitRefused, "the gateway did not load it and runs with the configuration it had: %s", st.ConfigError)
-			case slices.Contains(st.RestartNeeded, key):
-				say(c.stdout, key+" takes effect at the next start: systemctl restart mcp-gateway.service (it ends all sessions)")
-			default:
-				say(c.stdout, key+" is in force")
-			}
-			return 0
+			return st, nil
 		}
 		if time.Now().After(deadline) {
-			return c.fail(exitUnreachable, "written; the gateway has not reloaded it yet (mcp-gateway-admin doctor tells when it did)")
+			return nil, errors.New("written; the gateway has not reloaded it yet (mcp-gateway-admin doctor tells when it did)")
 		}
 		time.Sleep(reloadPoll)
 	}
