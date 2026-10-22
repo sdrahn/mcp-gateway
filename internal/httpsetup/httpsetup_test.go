@@ -11,8 +11,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -45,96 +43,6 @@ func TestBlock(t *testing.T) {
 	}
 	if _, err := Block(config.HTTP{}, Answers{URL: "https://gw/mcp"}); err == nil || !strings.Contains(err.Error(), "http.issuer (-issuer)") {
 		t.Errorf("missing: %v", err)
-	}
-}
-
-// Edit sets the asked keys and keeps the rest of the file, comments
-// included.
-func TestEdit(t *testing.T) {
-	in := `# the gateway
-version: 1
-socket: /run/mcp-gateway/mcp.sock # local
-http:
-  allowed_origins: [https://app]
-  issuer: https://old
-`
-	h := config.HTTP{Listen: ":8443", CertFile: "/c", KeyFile: "/k", Issuer: "https://idp", Audience: "https://gw:8443/mcp", GroupsClaim: "groups", Scopes: []string{"mcp"}}
-	out, changes, err := Edit([]byte(in), h)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := string(out)
-	for _, want := range []string{"# the gateway", "socket: /run/mcp-gateway/mcp.sock # local", "allowed_origins: ['https://app']",
-		"issuer: https://idp", "listen: :8443", "audience: https://gw:8443/mcp", "scopes: [mcp]"} {
-		if !strings.Contains(s, want) {
-			t.Errorf("missing %q in\n%s", want, s)
-		}
-	}
-	if len(changes) != 7 || changes[3] != (Change{"http.issuer", "https://old", "https://idp"}) {
-		t.Errorf("changes: %+v", changes)
-	}
-	if _, again, _ := Edit(out, h); len(again) != 0 {
-		t.Errorf("second edit changed %+v", again)
-	}
-	out, _, err = Edit(nil, h)
-	if err != nil || !strings.Contains(string(out), "version: 1\nhttp:\n  listen:") {
-		t.Errorf("empty file: %v\n%s", err, out)
-	}
-}
-
-// Write replaces the file only with one the gateway loads.
-func TestWrite(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "gateway.yaml")
-	if err := os.WriteFile(path, []byte("version: 1\n"), 0o640); err != nil {
-		t.Fatal(err)
-	}
-	cert, key := filepath.Join(dir, "c.pem"), filepath.Join(dir, "k.pem")
-	h := config.HTTP{Listen: ":8443", CertFile: cert, KeyFile: key, Issuer: "https://idp", Audience: "https://gw:8443/mcp"}
-	changes, err := Write(path, filepath.Join(dir, "vendor.yaml"), h)
-	if err != nil || len(changes) != 5 {
-		t.Fatalf("write: %v %+v", err, changes)
-	}
-	g, err := config.LoadGateway(path)
-	if err != nil || g.HTTP.Audience != h.Audience {
-		t.Fatalf("written: %v %+v", err, g)
-	}
-	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o640 {
-		t.Errorf("mode %v", fi.Mode())
-	}
-	bad := h
-	bad.Audience = "https://gw2/mcp"
-	bad.Issuer = "not a url"
-	if _, err := Write(path, "", bad); err == nil || !strings.Contains(err.Error(), "unchanged") {
-		t.Errorf("invalid: %v", err)
-	}
-	if g, _ := config.LoadGateway(path); g == nil || g.HTTP.Audience != h.Audience {
-		t.Error("an invalid configuration replaced the file")
-	}
-	if left, _ := filepath.Glob(filepath.Join(dir, ".gateway.yaml.*")); len(left) != 0 {
-		t.Errorf("temporary files left: %v", left)
-	}
-}
-
-// A file that does not exist yet starts from the package default and is
-// readable by the gateway's account, as the default is: the gateway runs
-// as mcp-gateway, not as the root who runs setup http.
-func TestWriteNewFile(t *testing.T) {
-	dir := t.TempDir()
-	vendor := filepath.Join(dir, "vendor.yaml")
-	if err := os.WriteFile(vendor, []byte("version: 1\nsocket_group: mcp-users\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, "gateway.yaml")
-	h := config.HTTP{Listen: ":8443", CertFile: "/c.pem", KeyFile: "/k.pem", Issuer: "https://idp", Audience: "https://gw:8443/mcp"}
-	if _, err := Write(path, vendor, h); err != nil {
-		t.Fatal(err)
-	}
-	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o644 {
-		t.Fatalf("mode %v (%v), want 0644", fi.Mode(), err)
-	}
-	if g, err := config.LoadGateway(path); err != nil || g.SocketGroup != "mcp-users" || g.HTTP.Audience != h.Audience {
-		t.Fatalf("written: %v %+v", err, g)
 	}
 }
 

@@ -7,6 +7,15 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Removed
+
+- `mcp-gateway-admin setup http --config FILE`, deprecated in 1.4: setup
+  http writes the `http` keys it changes to the drop-in
+  `/etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml`, and reads the
+  configuration in force (`gateway.yaml` with its drop-ins). A script
+  that passes `--config` now fails with "flag provided but not defined:
+  -config" (exit status 2): leave the flag out.
+
 ## v1.4.0 — 2026-10-22
 
 Functional tests for openQA, and `setup http` in a drop-in. The package

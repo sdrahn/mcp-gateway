@@ -66,7 +66,6 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprint(stderr, setupUsage)
 		fs.PrintDefaults()
 	}
-	configPath := fs.String("config", "", "deprecated, goes away in 1.5: edit this file (a missing one starts from the package default) instead of the drop-in")
 	socket := fs.String("socket", "", "the gateway's control socket, to wait for its reload (default: approvals.control_socket of gateway.yaml)")
 	var a httpsetup.Answers
 	fs.StringVar(&a.URL, "url", "", "the gateway's public MCP URL, as clients use it, e.g. https://gw.example.com:8443/mcp (http.audience; http.listen takes its port)")
@@ -103,18 +102,7 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 	})
 
 	c := &configCmd{stdout: stdout, stderr: stderr, socket: *socket}
-	legacy := *configPath != ""
-	if legacy {
-		sayf(stderr, "mcp-gateway-admin setup http: -config is deprecated and goes away in 1.5; without it, setup http writes %s",
-			filepath.Join(configDropInDir, adminDropIn))
-	}
-	var cur config.HTTP
-	var err error
-	if legacy {
-		cur, err = currentHTTP(*configPath)
-	} else {
-		cur, err = c.httpInForce()
-	}
+	cur, err := c.httpInForce()
 	if err != nil {
 		say(stderr, "mcp-gateway-admin setup http:", err)
 		return 1
@@ -143,11 +131,7 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 	root := os.Geteuid() == 0
 
 	var rs []doctor.Result
-	if legacy {
-		rs = append(rs, blockResult(*configPath, cur, h, *write))
-	} else {
-		rs = append(rs, c.dropInResult(cur, h, *write))
-	}
+	rs = append(rs, c.dropInResult(cur, h, *write))
 	rs = append(rs, httpsetup.IdentityProvider(ctx, h, client)...)
 	rs = append(rs, setupTLS(h, root)...)
 	rs = append(rs, setupPorts(h, root)...)
@@ -265,23 +249,6 @@ func (c *configCmd) dropInResult(cur, h config.HTTP, write bool) doctor.Result {
 	return r
 }
 
-// currentHTTP returns the http block of the configuration at path, or
-// of the package default if path does not exist.
-func currentHTTP(path string) (config.HTTP, error) {
-	p := path
-	if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) && path == config.DefaultConfigPath {
-		p = config.DefaultVendorConfigPath
-	}
-	if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
-		return config.HTTP{}, nil
-	}
-	gw, err := config.LoadGateway(p)
-	if err != nil {
-		return config.HTTP{}, err
-	}
-	return gw.HTTP, nil
-}
-
 func readToken(path string) (string, error) {
 	var data []byte
 	var err error
@@ -299,43 +266,6 @@ func readToken(path string) (string, error) {
 		return "", fmt.Errorf("%s: no token", path)
 	}
 	return t, nil
-}
-
-// blockResult writes the http block (with write) or says what writing
-// it would change.
-func blockResult(path string, cur, h config.HTTP, write bool) doctor.Result {
-	r := doctor.Result{Check: "http block", Status: doctor.OK}
-	if !write {
-		data, _ := os.ReadFile(path)
-		if len(data) == 0 {
-			data, _ = os.ReadFile(config.DefaultVendorConfigPath)
-		}
-		_, changes, err := httpsetup.Edit(data, h)
-		switch {
-		case err != nil:
-			r.Status, r.Summary = doctor.Fail, fmt.Sprintf("%s: %v", path, err)
-		case len(changes) == 0:
-			r.Summary = path + " has this http block"
-		default:
-			r.Status, r.Summary = doctor.Warn, "not written yet: run again with -write to set in "+path+":"
-			r.Details = changeLines(changes)
-		}
-		return r
-	}
-	changes, err := httpsetup.Write(path, config.DefaultVendorConfigPath, h)
-	switch {
-	case err != nil:
-		r.Status, r.Summary = doctor.Fail, err.Error()
-	case len(changes) == 0:
-		r.Summary = path + " has this http block already"
-	default:
-		r.Summary = "wrote " + path + ":"
-		r.Details = changeLines(changes)
-		if cur.Listen != h.Listen {
-			r.Details = append(r.Details, "http.listen takes effect at start: systemctl restart mcp-gateway.service (the checks below see the gateway as it runs now)")
-		}
-	}
-	return r
 }
 
 func changeLines(cs []httpsetup.Change) []string {

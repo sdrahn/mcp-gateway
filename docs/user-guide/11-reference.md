@@ -267,7 +267,6 @@ if a check failed, 2 on usage errors, 0 otherwise.
 
 | Flag | Meaning |
 |---|---|
-| `--config FILE` | deprecated, goes away in 1.5: edit this file instead of the drop-in, as setup http did before 1.4 (a missing one starts from the package default, copied whole) |
 | `--socket PATH` | the gateway's control socket, to wait for its reload (default: `approvals.control_socket`) |
 | `--url URL` | the gateway's public MCP URL, as clients use it (`http.audience`); `http.listen` takes its port (443 if none) |
 | `--issuer URL` | the identity provider's issuer (`http.issuer`) |
