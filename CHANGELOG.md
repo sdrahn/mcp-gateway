@@ -27,8 +27,8 @@ minor release (with a warning) and removed in the next.
   the limits per principal: sessions, instances and tasks refused at the
   limit and room again, idle HTTP sessions making room, the refusals
   counted and audited; and failing closed and recovering: OPA stopped
-  denies every call, a server that cannot start is backed off, a killed
-  instance is replaced, a killed gateway is started again by systemd
+  denies every call, a killed instance is replaced, one that keeps
+  dying is backed off, a killed gateway is started again by systemd
   and keeps its grants and pending approvals.
 
 ### Fixed

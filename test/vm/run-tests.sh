@@ -1920,14 +1920,13 @@ fi
 
 section "Failing closed and recovering"
 # What fails stays closed, and comes back: OPA stopped denies every call;
-# a server that cannot start is backed off; a killed instance is replaced;
+# a killed instance is replaced, one that keeps dying is backed off;
 # a killed gateway is restarted by systemd, with its grants and pending
 # approvals (/var/lib/mcp-gateway). erin's role "asked" needs approvals.
 fc_since=$(date +%s)
 jq '.roles.asked = {"permissions": [
 	{"server": "fs", "tool": "get_file_info", "require_approval": true, "approval_channel": "oob", "approval_scopes": ["once", "1h"]},
-	{"server": "fs", "tool": "search_files", "require_approval": true, "approval_channel": "oob"},
-	{"server": "crashy", "tool": "*"}]}
+	{"server": "fs", "tool": "search_files", "require_approval": true, "approval_channel": "oob"}]}
 	| .bindings.users.erin += ["asked"]' \
 	/etc/mcp-gateway/policy/rbac/data.json >/root/fc-data.json &&
 	cat /root/fc-data.json >/etc/mcp-gateway/policy/rbac/data.json
@@ -1943,30 +1942,29 @@ check "... and nothing of the file is sent" failed_without "erin notes"
 systemctl start mcp-opa.service
 check "OPA back: calls are decided again" eventually 30 fc_read
 
-# A server that cannot start: "backend unavailable", then the next starts
-# wait, doubling ("retry in …"). (Until the definition is read, the call
-# fails otherwise: the check retries.)
-cat >/etc/mcp-gateway/servers.d/crashy.yaml <<'END'
-name: crashy
-command: ["/usr/libexec/mcp-servers/mcp-server-exec", "--commands", "/nonexistent/crashy.yaml"]
-selinux_type: mcpsrv_exec_t
-END
-restorecon /etc/mcp-gateway/servers.d/crashy.yaml
-fc_backoff() {
-	stool erin crashy up '{}'
-	[ "$rc" != 0 ] && grep -qE "backend unavailable; retry in [0-9]+" <<<"$out"
-}
-check "a server that cannot start is backed off (retry in …)" eventually 20 fc_backoff
-check "... and the gateway says so" \
-	bash -c 'journalctl -u mcp-gateway.service -o cat --since "@$1" | grep -F "instance restart delayed" | grep -q "server=crashy"' _ "$fc_since"
-rm -f /etc/mcp-gateway/servers.d/crashy.yaml
-
 # A killed instance: the next call starts a new one.
 fc_inst=$(instance_pid erin)
 echo "  erin's fs instance: ${fc_inst:-none}"
 [ -n "$fc_inst" ] && kill -KILL "$fc_inst"
 fc_new_inst() { fc_read && [ -n "$(instance_pid erin)" ] && [ "$(instance_pid erin)" != "$fc_inst" ]; }
 check "a killed instance is replaced on the next call" eventually 30 fc_new_inst
+# An instance that keeps dying soon after its start: each restart waits
+# longer (1 s, doubling), and calls meanwhile are told when to retry.
+fc_backoff() {
+	local pid
+	pid=$(instance_pid erin)
+	[ -n "$pid" ] && kill -KILL "$pid"
+	sleep 0.5
+	tool erin read_file '{"path":"/home/erin/notes.txt"}'
+	[ "$rc" != 0 ] && grep -qE "backend unavailable; retry in [0-9]+" <<<"$out"
+}
+check "an instance that keeps dying is backed off (retry in …)" eventually 40 fc_backoff
+fc_delayed() {
+	journalctl -u mcp-gateway.service -o cat --since "@$fc_since" | grep -F "instance restart delayed" |
+		grep -F "server=fs" | grep -qE "failures=[2-9]"
+}
+check "... and the gateway says so" fc_delayed
+check "... until it starts again" eventually 40 fc_read
 
 # fc_approve <scope>: approves erin's first pending approval with <scope>.
 fc_approve() {
@@ -1994,7 +1992,7 @@ cat /root/vmtest/fc-info.out
 check "an approved call runs" grep -q 'rc=0 .*size' /root/vmtest/fc-info.out
 # A pending approval whose call is lost with the gateway.
 runuser -u erin -- /usr/local/bin/mcpcall --server fs --method tools/call \
-	--params '{"name":"search_files","arguments":{"path":"/home/erin","pattern":"notes"}}' >/root/vmtest/fc-search.out 2>&1 &
+	--params '{"name":"search_files","arguments":{"path":"/home/erin","pattern":"notes.txt"}}' >/root/vmtest/fc-search.out 2>&1 &
 fc_search=$!
 fc_pending() { control erin GET /v1/approvals | jq -e '.[] | select(.name == "search_files" and .waiting)' >/dev/null; }
 check "a call waits for its approval" eventually 30 fc_pending
@@ -2026,7 +2024,7 @@ check "the pending approval survives the restart: no call waiting, no session sc
 control erin POST "/v1/approvals/$fc_pending_id" '{"decision":"approve","scope":"once"}' >/dev/null
 fc_retry() {
 	out=$(runuser -u erin -- /usr/local/bin/mcpcall --server fs --timeout 15s --method tools/call \
-		--params '{"name":"search_files","arguments":{"path":"/home/erin","pattern":"notes"}}' 2>&1)
+		--params '{"name":"search_files","arguments":{"path":"/home/erin","pattern":"notes.txt"}}' 2>&1)
 	rc=$?
 	echo "  [erin fs/search_files] rc=$rc ${out:0:200}"
 	[ "$rc" = 0 ] && grep -q notes.txt <<<"$out"

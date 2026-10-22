@@ -73,8 +73,8 @@ limits per principal, lowered with `mcp-gateway-admin config set` (a
 session, an instance and a task refused, room again once a session ends
 or an instance is idle, an idle HTTP session making room, the refusals
 counted and audited); failing closed and recovering (OPA stopped
-denies every call, a server that cannot start backed off, a killed
-instance replaced, a killed gateway started again by systemd with its
+denies every call, a killed instance replaced, one that keeps dying
+backed off, a killed gateway started again by systemd with its
 grants and pending approvals); approvals through the control API; files written
 through the file server and what SELinux keeps from it; polkit;
 credentials; a privileged backend and its own SELinux module; the six
