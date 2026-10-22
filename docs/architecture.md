@@ -3818,6 +3818,29 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       changes into `data.yaml` with the Go YAML library, which keeps
       comments (to decide when the stage is built). Either way the
       result is checked against the schema before it is written, as now;
+    - stage A2, the shipped role data leaves `/etc`: the package installs
+      its default role data (the roles `viewer`, `developer`, …, the
+      default approvers) as `/usr/share/mcp-gateway/policy/rbac/data.yaml`
+      and no file in `/etc/mcp-gateway/policy/rbac` any more, as
+      `gateway.yaml` has its default in `/usr/etc`. The file in force is
+      the first of `/etc/…/data.yaml`, `/etc/…/data.json` and the
+      shipped default, taken whole: an administrator's file replaces the
+      default as now (no merging, so a role deleted there stays deleted).
+      The rendering of stage A is where this order is applied. Without
+      this, YAML priority would be a trap: a package that shipped a
+      default `data.yaml` next to an administrator's changed
+      `data.json`, which rpm keeps, would put the package's default in
+      force over their roles. On update from 1.4, the package keeps an
+      existing `/etc/…/data.json` owned and untouched (`%ghost
+      %config(noreplace)`, so that rpm neither replaces it nor saves it
+      as `.rpmsave`); a copy unchanged from a shipped default (its
+      checksum matches one) is removed, so that it follows the shipped
+      default from then on. What `rpm -e` does with the `%ghost` file,
+      and chapter 2's note on `data.json.rpmsave`, are checked and
+      updated with it. The server setup packages' and subpackages' role
+      files (`profiles/*/roles.json`, `packaging/*/…-roles.json`,
+      installed as `…/profiles/<setup>/data.json`) become YAML too; they
+      are package files, so they change without a deprecation;
     - stage C, the docs: chapter 6 (role data, with YAML examples and
       JSON as the alternative), chapter 8 (Cockpit's editor), chapter 12
       (how OPA loads the role data now), chapter 11
@@ -3828,8 +3851,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
     - not in this step: drop-ins of role data (`rbac.d/*.yaml`, a file per
       team or setup, merged in order as `gateway.d` is), which the
       rendering of stage A would make possible (a step of its own if
-      asked for); YAML for the server setup packages' shipped roles;
-      Rego generated from YAML;
+      asked for); Rego generated from YAML; deprecating JSON (step 38);
     - tests: `data.yaml` alone, `data.json` alone and both present
       (YAML in force, `data.json` reported); the checker names a YAML
       error's line; what-if and the denial reasons are the same for the
@@ -3839,7 +3861,61 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       with comments kept and refuses data the schema refuses; a signed
       bundle built from `data.yaml`; in the VMs, the shipped role data
       converted to YAML gives the same decisions, and OPA never loads
-      both files.
+      both files; an update from 1.4 keeps a changed `data.json` in force
+      and removes an unchanged one, which then follows the shipped
+      default.
+38. **Configuration files in YAML only** (deprecated in 1.6, removed in
+    1.7; D10):
+    - the goal: the files administrators write are YAML, and only YAML:
+      `gateway.yaml` and its drop-ins, server definitions (already), the
+      role data, and the data files of custom Rego below
+      `/etc/mcp-gateway/policy` (chapter 12). Not affected, as they are
+      no configuration: the JSON Schema of the role data
+      (`rbac.schema.json`, a published schema), Cockpit's
+      `manifest.json` (Cockpit's format), the control API (JSON on the
+      wire, also what-if's role data), and the state the programs write
+      themselves in `/var/lib/mcp-gateway` (grants, `principals.json`,
+      pending approvals);
+    - what it needs first (step 37): YAML read and preferred, Cockpit
+      writing it, `mcp-gateway-admin policy convert`, the package's
+      default role data out of `/etc` and the shipped role files in
+      YAML, all in 1.5. A deprecation can only start once nothing the
+      packages install is JSON and every administrator has a way to
+      convert;
+    - stage A, 1.6, the deprecation: role data or custom data read from
+      a `.json` file warns as D10 deprecations do: at start, with
+      `mcp-gateway --check` and `--check-policy-data`, in the doctor
+      (naming each file and the command that converts it), and in
+      Cockpit, which offers the conversion. Nothing converts an
+      administrator's files by itself: they may belong to configuration
+      management, which would write the JSON back. `policy convert
+      --to json` goes the other way, for going back to 1.5 or earlier;
+    - stage B, 1.7, the removal: a `.json` role or custom data file is no
+      longer read. Silently ignoring it would leave no role data where
+      no `data.yaml` exists, and deny everything without saying why; so a
+      leftover JSON file is an error that names it and the convert
+      command (the doctor fails, `--check` refuses it, the rendering of
+      step 37 keeps no role data from it, and the policy fails closed as
+      for any broken configuration). The convert command stays: reading
+      JSON to convert it is not reading it as configuration. The
+      compatibility test (D10) reads 1.6's configuration, which the
+      packages ship as YAML already;
+    - how OPA is kept from JSON custom data: the role data goes through
+      step 37's rendering; the other data files below
+      `/etc/mcp-gateway/policy` are loaded by OPA itself, so either they
+      are rendered along, or OPA is told to skip `*.json` in that tree
+      (`opa run --ignore`; how its patterns match names and paths is to
+      be checked before relying on it);
+    - signed bundles: `mcp-policy-bundle` builds from the files in force
+      and converts as it does in step 37. A bundle from a bundle server
+      of your own is OPA's format, which allows JSON data; the gateway
+      reads it as OPA does and does not police it;
+    - tests: in 1.6, each JSON file warns with its name and the command,
+      the converted file gives the same decisions, `--to json` round-trips;
+      in 1.7, a leftover JSON file fails `--check` and the doctor by
+      name and the policy fails closed, the compatibility test against
+      1.6 passes, and an update from 1.6 with converted files changes
+      nothing.
 
 ## 12. Open items
 
