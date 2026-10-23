@@ -16,8 +16,8 @@ make -C "$repo" build >/dev/null
 mkdir -p "$work/servers.d" "$work/data/rbac"
 
 # Example role data, with the current user bound to "developer".
-sed "s/\"users\": {}/\"users\": {\"$(id -un)\": [\"developer\"]}/" \
-    "$repo/examples/dev/rbac/data.json" >"$work/data/rbac/data.json"
+sed "s/^  users: {}/  users: {$(id -un): [developer]}/" \
+    "$repo/examples/dev/rbac/data.yaml" >"$work/data/rbac/data.yaml"
 
 cat >"$work/servers.d/fs.yaml" <<YAML
 name: fs

@@ -1,6 +1,7 @@
 package policydata
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -56,15 +57,18 @@ func TestJSONFiles(t *testing.T) {
 	}
 }
 
-func TestJSONWarning(t *testing.T) {
-	w := JSONWarning("/etc/mcp-gateway/policy/rbac/data.json")
+func TestJSONProblem(t *testing.T) {
+	err := error(&JSONError{File: "/etc/mcp-gateway/policy/rbac/data.json"})
+	if !errors.Is(err, ErrJSON) {
+		t.Errorf("not ErrJSON: %v", err)
+	}
 	for _, s := range []string{
 		"/etc/mcp-gateway/policy/rbac/data.json: ",
-		"deprecated since 1.6",
+		"no longer read since 1.7",
 		"mcp-gateway-admin policy convert /etc/mcp-gateway/policy/rbac/data.json",
 	} {
-		if !strings.Contains(w, s) {
-			t.Errorf("%q lacks %q", w, s)
+		if !strings.Contains(err.Error(), s) {
+			t.Errorf("%q lacks %q", err, s)
 		}
 	}
 }

@@ -151,8 +151,8 @@ function site() {
     check((await page.textContent("#rbac-origin")).includes("Converting it, or saving, writes /etc/mcp-gateway/policy/rbac/data.yaml"),
           "saving to data.yaml beside data.json noted");
     check((await page.textContent("#rbac-path")) === "/etc/mcp-gateway/policy/rbac/data.json", "the file in force named");
-    check((await page.textContent("#rbac-origin")).includes("data.json is JSON, which is deprecated since 1.6") &&
-          await page.isVisible("#rbac-convert"), "role data in JSON: deprecated, conversion offered");
+    check((await page.textContent("#rbac-origin")).includes("data.json is JSON, which is no longer read since 1.7: until it is converted, the gateway denies every request") &&
+          await page.isVisible("#rbac-convert"), "role data in JSON: no longer read, conversion offered");
     await page.fill("#binding-add input[name=name]", "alice");
     await page.selectOption("#binding-add select[name=role]", "developer");
     const writes = () => page.evaluate(() => __calls.filter(c => c[0] === "policy-write"));
@@ -175,7 +175,7 @@ function site() {
           "written with administrative access");
     check((await page.textContent("#rbac-path")) === "/etc/mcp-gateway/policy/rbac/data.yaml" &&
           (await page.textContent("#rbac-origin")).includes("data.json is ignored"), "data.yaml in force now, data.json named as ignored");
-    check(await page.isHidden("#rbac-convert") && !(await page.textContent("#rbac-origin")).includes("deprecated"),
+    check(await page.isHidden("#rbac-convert") && !(await page.textContent("#rbac-origin")).includes("no longer read"),
           "nothing to convert once data.yaml is in force");
     await page.click("#bindings button[aria-label='Remove role developer from alice']");
     await page.waitForFunction(() => !document.querySelector("#bindings").textContent.includes("alice"));

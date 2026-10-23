@@ -9,19 +9,36 @@ import (
 	"sort"
 )
 
-// JSON as configuration is deprecated since 1.6 and no longer read in 1.7
-// (docs/architecture.md, roadmap step 38, D10): the role data and the data
-// of custom Rego are YAML, and JSONFiles finds what is not.
+// JSON as configuration was deprecated in 1.6 and is no longer read from
+// 1.7 on (docs/architecture.md, roadmap step 38, D10): the role data and
+// the data of custom Rego are YAML. JSONFiles finds the files in JSON
+// that 1.6 read as configuration and that are left over: each is an
+// error (ErrJSON), and the policy fails closed while one exists.
 
-// DeprecatedSince is the release that deprecated configuration in JSON.
-const DeprecatedSince = "1.6"
+// DeprecatedSince is the release that deprecated configuration in JSON,
+// RemovedSince the first that no longer reads it.
+const (
+	DeprecatedSince = "1.6"
+	RemovedSince    = "1.7"
+)
 
-// JSONFiles returns the files in JSON read as configuration, sorted: the
-// role data in force in each directory below rbacDir (DefaultDir) that is
-// a data.json, and every *.json file OPA loads from policyDir
-// (/etc/mcp-gateway/policy), that is outside directories named rbac,
-// which mcp-opa.service ignores (--ignore rbac). A directory that does not
-// exist has none.
+// ErrJSON is the error of configuration in JSON (JSONError).
+var ErrJSON = errors.New("configuration in JSON is no longer read since " + RemovedSince)
+
+// A JSONError is a file in JSON read as configuration until 1.6.
+type JSONError struct{ File string }
+
+func (e *JSONError) Error() string { return JSONProblem(e.File) }
+
+// Unwrap makes errors.Is(err, ErrJSON) hold.
+func (e *JSONError) Unwrap() error { return ErrJSON }
+
+// JSONFiles returns the files in JSON that 1.6 read as configuration,
+// sorted: in each directory below rbacDir (DefaultDir), a data.json
+// without a data.yaml (role data in force until 1.6), and every *.json
+// file below policyDir (/etc/mcp-gateway/policy) outside directories
+// named rbac, which OPA loaded until 1.6 (mcp-opa.service now ignores
+// *.json). A directory that does not exist has none.
 func JSONFiles(policyDir, rbacDir string) ([]string, error) {
 	found := map[string]bool{}
 	walk := func(top string, visit func(path string, d fs.DirEntry) error) error {
@@ -75,19 +92,13 @@ func JSONFiles(policyDir, rbacDir string) ([]string, error) {
 	return files, nil
 }
 
-// JSONDeprecation is the warning about configuration in JSON without the
-// file's name, for a log line that names it apart.
-func JSONDeprecation() string {
-	return fmt.Sprintf("configuration in JSON is deprecated since %s and will no longer be read in the next minor release", DeprecatedSince)
+// JSONProblem is the error about file, with its name and the command that
+// converts it.
+func JSONProblem(file string) string {
+	return fmt.Sprintf("%s: %v: convert it to YAML with %s", file, ErrJSON, ConvertCommand(file))
 }
 
 // ConvertCommand is the command that converts file to YAML.
 func ConvertCommand(file string) string {
 	return "mcp-gateway-admin policy convert " + file
-}
-
-// JSONWarning is the warning about file, with its name and the command
-// that converts it.
-func JSONWarning(file string) string {
-	return fmt.Sprintf("%s: %s: convert it to YAML with %s", file, JSONDeprecation(), ConvertCommand(file))
 }

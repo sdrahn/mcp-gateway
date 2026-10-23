@@ -24,7 +24,8 @@ Usage: mcp-policy-bundle [-k SIGNING_KEY] [-o OUTPUT] [-r REVISION] [-n]
   -n  do not restart mcp-opa.service
   -V  policy logic (default: /usr/share/mcp-gateway/policy)
   -L  the administrator's policy and role data (default:
-      /etc/mcp-gateway/policy; in rbac/, data.yaml before data.json)
+      /etc/mcp-gateway/policy; in rbac/, data.yaml; no file in JSON, no
+      longer read since 1.7)
   -D  the default role data, in force while LOCAL_POLICY_DIR/rbac has
       none (default: /usr/share/mcp-gateway/rbac/data.yaml; "": none)
 
@@ -89,9 +90,9 @@ fi
 
 # The role data must match its schema; mcp-gateway checks it where it is
 # installed (a bundle built elsewhere, e.g. in CI, may lack it). It checks
-# the file in force: data.yaml if there is one, else data.json.
+# the file in force, data.yaml (a data.json alone is no longer read).
 gateway=${MCP_GATEWAY:-mcp-gateway}
-if { [ -f "$local/rbac/data.yaml" ] || [ -f "$local/rbac/data.json" ]; } && command -v "$gateway" >/dev/null 2>&1; then
+if [ -f "$local/rbac/data.yaml" ] && command -v "$gateway" >/dev/null 2>&1; then
 	if ! "$gateway" --check-policy-data --policy-data "$local/rbac/data.json"; then
 		echo "mcp-policy-bundle: the role data in $local/rbac has problems (above); no bundle built" >&2
 		exit 1
@@ -108,11 +109,10 @@ rm -rf "$tmp/src/mcp/rbac"
 # at a shipped path replaces the shipped one; data files below data.mcp,
 # as mcp-opa.service loads them ("mcp:/etc/mcp-gateway/policy"). Below
 # rbac/, as mcp-opa.service has it (mcp-policy-render): in each directory
-# the file in force only, data.yaml before data.json, as data.mcp.rbac;
-# nothing else. With mcp-policy-render, the bundle carries what it
-# renders, the JSON OPA loads in directory mode (YAML read as the gateway
-# reads it, not by OPA's YAML parser); without it (a bundle built
-# elsewhere), the file in force as it is.
+# data.yaml only, as data.mcp.rbac; nothing else. With mcp-policy-render,
+# the bundle carries what it renders, as OPA loads it in directory mode
+# (YAML read as the gateway reads it, not by OPA's YAML parser); without
+# it (a bundle built elsewhere), data.yaml as it is.
 userender=no
 command -v "$render" >/dev/null 2>&1 && userender=yes
 (cd "$local" && find . -type f ! -name '.manifest') | while IFS= read -r f; do
@@ -124,26 +124,46 @@ command -v "$render" >/dev/null 2>&1 && userender=yes
 		y=${f%.json}.yaml
 		if [ -f "$local/$y" ]; then
 			echo "mcp-policy-bundle: $local/${f#./} is ignored: $local/${y#./} is in force" >&2
-			continue
+		else
+			echo "$local/${f#./}" >>"$tmp/json"
 		fi
-		dest="$tmp/src/mcp/$f" ;;
+		continue ;;
 	./rbac/*/data.yaml | ./rbac/data.yaml) dest="$tmp/src/mcp/$f" ;;
 	./rbac/*)
-		echo "mcp-policy-bundle: $local/${f#./} is not role data (data.yaml or data.json); not in the bundle" >&2
+		echo "mcp-policy-bundle: $local/${f#./} is not role data (data.yaml); not in the bundle" >&2
 		continue ;;
-	*/data.json | */data.yaml | */data.yml) dest="$tmp/src/mcp/$f" ;;
+	*.json)
+		echo "$local/${f#./}" >>"$tmp/json"
+		continue ;;
+	*/data.yaml | */data.yml) dest="$tmp/src/mcp/$f" ;;
 	*) dest="$tmp/src/$f" ;;
 	esac
 	mkdir -p "$(dirname "$dest")"
 	cp "$local/$f" "$dest"
 done
+# Configuration in JSON is no longer read (since 1.7): none goes into a
+# bundle, and none is left out without saying so.
+if [ -s "$tmp/json" ]; then
+	while IFS= read -r f; do
+		echo "mcp-policy-bundle: $f: configuration in JSON is no longer read since 1.7: convert it to YAML with mcp-gateway-admin policy convert $f" >&2
+	done <"$tmp/json"
+	echo "mcp-policy-bundle: no bundle built" >&2
+	exit 1
+fi
 if [ "$userender" = yes ]; then
-	if ! "$render" -source "$local/rbac" -out "$tmp/src/mcp/rbac" -shipped "$vendor" -default "$default"; then
+	rc=0
+	"$render" -source "$local/rbac" -out "$tmp/src/mcp/rbac" -shipped "$vendor" -default "$default" || rc=$?
+	case $rc in
+	0) ;;
+	3)
+		echo "mcp-policy-bundle: role data in JSON in $local/rbac (above); no bundle built" >&2
+		exit 1 ;;
+	*)
 		echo "mcp-policy-bundle: the role data in $local/rbac does not parse (above); no bundle built" >&2
-		exit 1
-	fi
+		exit 1 ;;
+	esac
 # No role data of the administrator's: the shipped default, taken whole.
-elif [ ! -f "$tmp/src/mcp/rbac/data.yaml" ] && [ ! -f "$tmp/src/mcp/rbac/data.json" ] &&
+elif [ ! -f "$tmp/src/mcp/rbac/data.yaml" ] &&
 	[ -n "$default" ] && [ -f "$default" ]; then
 	mkdir -p "$tmp/src/mcp/rbac"
 	cp "$default" "$tmp/src/mcp/rbac/data.yaml"

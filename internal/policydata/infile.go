@@ -17,7 +17,9 @@ import (
 
 // Names are the names of a role data file, the one in force first: where
 // a directory has both, the YAML is in force and the JSON ignored
-// (docs/architecture.md, roadmap step 37).
+// (docs/architecture.md, roadmap step 37). Since 1.7 a data.json is no
+// longer read (Read); one without a data.yaml next to it is still found,
+// so that it is reported, and keeps the shipped default out of force.
 var Names = []string{"data.yaml", "data.json"}
 
 // InForce returns the role data file in force for path, and the files
@@ -73,9 +75,17 @@ func ReadOr(path, def string) (file string, data []byte, ignored []string, err e
 // Read reads the role data in force for path (InForce) as JSON, which is
 // what OPA, the checker and the readers of the role data work on: a YAML
 // file is converted (ToJSON). It returns the file it read and those it
-// ignored; "-" reads standard input, YAML or JSON.
+// ignored; "-" reads standard input, YAML or JSON. A file in JSON is no
+// longer read (since 1.7): it is a *JSONError, also where it is the role
+// data in force because no data.yaml is next to it.
 func Read(path string) (file string, data []byte, ignored []string, err error) {
 	file, ignored = InForce(path)
+	if file != "-" && strings.EqualFold(filepath.Ext(file), ".json") {
+		if _, err := os.Stat(file); err != nil {
+			return file, nil, ignored, err
+		}
+		return file, nil, ignored, &JSONError{File: file}
+	}
 	if file == "-" {
 		data, err = io.ReadAll(os.Stdin)
 	} else {
@@ -97,6 +107,11 @@ func Read(path string) (file string, data []byte, ignored []string, err error) {
 	}
 	return file, data, ignored, nil
 }
+
+// CheckJSON returns nil if data is valid JSON, else the error with the
+// line and column where it went wrong: for role data in JSON read only to
+// be converted (since 1.7 it is no longer read as configuration).
+func CheckJSON(data []byte) error { return jsonSyntax(data) }
 
 // jsonSyntax returns nil if data is valid JSON, else the error with the
 // line and column where it went wrong (as YAML's errors name the line).

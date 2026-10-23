@@ -287,6 +287,9 @@ func (d *doctorRun) roleData() doctor.Result {
 		}
 		r.Status, r.Summary = doctor.Fail, err.Error()
 		r.Details = []string{"OPA keeps the role data it had; the file does not parse"}
+		if errors.Is(err, policydata.ErrJSON) {
+			r.Details = []string{"OPA has no role data from it, and the gateway denies every request until it is converted"}
+		}
 		d.rbacBroken = true
 		return r
 	}
@@ -356,16 +359,17 @@ func (d *doctorRun) rendering() doctor.Result {
 	if len(p.Unloaded) > 0 {
 		r.Status = doctor.Warn
 		for _, f := range p.Unloaded {
-			r.Details = append(r.Details, f+" is not loaded: only data.yaml or data.json is role data (a rule belongs in "+
+			r.Details = append(r.Details, f+" is not loaded: only data.yaml is role data (a rule belongs in "+
 				filepath.Dir(filepath.Dir(d.policyData))+")")
 		}
 	}
 	return r
 }
 
-// jsonFiles names the files of the local policy in JSON, deprecated since
-// 1.6 (step 38): role data in force and the data of custom Rego, each with
-// the command that converts it.
+// jsonFiles names the files of the local policy in JSON that 1.6 read as
+// configuration, no longer read since 1.7 (step 38): role data that would
+// be in force and the data of custom Rego, each with the command that
+// converts it. While one is left over the gateway denies every request.
 func (d *doctorRun) jsonFiles() doctor.Result {
 	r := doctor.Result{Check: "policy data in JSON"}
 	rbac := filepath.Dir(d.policyData)
@@ -377,9 +381,9 @@ func (d *doctorRun) jsonFiles() doctor.Result {
 		r.Status, r.Summary = doctor.OK, "none: the role data and the policy data below "+filepath.Dir(rbac)+" are YAML"
 		return r
 	}
-	r.Status = doctor.Warn
-	r.Summary = fmt.Sprintf("%d file(s) in JSON, deprecated since %s: the next minor release no longer reads them",
-		len(files), policydata.DeprecatedSince)
+	r.Status = doctor.Fail
+	r.Summary = fmt.Sprintf("%d file(s) in JSON, no longer read since %s: the gateway denies every request until they are converted",
+		len(files), policydata.RemovedSince)
 	for _, f := range files {
 		r.Details = append(r.Details, f+": "+policydata.ConvertCommand(f))
 	}

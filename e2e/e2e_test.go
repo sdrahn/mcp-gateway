@@ -257,7 +257,7 @@ func setupWith(t *testing.T, rbac string, roots map[string]string, extra string,
 	connect := build(t, bin, "./cmd/mcp-connect")
 	demo := build(t, bin, "./cmd/mcp-server-fs")
 
-	writeFile(t, filepath.Join(tmp, "data", "rbac", "data.json"), rbac)
+	writeFile(t, filepath.Join(tmp, "data", "rbac", "data.yaml"), rbac) // JSON is YAML too
 	opaSock := filepath.Join(tmp, "opa.sock")
 	// As mcp-opa.service does: the policy logic, and the role data below
 	// data.mcp. Only the Rego files of policy/mcp, not its default data.

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -39,7 +40,9 @@ func (c policyCmd) emit(v any) {
 }
 
 // show prints the role data in force. Data that does not parse is shown
-// as its text, with the error, for the raw editor to fix.
+// as its text, with the error, for the raw editor to fix. A data.json
+// without a data.yaml, no longer read since 1.7, is shown converted
+// (origin "json"): saving it writes data.yaml.
 func (c policyCmd) show() int {
 	file, ignored := policydata.InForceOr(c.path, c.def)
 	out := map[string]any{"file": file, "origin": c.origin(file), "ignored": nonNil(ignored)}
@@ -54,6 +57,14 @@ func (c policyCmd) show() int {
 		return exitRefused
 	}
 	_, data, _, err := policydata.Read(file)
+	if errors.Is(err, policydata.ErrJSON) {
+		// No longer read (since 1.7), but shown, converted, for the editor
+		// to save as data.yaml or to convert.
+		data, err = text, policydata.CheckJSON(text)
+		if err != nil {
+			err = fmt.Errorf("%s: %w", file, err)
+		}
+	}
 	if err != nil {
 		out["error"], out["data"] = err.Error(), nil
 		if c.origin(file) != "json" {

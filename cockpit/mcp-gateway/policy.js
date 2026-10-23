@@ -354,7 +354,7 @@ function renderOrigin() {
         notes.push("No role data in " + RBAC_DIR + ": the shipped default is in force. Saving writes " + RBAC_YAML +
                    ", which then replaces the default as a whole.");
     } else if (st.origin === "json") {
-        notes.push(st.file + " is JSON, which is deprecated since 1.6: the next release no longer reads it. " +
+        notes.push(st.file + " is JSON, which is no longer read since 1.7: until it is converted, the gateway denies every request. " +
                    "Converting it, or saving, writes " + RBAC_YAML + " (YAML, with the same data), which is in force from then on; " +
                    st.file + " stays as it is, ignored, until you remove it.");
     }

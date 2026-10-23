@@ -22,8 +22,8 @@ const policyUsage = `usage: mcp-gateway-admin policy convert [FILE] [options]   
 
 convert: FILE is the role data in JSON (default: ` + policydata.DefaultPath + `),
 or a data file of custom Rego below /etc/mcp-gateway/policy; JSON there is
-deprecated since 1.6, and 1.7 no longer reads it. The data and the order of
-keys stay the same. The YAML goes next to FILE, with .yaml for .json:
+no longer read since 1.7, and the gateway denies every request while some
+is left over. The data and the order of keys stay the same. The YAML goes next to FILE, with .yaml for .json:
 role data's is then in force, and FILE stays as it is, ignored, until you
 remove it; for other data, which OPA loads itself and refuses twice, FILE
 is removed. --to json converts YAML back, without its comments (for an
@@ -31,7 +31,8 @@ earlier release; default FILE: data.yaml of the role data).
 
 show: {"file", "origin" (yaml, json or default), "ignored", "data", "yaml"
 (the YAML text: the file's, or the data converted), "error"} of the role
-data in force.
+data in force (json: a data.json without data.yaml, no longer read, shown
+converted for saving as data.yaml).
 
 write: DATA on standard input is the role data as JSON, written into
 data.yaml where it keeps the comments and order of what is unchanged;
@@ -80,11 +81,13 @@ func runPolicy(args []string, stdout, stderr io.Writer) int {
 
 // convert is "policy convert": src (role data or the data of custom Rego)
 // from JSON to YAML, or with to "json" back, to dst ("": next to src,
-// "-": standard output). Configuration in JSON is deprecated since 1.6
-// (step 38). Role data converted next to its file is in force by the
-// file's name (InForce), the other stays, ignored; OPA loads the other
-// data below the policy directory itself, and refuses both, so there the
-// source goes once the conversion is written.
+// "-": standard output). Configuration in JSON is no longer read since 1.7
+// (step 38); --to json is for going back to an earlier release. Role data
+// converted next to its file is in force by the file's name (InForce),
+// the other stays, ignored; the other data below the policy directory
+// OPA loads itself, and the gateway is blocked while it finds JSON there
+// (as OPA of 1.6 or earlier refuses both), so there the source goes once
+// the conversion is written.
 func (c policyCmd) convert(src, dst, to string, force bool) int {
 	fail := func(format string, a ...any) int {
 		sayf(c.stderr, "mcp-gateway-admin: "+format, a...)
@@ -179,6 +182,9 @@ func (c policyCmd) convert(src, dst, to string, force bool) int {
 		}
 		sayf(c.stdout, "removed %s: OPA loads every data file below %s and refuses the same data twice (mcp-gateway-admin policy convert %s%s brings it back)",
 			src, c.policyDir(), back, dst)
+		if toJSON {
+			sayf(c.stdout, "%s: %v: this release denies every request while it exists", dst, policydata.ErrJSON)
+		}
 		return 0
 	}
 	inForce, ignored := policydata.InForce(dst)

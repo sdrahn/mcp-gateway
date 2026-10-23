@@ -149,9 +149,11 @@ Cockpit: `mcp-gateway-admin tasks` (chapter 10, "Clients and tasks").
   are. Where only `data.json` existed, or the shipped default was in
   force, `data.yaml` is new and in force from then on; the page then
   names `data.json` as ignored (you may remove it; the page does not).
-  Role data in JSON is deprecated since 1.6 (chapter 6): the page says
-  so and offers **Convert to YAML** (`mcp-gateway-admin policy convert`),
-  which writes `data.yaml` with the same data without changing it.
+  Role data in JSON is no longer read since 1.7, and the gateway denies
+  every request until it is converted (chapter 6): the page shows it,
+  says so, and offers **Convert to YAML** (`mcp-gateway-admin policy
+  convert`), which writes `data.yaml` with the same data; saving does
+  the same.
 - **Roles and their permissions** (folded; open it to read them):
   the permissions of each role, read-only.
 - **Edit the role data as YAML**: the whole file in force, including

@@ -54,6 +54,29 @@ minor release (with a warning) and removed in the next.
   5, 10 and 30s added): on a small host the filtering of a listing can
   take seconds, which the highest bucket so far (1s) did not tell apart.
 
+### Removed
+
+- Configuration in JSON, deprecated in 1.6 (roadmap step 38): role data
+  in `data.json` and data files of custom Rego in JSON below
+  `/etc/mcp-gateway/policy` are no longer read; they are YAML
+  (`data.yaml`). A file 1.6 still read is an error that names it and the
+  command that converts it (`mcp-gateway-admin policy convert FILE`),
+  and the policy fails closed while one is left over: OPA skips
+  `*.json` (`mcp-opa.service`: `--ignore '*.json'`) and gets no role
+  data from a `data.json` (not the shipped default either), and the
+  gateway denies every request with that error as the reason and lists
+  nothing (`mcp_gateway_policy_failures_total{reason="blocked"}`), until
+  it is converted; not with signed bundles or a bundle server, which do
+  not load the local policy. `mcp-gateway --check` and
+  `--check-policy-data` fail, the doctor's `json-policy-data` and `role
+  data` fail, `mcp-policy-render` exits with 3, `mcp-policy-bundle`
+  builds no bundle, a package update names each file, and Cockpit's
+  Policy tab shows the JSON converted, to save or convert. A `data.json`
+  next to a `data.yaml` stays ignored, as before. `policy convert --to
+  json` stays, for going back to an earlier release. The rendered role
+  data in `/run/mcp-opa/rbac` is named `data.yaml`. Convert before
+  updating: `mcp-gateway-admin doctor` on 1.6 names every file.
+
 ## v1.6.1 — 2026-10-23
 
 A fix to the diagnosis of role data in JSON that does not parse: the

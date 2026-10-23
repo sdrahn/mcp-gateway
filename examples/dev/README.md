@@ -85,7 +85,7 @@ root:
 zypper in mcp-gateway mcp-gateway-selinux mcp-gateway-fs-server mcp-gateway-cockpit
 # Bind users or groups to roles in /etc/mcp-gateway/policy/rbac/data.json,
 # e.g. "bindings": {"users": {"alice": ["developer"]}, ...}
-# (examples/dev/rbac/data.json shows a form-approval variant).
+# (examples/dev/rbac/data.yaml shows a form-approval variant).
 usermod -aG mcp-users alice
 systemctl enable --now mcp-gateway.service
 ```

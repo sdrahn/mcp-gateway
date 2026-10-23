@@ -332,7 +332,8 @@ for u in alice bob; do
 	usermod -aG mcp-users "$u"
 	runuser -u "$u" -- sh -c "umask 077; echo '$u secret' > /home/$u/secret.txt"
 done
-cat >/etc/mcp-gateway/policy/rbac/data.json <<'EOF'
+# JSON, which is YAML too: the sections below edit it with jq.
+cat >/etc/mcp-gateway/policy/rbac/data.yaml <<'EOF'
 {
   "roles": {"tester": {"permissions": [
     {"server": "fs", "tool": "read_*"},
@@ -510,10 +511,10 @@ check "gateway-admin: doctor gets the policy's labels" bash -c '! grep -q "the p
 # It reads the role data as OPA has it (mcpopa_rbac_t) and finds it current.
 check "gateway-admin: doctor compares the role data with OPA's" succeeded_with "/run/mcp-opa/rbac is current"
 stool alice gateway-admin check_config '{}'
-check "gateway-admin: check_config" succeeded_with "role data: /etc/mcp-gateway/policy/rbac/data.json valid"
+check "gateway-admin: check_config" succeeded_with "role data: /etc/mcp-gateway/policy/rbac/data.yaml valid"
 stool_approved alice gateway-admin explain_decision '{"user":"bob","server":"fs","name":"delete_file"}'
 check "gateway-admin: explain_decision" succeeded_with "bob tools.call fs/delete_file: deny"
-stool_approved alice gateway-admin show_config '{"file":"/etc/mcp-gateway/policy/rbac/data.json"}'
+stool_approved alice gateway-admin show_config '{"file":"/etc/mcp-gateway/policy/rbac/data.yaml"}'
 check "gateway-admin: show_config" succeeded_with "tester"
 stool_approved alice gateway-admin recent_audit '{"user":"alice","server":"gateway-docs"}'
 check "gateway-admin: recent_audit" succeeded_with "name=search_files"
@@ -572,46 +573,53 @@ check "no server output reached the gateway as invalid messages" \
 	bash -c "! journalctl -u mcp-gateway.service -o cat | grep -q 'invalid message from backend'"
 
 section "Role data in YAML"
-# Chapter 6: data.yaml in /etc/mcp-gateway/policy/rbac is in force over
-# data.json. OPA does not load that directory itself (it would merge both
-# files) but its rendering by mcp-policy-render.service (root, rendering
-# again on each change it sees): /run/mcp-opa/rbac, which neither
-# the gateway nor OPA can write.
+# Chapter 6: the role data is data.yaml in /etc/mcp-gateway/policy/rbac.
+# OPA does not load that directory itself but its rendering by
+# mcp-policy-render.service (root, rendering again on each change it
+# sees): /run/mcp-opa/rbac, which neither the gateway nor OPA can write.
+# The test's role data so far is JSON in data.yaml (JSON is YAML too).
 rbac_dir=/etc/mcp-gateway/policy/rbac
 ry_since=$(date +%s)
 opa_pid=$(systemctl show -p MainPID --value mcp-opa.service)
 check "mcp-policy-render.service watches the role data" systemctl is-active --quiet mcp-policy-render.service
 check "OPA skips rbac/ and loads the rendering as data.mcp.rbac" \
 	bash -c 'tr "\0" " " </proc/$1/cmdline | grep -qF -- "--ignore rbac" && tr "\0" " " </proc/$1/cmdline | grep -qF "mcp.rbac:/run/mcp-opa/rbac"' _ "$opa_pid"
+check "OPA reads no data in JSON (--ignore *.json, since 1.7)" \
+	bash -c 'tr "\0" " " </proc/$1/cmdline | grep -qF -- "--ignore *.json"' _ "$opa_pid"
 ls -ldZ /run/mcp-opa/rbac /run/mcp-opa/rbac/* 2>&1 | sed 's/^/  /'
 check "/run/mcp-opa/rbac is labeled mcpopa_rbac_t" file_has_type /run/mcp-opa/rbac mcpopa_rbac_t
-check "/run/mcp-opa/rbac/data.json is labeled mcpopa_rbac_t" file_has_type /run/mcp-opa/rbac/data.json mcpopa_rbac_t
+check "/run/mcp-opa/rbac/data.yaml is labeled mcpopa_rbac_t" file_has_type /run/mcp-opa/rbac/data.yaml mcpopa_rbac_t
 check "/run/mcp-opa/rbac belongs to root, writable by root only" test "$(stat -c %U:%a /run/mcp-opa/rbac)" = root:755
-# ry_rendered <file>: the rendering has the role data of <file> (JSON).
-ry_rendered() { jq -S . "$1" | cmp -s - <(jq -S . /run/mcp-opa/rbac/data.json); }
-check "the rendering is the role data in force (data.json)" ry_rendered "$rbac_dir/data.json"
-check "the gateway's account cannot change the rendering" as_gateway_user_fails touch /run/mcp-opa/rbac/data.json
-check "the gateway's account cannot add to the rendering" as_gateway_user_fails touch /run/mcp-opa/rbac/x.json
-# A data.yaml next to data.json: block style, a comment, and one change
-# (bob gets the role "commands", which data.json does not give him).
+# ry_rendered: the rendering (JSON, as data.yaml) has the role data in
+# force, as policy show reads it.
+ry_rendered() { mcp-gateway-admin policy show | jq -S .data | cmp -s - <(jq -S . /run/mcp-opa/rbac/data.yaml); }
+check "the rendering is the role data in force" ry_rendered
+check "the gateway's account cannot change the rendering" as_gateway_user_fails touch /run/mcp-opa/rbac/data.yaml
+check "the gateway's account cannot add to the rendering" as_gateway_user_fails touch /run/mcp-opa/rbac/x.yaml
+# data.yaml in block style, with a comment and one change (bob gets the
+# role "commands", which the test's role data does not give him); the
+# role data so far as data.json next to it, which is ignored.
+cp "$rbac_dir/data.yaml" /root/vmtest/ry-json.yaml
 ry_yaml() {
 	echo "# Role data in YAML (chapter 6): data.json next to it is ignored."
-	jq -r '.bindings.users.bob += ["commands"] | to_entries[] | "\(.key): \(.value | tojson)"' "$rbac_dir/data.json"
+	jq -r '.bindings.users.bob += ["commands"] | to_entries[] | "\(.key): \(.value | tojson)"' /root/vmtest/ry-json.yaml
 }
 ry_yaml >"$rbac_dir/data.yaml"
-restorecon "$rbac_dir/data.yaml"
+cp /root/vmtest/ry-json.yaml "$rbac_dir/data.json"
+restorecon "$rbac_dir/data.yaml" "$rbac_dir/data.json"
 sed 's/^/  /' "$rbac_dir/data.yaml" | head -3
 ry_bob_exec() { stool bob exec echo_word '{"word":"yaml"}' && [ "$rc" = 0 ] && grep -qF yaml <<<"$out"; }
 ry_bob_refused() { stool bob exec echo_word '{"word":"yaml"}'; failed_without yaml; }
 check "data.yaml is in force within seconds (bob gets the role it binds)" eventually 15 ry_bob_exec
-check "the rendering has data.yaml's role data" bash -c 'jq -e ".bindings.users.bob | index(\"commands\")" /run/mcp-opa/rbac/data.json >/dev/null'
+check "the rendering has data.yaml's role data" bash -c 'jq -e ".bindings.users.bob | index(\"commands\")" /run/mcp-opa/rbac/data.yaml >/dev/null'
 check "OPA has one role data, not both files merged" \
 	bash -c 'curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/bindings/users/bob | jq -e ".result | index(\"commands\")" >/dev/null'
-check "mcp-policy-render says data.json is ignored" \
-	bash -c 'journalctl -u mcp-policy-render.service -o cat --since "@$1" | grep -qF "$2/data.json is ignored: $2/data.yaml is in force"' _ "$ry_since" "$rbac_dir"
+ry_ignored() { journalctl -u mcp-policy-render.service -o cat --since "@$ry_since" | grep -qF "$rbac_dir/data.json is ignored: $rbac_dir/data.yaml is in force"; }
+check "mcp-policy-render says data.json is ignored" eventually 15 ry_ignored
 check "mcp-gateway --check-policy-data checks data.yaml" \
 	bash -c 'mcp-gateway --check-policy-data 2>&1 | grep -qF "path=$1/data.yaml"' _ "$rbac_dir"
 check "... and says data.json is ignored" bash -c 'mcp-gateway --check-policy-data 2>&1 | grep -qF "role data ignored"'
+check "a data.json next to data.yaml blocks nothing" sh -c '! mcp-gateway --check 2>&1 | grep -qF "no longer read"'
 # ry_doctor <jq filter>: the doctor's results (without starting servers) match.
 ry_doctor() {
 	mcp-gateway-admin doctor --no-start --json >/root/vmtest/ry-doctor.json 2>/dev/null
@@ -620,6 +628,7 @@ ry_doctor() {
 check "doctor: data.yaml valid, data.json named as ignored" ry_doctor \
 	'.[] | select(.id == "role-data" and .status == "warn" and (.summary | contains("data.yaml valid"))) | .details[] | select(contains("data.json is ignored"))'
 check "doctor: OPA's role data is current" ry_doctor '.[] | select(.id == "role-data-rendering" and .status == "ok")'
+check "doctor: no policy data in JSON is read" ry_doctor '.[] | select(.id == "json-policy-data" and .status == "ok")'
 # data.yaml that does not parse: not rendered, the role data in force
 # stays, and the renderer keeps watching.
 cp "$rbac_dir/data.yaml" /root/vmtest/ry-good.yaml
@@ -666,13 +675,9 @@ check "a subdirectory's data.yaml reaches OPA as data.mcp.rbac.vmtest" eventuall
 rm -r "$rbac_dir/vmtest"
 ry_sub_gone() { test ! -e /run/mcp-opa/rbac/vmtest; }
 check "... and goes once the subdirectory is gone" eventually 15 ry_sub_gone
-# Without data.yaml, data.json is in force again.
-rm "$rbac_dir/data.yaml"
-check "data.yaml removed: data.json is in force again (bob loses the role)" eventually 15 ry_bob_refused
-check "the rendering is data.json's again" ry_rendered "$rbac_dir/data.json"
-check "doctor: the role data is valid again, nothing ignored" ry_doctor '.[] | select(.id == "role-data" and .status == "ok")'
 # Without role data in /etc, the shipped default is in force, taken whole
 # (its roles viewer, developer and admin; the test's roles gone).
+mv "$rbac_dir/data.yaml" /root/vmtest/ry-data.yaml
 mv "$rbac_dir/data.json" /root/vmtest/ry-data.json
 ry_default() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac | jq -e '.result.roles | has("viewer") and has("developer") and (has("tester") | not)' >/dev/null; }
 check "no role data in /etc: the shipped default is in force" eventually 15 ry_default
@@ -680,23 +685,62 @@ check "doctor: the shipped default is valid and named" ry_doctor \
 	'.[] | select(.id == "role-data" and .status == "ok" and (.summary | contains("/usr/share/mcp-gateway/rbac/data.yaml valid")))'
 check "mcp-gateway --check-policy-data checks the shipped default" \
 	bash -c 'mcp-gateway --check-policy-data 2>&1 | grep -qF "path=/usr/share/mcp-gateway/rbac/data.yaml"'
-mv /root/vmtest/ry-data.json "$rbac_dir/data.json"
+cat /root/vmtest/ry-json.yaml >/root/vmtest/ry-data.yaml
+mv /root/vmtest/ry-data.yaml "$rbac_dir/data.yaml"
+restorecon "$rbac_dir/data.yaml"
 ry_own() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac | jq -e '.result.roles | has("tester") and (has("viewer") | not)' >/dev/null; }
-check "data.json back: its roles are in force, not the default's" eventually 15 ry_own
+check "data.yaml back: its roles are in force, not the default's" eventually 15 ry_own
+check "... bob without the role it gave him" ry_bob_refused
 
 section "Configuration in JSON"
-# Step 38: role data and the data of custom Rego in JSON are deprecated
-# since 1.6 (1.7 no longer reads them). Each such file warns with its name
-# and the command that converts it, and the converted file gives the same
-# data, so the same decisions. The test's role data is data.json.
+# Step 38: role data and the data of custom Rego in JSON were deprecated
+# in 1.6 and are no longer read since 1.7. A file left over that 1.6
+# read (a data.json without a data.yaml, a data file in JSON below
+# /etc/mcp-gateway/policy) is an error naming it and the command that
+# converts it, and the policy fails closed: the gateway denies every
+# request and lists nothing until it is converted. Converted, the same
+# data is in force.
+jd_since=$(date +%s)
+mv "$rbac_dir/data.yaml" /root/vmtest/jd-data.yaml
+cp /root/vmtest/ry-json.yaml "$rbac_dir/data.json"
+restorecon "$rbac_dir/data.json"
 jd_cmd="mcp-gateway-admin policy convert $rbac_dir/data.json"
-check "mcp-gateway --check warns about data.json, naming the command" \
-	bash -c 'mcp-gateway --check 2>&1 | grep -F "deprecated since 1.6" | grep -F "path=$1/data.json" | grep -qF "convert=\"$2\""' _ "$rbac_dir" "$jd_cmd"
-check "mcp-gateway --check-policy-data warns about it too" \
-	bash -c 'mcp-gateway --check-policy-data 2>&1 | grep -F "deprecated since 1.6" | grep -qF "path=$1/data.json"' _ "$rbac_dir"
-check "the gateway warned about it at start" \
-	bash -c 'journalctl -b -u mcp-gateway.service -o cat | grep -F "deprecated since 1.6" | grep -qF "path=$1/data.json"' _ "$rbac_dir"
-# Data of custom Rego (chapter 12), which OPA loads itself.
+jd_problem="$rbac_dir/data.json: configuration in JSON is no longer read since 1.7: convert it to YAML with $jd_cmd"
+jd_render_says() { journalctl -u mcp-policy-render.service -o cat --since "@$jd_since" | grep -qF "$jd_problem"; }
+check "mcp-policy-render names the role data in JSON and the command" eventually 15 jd_render_says
+jd_no_rbac() { test ! -e /run/mcp-opa/rbac/data.yaml && ! ry_default && ! ry_own; }
+check "... renders nothing for it, not the shipped default either" eventually 15 jd_no_rbac
+check "mcp-gateway --check refuses it, naming the command" \
+	bash -c '! mcp-gateway --check >/root/vmtest/jd-check.txt 2>&1 && grep -qF "$1" /root/vmtest/jd-check.txt' _ "$jd_problem"
+check "mcp-gateway --check-policy-data refuses it too" \
+	bash -c '! mcp-gateway --check-policy-data >/root/vmtest/jd-check.txt 2>&1 && grep -qF "$1" /root/vmtest/jd-check.txt' _ "$jd_problem"
+jd_denied() { tool alice read_file '{"path":"/home/alice/secret.txt"}'; failed_without "alice secret" && grep -qF "no longer read since 1.7" <<<"$out"; }
+check "the gateway denies alice's call, naming the file" eventually 15 jd_denied
+jd_nothing_listed() { call alice --method tools/list --params '{}'; ! grep -qF '"read_file"' <<<"$out"; }
+check "... and lists her nothing" jd_nothing_listed
+jd_logged() { journalctl -u mcp-gateway.service -o cat --since "@$jd_since" | grep -F "every request is denied until it is converted" | grep -qF "path=$rbac_dir/data.json"; }
+check "... and logs why" jd_logged
+check "doctor: the role data fails, naming the command" ry_doctor \
+	".[] | select(.id == \"role-data\" and .status == \"fail\" and (.summary == \"$jd_problem\"))"
+check "doctor: policy data in JSON fails, naming the file" ry_doctor \
+	"[.[] | select(.id == \"json-policy-data\" and .status == \"fail\") | .details[]] | any(. == \"$rbac_dir/data.json: $jd_cmd\")"
+check "policy show: the JSON, converted, for the role editor to save" \
+	bash -c 'mcp-gateway-admin policy show | jq -e --arg f "$1/data.json" ".file == \$f and .origin == \"json\" and (.yaml | length > 0) and (.data.roles | has(\"tester\"))" >/dev/null' _ "$rbac_dir"
+jd_out=$(mcp-gateway-admin policy convert)
+echo "$jd_out" | sed 's/^/  /'
+check "policy convert: data.yaml written next to data.json" grep -qF "$rbac_dir/data.yaml is in force now; $rbac_dir/data.json is ignored" <<<"$jd_out"
+check "... and its roles are in force again" eventually 15 ry_own
+check "... the same data as the JSON" bash -c 'jq -S . /run/mcp-opa/rbac/data.yaml | cmp -s - <(jq -S . "$1")' _ /root/vmtest/ry-json.yaml
+jd_decides() { tool alice read_file '{"path":"/home/alice/secret.txt"}'; succeeded_with "alice secret"; }
+check "the gateway decides again" eventually 15 jd_decides
+jd_again() { journalctl -u mcp-gateway.service -o cat --since "@$jd_since" | grep -qF "the policy decides again"; }
+check "... and says so" jd_again
+check "policy convert --to json: the role data as JSON, the same data" \
+	bash -c 'mcp-gateway-admin policy convert --to json -o - | jq -S . | cmp -s - <(jq -S . "$1")' _ /root/vmtest/ry-json.yaml
+rm "$rbac_dir/data.json"
+# Data of custom Rego (chapter 12), which OPA loads itself: in JSON, OPA
+# no longer loads it, and the gateway denies every request.
+jd_since=$(date +%s)
 jd_dir=/etc/mcp-gateway/policy/vmtest_custom
 mkdir -p "$jd_dir"
 echo '{"answer": 42, "words": ["yes", "on", "010"], "nested": {"limit": 1.5}}' >"$jd_dir/data.json"
@@ -704,56 +748,31 @@ restorecon -R "$jd_dir"
 # jd_opa: OPA's data.mcp.vmtest_custom, sorted.
 jd_opa() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/vmtest_custom | jq -S -c .result; }
 jd_loaded() { [ "$(jd_opa)" = '{"answer":42,"nested":{"limit":1.5},"words":["yes","on","010"]}' ]; }
-check "OPA loads the custom data in JSON" eventually 15 jd_loaded
-check "doctor: both files in JSON named, each with its command" ry_doctor \
-	"[.[] | select(.id == \"json-policy-data\" and .status == \"warn\") | .details[]] | (any(. == \"$rbac_dir/data.json: $jd_cmd\")) and (any(. == \"$jd_dir/data.json: mcp-gateway-admin policy convert $jd_dir/data.json\"))"
+jd_custom_denied() { tool alice read_file '{"path":"/home/alice/secret.txt"}'; failed_without "alice secret" && grep -qF "$jd_dir/data.json" <<<"$out"; }
+check "custom data in JSON: the gateway denies, naming the file" eventually 15 jd_custom_denied
+sleep 2
+check "... and OPA does not load it" sh -c '[ "$(curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/vmtest_custom | jq -c .result)" = null ]'
+check "doctor: the custom data in JSON named, with its command" ry_doctor \
+	"[.[] | select(.id == \"json-policy-data\" and .status == \"fail\") | .details[]] | any(. == \"$jd_dir/data.json: mcp-gateway-admin policy convert $jd_dir/data.json\")"
+check "mcp-gateway --check refuses it" \
+	bash -c '! mcp-gateway --check >/root/vmtest/jd-check.txt 2>&1 && grep -qF "$1/data.json: configuration in JSON is no longer read since 1.7" /root/vmtest/jd-check.txt' _ "$jd_dir"
 jd_out=$(mcp-gateway-admin policy convert "$jd_dir/data.json")
 echo "$jd_out" | sed 's/^/  /'
 check "policy convert: the custom data written as YAML" test -s "$jd_dir/data.yaml"
-check "... and data.json removed, as OPA refuses the same data twice" test ! -e "$jd_dir/data.json"
+check "... and data.json removed" test ! -e "$jd_dir/data.json"
 check "... saying so" grep -qF "removed $jd_dir/data.json" <<<"$jd_out"
 check "the YAML is labeled as the policy is" bash -c '[ "$(stat -c %C "$1/data.yaml" | cut -d: -f3)" = "$(stat -c %C /etc/mcp-gateway/policy | cut -d: -f3)" ]' _ "$jd_dir"
-sleep 3
 check "OPA reads the YAML as the same data" eventually 15 jd_loaded
-check "policy convert --to json brings the JSON back" mcp-gateway-admin policy convert --to json "$jd_dir/data.yaml"
-check "... and removes the YAML" test ! -e "$jd_dir/data.yaml"
-sleep 3
-check "... with the same data" eventually 15 jd_loaded
+check "... and the gateway decides again" eventually 15 jd_decides
+jd_out=$(mcp-gateway-admin policy convert --to json "$jd_dir/data.yaml")
+check "policy convert --to json brings the JSON back, saying it is not read" \
+	bash -c 'test -s "$1/data.json" && test ! -e "$1/data.yaml" && grep -qF "no longer read since 1.7" <<<"$2"' _ "$jd_dir" "$jd_out"
+check "... and the gateway denies again" eventually 15 jd_custom_denied
 mcp-gateway-admin policy convert "$jd_dir/data.json" >/dev/null
-# The role data: converted, data.yaml is in force with the same data (the
-# rendering is the same JSON), and calls are decided as before.
-jd_rendered_before=$(jq -S -c . /run/mcp-opa/rbac/data.json)
-ry_bob_refused
-jd_bob_before=$rc
-jd_since=$(date +%s)
-jd_out=$(mcp-gateway-admin policy convert)
-echo "$jd_out" | sed 's/^/  /'
-check "policy convert: data.yaml written next to data.json" grep -qF "$rbac_dir/data.yaml is in force now; $rbac_dir/data.json is ignored" <<<"$jd_out"
-jd_same() { [ "$(jq -S -c . /run/mcp-opa/rbac/data.json)" = "$jd_rendered_before" ] && journalctl -u mcp-policy-render.service -o cat --since "@$jd_since" | grep -qF "$rbac_dir/data.json is ignored"; }
-check "... and the rendering of data.yaml is the role data it was" eventually 15 jd_same
-stool bob exec echo_word '{"word":"yaml"}'
-check "... so bob's call is decided as before" test "$rc" = "$jd_bob_before"
-check "doctor: no JSON left" ry_doctor '.[] | select(.id == "json-policy-data" and .status == "ok")'
-check "mcp-gateway --check: no JSON warning" bash -c '! mcp-gateway --check 2>&1 | grep -qF "deprecated since 1.6"'
-check "policy convert --to json: the role data back as JSON, the same data" \
-	bash -c 'mcp-gateway-admin policy convert --to json -o - | jq -S . | cmp -s - <(jq -S . "$1/data.json")' _ "$rbac_dir"
-rm -r "$jd_dir" "$rbac_dir/data.yaml"
-check "data.yaml removed: data.json is in force again" eventually 15 ry_own
-# A data.json that does not parse: each reader names its line and column
-# (as for YAML), and the role data in force stays.
-jd_since=$(date +%s)
-cp "$rbac_dir/data.json" /root/vmtest/jd-good.json
-printf '{\n  "roles": {"x": {"permissions": [{"server": "fs"},]}}\n}\n' >"$rbac_dir/data.json"
-jd_where="$rbac_dir/data.json: line 2, column 52: invalid character ']'"
-check "mcp-gateway --check-policy-data names the line and column of a JSON error" \
-	bash -c 'mcp-gateway --check-policy-data 2>&1 | grep -qF "$1"' _ "$jd_where"
-check "doctor: the role data fails, with the line and column" ry_doctor \
-	".[] | select(.id == \"role-data\" and .status == \"fail\" and (.summary | startswith(\"$jd_where\")))"
-jd_render_says() { journalctl -u mcp-policy-render.service -o cat --since "@$jd_since" | grep -qF "$jd_where"; }
-check "mcp-policy-render names them too" eventually 15 jd_render_says
-check "... and the role data in force stays" ry_own
-cat /root/vmtest/jd-good.json >"$rbac_dir/data.json"
-check "fixed, data.json is in force again" eventually 15 ry_own
+check "converted once more, the gateway decides" eventually 15 jd_decides
+rm -r "$jd_dir"
+cat /root/vmtest/jd-data.yaml >"$rbac_dir/data.yaml"
+check "the test's role data back" eventually 15 ry_own
 
 section "Instances"
 systemctl list-units --type=service --plain --no-legend 'mcp-*' | awk '{print "  " $1, $4}'
@@ -829,8 +848,8 @@ check "the gateway user cannot read credentials" as_gateway_user_fails cat /etc/
 # (mcpsrv_generic_t), and sees neither other units' credentials nor their
 # transient unit files.
 jq '.roles.tester.permissions += [{"server": "credtest", "tool": "*"}]' \
-	/etc/mcp-gateway/policy/rbac/data.json >/root/cred-data.json &&
-	cat /root/cred-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	/etc/mcp-gateway/policy/rbac/data.yaml >/root/cred-data.json &&
+	cat /root/cred-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 cat >/etc/mcp-gateway/servers.d/credtest.yaml <<'END'
 name: credtest
 command: ["/usr/libexec/mcpgw-privtest"]
@@ -908,8 +927,8 @@ END
 # "hold" by exact name (allowed), everything else through the wildcard
 # (asks, since the server is privileged).
 jq '.roles.tester.permissions += [{"server": "privtest", "tool": "hold"}, {"server": "privtest", "tool": "*"}]' \
-	/etc/mcp-gateway/policy/rbac/data.json >/root/privtest/data.json &&
-	cat /root/privtest/data.json >/etc/mcp-gateway/policy/rbac/data.json
+	/etc/mcp-gateway/policy/rbac/data.yaml >/root/privtest/data.json &&
+	cat /root/privtest/data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 check "the gateway accepts the privileged server" /usr/bin/mcp-gateway --check --policy-data=
 systemctl restart mcp-gateway.service
 wait_socket
@@ -1027,8 +1046,8 @@ ExecStart=/bin/true
 END
 	systemctl daemon-reload
 	jq '.bindings.users.alice += ["systemd-operator", "firewalld-reader", "zypp-reader", "suseconnect-reader", "snapper-operator", "podman-operator"]' \
-		/etc/mcp-gateway/policy/rbac/data.json >/root/vmtest/data.json &&
-		cat /root/vmtest/data.json >/etc/mcp-gateway/policy/rbac/data.json
+		/etc/mcp-gateway/policy/rbac/data.yaml >/root/vmtest/data.json &&
+		cat /root/vmtest/data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 	check "the role data binds the shipped roles" mcp-gateway --check-policy-data
 	# Each server, started as for shared discovery, has every tool its
 	# shipped roles name (mcp-gateway-admin inspect, roadmap step 11). zypp
@@ -1265,8 +1284,8 @@ section "MCP server over HTTP"
 http_pid=$!
 echo vmtest-token | install -m 0600 /dev/stdin /etc/mcp-gateway/credentials/httptoken
 jq '.roles.tester.permissions += [{"server": "httpecho", "tool": "whoami"}]' \
-	/etc/mcp-gateway/policy/rbac/data.json >/root/http-data.json &&
-	cat /root/http-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	/etc/mcp-gateway/policy/rbac/data.yaml >/root/http-data.json &&
+	cat /root/http-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 cat >/etc/mcp-gateway/servers.d/httpecho.yaml <<'END'
 name: httpecho
 url: http://127.0.0.1:8008/mcp
@@ -1316,8 +1335,8 @@ install -m 0644 /root/vmtest-server.pem /etc/pki/trust/anchors/mcp-vmtest.pem &&
 echo vmtest-token | install -m 0600 /dev/stdin /etc/mcp-gateway/credentials/httptoken
 printf %s vmtest:proxypass | base64 | install -m 0600 /dev/stdin /etc/mcp-gateway/credentials/proxyauth
 jq '.roles.tester.permissions += [{"server": "httpsproxied", "tool": "whoami"}]' \
-	/etc/mcp-gateway/policy/rbac/data.json >/root/http-data.json &&
-	cat /root/http-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	/etc/mcp-gateway/policy/rbac/data.yaml >/root/http-data.json &&
+	cat /root/http-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 cat >/etc/mcp-gateway/servers.d/httpsproxied.yaml <<'END'
 name: httpsproxied
 url: https://mcp.vmtest:8443/mcp
@@ -1379,8 +1398,8 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 		printf '  issuer: https://idp.vmtest\n  audience: https://gw.vmtest:9443/mcp\n'
 	} >/etc/mcp-gateway/gateway.yaml
 	jq '.roles.tester.permissions += [{"server": "tickets", "tool": "whoami"}]' \
-		/etc/mcp-gateway/policy/rbac/data.json >/root/si-data.json &&
-		cat /root/si-data.json >/etc/mcp-gateway/policy/rbac/data.json
+		/etc/mcp-gateway/policy/rbac/data.yaml >/root/si-data.json &&
+		cat /root/si-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 	cat >/etc/mcp-gateway/servers.d/tickets.yaml <<'END'
 name: tickets
 url: https://auth.vmtest/mcp
@@ -1568,8 +1587,8 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 
 	# The role data's scope ceiling: mcp:read reads, writing needs mcp:write.
 	jq '.scopes = {"mcp:read": {"permissions": [{"server": "fs", "tool": "read_*"}]}, "mcp:write": {"roles": ["tester"]}}' \
-		/etc/mcp-gateway/policy/rbac/data.json >/root/hl-data.json &&
-		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.json
+		/etc/mcp-gateway/policy/rbac/data.yaml >/root/hl-data.json &&
+		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 	hl_read=$(hl_tok "aud=$hl_url&sub=alice&preferred_username=alice&scope=mcp+mcp:read")
 	hl_open "$hl_read"
 	hl_reads() { hl_call "$hl_read" read_file '{"path":"/home/alice/secret.txt"}' && hl_ok "alice secret"; }
@@ -1580,8 +1599,8 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	# Decision records: "audit":true with the token's scopes.
 	hl_scopes_audited() { journalctl -u mcp-gateway.service -o cat --since "@$hl_since" | grep -F '"audit":true' | grep -qF '"scopes":"mcp mcp:read"'; }
 	check "the decision is audited with the token's scopes" hl_scopes_audited
-	jq 'del(.scopes)' /etc/mcp-gateway/policy/rbac/data.json >/root/hl-data.json &&
-		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	jq 'del(.scopes)' /etc/mcp-gateway/policy/rbac/data.yaml >/root/hl-data.json &&
+		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 
 	# An agent of MCP 2026-07-28: no initialize, no session; the protocol
 	# version, method and tool name in headers as in the body.
@@ -1612,8 +1631,8 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	# not offered (its root would be "/", the working directory of the
 	# dynamic user it would run as). exec, whose definition names no
 	# home, is.
-	jq '.bindings.users.zed = ["tester", "commands"]' /etc/mcp-gateway/policy/rbac/data.json >/root/hl-data.json &&
-		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	jq '.bindings.users.zed = ["tester", "commands"]' /etc/mcp-gateway/policy/rbac/data.yaml >/root/hl-data.json &&
+		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 	hl_zed=$(hl_tok "aud=$hl_url&sub=zed&scope=mcp")
 	# hl_agg TOKEN BODY: a request at the aggregated endpoint, in the
 	# session hl_agg_open opened (hl_agg_sid).
@@ -1644,8 +1663,8 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 			grep -F "server not offered to a principal without a home" | grep -q 'server=fs'
 	}
 	check "... the gateway says why" hl_no_home_logged
-	jq 'del(.bindings.users.zed)' /etc/mcp-gateway/policy/rbac/data.json >/root/hl-data.json &&
-		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	jq 'del(.bindings.users.zed)' /etc/mcp-gateway/policy/rbac/data.yaml >/root/hl-data.json &&
+		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 
 	# Limits (D14): at limits.sessions_per_principal, the principal's
 	# longest-idle HTTP session makes room for a new one, as agents often
@@ -1709,8 +1728,8 @@ jq '.roles.obligated = {"permissions": [
 	{"server": "fs", "tool": "list_directory"},
 	{"server": "fs", "tool": "get_file_info", "obligations": {"rate_limit": "2/m"}}]}
 	| .bindings.users.dora = ["obligated"]' \
-	/etc/mcp-gateway/policy/rbac/data.json >/root/ob-data.json &&
-	cat /root/ob-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	/etc/mcp-gateway/policy/rbac/data.yaml >/root/ob-data.json &&
+	cat /root/ob-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 check "the role data with obligations is valid" mcp-gateway --check-policy-data
 # The role data takes effect at once; dora's first call waits for it.
 ob_read() { tool dora read_file '{"path":"/home/dora/record.txt"}' && [ "$rc" = 0 ]; }
@@ -1779,8 +1798,8 @@ section "Live reload of server definitions"
 rl_since=$(date +%s)
 gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
 jq '.roles.tester.permissions += [{"server": "fsreload", "tool": "read_*"}]' \
-	/etc/mcp-gateway/policy/rbac/data.json >/root/rl-data.json &&
-	cat /root/rl-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	/etc/mcp-gateway/policy/rbac/data.yaml >/root/rl-data.json &&
+	cat /root/rl-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 sed 's/^name: fs$/name: fsreload/' /usr/share/mcp-gateway/servers.d/fs-demo.yaml >/etc/mcp-gateway/servers.d/fsreload.yaml
 restorecon /etc/mcp-gateway/servers.d/fsreload.yaml
 rl_call() {
@@ -1977,15 +1996,16 @@ section "Update without restart"
 gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
 ls -li /usr/bin/mcp-gateway | sed 's/^/  before: /'
 if [ -n "$rpms" ]; then
-	cp /etc/mcp-gateway/policy/rbac/data.json /root/vmtest/up-data.json
+	cp /etc/mcp-gateway/policy/rbac/data.yaml /root/vmtest/up-data.yaml
 	rpm -Uvh --force --nodeps "$rpms"/mcp-gateway-[0-9]*.rpm >/dev/null 2>&1
 	sleep 2
 	ls -li /usr/bin/mcp-gateway | sed 's/^/  after:  /'
 	check "a package update does not restart the gateway" \
 		test "$(systemctl show -p MainPID --value mcp-gateway.service)" = "$gw_pid"
-	check "an update keeps a changed data.json as it is" cmp -s /etc/mcp-gateway/policy/rbac/data.json /root/vmtest/up-data.json
+	check "an update keeps a changed data.yaml as it is" cmp -s /etc/mcp-gateway/policy/rbac/data.yaml /root/vmtest/up-data.yaml
 	# An update from 1.4 with its default unchanged in /etc: the copy goes
 	# (%posttrans), and the shipped default is in force from then on.
+	rm /etc/mcp-gateway/policy/rbac/data.yaml
 	cp "$dir/default-1.4.json" /etc/mcp-gateway/policy/rbac/data.json
 	restorecon /etc/mcp-gateway/policy/rbac/data.json
 	up_out=$(rpm -Uvh --force --nodeps "$rpms"/mcp-gateway-[0-9]*.rpm 2>&1)
@@ -1993,8 +2013,15 @@ if [ -n "$rpms" ]; then
 	check "... and says so" grep -qF "the default of an earlier package" <<<"$up_out"
 	up_default() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac | jq -e '.result.roles | has("viewer") and (has("tester") | not)' >/dev/null; }
 	check "... and the shipped default is in force" eventually 15 up_default
-	cat /root/vmtest/up-data.json >/etc/mcp-gateway/policy/rbac/data.json
-	restorecon /etc/mcp-gateway/policy/rbac/data.json
+	# Configuration in JSON left over (step 38): the update names it.
+	mkdir -p /etc/mcp-gateway/policy/vmtest_up
+	echo '{"x": 1}' >/etc/mcp-gateway/policy/vmtest_up/data.json
+	up_out=$(rpm -Uvh --force --nodeps "$rpms"/mcp-gateway-[0-9]*.rpm 2>&1)
+	check "an update names configuration in JSON left over, with the command" \
+		grep -qF "/etc/mcp-gateway/policy/vmtest_up/data.json: configuration in JSON is no longer read since 1.7, and the gateway denies every request until it is converted: mcp-gateway-admin policy convert /etc/mcp-gateway/policy/vmtest_up/data.json" <<<"$up_out"
+	rm -r /etc/mcp-gateway/policy/vmtest_up
+	cat /root/vmtest/up-data.yaml >/etc/mcp-gateway/policy/rbac/data.yaml
+	restorecon /etc/mcp-gateway/policy/rbac/data.yaml
 	up_back() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac | jq -e '.result.roles | has("tester")' >/dev/null; }
 	check "the test's role data in force again" eventually 15 up_back
 else
@@ -2105,8 +2132,8 @@ section "Limits"
 lm_since=$(date +%s)
 useradd -m erin
 usermod -aG mcp-users erin
-jq '.bindings.users.erin = ["tester", "commands"]' /etc/mcp-gateway/policy/rbac/data.json >/root/lm-data.json &&
-	cat /root/lm-data.json >/etc/mcp-gateway/policy/rbac/data.json
+jq '.bindings.users.erin = ["tester", "commands"]' /etc/mcp-gateway/policy/rbac/data.yaml >/root/lm-data.json &&
+	cat /root/lm-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 # lm_refusals <limit>: the counter of refusals at <limit> (0 before the first).
 lm_refusals() {
 	local n
@@ -2248,8 +2275,8 @@ jq '.roles.asked = {"permissions": [
 	{"server": "fs", "tool": "get_file_info", "require_approval": true, "approval_channel": "oob", "approval_scopes": ["once", "1h"]},
 	{"server": "fs", "tool": "search_files", "require_approval": true, "approval_channel": "oob"}]}
 	| .bindings.users.erin += ["asked"]' \
-	/etc/mcp-gateway/policy/rbac/data.json >/root/fc-data.json &&
-	cat /root/fc-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	/etc/mcp-gateway/policy/rbac/data.yaml >/root/fc-data.json &&
+	cat /root/fc-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 runuser -u erin -- sh -c 'echo "erin notes" >/home/erin/notes.txt'
 fc_read() { tool erin read_file '{"path":"/home/erin/notes.txt"}' && succeeded_with "erin notes"; }
 check "erin reads her file" eventually 20 fc_read
@@ -2369,7 +2396,7 @@ pb_denied() { pb_search && [ "$rc" != 0 ] && ! grep -qF notes.txt <<<"$out"; }
 pb_read_ok() { tool erin read_file '{"path":"/home/erin/notes.txt"}' && succeeded_with "erin notes"; }
 pb_opa_up() { systemctl is-active -q mcp-opa.service && pb_read_ok; }
 jq '.roles.searcher = {"permissions": [{"server": "fs", "tool": "search_text"}]} | .bindings.users.erin += ["searcher"]' \
-	/etc/mcp-gateway/policy/rbac/data.json >/root/pb-data.json
+	/etc/mcp-gateway/policy/rbac/data.yaml >/root/pb-data.json
 check "erin may not search text yet" pb_denied
 
 # What-if: the decisions the edit would change, without applying it.
@@ -2396,7 +2423,7 @@ check "GET /v1/policy: bundle mode, the bundle's revision" \
 	bash -c 'curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/policy | jq -e ".mode == \"bundle\" and ([.bundles[]] | index(\"vmtest-1\"))" >/dev/null'
 
 # Role data written to the directory is not signed: no effect.
-cat /root/pb-data.json >/etc/mcp-gateway/policy/rbac/data.json
+cat /root/pb-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 sleep 3
 check "bundle mode: role data written but not signed has no effect" pb_denied
 check "mcp-policy-bundle signs it and restarts OPA" mcp-policy-bundle -r vmtest-2
@@ -2469,11 +2496,11 @@ if zypper -n in --no-recommends postfix >/root/vmtest/mail-install.log 2>&1; the
 	useradd -m -g mailers gina
 	for u in hank frank gina; do usermod -aG mcp-users "$u"; done
 	runuser -u hank -- sh -c 'echo "hank notes" >/home/hank/notes.txt'
-	cp /etc/mcp-gateway/policy/rbac/data.json /root/ml-data-before.json
+	cp /etc/mcp-gateway/policy/rbac/data.yaml /root/ml-data-before.json
 	jq '.roles.mailed = {"permissions": [{"server": "fs", "tool": "read_file", "require_approval": true, "approval_channel": "oob"}]}
 		| .bindings.users.hank = ["mailed"] | .approvers.fs = ["group:mailers"]' \
 		/root/ml-data-before.json >/root/ml-data.json &&
-		cat /root/ml-data.json >/etc/mcp-gateway/policy/rbac/data.json
+		cat /root/ml-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 	check "notifications.email: config set from" sh -c 'mcp-gateway-admin config set notifications.email.from mcp-gateway@localhost | grep -qF "is in force"'
 	check "notifications.email: config set smtp localhost:25" sh -c 'mcp-gateway-admin config set notifications.email.smtp localhost:25 | grep -qF "is in force"'
 	ml_listening() { (exec 3<>/dev/tcp/127.0.0.1/25) 2>/dev/null; }
@@ -2528,7 +2555,7 @@ if zypper -n in --no-recommends postfix >/root/vmtest/mail-install.log 2>&1; the
 	mcp-gateway-admin config unset notifications.email.smtp >/dev/null
 	mcp-gateway-admin config unset notifications.email.from >/dev/null
 	setsebool mcpgw_can_send_mail off
-	cat /root/ml-data-before.json >/etc/mcp-gateway/policy/rbac/data.json
+	cat /root/ml-data-before.json >/etc/mcp-gateway/policy/rbac/data.yaml
 	# Out of mcp-users again: without roles, the self-check would name them.
 	for u in hank frank gina; do gpasswd -d "$u" mcp-users >/dev/null; done
 else
@@ -2749,8 +2776,8 @@ END
 	jq '.bindings.groups["mcp-dir"] = ["tester", "dir-asked"]
 		| .roles["dir-asked"] = {"permissions": [{"server": "fs", "tool": "get_file_info", "require_approval": true, "approval_channel": "oob"}]}
 		| .approvers.fs = ["group:dir-approvers"]' \
-		/etc/mcp-gateway/policy/rbac/data.json >/root/dir-data.json &&
-		cat /root/dir-data.json >/etc/mcp-gateway/policy/rbac/data.json
+		/etc/mcp-gateway/policy/rbac/data.yaml >/root/dir-data.json &&
+		cat /root/dir-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 	dir_read() { tool dirk read_file '{"path":"/home/dirk/notes.txt"}' && succeeded_with "dirk from the directory"; }
 	check "a directory user reads his file (role through a directory group)" eventually 30 dir_read
 	dir_inst=$(instance_pid dirk)
@@ -2773,8 +2800,8 @@ END
 	check "... and approves it: the call runs" grep -q '"isError":false' /root/vmtest/dir-call.out
 
 	# Back to mcp-users.
-	jq 'del(.approvers.fs)' /etc/mcp-gateway/policy/rbac/data.json >/root/dir-data.json &&
-		cat /root/dir-data.json >/etc/mcp-gateway/policy/rbac/data.json
+	jq 'del(.approvers.fs)' /etc/mcp-gateway/policy/rbac/data.yaml >/root/dir-data.json &&
+		cat /root/dir-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 	mcp-gateway-admin config unset socket_group >/dev/null
 	rm -f /etc/systemd/system/mcp-gateway.service.d/vmtest-socket-group.conf
 	systemctl daemon-reload
@@ -2871,8 +2898,8 @@ check "the gateway's sockets are gone" test ! -S /run/mcp-gateway/mcp.sock
 # The role data is the administrator's (the package owns it as %ghost
 # %config): rpm keeps it in place, without .rpmsave; what the tests added
 # stays as it is.
-check "the role data is kept as it is" test -s /etc/mcp-gateway/policy/rbac/data.json
-check "... not as data.json.rpmsave" test ! -e /etc/mcp-gateway/policy/rbac/data.json.rpmsave
+check "the role data is kept as it is" test -s /etc/mcp-gateway/policy/rbac/data.yaml
+check "... not as data.yaml.rpmsave" test ! -e /etc/mcp-gateway/policy/rbac/data.yaml.rpmsave
 check "the configuration added stays (/etc/mcp-gateway/exec.d)" test -s /etc/mcp-gateway/exec.d/vmtest.yaml
 check "the state stays (/var/lib/mcp-gateway)" test -d /var/lib/mcp-gateway
 

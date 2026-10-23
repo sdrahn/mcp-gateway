@@ -1,6 +1,7 @@
 package policydata
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -134,8 +135,16 @@ func TestReadOr(t *testing.T) {
 	if err := os.WriteFile(js, []byte(`{"roles": {"mine": {}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if f, data, _, err := ReadOr(js, def); err != nil || f != js || !strings.Contains(string(data), "mine") {
-		t.Errorf("own: %s %s %v", f, data, err)
+	// Role data in JSON is no longer read, and keeps the default out of
+	// force: the policy fails closed rather than with the shipped roles.
+	if f, data, _, err := ReadOr(js, def); !errors.Is(err, ErrJSON) || f != js || data != nil {
+		t.Errorf("own, in JSON: %s %s %v", f, data, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "data.yaml"), []byte("roles: {mine: {}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if f, data, ig, err := ReadOr(js, def); err != nil || f != filepath.Join(dir, "data.yaml") || !strings.Contains(string(data), "mine") || len(ig) != 1 {
+		t.Errorf("own: %s %s %v %v", f, data, ig, err)
 	}
 	// Another name than data.json or data.yaml has no default.
 	if f, _ := InForceOr(filepath.Join(dir, "other.json"), def); f != filepath.Join(dir, "other.json") {
@@ -143,23 +152,31 @@ func TestReadOr(t *testing.T) {
 	}
 }
 
-// Role data in JSON that does not parse names the line and column, as
-// YAML's errors name the line.
-func TestReadJSONSyntaxError(t *testing.T) {
+// Role data in JSON on standard input (policy write, --check-policy-data
+// -) is read, as it is no file of the configuration; a file in JSON is
+// not read at all, whatever it holds.
+func TestReadJSON(t *testing.T) {
 	dir := t.TempDir()
-	for _, c := range []struct{ content, want string }{
-		{"{\n  \"roles\": {\n    \"dev\": {\"permissions\": [{\"server\": \"fs\"},]}\n  }\n}\n",
-			"data.json: line 3, column 46: invalid character ']' looking for beginning of value"},
-		{"{\"roles\": {}", "data.json: line 1, column 12: unexpected end of JSON input"},
-		{"{\"roles\": {}}\n}\n", "data.json: line 2, column 1: invalid character '}' after top-level value"},
-	} {
-		p := filepath.Join(dir, "data.json")
-		if err := os.WriteFile(p, []byte(c.content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		_, _, _, err := Read(p)
-		if err == nil || !strings.HasSuffix(err.Error(), c.want) || !strings.HasPrefix(err.Error(), p+": ") {
-			t.Errorf("%q: %v, want …%s", c.content, err, c.want)
-		}
+	saved := os.Stdin
+	t.Cleanup(func() { os.Stdin = saved })
+	in := filepath.Join(dir, "in")
+	if err := os.WriteFile(in, []byte(`{"roles": {"r": {}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	os.Stdin = f
+	if _, data, _, err := Read("-"); err != nil || !strings.Contains(string(data), `"r"`) {
+		t.Errorf("standard input: %s %v", data, err)
+	}
+	js := filepath.Join(dir, "data.json")
+	if err := os.WriteFile(js, []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := Read(js); !errors.Is(err, ErrJSON) || !strings.HasPrefix(err.Error(), js+": ") {
+		t.Errorf("file in JSON: %v", err)
 	}
 }
