@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -697,16 +698,17 @@ type listItem struct {
 func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error) {
 	spec := listSpecs[m.Method]
 	var items []listItem
-	for _, server := range s.endpoint().order {
-		got, err := s.fetchList(ctx, server, m.Method, spec)
-		if err != nil {
+	order := s.endpoint().order
+	lists, errs := s.fetchLists(ctx, order, m.Method, spec)
+	for i, server := range order {
+		if err := errs[i]; err != nil {
 			if !s.endpoint().aggregated {
 				return nil, rpcError(jsonrpc.CodeInternalError, "backend unavailable")
 			}
 			s.log.Warn("listing failed; skipping server", "server", server, "method", m.Method, "err", err)
 			continue
 		}
-		items = append(items, got...)
+		items = append(items, lists[i]...)
 	}
 
 	s.rememberArgs(spec.kind, items)
@@ -786,6 +788,37 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		s.withTaskSupport(out)
 	}
 	return map[string]any{spec.field: out}, nil
+}
+
+// listParallel is how many servers fetchLists asks at once. Listing may
+// start their instances (shared discovery, or the principal's own), and
+// starting a server is mostly the CPU's work: one per CPU.
+var listParallel = runtime.NumCPU()
+
+// fetchLists returns the lists of servers, in their order, asking up to
+// listParallel of them at a time: on the aggregated endpoint a listing
+// whose instances must start takes as long as the slowest server, not
+// as long as all of them together.
+func (s *Session) fetchLists(ctx context.Context, servers []string, method string, spec listSpec) ([][]listItem, []error) {
+	lists := make([][]listItem, len(servers))
+	errs := make([]error, len(servers))
+	if len(servers) == 1 {
+		lists[0], errs[0] = s.fetchList(ctx, servers[0], method, spec)
+		return lists, errs
+	}
+	sem := make(chan struct{}, max(1, listParallel))
+	var wg sync.WaitGroup
+	for i, server := range servers {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			lists[i], errs[i] = s.fetchList(ctx, server, method, spec)
+		}()
+	}
+	wg.Wait()
+	return lists, errs
 }
 
 // fetchList returns all items of one backend's list, following cursors.

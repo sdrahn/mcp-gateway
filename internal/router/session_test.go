@@ -246,6 +246,37 @@ func TestSingleEndpointInitializeMirrorsBackend(t *testing.T) {
 	}
 }
 
+// The aggregated endpoint asks its servers at the same time: when their
+// instances must start, listing takes as long as the slowest start, not
+// as long as all of them (a small machine); the order stays the
+// endpoint's.
+func TestAggregatedListParallel(t *testing.T) {
+	const delay = 300 * time.Millisecond
+	want := "fs__read_file,fs__write_file,fs__ask_roots,git__read_file,git__write_file,git__ask_roots,tmp__read_file,tmp__write_file,tmp__ask_roots,gateway_capabilities"
+	list := func(parallel int) time.Duration {
+		t.Helper()
+		saved := listParallel
+		listParallel = parallel
+		t.Cleanup(func() { listParallel = saved })
+		r, l := testRouter(t, 0)
+		l.delay = delay
+		c := connect(t, r, alice(), "", nil)
+		start := time.Now()
+		got := names(t, c.roundTrip(1, "tools/list", map[string]any{}), "tools", "name")
+		took := time.Since(start)
+		if strings.Join(got, ",") != want {
+			t.Fatalf("parallel %d: tools = %v", parallel, got)
+		}
+		return took
+	}
+	if took := list(4); took >= 2*delay {
+		t.Errorf("three servers asked at once took %v, want under %v", took, 2*delay)
+	}
+	if took := list(1); took < 3*delay {
+		t.Errorf("one at a time took %v, want at least %v", took, 3*delay)
+	}
+}
+
 func TestAggregatedTools(t *testing.T) {
 	r, _ := testRouter(t, 0)
 	c := connect(t, r, alice(), "", nil)
