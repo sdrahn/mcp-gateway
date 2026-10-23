@@ -84,16 +84,37 @@ func Read(path string) (file string, data []byte, ignored []string, err error) {
 	if err != nil {
 		return file, nil, ignored, err
 	}
+	name := file
+	if file == "-" {
+		name = "standard input"
+	}
 	if isYAML(file, data) {
 		if data, err = ToJSON(data); err != nil {
-			name := file
-			if file == "-" {
-				name = "standard input"
-			}
 			return file, nil, ignored, fmt.Errorf("%s: %w", name, err)
 		}
+	} else if err := jsonSyntax(data); err != nil {
+		return file, nil, ignored, fmt.Errorf("%s: %w", name, err)
 	}
 	return file, data, ignored, nil
+}
+
+// jsonSyntax returns nil if data is valid JSON, else the error with the
+// line and column where it went wrong (as YAML's errors name the line).
+func jsonSyntax(data []byte) error {
+	var v any
+	err := json.Unmarshal(data, &v)
+	var se *json.SyntaxError
+	if !errors.As(err, &se) {
+		return err
+	}
+	off := min(int(se.Offset), len(data))
+	line := 1 + bytes.Count(data[:off], []byte("\n"))
+	col := off - bytes.LastIndexByte(data[:off], '\n')
+	// The offset is past the byte that was wrong.
+	if col > 1 {
+		col--
+	}
+	return fmt.Errorf("line %d, column %d: %w", line, col, err)
 }
 
 // isYAML reports whether the role data at file, with content data, is

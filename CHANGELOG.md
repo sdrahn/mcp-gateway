@@ -5,6 +5,17 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Fixed
+
+- Role data in JSON that does not parse names the line and column of
+  the error (`data.json: line 3, column 46: invalid character ']' …`),
+  as YAML's errors name the line: in the doctor, `mcp-gateway
+  --check-policy-data`, `mcp-policy-render` and Cockpit's role editor.
+  The doctor no longer fails the roles of every server over it: one
+  note says they were not checked.
+
 ## v1.6.0 — 2026-10-22
 
 Configuration in JSON deprecated. Role data and the data of custom Rego

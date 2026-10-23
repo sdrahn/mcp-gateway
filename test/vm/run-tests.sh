@@ -739,6 +739,21 @@ check "policy convert --to json: the role data back as JSON, the same data" \
 	bash -c 'mcp-gateway-admin policy convert --to json -o - | jq -S . | cmp -s - <(jq -S . "$1/data.json")' _ "$rbac_dir"
 rm -r "$jd_dir" "$rbac_dir/data.yaml"
 check "data.yaml removed: data.json is in force again" eventually 15 ry_own
+# A data.json that does not parse: each reader names its line and column
+# (as for YAML), and the role data in force stays.
+jd_since=$(date +%s)
+cp "$rbac_dir/data.json" /root/vmtest/jd-good.json
+printf '{\n  "roles": {"x": {"permissions": [{"server": "fs"},]}}\n}\n' >"$rbac_dir/data.json"
+jd_where="$rbac_dir/data.json: line 2, column 52: invalid character ']'"
+check "mcp-gateway --check-policy-data names the line and column of a JSON error" \
+	bash -c 'mcp-gateway --check-policy-data 2>&1 | grep -qF "$1"' _ "$jd_where"
+check "doctor: the role data fails, with the line and column" ry_doctor \
+	".[] | select(.id == \"role-data\" and .status == \"fail\" and (.summary | startswith(\"$jd_where\")))"
+jd_render_says() { journalctl -u mcp-policy-render.service -o cat --since "@$jd_since" | grep -qF "$jd_where"; }
+check "mcp-policy-render names them too" eventually 15 jd_render_says
+check "... and the role data in force stays" ry_own
+cat /root/vmtest/jd-good.json >"$rbac_dir/data.json"
+check "fixed, data.json is in force again" eventually 15 ry_own
 
 section "Instances"
 systemctl list-units --type=service --plain --no-legend 'mcp-*' | awk '{print "  " $1, $4}'

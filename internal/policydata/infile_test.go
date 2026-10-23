@@ -142,3 +142,24 @@ func TestReadOr(t *testing.T) {
 		t.Errorf("other name: %s", f)
 	}
 }
+
+// Role data in JSON that does not parse names the line and column, as
+// YAML's errors name the line.
+func TestReadJSONSyntaxError(t *testing.T) {
+	dir := t.TempDir()
+	for _, c := range []struct{ content, want string }{
+		{"{\n  \"roles\": {\n    \"dev\": {\"permissions\": [{\"server\": \"fs\"},]}\n  }\n}\n",
+			"data.json: line 3, column 46: invalid character ']' looking for beginning of value"},
+		{"{\"roles\": {}", "data.json: line 1, column 12: unexpected end of JSON input"},
+		{"{\"roles\": {}}\n}\n", "data.json: line 2, column 1: invalid character '}' after top-level value"},
+	} {
+		p := filepath.Join(dir, "data.json")
+		if err := os.WriteFile(p, []byte(c.content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, _, _, err := Read(p)
+		if err == nil || !strings.HasSuffix(err.Error(), c.want) || !strings.HasPrefix(err.Error(), p+": ") {
+			t.Errorf("%q: %v, want …%s", c.content, err, c.want)
+		}
+	}
+}
