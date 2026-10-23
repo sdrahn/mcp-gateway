@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
@@ -132,6 +133,8 @@ type fakeLauncher struct {
 	fail error
 	// failFor, if set, may refuse starts for some principals.
 	failFor func(principal.Principal) error
+	// delay, if set, is how long each start takes (a slow machine).
+	delay time.Duration
 }
 
 func newFakeLauncher(t *testing.T) *fakeLauncher {
@@ -144,10 +147,12 @@ func (l *fakeLauncher) Start(_ context.Context, b *config.Backend, p principal.P
 	if err == nil && l.failFor != nil {
 		err = l.failFor(p)
 	}
+	delay := l.delay
 	l.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
+	time.Sleep(delay)
 	gw, be := net.Pipe()
 	fi := &fakeInstance{Conn: gw, name: b.Name, id: id, p: p, closed: make(chan struct{}), cancelled: make(chan string, 10), commit: make(chan struct{})}
 	fi.be = jsonrpc.NewConn(be)

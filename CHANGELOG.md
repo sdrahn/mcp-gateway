@@ -7,6 +7,15 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Changed
+
+- The aggregated endpoint asks its servers for their lists at the same
+  time, as many at once as the host has CPUs: a listing whose instances
+  must start first takes as long as the slowest server, not as long as
+  all of them together. On a small host (a Raspberry Pi 4) the first
+  `tools/list` after a start or an idle time no longer outlasts the
+  agent's request timeout.
+
 ## v1.6.1 — 2026-10-23
 
 A fix to the diagnosis of role data in JSON that does not parse: the

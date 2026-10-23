@@ -526,6 +526,13 @@ instances; calls and `resources/list` (which lists user data, such as a
 user's files) run on the principal's own instance, and `resources/list`
 only of servers that offer resources, as the discovery instance tells.
 
+On the aggregated endpoint the gateway asks the servers at the same
+time, as many at once as the host has CPUs: when their instances must
+start first (after the gateway started, or after `supervisor.idle_timeout`
+without use), listing takes as long as the slowest server takes to
+start, not as long as all of them together. On a small host (a Raspberry
+Pi) that keeps the first listing within the agent's request timeout.
+
 Use `discovery: instance` for servers whose tool list depends on the user
 (for example on files in the home directory or the user's configuration).
 
