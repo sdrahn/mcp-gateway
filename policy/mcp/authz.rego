@@ -62,10 +62,7 @@ target_field := {
 	"roots.list": "client",
 }
 
-matching contains p if {
-	some p in perms
-	p in covering
-}
+matching := covering & perms
 
 # The permissions that cover the request, among the principal's and those
 # of the ceilings of the scope map (below).
@@ -133,16 +130,16 @@ target_ok("resource") if {
 
 # expand_glob substitutes "${sub}" and "${home}" in a glob; a glob using
 # "${home}" is undefined (never matches) for a principal without one.
-expand_glob(pattern) := replace(pattern, "${sub}", glob_escape(input.principal.sub)) if {
+expand_glob(pattern) := pattern if {
+	not contains(pattern, "${")
+} else := replace(pattern, "${sub}", glob_sub) if {
 	not contains(pattern, "${home}")
-}
+} else := replace(replace(pattern, "${home}", glob_home), "${sub}", glob_sub)
 
-expand_glob(pattern) := replace(with_home, "${sub}", glob_escape(input.principal.sub)) if {
-	contains(pattern, "${home}")
-	home := input.principal.home
-	home != ""
-	with_home := replace(pattern, "${home}", glob_escape(home))
-}
+# The principal's subject and home directory (if any), escaped for globs.
+glob_sub := glob_escape(input.principal.sub)
+
+glob_home := glob_escape(input.principal.home) if input.principal.home != ""
 
 glob_escape(s) := regex.replace(s, `[*?\[\]{}\\]`, `\$0`)
 
@@ -457,8 +454,11 @@ scope_denial := {
 	"required_scopes": required_scopes,
 }
 
-# An allow decision, with the obligations if there are any.
-allow_with(d) := object.union(d, {"obligations": obligations}) if count(obligations) > 0
+# An allow decision, with the obligations if there are any; the filter's
+# (discovery) needs none.
+allow_with(d) := d if input.discovery == true
+
+else := object.union(d, {"obligations": obligations}) if count(obligations) > 0
 
 else := d
 

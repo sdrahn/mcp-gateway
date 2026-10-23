@@ -43,6 +43,13 @@ minor release (with a warning) and removed in the next.
   all of them together. On a small host (a Raspberry Pi 4) the first
   `tools/list` after a start or an idle time no longer outlasts the
   agent's request timeout.
+- Listings are filtered in about a third of the time: the shipped
+  `mcp.filter` works out the principal's roles, permissions and token
+  ceilings once per listing instead of once per tool, prompt or
+  template (`visible` and `hints` alike), and the decisions it asks for
+  carry no obligations. What a listing shows is unchanged. Custom
+  additions to `mcp.authz.roles` or `perms` are taken from the principal
+  alone in a listing (user guide, chapter 12).
 - `mcp_gateway_opa_query_duration_seconds` has buckets up to 30s (2.5,
   5, 10 and 30s added): on a small host the filtering of a listing can
   take seconds, which the highest bucket so far (1s) did not tell apart.

@@ -14,6 +14,14 @@ rules:
         - data.mcp.rbac.**
         - data.mcp.profiles
         - data.mcp.profiles.**
+  performance:
+    with-outside-test-context:
+      # The filter decides every resource of a listing as if it were
+      # used: "with input" is how; "with" on the principal's parts makes
+      # them worked out once per listing (comments there).
+      ignore:
+        files:
+          - "filter.rego"
   style:
     line-length:
       # Tests are tables of inputs and expectations; wrapping hurts more

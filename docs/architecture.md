@@ -1598,7 +1598,13 @@ only for external models.
 
 `data.mcp.filter.visible` returns, for a principal and a list of
 resources, the subset to show — one OPA query per `*/list`, not one per
-item. For the visible tools, `data.mcp.filter.hints` returns what the
+item. Each item is decided as if it were used (`decision` with
+`"discovery": true`); the parts that depend on the principal only (its
+roles and permissions, the role definitions, the ceilings of token
+scopes, and per server the permissions naming it) are worked out once
+per query and given to every item's decision (1.7; before, OPA worked
+them out again for each item, as `with` starts afresh, which made a
+listing of 60 tools take half a second on a Raspberry Pi 4). For the visible tools, `data.mcp.filter.hints` returns what the
 principal's matching permissions say about calling them (the approval
 channel; the `args` constraints, expanded, when every covering
 permission has some), which the gateway adds to the tools' descriptions
