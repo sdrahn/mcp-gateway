@@ -176,11 +176,14 @@ func (c policyCmd) convert(src, dst, to string, force bool) int {
 		if err := os.Remove(src); err != nil {
 			return fail("%s and %s both exist, which OPA refuses: %v", src, dst, err)
 		}
+		if err := nudgeOPA(c.policyDir()); err != nil {
+			sayf(c.stderr, "mcp-gateway-admin: %v: OPA may not see %s until the next change below %s (systemctl restart mcp-opa.service)", err, dst, c.policyDir())
+		}
 		back := "--to json "
 		if toJSON {
 			back = ""
 		}
-		sayf(c.stdout, "removed %s: OPA loads every data file below %s and refuses the same data twice (mcp-gateway-admin policy convert %s%s brings it back)",
+		sayf(c.stdout, "removed %s: OPA loads the data files below %s itself, and the same data twice is an error (mcp-gateway-admin policy convert %s%s brings it back)",
 			src, c.policyDir(), back, dst)
 		if toJSON {
 			sayf(c.stdout, "%s: %v: this release denies every request while it exists", dst, policydata.ErrJSON)
@@ -197,6 +200,21 @@ func (c policyCmd) convert(src, dst, to string, force bool) int {
 		sayf(c.stdout, "%s stays in force while it exists; to go back to 1.4 or earlier, which load both files and refuse them, remove it", inForce)
 	}
 	return 0
+}
+
+// nudgeOPA makes OPA (opa run --watch) look at dir, the local policy,
+// again: it creates and removes a file there. OPA watches only the
+// directories it loaded a file from (and the one it was given), so it
+// misses a data.yaml written into a directory made after it started that
+// held only data in JSON, which it ignores (since 1.7), until a change in
+// a watched directory makes it look again.
+var nudgeOPA = func(dir string) error {
+	f, err := os.CreateTemp(dir, ".mcp-gateway-admin-*")
+	if err != nil {
+		return err
+	}
+	_ = f.Close()
+	return os.Remove(f.Name())
 }
 
 // policyDir is the directory of the local policy OPA loads

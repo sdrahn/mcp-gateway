@@ -3983,6 +3983,11 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       `json-policy-data` and `role data` fail, `mcp-policy-bundle`
       builds no bundle, a package update (`%posttrans`) names each file,
       and Cockpit shows the JSON converted, for saving or converting.
+      OPA's `--watch` watches only directories it loaded a file from, so
+      a `data.yaml` written into a directory made after OPA started that
+      held only (ignored) JSON goes unseen until another change; `policy
+      convert` creates and removes a file in the policy directory, which
+      OPA watches as given, to make it look again (found by the VM test).
 
 ## 12. Open items
 

@@ -700,7 +700,11 @@ mcp-gateway-admin policy convert /etc/mcp-gateway/policy/limits/data.json
 
 It writes `data.yaml` next to it, the same data, and, outside `rbac/`,
 removes `data.json`; `--to json` converts it back for an earlier
-release, again removing the other.
+release, again removing the other. OPA watches only the directories it
+loaded a file from: in a directory made after it started that held only
+JSON, it sees a `data.yaml` only after the next change elsewhere below
+`/etc/mcp-gateway/policy`. `policy convert` makes such a change itself;
+if you write the YAML by other means there, restart `mcp-opa.service`.
 
 OPA runs without network access; rules cannot fetch data at decision
 time (`http.send` fails). Deliver data as files, or in bundles from a
