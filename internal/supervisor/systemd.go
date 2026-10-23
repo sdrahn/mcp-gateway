@@ -96,8 +96,8 @@ func (s *Systemd) bus(ctx context.Context) (*sddbus.Conn, error) {
 }
 
 // onBus runs call on the connection to systemd. A connection that closed
-// after bus found it open (godbus: "connection closed by user") is
-// dropped, and call runs once more on a new one.
+// after bus found it open (closedConn: also while call waited for its
+// reply) is dropped, and call runs once more on a new one.
 func (s *Systemd) onBus(ctx context.Context, call func(*sddbus.Conn) error) error {
 	conn, err := s.bus(ctx)
 	if err != nil {
@@ -110,11 +110,20 @@ func (s *Systemd) onBus(ctx context.Context, call func(*sddbus.Conn) error) erro
 	})
 }
 
-// retryClosed runs call, and when it fails because the connection closed,
-// renew and call once more.
+// closedConn reports whether err means the connection to the bus is gone:
+// godbus' ErrClosed for calls made after it closed, and the read loop's
+// error for calls that were waiting for their reply when it closed (EOF
+// when the bus dropped the connection, net.ErrClosed when this side closed
+// it, as dropBus does for another caller).
+func closedConn(err error) bool {
+	return errors.Is(err, dbus.ErrClosed) || errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF)
+}
+
+// retryClosed runs call, and when it fails because the connection closed
+// (closedConn), renew and call once more.
 func retryClosed(call, renew func() error) error {
 	err := call()
-	if !errors.Is(err, dbus.ErrClosed) {
+	if !closedConn(err) {
 		return err
 	}
 	if rErr := renew(); rErr != nil {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -318,8 +319,9 @@ func TestHasSELinuxFS(t *testing.T) {
 }
 
 // A call that fails because the connection to systemd closed (godbus'
-// ErrClosed) runs once more after a reconnect; other errors, and a
-// failed reconnect, end it.
+// ErrClosed, or the read error a call waiting for its reply gets: EOF, or
+// "use of closed network connection") runs once more after a reconnect;
+// other errors, and a failed reconnect, end it.
 func TestRetryClosed(t *testing.T) {
 	other := errors.New("org.freedesktop.systemd1.UnitExists")
 	for _, c := range []struct {
@@ -334,6 +336,10 @@ func TestRetryClosed(t *testing.T) {
 		{"closed, then ok", []error{dbus.ErrClosed, nil}, nil, 2, 1, nil},
 		{"closed twice", []error{dbus.ErrClosed, dbus.ErrClosed}, nil, 2, 1, dbus.ErrClosed},
 		{"closed, reconnect fails", []error{dbus.ErrClosed}, errNoBus, 1, 1, errNoBus},
+		// What a start waiting for its reply got when another caller's
+		// dropBus closed the shared connection (VM test of PR #279).
+		{"closed while waiting, then ok", []error{&net.OpError{Op: "read", Net: "unix", Err: net.ErrClosed}, nil}, nil, 2, 1, nil},
+		{"dropped by the bus, then ok", []error{fmt.Errorf("read: %w", io.EOF), nil}, nil, 2, 1, nil},
 	} {
 		calls, renews := 0, 0
 		err := retryClosed(func() error {
