@@ -43,6 +43,9 @@ minor release (with a warning) and removed in the next.
   all of them together. On a small host (a Raspberry Pi 4) the first
   `tools/list` after a start or an idle time no longer outlasts the
   agent's request timeout.
+- `mcp_gateway_opa_query_duration_seconds` has buckets up to 30s (2.5,
+  5, 10 and 30s added): on a small host the filtering of a listing can
+  take seconds, which the highest bucket so far (1s) did not tell apart.
 
 ## v1.6.1 — 2026-10-23
 

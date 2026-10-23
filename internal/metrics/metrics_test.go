@@ -60,3 +60,25 @@ func TestDefault(t *testing.T) {
 		}
 	}
 }
+
+// OPA's query times are told apart up to 30s, beyond the second a slow
+// listing's filtering can take on a small host.
+func TestOPADurationBuckets(t *testing.T) {
+	h := NewHistogram("t_seconds", "h", OPADuration.buckets, "query")
+	h.Observe(6, "mcp/filter/visible")
+	r := &Registry{}
+	r.Register(h)
+	var b strings.Builder
+	if err := r.WriteText(&b); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{
+		`t_seconds_bucket{query="mcp/filter/visible",le="5"} 0`,
+		`t_seconds_bucket{query="mcp/filter/visible",le="10"} 1`,
+		`t_seconds_bucket{query="mcp/filter/visible",le="30"} 1`,
+	} {
+		if !strings.Contains(b.String(), s) {
+			t.Errorf("lacks %s:\n%s", s, b.String())
+		}
+	}
+}

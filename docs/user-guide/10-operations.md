@@ -148,7 +148,7 @@ Root reads the metrics, in the Prometheus text format, on the control
 socket:
 
 ```bash
-curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/metrics
+sudo curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/metrics
 ```
 
 With `metrics.listen` (chapter 3) Prometheus can scrape them over HTTP
@@ -158,7 +158,7 @@ at `/metrics`.
 |---|---|---|
 | `mcp_gateway_decisions_total{action,effect}` | counter | decisions enforced; a call asked again after an approval counts twice, and each delivery of its result counts once more (chapter 12, "Deciding again on delivery") |
 | `mcp_gateway_policy_failures_total{reason}` | counter | decisions that failed closed: `error` (OPA did not answer), `invalid` (malformed decision) |
-| `mcp_gateway_opa_query_duration_seconds{query}` | histogram | time of queries to OPA, e.g. `query="mcp/authz/decision"` |
+| `mcp_gateway_opa_query_duration_seconds{query}` | histogram | time of queries to OPA, e.g. `query="mcp/authz/decision"`, in buckets from 1ms to 30s |
 | `mcp_gateway_opa_query_errors_total{query}` | counter | failed queries to OPA |
 | `mcp_gateway_instance_starts_total{server}` | counter | server instances started |
 | `mcp_gateway_instance_failures_total{server,stage}` | counter | instances that failed to start (`start`) or exited without being stopped (`exit`) |
