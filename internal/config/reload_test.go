@@ -20,6 +20,7 @@ func TestRestartNeeded(t *testing.T) {
 	next.Limits.Instances = 10
 	next.Notifications.Email.SMTP = "localhost:25"
 	next.Supervisor.IdleTimeout = time.Hour
+	next.Supervisor.StartTimeout = 2 * time.Minute
 	next.Policy.Timeout = time.Second
 	next.HTTP.CertFile = "/etc/new.pem"
 	if got := RestartNeeded(running, &next); len(got) != 0 {

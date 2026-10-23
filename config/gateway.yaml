@@ -91,6 +91,10 @@ supervisor:
   selinux: auto
   # Stop an instance this long after the last session using it ended.
   idle_timeout: 15m
+  # How long a new instance may take to answer MCP's initialize before
+  # its start fails. Raise it on small hosts (a Raspberry Pi), where
+  # interpreted servers start slowly.
+  start_timeout: 30s
   # MCS categories for the instances' pairs. libvirt picks its pairs from
   # its daemon's range: confine it to the rest with a drop-in from
   # /usr/share/mcp-gateway/mcs (the gateway warns while they overlap).

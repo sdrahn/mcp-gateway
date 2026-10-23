@@ -39,6 +39,9 @@ type Router struct {
 	// IdleTimeout keeps an instance running this long after its last
 	// session ended.
 	IdleTimeout time.Duration
+	// StartTimeout is how long a new instance may take to initialize
+	// (supervisor.start_timeout; zero: 30 s).
+	StartTimeout time.Duration
 	// MaxSessionsPerPrincipal, MaxInstancesPerPrincipal and MaxInstances are the
 	// limits of decision D14 (0: the default; for MaxInstances: none).
 	MaxSessionsPerPrincipal, MaxInstancesPerPrincipal, MaxInstances int
@@ -274,7 +277,7 @@ func (r *Router) init() {
 		r.sealer = newSealer()
 		r.tasksCtx, r.stopTasks = context.WithCancel(context.Background())
 		r.pool = newPool(r.Launcher, r.IdleTimeout, r.Log)
-		r.applySettings(Settings{IdleTimeout: r.IdleTimeout, ProgressInterval: r.ProgressInterval,
+		r.applySettings(Settings{IdleTimeout: r.IdleTimeout, StartTimeout: r.StartTimeout, ProgressInterval: r.ProgressInterval,
 			MaxSessionsPerPrincipal: r.MaxSessionsPerPrincipal, MaxInstancesPerPrincipal: r.MaxInstancesPerPrincipal,
 			MaxInstances: r.MaxInstances, ListTTL: r.ListTTL, RetryWait: r.RetryWait,
 			MaxRequestsPerPrincipal: r.MaxRequestsPerPrincipal, MaxStreamsPerPrincipal: r.MaxStreamsPerPrincipal, VaultIdle: r.VaultIdle,
@@ -294,7 +297,10 @@ func (r *Router) init() {
 // Settings are the router's options a configuration reload changes; at
 // start they are the fields of Router of the same names.
 type Settings struct {
-	IdleTimeout, ProgressInterval                                   time.Duration
+	IdleTimeout, ProgressInterval time.Duration
+	// StartTimeout is how long a new instance may take to initialize
+	// (supervisor.start_timeout; zero: 30 s).
+	StartTimeout                                                    time.Duration
 	MaxSessionsPerPrincipal, MaxInstancesPerPrincipal, MaxInstances int
 	ListTTL, RetryWait                                              time.Duration
 	MaxRequestsPerPrincipal, MaxStreamsPerPrincipal                 int
@@ -354,7 +360,10 @@ func (r *Router) applySettings(s Settings) {
 	if perPrincipal <= 0 {
 		perPrincipal = defaultInstancesPerPrincipal
 	}
-	r.pool.configure(s.IdleTimeout, perPrincipal, s.MaxInstances)
+	if s.StartTimeout <= 0 {
+		s.StartTimeout = defaultStartTimeout
+	}
+	r.pool.configure(s.IdleTimeout, s.StartTimeout, perPrincipal, s.MaxInstances)
 }
 
 func (r *Router) settings() Settings {

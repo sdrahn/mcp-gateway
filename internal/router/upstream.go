@@ -31,7 +31,30 @@ var supportedVersions = map[string]bool{
 	"2025-11-25": true,
 }
 
-const initTimeout = 30 * time.Second
+// StartTimeoutError is an instance that did not answer initialize (or
+// server/discover) within supervisor.start_timeout.
+type StartTimeoutError struct {
+	Server string
+	Limit  time.Duration
+}
+
+func (e *StartTimeoutError) Error() string {
+	return fmt.Sprintf("%s did not answer initialize within %s (supervisor.start_timeout)", e.Server, e.Limit)
+}
+
+// startTimedOut returns ctx's StartTimeoutError if that is why err
+// happened, else err.
+func startTimedOut(ctx context.Context, err error) error {
+	var st *StartTimeoutError
+	if err != nil && errors.As(context.Cause(ctx), &st) {
+		return st
+	}
+	return err
+}
+
+// defaultStartTimeout is how long a new instance may take to initialize
+// unless supervisor.start_timeout says otherwise.
+const defaultStartTimeout = 30 * time.Second
 
 var errBackendGone = errors.New("backend instance exited")
 
@@ -139,7 +162,11 @@ func newUpstream(ctx context.Context, b *config.Backend, id string, inst supervi
 	}
 	go u.readLoop()
 
-	ctx, cancel := context.WithTimeout(ctx, initTimeout)
+	limit := hooks.startTimeout
+	if limit <= 0 {
+		limit = defaultStartTimeout
+	}
+	ctx, cancel := context.WithTimeoutCause(ctx, limit, &StartTimeoutError{Server: b.Name, Limit: limit})
 	defer cancel()
 	if hooks.era != eraLegacy {
 		init, modern, err := u.discover(ctx)
@@ -147,6 +174,9 @@ func newUpstream(ctx context.Context, b *config.Backend, id string, inst supervi
 			u.close()
 			if errors.Is(err, errProbeEnded) {
 				return nil, err
+			}
+			if st := startTimedOut(ctx, err); st != err {
+				return nil, st
 			}
 			return nil, fmt.Errorf("probing %s: %w", b.Name, err)
 		}
@@ -177,6 +207,9 @@ func newUpstream(ctx context.Context, b *config.Backend, id string, inst supervi
 	}
 	if err != nil {
 		u.close()
+		if st := startTimedOut(ctx, err); st != err {
+			return nil, st
+		}
 		return nil, fmt.Errorf("initializing %s: %w", b.Name, err)
 	}
 	if err := u.notify("notifications/initialized", nil); err != nil {
@@ -362,6 +395,9 @@ func (u *upstream) unregisterProgress(gw json.RawMessage) {
 
 // upstreamHooks configure a new upstream.
 type upstreamHooks struct {
+	// startTimeout is how long initialize (or server/discover) may take
+	// (zero: defaultStartTimeout).
+	startTimeout time.Duration
 	// era is what the pool knows of the definition's era: eraLegacy
 	// skips the server/discover probe. learnEra is told the result of a
 	// probe.

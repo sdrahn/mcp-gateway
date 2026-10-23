@@ -31,7 +31,7 @@ func TestLoadGatewayDefaults(t *testing.T) {
 	}
 	if g.Socket != DefaultSocket || g.Policy.OPASocket != DefaultOPASocket || g.Policy.Timeout != DefaultPolicyTimeout ||
 		g.Supervisor.Mode != "systemd" || g.Supervisor.SELinux != "auto" || g.ApprovalTimeout != DefaultApprovalTimeout ||
-		g.Supervisor.IdleTimeout != DefaultIdleTimeout ||
+		g.Supervisor.IdleTimeout != DefaultIdleTimeout || g.Supervisor.StartTimeout != DefaultStartTimeout ||
 		g.Approvals.ControlSocket != DefaultControl || g.Policy.WatchInterval != DefaultWatchInterval ||
 		g.Limits.SessionsPerPrincipal != DefaultSessionsPerPrincipal || g.Limits.InstancesPerPrincipal != DefaultInstancesPerPrincipal ||
 		g.Limits.Instances != 0 || g.Limits.TasksPerPrincipal != DefaultTasksPerPrincipal ||
@@ -118,6 +118,7 @@ func TestLoadGatewayErrors(t *testing.T) {
 		"mcs out of range": "supervisor:\n  mcs_range: c1000.c1100\n",
 		"mcs too small":    "supervisor:\n  mcs_range: c1.c4\n",
 		"bad mcs avoid":    "supervisor:\n  mcs_avoid: maybe\n",
+		"start too short":  "supervisor:\n  start_timeout: 500ms\n",
 		"smtp no port":     "notifications:\n  email:\n    smtp: mail\n    from: gw@x\n",
 		"smtp no from":     "notifications:\n  email:\n    smtp: mail:25\n",
 		"bad starttls":     "notifications:\n  email:\n    smtp: mail:25\n    from: gw@x\n    starttls: maybe\n",

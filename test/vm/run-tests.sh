@@ -1908,6 +1908,15 @@ cfg_not_root() {
 		! grep -q instances /etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml
 }
 check "config set needs root" cfg_not_root
+# supervisor.start_timeout (for small hosts) reloads, and has a minimum.
+check "config set puts supervisor.start_timeout in force without a restart" \
+	sh -c 'mcp-gateway-admin config set supervisor.start_timeout 2m | grep -qF "supervisor.start_timeout is in force"'
+cfg_start_short() {
+	! mcp-gateway-admin config set supervisor.start_timeout 500ms >/root/vmtest/cfg-start.txt 2>&1 &&
+		grep -qF "supervisor.start_timeout: must be at least 1s" /root/vmtest/cfg-start.txt
+}
+check "... and refuses less than 1s" cfg_start_short
+mcp-gateway-admin config unset supervisor.start_timeout >/dev/null
 mcp-gateway-admin config unset socket_group >/dev/null
 mcp-gateway-admin config unset limits.tasks_per_principal >/dev/null
 check "config unset of the last key removes the drop-in" test ! -e /etc/mcp-gateway/gateway.d/50-mcp-gateway-admin.yaml

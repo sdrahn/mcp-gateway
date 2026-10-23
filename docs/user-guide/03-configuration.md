@@ -138,6 +138,7 @@ within `policy.watch_interval` (10 s).
 | `pseudonymize.vault_idle` | applies to the next request |
 | `agents.max_version`, `agents.no_request_timeout` | apply to the next request or session (`no_request_timeout`: to the next round) |
 | `supervisor.idle_timeout` | applies to instances that become idle from then on |
+| `supervisor.start_timeout` | applies to instances that start from then on |
 | `policy.timeout`, `policy.watch_interval` | apply to the next decision and check |
 | `http.cert_file`, `http.key_file` | the certificate and key are read again; new connections get them. Renewing the files is a change too, so a renewed certificate needs no restart |
 | `http.list_ttl` | applies to the next list |
@@ -308,6 +309,7 @@ supervisor:
   mode: systemd
   selinux: auto
   idle_timeout: 15m
+  start_timeout: 30s
   mcs_range: c768.c1023
   mcs_avoid: auto
 ```
@@ -317,6 +319,7 @@ supervisor:
 | `supervisor.mode` | `systemd` | `systemd`: each instance is a confined transient unit. `exec`: plain child processes without systemd's sandbox and SELinux, under their definitions' `landlock` only (development only). |
 | `supervisor.selinux` | `auto` | set each instance's SELinux domain and MCS pair: `auto` (when SELinux is enabled), `on`, `off` |
 | `supervisor.idle_timeout` | `15m` | stop an instance this long after its last session ended |
+| `supervisor.start_timeout` | `30s` | how long a new instance may take to answer MCP's `initialize` (at least `1s`); a slower start fails with "*name* did not answer initialize within 30s (supervisor.start_timeout)". Raise it on small hosts (a Raspberry Pi), where interpreted servers (Python, Node) start slowly |
 | `supervisor.mcs_range` | `c768.c1023` | the MCS categories instances get their pairs from (at least 8 categories within `c0.c1023`); see chapter 9 on coordinating with libvirt |
 | `supervisor.mcs_avoid` | `auto` | skip category pairs held by running containers and virtual machines, and replace an instance whose pair one of them takes later; `off` |
 

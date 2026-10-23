@@ -186,6 +186,7 @@ func TestConfigSetRefused(t *testing.T) {
 		{[]string{"set", "socket_group.x", "1"}, "socket_group is a key, not a section"},
 		{[]string{"set", "limits.tasks_per_principal", "many"}, "not changed: " + target},
 		{[]string{"set", "policy.timeout", "--", "-1s"}, "policy.timeout: must not be negative"},
+		{[]string{"set", "supervisor.start_timeout", "500ms"}, "supervisor.start_timeout: must be at least 1s"},
 		{[]string{"set", "limits.tasks_per_principal", "[1"}, "not YAML"},
 		{[]string{"get", "limits"}, "limits is a section"},
 	} {
