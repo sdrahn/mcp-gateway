@@ -77,6 +77,20 @@ func TestDoctorRendering(t *testing.T) {
 		!strings.Contains(details(r), "OPA keeps the role data it had") {
 		t.Errorf("broken: %+v", r)
 	}
+	// Broken JSON: its line and column, and the servers' roles are not
+	// checked against it (one note, not a failure per server).
+	if err := os.Remove(filepath.Join(rbac, "data.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	write("data.json", "{\n  \"roles\": {\"dev\": {\"permissions\": [{\"server\": \"fs\"},]}}\n}\n")
+	d.rbac, d.rbacFile, d.rbacBroken = nil, "", false
+	if r := d.roleData(); r.Status != doctor.Fail ||
+		r.Summary != filepath.Join(rbac, "data.json")+": line 2, column 54: invalid character ']' looking for beginning of value" {
+		t.Errorf("broken JSON: %+v", r)
+	}
+	if !d.rbacBroken || len(d.roleFiles()) != 0 {
+		t.Errorf("broken JSON: rbacBroken %v, role files %v", d.rbacBroken, d.roleFiles())
+	}
 }
 
 // The doctor names each file of the local policy in JSON with the command

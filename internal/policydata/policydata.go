@@ -80,6 +80,9 @@ func CheckWith(data []byte, shipped map[string]string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("policydata: schema: %w", err)
 	}
+	if err := jsonSyntax(data); err != nil {
+		return []string{"not valid JSON: " + err.Error()}, nil
+	}
 	inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
 	if err != nil {
 		return []string{"not valid JSON: " + err.Error()}, nil

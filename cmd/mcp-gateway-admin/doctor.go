@@ -140,6 +140,9 @@ type doctorRun struct {
 	backends map[string]*config.Backend
 	rbac     []byte // the role data, if read
 	rbacFile string // the file it was read from (the one in force)
+	// rbacBroken: the role data in force does not parse; the roles of
+	// the servers are not checked against it.
+	rbacBroken bool
 	// versions are what the servers that started reported, by name.
 	versions map[string]string
 	// failed are the servers that did not start; denials the SELinux
@@ -284,6 +287,7 @@ func (d *doctorRun) roleData() doctor.Result {
 		}
 		r.Status, r.Summary = doctor.Fail, err.Error()
 		r.Details = []string{"OPA keeps the role data it had; the file does not parse"}
+		d.rbacBroken = true
 		return r
 	}
 	d.rbac, d.rbacFile = data, file
@@ -597,7 +601,7 @@ func (d *doctorRun) servers() []doctor.Result {
 		if r := toolNotesResult(name, b.ToolNotes, res.Tools); r != nil {
 			rs = append(rs, *r)
 		}
-		if len(roleFiles) > 0 {
+		if len(roleFiles) > 0 && !d.rbacBroken {
 			findings, err := inspect.CheckRoles(roleFiles, name, res)
 			if err != nil {
 				rs = append(rs, doctor.Result{Check: "roles " + name, Status: doctor.Fail, Summary: err.Error()})
@@ -613,6 +617,10 @@ func (d *doctorRun) servers() []doctor.Result {
 				rs = append(rs, *r)
 			}
 		}
+	}
+	if d.rbacBroken {
+		rs = append(rs, doctor.Result{Check: "roles", Status: doctor.Skip,
+			Summary: "the servers' tools are not checked against the role data: it does not parse (see role data)"})
 	}
 	return rs
 }

@@ -69,7 +69,7 @@ func TestCheck(t *testing.T) {
 			"approval_scopes": ["1d"]}]}}}`, []string{"/roles/r/permissions/0/approval_scopes/0: "}},
 		{"approval scope too long", `{"roles": {"r": {"permissions": [{"server": "fs", "tool": "x", "require_approval": true,
 			"approval_scopes": ["once", "721h"]}]}}}`, []string{`/roles/r/permissions/0/approval_scopes/1: "721h" is longer than 720h`}},
-		{"not JSON", `{"roles": `, []string{"not valid JSON"}},
+		{"not JSON", `{"roles": `, []string{"not valid JSON: line 1, column 10: unexpected end of JSON input"}},
 		{"typo at top level", `{"roles": {}, "binding": {}}`, []string{"/: additional properties 'binding' not allowed"}},
 		{"no roles", `{}`, []string{"/: missing property 'roles'"}},
 		{"permission without target", `{"roles": {"r": {"permissions": [{"server": "fs"}]}}}`,
