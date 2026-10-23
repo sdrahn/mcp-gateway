@@ -7,6 +7,34 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v1.6.0 — 2026-10-22
+
+Configuration in JSON deprecated. Role data and the data of custom Rego
+in JSON below `/etc/mcp-gateway/policy` are still read, but 1.7 no
+longer reads them: everything administrators write is YAML from then on.
+Each such file now warns with its name and the command that converts it,
+at the gateway's start, with `mcp-gateway --check`, in the doctor and in
+Cockpit, which converts the role data at a click. `mcp-gateway-admin
+policy convert` converts the data of custom Rego too, and `--to json`
+goes back, for an earlier release.
+
+Upgrading from 1.5.x needs no changes to `gateway.yaml`, server
+definitions, role data or custom policies. After the update, restart
+the gateway (`systemctl restart mcp-gateway.service`); the package does
+not. The SELinux modules do not change. Things to know:
+
+- **Files in JSON warn** from now on, in the journal at every start of
+  the gateway and in the doctor (`json-policy-data`; `doctor --strict`
+  exits 3 with them): convert them before 1.7 (chapter 6, "YAML or
+  JSON"; chapter 12, "Custom data"). Nothing converts them by itself; if
+  configuration management writes them, convert them there.
+- **Converting custom data removes its JSON**: OPA loads both files of a
+  directory and refuses the same data twice. The role data's `data.json`
+  stays, ignored, as in 1.5.
+- **Going back to 1.4 or earlier** after converting the role data:
+  `mcp-gateway-admin policy convert --to json`, then remove `data.yaml`
+  (those releases load both and refuse them).
+
 ### Deprecated
 
 - Role data and the data of custom Rego in JSON (`data.json` below
