@@ -102,6 +102,68 @@ Replace existing entries that start MCP servers directly (`npx …`,
 registered with the gateway; the server then runs confined and under
 policy instead of with the agent's rights.
 
+### From another machine, over SSH
+
+An agent on another machine (a laptop, a Mac) can start `mcp-connect`
+on the gateway's host through SSH: the agent runs `ssh`, which runs
+`mcp-connect` there and carries its standard input and output. The
+gateway sees the account SSH logs in as, exactly as a local user (the
+prerequisites above apply to that account); no identity provider,
+certificate or open port is needed beyond SSH itself.
+
+```json
+{
+  "mcpServers": {
+    "gateway": {
+      "command": "/usr/bin/ssh",
+      "args": ["-T", "-o", "BatchMode=yes", "alice@gw.example.com", "mcp-connect"]
+    }
+  }
+}
+```
+
+- The login must not ask anything: use a key (in the SSH agent), as
+  the agent cannot answer a password prompt (`BatchMode=yes` makes SSH
+  fail instead of waiting, also for a host key it does not know yet:
+  log in once by hand first). Check with `ssh -o BatchMode=yes
+  alice@gw.example.com mcp-connect --version`.
+- `-T`: no terminal, so nothing but MCP passes the connection.
+- Add `"--server", "fs"` after `mcp-connect` for one server's endpoint.
+- Give the agent the full path of `ssh`: desktop agents often start
+  programs with a short `PATH`.
+- Each connection is one SSH session; closing the agent ends it, and
+  the gateway ends the MCP session with it.
+
+A key of its own for the agent, on the agent's machine (on macOS the
+keychain holds its passphrase, so that SSH started by a desktop agent
+finds it):
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/mcp-gateway -C agent
+ssh-copy-id -i ~/.ssh/mcp-gateway.pub alice@gw.example.com
+ssh-add --apple-use-keychain ~/.ssh/mcp-gateway   # macOS
+```
+
+```
+# ~/.ssh/config: the agent's entry then names "mcp-gw"
+Host mcp-gw
+    HostName gw.example.com
+    User alice
+    IdentityFile ~/.ssh/mcp-gateway
+    IdentitiesOnly yes
+    UseKeychain yes          # macOS
+    AddKeysToAgent yes
+    ServerAliveInterval 30
+```
+
+On the gateway's host, the key can be limited to the gateway: in
+`~/.ssh/authorized_keys`, its line starting with
+`restrict,command="/usr/bin/mcp-connect"` runs `mcp-connect` whatever
+the agent asks for, with no shell, terminal or forwarding, so the key is
+of no use for anything else. The agent's arguments are then ignored:
+name the endpoint in the command (`command="/usr/bin/mcp-connect
+--server fs"`).
+
 ### Directly over the socket
 
 Programs can connect to the socket themselves. The connection carries
@@ -555,6 +617,42 @@ claude mcp add --scope user --transport http fs https://gw.example.com:8443/mcp/
 | Approvals | `url` (the default channel): Claude Code asks the user to open the approval page (URL elicitation); `form`: its own dialog. While a call waits, it shows the gateway's progress message ("Waiting for approval of fs/write_file") |
 | Timeouts | a tool call may take `MCP_TOOL_TIMEOUT` (per server: `timeout` in its configuration; default about 28 hours); a call that reports nothing is abandoned after `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` (default 30 minutes for local servers, 5 minutes for remote ones). The gateway's progress while waiting keeps it alive, so any `approval_timeout` works |
 | Policy changes | it lists tools again on `list_changed`, locally and over HTTP: role changes reach it right after OPA has loaded them (with policy from a bundle server, within `policy.watch_interval`, 10 s) |
+
+### Claude Desktop
+
+Not tested in CI; what follows is how it connects, and what to check.
+Claude Desktop starts the MCP servers of its configuration as programs
+on its own machine (Settings → Developer → Edit Config:
+`claude_desktop_config.json`, on macOS in `~/Library/Application
+Support/Claude/`).
+
+- **On the gateway's host** (Linux): an `mcpServers` entry with
+  `mcp-connect`, as above.
+- **On a Mac or another machine**: through SSH ("From another machine,
+  over SSH", above): the entry runs `/usr/bin/ssh … mcp-connect`, and
+  the gateway sees the account SSH logs in as. This is the simplest way:
+  nothing but SSH has to reach the host.
+- **Remote, over HTTPS** ("Remote agents (HTTPS)", above): Claude's
+  custom connectors (Settings → Connectors) take the endpoint's URL and
+  sign in with OAuth. As far as we know they are reached from
+  Anthropic's servers, not from the machine Claude Desktop runs on: the
+  gateway's URL must then be reachable from the internet, with a
+  certificate public clients trust, and the identity provider must allow
+  dynamic client registration or a client registered for it. Check
+  Anthropic's documentation for the current behaviour.
+
+Restart Claude Desktop after changing its configuration. Check on the
+gateway's host that it connected: `journalctl -u mcp-gateway | grep
+'session initialized'` names the client and the protocol version it
+speaks, and `mcp-gateway-admin clients` lists it while it is connected.
+If it shows no tools, `mcp-gateway-admin doctor` and the
+`explain_decision` tool of gateway-admin say why for the user.
+
+| Topic | What to check |
+|---|---|
+| Approvals | whether it answers elicitations decides the channel: without them, `url` and `form` fall back to `oob` (chapter 7). The desktop notification of `oob` appears on the gateway's host, not on the Mac: decide in Cockpit from the Mac's browser, or have approvals mailed |
+| Timeouts | it is built on the TypeScript SDK; if calls that wait for approval fail after about a minute, it gives up before the decision ("Other agents", below): keep `approval_timeout` below that, or decide quickly |
+| Policy changes | whether it lists tools again on `list_changed`; if not, restart it after role changes |
 
 ### Kit
 
