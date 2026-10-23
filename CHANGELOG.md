@@ -5,7 +5,14 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.6.1 — 2026-10-23
+
+A fix to the diagnosis of role data in JSON that does not parse: the
+error names its line and column, and the doctor reports it once instead
+of with the roles of every server. Upgrading from 1.6.0 needs no
+changes, and the SELinux modules do not change. After the update,
+restart the gateway (`systemctl restart mcp-gateway.service`); the
+package does not.
 
 ### Fixed
 
