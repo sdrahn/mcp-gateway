@@ -26,6 +26,15 @@ minor release (with a warning) and removed in the next.
   fails with "*name* did not answer initialize within 30s
   (supervisor.start_timeout)" instead of "context deadline exceeded".
 
+### Fixed
+
+- A server's start no longer fails with "read unix
+  @->/run/dbus/system_bus_socket: use of closed network connection" (or
+  EOF) when the connection to systemd closes while the start waits for
+  systemd's answer: it is made again on a new connection, as a start
+  made after the close already was. Concurrent starts, as the aggregated
+  endpoint now makes, share that connection.
+
 ### Changed
 
 - The aggregated endpoint asks its servers for their lists at the same
