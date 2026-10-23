@@ -322,6 +322,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 
 		IdleTimeout:      gw.Supervisor.IdleTimeout,
 		StartTimeout:     gw.Supervisor.StartTimeout,
+		WarmUp:           gw.Supervisor.WarmUp,
 		ProgressInterval: gw.Approvals.ProgressInterval,
 
 		MaxSessionsPerPrincipal:  gw.Limits.SessionsPerPrincipal,

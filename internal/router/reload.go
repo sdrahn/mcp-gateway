@@ -110,6 +110,7 @@ func (r *Router) SetBackends(next map[string]*config.Backend) BackendChanges {
 	for _, s := range sessions {
 		s.listChanged()
 	}
+	r.warmUpChanged(ch)
 	return ch
 }
 

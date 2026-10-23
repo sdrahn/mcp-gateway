@@ -1923,6 +1923,27 @@ check "config unset of the last key removes the drop-in" test ! -e /etc/mcp-gate
 check "after config unset, nothing is reported" eventually 40 rl_config_clean
 check "the gateway was not restarted" test "$(systemctl show -p MainPID --value mcp-gateway.service)" = "$gw_pid"
 
+section "Warm-up (small hosts)"
+# supervisor.warm_up: at the next start, the gateway starts the servers'
+# shared discovery instances and fills their lists before any client
+# asks, so that a slow host's first listing does not wait for them.
+check "config set supervisor.warm_up takes effect at the next start" \
+	sh -c 'mcp-gateway-admin config set supervisor.warm_up true | grep -qF "supervisor.warm_up takes effect at the next start"'
+wu_since=$(date +%s)
+systemctl restart mcp-gateway.service
+wait_socket
+wu_done() { journalctl -u mcp-gateway.service -o cat --since "@$wu_since" | grep -F 'msg="warm-up done"' | grep -q 'failed=0'; }
+check "warm-up: done after the start, no server failed" eventually 90 wu_done
+journalctl -u mcp-gateway.service -o cat --since "@$wu_since" | grep -F 'warm-up' | sed 's/^/  /'
+wu_fs() { systemctl list-units --type=service --state=running --plain --no-legend 'mcp-fs-*' | grep -q .; }
+check "... and fs's discovery instance runs, with no client connected yet" wu_fs
+wu_listed() { call alice --method tools/list --params '{}' && [ "$rc" = 0 ] && grep -qF list_allowed_directories <<<"$out"; }
+check "... and the first listing gets the tools" wu_listed
+mcp-gateway-admin config unset supervisor.warm_up >/dev/null
+systemctl restart mcp-gateway.service
+wait_socket
+check "without warm-up, no instance runs after a start" sh -c '! systemctl list-units --type=service --state=running --plain --no-legend "mcp-fs-*" | grep -q .'
+
 section "Update without restart"
 gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
 ls -li /usr/bin/mcp-gateway | sed 's/^/  before: /'

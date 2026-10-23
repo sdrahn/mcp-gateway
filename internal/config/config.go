@@ -271,6 +271,10 @@ type Supervisor struct {
 	// initialize (or server/discover) before its start fails: raise it
 	// on small hosts, where interpreters start slowly.
 	StartTimeout time.Duration `yaml:"start_timeout"`
+	// WarmUp starts the shared discovery instances at start (and those of
+	// servers a reload adds or changes) and fills their lists, so that
+	// the first listing does not wait for them: for small hosts.
+	WarmUp bool `yaml:"warm_up"`
 	// MCSRange is the category range ("cN.cM") backend instances get
 	// their category pairs from. Keep it disjoint from libvirt's
 	// (/usr/share/mcp-gateway/mcs drop-ins confine libvirt to c0.c767).
