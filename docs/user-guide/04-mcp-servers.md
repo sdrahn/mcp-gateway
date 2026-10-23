@@ -531,7 +531,9 @@ time, as many at once as the host has CPUs: when their instances must
 start first (after the gateway started, or after `supervisor.idle_timeout`
 without use), listing takes as long as the slowest server takes to
 start, not as long as all of them together. On a small host (a Raspberry
-Pi) that keeps the first listing within the agent's request timeout.
+Pi) that keeps the first listing within the agent's request timeout;
+`supervisor.warm_up` starts the discovery instances with the gateway,
+before any agent asks (chapter 10, "Small hosts").
 
 Use `discovery: instance` for servers whose tool list depends on the user
 (for example on files in the home directory or the user's configuration).

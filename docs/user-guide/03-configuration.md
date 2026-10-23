@@ -310,6 +310,7 @@ supervisor:
   selinux: auto
   idle_timeout: 15m
   start_timeout: 30s
+  warm_up: false
   mcs_range: c768.c1023
   mcs_avoid: auto
 ```
@@ -320,6 +321,7 @@ supervisor:
 | `supervisor.selinux` | `auto` | set each instance's SELinux domain and MCS pair: `auto` (when SELinux is enabled), `on`, `off` |
 | `supervisor.idle_timeout` | `15m` | stop an instance this long after its last session ended |
 | `supervisor.start_timeout` | `30s` | how long a new instance may take to answer MCP's `initialize` (at least `1s`); a slower start fails with "*name* did not answer initialize within 30s (supervisor.start_timeout)". Raise it on small hosts (a Raspberry Pi), where interpreted servers (Python, Node) start slowly |
+| `supervisor.warm_up` | `false` | start every server's shared discovery instance when the gateway starts (and those of servers a reload adds or changes) and fill their lists in the background, so that the first listing does not wait for them; for small hosts, with a longer `idle_timeout` (chapter 10, "Small hosts") |
 | `supervisor.mcs_range` | `c768.c1023` | the MCS categories instances get their pairs from (at least 8 categories within `c0.c1023`); see chapter 9 on coordinating with libvirt |
 | `supervisor.mcs_avoid` | `auto` | skip category pairs held by running containers and virtual machines, and replace an instance whose pair one of them takes later; `off` |
 

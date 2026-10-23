@@ -532,7 +532,41 @@ ausearch -m AVC -ts recent | grep mcpsrv
 | the server cannot create or write its state (`Read-only file system`, e.g. below `/var/lib`) | `sandbox.state_directory`, or `sandbox.read_write_paths` for other existing paths (chapter 4) |
 | "Interactive authentication required" / polkit denial | the polkit rule `50-mcp-gateway.rules` is missing, or the unit name does not start with `mcp-` |
 | out of memory, killed after 8 hours | the fixed limits (512 MiB, 8 h); split the work or restart |
+| "*name* did not answer initialize within 30s (supervisor.start_timeout)" | the server starts more slowly than the host allows; raise `supervisor.start_timeout` ("Small hosts", below) |
 | the gateway logs `invalid message from backend … parse error` | the server wrote something other than MCP to stdout; the `line` field shows its first 200 bytes (often a usage message, so the server's arguments are wrong, or a log line, so it needs its option to log to stderr). Such lines are discarded. They may contain whatever the server printed, so treat the gateway's journal accordingly. |
+
+### Small hosts
+
+On a small host (a Raspberry Pi 4) servers start slowly, interpreted ones
+(Python, Node) most, and an agent's first listing may wait longer than
+the agent does. The aggregated endpoint asks the servers at the same
+time, as many at once as the host has CPUs (chapter 4, "Discovery
+instances"), so a listing waits for the slowest start, not for all of
+them. Beyond that:
+
+```bash
+mcp-gateway-admin config set supervisor.start_timeout 2m   # a slow start does not fail
+mcp-gateway-admin config set supervisor.warm_up true       # start the servers with the gateway
+mcp-gateway-admin config set supervisor.idle_timeout 8h    # and keep them running
+mcp-gateway-admin config set policy.timeout 1s             # time for OPA's decisions
+systemctl restart mcp-gateway.service                      # warm_up takes effect at the start
+```
+
+- `supervisor.warm_up`: the gateway starts every server's shared
+  discovery instance when it starts, and those of servers a reload adds
+  or changes, and fills their lists in the background; its log says
+  `warm-up done` with the servers, how many failed, and how long it
+  took. The instances stop when idle as any do, so give them a longer
+  `supervisor.idle_timeout`.
+- `policy.timeout`: a decision OPA does not give in time is denied; if
+  listing misses it, the gateway hides every tool and logs "filtering
+  failed; hiding everything". How long decisions take:
+  `mcp_gateway_opa_query_duration_seconds` ("Metrics", above).
+- Fewer servers on the aggregated endpoint cost fewer starts: remove the
+  setups you do not use, or give agents one server's endpoint.
+- A definition whose `command` runs `npx -y …` or `uvx …` resolves (or
+  downloads) packages at every start; an installed package starts much
+  faster.
 
 ### Remote clients
 

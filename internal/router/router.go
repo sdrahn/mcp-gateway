@@ -42,6 +42,9 @@ type Router struct {
 	// StartTimeout is how long a new instance may take to initialize
 	// (supervisor.start_timeout; zero: 30 s).
 	StartTimeout time.Duration
+	// WarmUp starts the shared discovery instances and fills their lists
+	// when serving starts and after reloads (supervisor.warm_up, warm.go).
+	WarmUp bool
 	// MaxSessionsPerPrincipal, MaxInstancesPerPrincipal and MaxInstances are the
 	// limits of decision D14 (0: the default; for MaxInstances: none).
 	MaxSessionsPerPrincipal, MaxInstancesPerPrincipal, MaxInstances int
@@ -97,6 +100,7 @@ type Router struct {
 	// gateway stops (stopTasks).
 	tasks     taskStore
 	tasksCtx  context.Context
+	warm      warmState
 	stopTasks context.CancelFunc
 
 	mu       sync.Mutex
@@ -379,10 +383,12 @@ func (r *Router) Serve(ctx context.Context, l *transport.UnixListener) error {
 	// drain first).
 	defer r.endTasks()
 	defer r.pool.closeAll()
+	defer r.warm.stop() // no warm-up starts an instance once they stop
 	go func() {
 		<-ctx.Done()
 		_ = l.Close()
 	}()
+	r.startWarmUp(ctx)
 	for {
 		c, err := l.Accept()
 		if err != nil {
