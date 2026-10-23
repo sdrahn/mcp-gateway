@@ -2191,6 +2191,7 @@ check "metrics count allowed calls" grep -qE '^mcp_gateway_decisions_total\{acti
 check "metrics count denied calls" grep -qE '^mcp_gateway_decisions_total\{action="tools.call",effect="deny"\} [1-9]' <<<"$metrics"
 check "metrics count instance starts" grep -qE '^mcp_gateway_instance_starts_total\{server="fs"\} [1-9]' <<<"$metrics"
 check "metrics time OPA's decisions" grep -qE '^mcp_gateway_opa_query_duration_seconds_count\{query="mcp/authz/decision"\} [1-9]' <<<"$metrics"
+check "metrics tell OPA's query times apart up to 30s" grep -qE '^mcp_gateway_opa_query_duration_seconds_bucket\{query="mcp/authz/decision",le="30"\} [1-9]' <<<"$metrics"
 check "metrics show the pending restart" grep -qx 'mcp_gateway_restart_pending 1' <<<"$metrics"
 metrics_refused() { control alice GET /v1/metrics | grep -q 'metrics are for root'; }
 check "metrics are for root only" metrics_refused

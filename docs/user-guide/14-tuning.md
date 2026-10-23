@@ -15,12 +15,12 @@ effect at the next start, and `config unset` goes back to the default.
 
 ## Measure first
 
-Most trouble shows in the gateway's log or its metrics before any
-setting needs to change:
+Most trouble shows in the gateway's log or its metrics (root reads
+them, chapter 10) before any setting needs to change:
 
 ```bash
 journalctl -u mcp-gateway.service -b | grep -E 'did not answer initialize|filtering failed|listing failed|limit reached|warm-up'
-curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/metrics |
+sudo curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/metrics |
   grep -E 'opa_query_duration|instance_(starts|failures)|limit_refusals|sessions|instances '
 ```
 

@@ -26,9 +26,11 @@ var (
 	PolicyFailures = NewCounter("mcp_gateway_policy_failures_total",
 		"Decisions that failed closed: OPA did not answer (error) or answered with an invalid decision (invalid).",
 		"reason")
+	// Up to 30s: on a small host a listing's filtering can take seconds,
+	// and policy.timeout may be raised that far.
 	OPADuration = NewHistogram("mcp_gateway_opa_query_duration_seconds",
 		"Duration of queries to OPA, by query.",
-		[]float64{.001, .0025, .005, .01, .025, .05, .1, .25, .5, 1}, "query")
+		[]float64{.001, .0025, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30}, "query")
 	OPAErrors = NewCounter("mcp_gateway_opa_query_errors_total",
 		"Queries to OPA that failed (unreachable, timeout, undefined or malformed result), by query.",
 		"query")
