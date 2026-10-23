@@ -283,6 +283,13 @@ several definitions:
 | `mcp.approvals.notify` | set | mails more people |
 | `mcp.log.mask` | set | removes more from the decision log |
 
+In a listing (`mcp.filter`), roles and permissions are worked out once
+for the principal, not for each entry: an addition to `roles` or `perms`
+there sees `input.principal` but no `action` or `resource`. Make such
+additions depend on the principal only (as the examples below do); one
+that depends on the request shows its entries only when they are called.
+Additions to `denied` are decided for every entry, as for calls.
+
 Do **not** define `decision`, `ask_channel`, `obligations` or any other
 single-valued rule of the shipped packages again: OPA accepts the files,
 but as soon as both definitions produce a value the evaluation fails

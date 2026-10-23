@@ -23,16 +23,41 @@ use_action := {
 visible contains r if {
 	some r in input.resources
 
-	# The decision each resource would get if it were used.
-	# regal ignore:with-outside-test-context
-	d := data.mcp.authz.decision with input as {
-		"principal": input.principal,
-		"action": use_action[r.kind],
-		"resource": r,
-		"grants": [],
-		"discovery": true,
-	}
+	# The decision the resource would get if it were used.
+	d := data.mcp.authz.decision with input as discovery_input(use_action[r.kind], r)
+		with data.mcp.authz.role_defs as listing.role_defs
+		with data.mcp.authz.roles as listing.roles
+		with data.mcp.authz.perms as listing.perms
+		with data.mcp.authz.ceiling_perms as listing.ceiling_perms
+		with data.mcp.authz.candidate_perms as listing.candidates[r.server]
 	d.effect != "deny"
+}
+
+discovery_input(action, r) := {
+	"principal": input.principal,
+	"action": action,
+	"resource": r,
+	"grants": [],
+	"discovery": true,
+}
+
+# A listing asks for many resources of one principal. The parts of the
+# decision that depend on the principal only (roles, permissions, role
+# definitions, the ceilings of token scopes) are worked out once per
+# listing and given to every resource's decision ("with"), as are, per
+# server, the permissions whose server glob matches it: otherwise OPA
+# works them out again for each resource, as "with" starts afresh.
+# Additions to mcp.authz.roles or perms (user guide, chapter 12) are
+# therefore taken from the principal alone in a listing, without an
+# action or resource.
+listing := {
+	"role_defs": data.mcp.authz.role_defs,
+	"roles": data.mcp.authz.roles,
+	"perms": data.mcp.authz.perms,
+	"ceiling_perms": data.mcp.authz.ceiling_perms,
+	"candidates": {s: {p | some p in data.mcp.authz.candidate_perms; glob.match(p.server, null, s)} |
+		some s in {r.server | some r in input.resources}
+	},
 }
 
 # METADATA
@@ -49,20 +74,13 @@ visible contains r if {
 hints contains hint if {
 	some r in input.resources
 	r.kind == "tool"
-	in_doc := {
-		"principal": input.principal,
-		"action": "tools.call",
-		"resource": r,
-		"grants": [],
-		"discovery": true,
-	}
-
-	# regal ignore:with-outside-test-context
-	d := data.mcp.authz.decision with input as in_doc
+	[d, matching] := [data.mcp.authz.decision, data.mcp.authz.matching] with input as discovery_input("tools.call", r)
+		with data.mcp.authz.role_defs as listing.role_defs
+		with data.mcp.authz.roles as listing.roles
+		with data.mcp.authz.perms as listing.perms
+		with data.mcp.authz.ceiling_perms as listing.ceiling_perms
+		with data.mcp.authz.candidate_perms as listing.candidates[r.server]
 	d.effect != "deny"
-
-	# regal ignore:with-outside-test-context
-	matching := data.mcp.authz.matching with input as in_doc
 	perms := {p | some p in matching; not p.effect == "deny"}
 	args := arg_limits(perms)
 	approval := object.get(object.get(d, "ask", {}), "channel", "")

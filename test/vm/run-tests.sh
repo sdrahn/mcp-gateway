@@ -1944,6 +1944,35 @@ systemctl restart mcp-gateway.service
 wait_socket
 check "without warm-up, no instance runs after a start" sh -c '! systemctl list-units --type=service --state=running --plain --no-legend "mcp-fs-*" | grep -q .'
 
+section "Listings with custom policy"
+# The filter works out the principal's roles once per listing (1.7); an
+# addition to mcp.authz.denied is still decided for every tool listed,
+# as for calls (user guide, chapter 12).
+cl_rego=/etc/mcp-gateway/policy/vmtest_listing.rego
+cat >"$cl_rego" <<'EOF'
+package mcp.authz
+
+import rego.v1
+
+denied if {
+	input.principal.sub == "alice"
+	input.resource.server == "fs"
+	input.resource.name == "list_allowed_directories"
+}
+EOF
+restorecon "$cl_rego"
+cl_list() { call alice --method tools/list --params '{}' && [ "$rc" = 0 ] && grep -qF '"read_file"' <<<"$out"; }
+cl_hidden() { cl_list && ! grep -qF '"list_allowed_directories"' <<<"$out"; }
+cl_listed() { cl_list && grep -qF '"list_allowed_directories"' <<<"$out"; }
+check "a custom denial hides the tool from the listing" eventually 20 cl_hidden
+tool alice list_allowed_directories '{}'
+check "... and denies its call" failed_without "/home/alice"
+rm -f "$cl_rego"
+check "without it the tool is listed again" eventually 20 cl_listed
+cl_metrics=$(curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/metrics)
+check "metrics time the listings' filtering" \
+	grep -qE '^mcp_gateway_opa_query_duration_seconds_count\{query="mcp/filter/visible"\} [1-9]' <<<"$cl_metrics"
+
 section "Update without restart"
 gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
 ls -li /usr/bin/mcp-gateway | sed 's/^/  before: /'
