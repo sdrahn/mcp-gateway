@@ -119,7 +119,7 @@ func TestRenderBroken(t *testing.T) {
 			// data.json broken below, in a subdirectory, with the top fine.
 			writeFile(t, filepath.Join(src, "data.yaml"), "roles: {}\n")
 			writeFile(t, filepath.Join(src, "sub", "data.json"), `{"a": `)
-			tc.err = "sub/data.json: not valid JSON"
+			tc.err = "sub/data.json: line 1, column 6: unexpected end of JSON input"
 		} else {
 			writeFile(t, filepath.Join(src, tc.file), tc.content)
 		}
