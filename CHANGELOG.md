@@ -5,7 +5,35 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.7.0 — 2026-10-23
+
+Small hosts and the end of configuration in JSON. On a Raspberry Pi 4
+the first listing after a start no longer outlasts an agent's timeout:
+the aggregated endpoint asks its servers at the same time, the filtering
+of a listing takes about a third of the time it took, servers may take
+longer to start (`supervisor.start_timeout`) and can be started with the
+gateway (`supervisor.warm_up`), and chapter 14, "Tuning", says what to
+measure and set. Role data and the data of custom Rego in JSON,
+deprecated in 1.6, are no longer read.
+
+Upgrading from 1.6.x needs no changes to `gateway.yaml` or server
+definitions. After the update, restart the gateway (`systemctl restart
+mcp-gateway.service`); the package does not. The SELinux modules do not
+change. Things to know:
+
+- **Convert configuration in JSON first.** On 1.6, `mcp-gateway-admin
+  doctor` names every file (`json-policy-data`) and `mcp-gateway-admin
+  policy convert FILE` converts it. A file left over after the update
+  makes the gateway deny every request and list nothing until it is
+  converted; the update, the journal, the doctor and Cockpit name it
+  (chapter 6, "YAML, not JSON"). A `data.json` next to a `data.yaml`
+  stays ignored, as before.
+- **Custom additions to `mcp.authz.roles` or `perms`** are taken from the
+  principal alone in a listing (chapter 12); additions to `denied` are
+  decided per entry, as before.
+- **Small hosts**: chapter 14 has starting points; on a slow host look
+  at `mcp_gateway_opa_query_duration_seconds` (now up to 30s) before
+  raising `policy.timeout`.
 
 ### Added
 
