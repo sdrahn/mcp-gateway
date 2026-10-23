@@ -48,7 +48,8 @@ func TestDoctorOffline(t *testing.T) {
 	write("servers.d/sys.yaml", "name: sys\ncommand: [/usr/bin/true]\nrun_as: mcp-nobody-has-rules\nselinux_type: mcpsrv_systemd_t\n")
 	cfg := write("gateway.yaml", "servers_dir: "+servers+"\nvendor_servers_dir: "+filepath.Join(dir, "none")+
 		"\npolicy:\n  opa_socket: "+filepath.Join(dir, "opa.sock")+"\napprovals:\n  control_socket: "+filepath.Join(dir, "control.sock")+"\n")
-	rbac := write("data.json", `{"roles": {"r": {"permissions": []}}, "bindings": {"users": {"alice": ["nope"]}}}`)
+	write("data.yaml", `{"roles": {"r": {"permissions": []}}, "bindings": {"users": {"alice": ["nope"]}}}`)
+	rbac := filepath.Join(dir, "data.json")
 
 	var out, errb bytes.Buffer
 	rc := runDoctor([]string{"-config", cfg, "-policy-data", rbac, "-shipped-policy", "", "-no-start", "-json"}, &out, &errb)
@@ -105,7 +106,7 @@ func TestDoctorOffline(t *testing.T) {
 	if !slices.Contains(checks, "role data") || !slices.Contains(checks, "polkit mcp-nobody-has-rules") {
 		t.Errorf("-server sys: %v", checks)
 	}
-	write("data.json", `{"roles": {"r": {"permissions": []}}, "bindings": {"users": {}}}`)
+	write("data.yaml", `{"roles": {"r": {"permissions": []}}, "bindings": {"users": {}}}`)
 	out.Reset()
 	runDoctor([]string{"-config", cfg, "-policy-data", rbac, "-shipped-policy", "", "-no-start", "-json", "-server", "sys"}, &out, &errb)
 	if strings.Contains(out.String(), `"role data"`) {

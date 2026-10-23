@@ -130,10 +130,14 @@ func TestPolicyConvertCustomData(t *testing.T) {
 		return v
 	}
 	before := opaData()
+	var nudged []string
+	savedNudge := nudgeOPA
+	nudgeOPA = func(dir string) error { nudged = append(nudged, dir); return savedNudge(dir) }
+	t.Cleanup(func() { nudgeOPA = savedNudge })
 
 	yml := filepath.Join(limits, "data.yaml")
 	rc, out, errs := run("convert", js)
-	if rc != 0 || !strings.Contains(out, "wrote "+yml) || !strings.Contains(out, "removed "+js+": OPA loads every data file below "+policy) ||
+	if rc != 0 || !strings.Contains(out, "wrote "+yml) || !strings.Contains(out, "removed "+js+": OPA loads the data files below "+policy) ||
 		!strings.Contains(out, "policy convert --to json "+yml+" brings it back") {
 		t.Fatalf("convert: %d %s %s", rc, out, errs)
 	}
@@ -152,6 +156,14 @@ func TestPolicyConvertCustomData(t *testing.T) {
 	files, err := policydata.JSONFiles(policy, filepath.Join(policy, "rbac"))
 	if err != nil || len(files) != 0 {
 		t.Errorf("JSON left: %v %v", files, err)
+	}
+	// OPA is made to look again (it does not watch a directory made after
+	// it started that held only JSON), and the nudge leaves nothing.
+	if len(nudged) != 1 || nudged[0] != policy {
+		t.Errorf("nudged %v, want [%s]", nudged, policy)
+	}
+	if entries, _ := os.ReadDir(policy); len(entries) != 1 || entries[0].Name() != "limits" {
+		t.Errorf("left in %s: %v", policy, entries)
 	}
 
 	// Back, for an earlier release.

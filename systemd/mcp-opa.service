@@ -2,8 +2,8 @@
 Description=MCP gateway policy engine (OPA)
 Documentation=https://github.com/sdrahn/mcp-gateway/blob/main/docs/architecture.md
 Before=mcp-gateway.service
-# The role data, rendered from /etc/mcp-gateway/policy/rbac (data.yaml or
-# data.json) to /run/mcp-opa/rbac, and again on every change. Wants=: OPA
+# The role data, rendered from /etc/mcp-gateway/policy/rbac (data.yaml)
+# to /run/mcp-opa/rbac, and again on every change. Wants=: OPA
 # starts without it, and denies what no role allows.
 Wants=mcp-policy-render.service
 After=mcp-policy-render.service
@@ -24,7 +24,9 @@ SELinuxContext=-system_u:system_r:mcpopa_t:s0
 # loads the administrator's data files below it; Rego files keep their
 # packages. The role data in /etc/mcp-gateway/policy/rbac is not loaded
 # from there (--ignore rbac skips every directory of that name) but as
-# mcp-policy-render.service wrote it, as data.mcp.rbac.
+# mcp-policy-render.service wrote it, as data.mcp.rbac. Data files in JSON
+# are no longer read since 1.7 (--ignore '*.json'): data is YAML, and the
+# gateway denies every request while such a file is left over.
 # For signed bundles (from mcp-policy-bundle or a bundle server) replace
 # ExecStart= with a drop-in from /usr/share/mcp-gateway/opa/.
 # Every decision is logged to the journal; policy/mcp/log.rego masks
@@ -41,6 +43,7 @@ ExecStart=/usr/bin/opa run --server \
     --set=decision_logs.console=true \
     --set=decision_logs.mask_decision=/mcp/log/mask \
     --ignore rbac \
+    --ignore '*.json' \
     $OPA_EXTRA_ARGS \
     /usr/share/mcp-gateway/policy \
     mcp:/etc/mcp-gateway/policy \

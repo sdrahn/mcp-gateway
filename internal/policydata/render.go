@@ -17,16 +17,17 @@ import (
 // OPA does not read DefaultDir itself (mcp-opa.service: --ignore rbac),
 // as it would merge data.yaml and data.json where both exist; the
 // renderer (mcp-policy-render, as root) writes the file in force of each
-// directory below DefaultDir as JSON to RenderDir, which OPA loads as
+// directory below DefaultDir to RenderDir, which OPA loads as
 // data.mcp.rbac. The gateway cannot write RenderDir.
 const (
 	DefaultDir = "/etc/mcp-gateway/policy/rbac"
 	RenderDir  = "/run/mcp-opa/rbac"
 )
 
-// renderName is the name of a rendered file: OPA loads it whatever the
-// format of its source.
-const renderName = "data.json"
+// renderName is the name of a rendered file, whatever the format of its
+// source: its content is JSON, which is YAML too, and OPA loads it as
+// YAML (from 1.7 mcp-opa.service ignores *.json files, step 38).
+const renderName = "data.yaml"
 
 // A Source is a file in force below the role data's directory and what it
 // renders to.
@@ -49,19 +50,25 @@ type Plan struct {
 	// when it read the directory itself (*.json, *.yaml, *.yml, *.rego)
 	// and that are not rendered: reported.
 	Unloaded []string
+	// JSON are the data.json files that would be in force but are no
+	// longer read (since 1.7, step 38): nothing is rendered for their
+	// directories, not even the shipped default for the top, so the
+	// policy has no role data from them (it fails closed).
+	JSON []string
 }
 
 // PlanRender reads the role data in force below dir, the top and every
 // directory under it (rbac/<name>/, chapter 12), with the shipped roles
 // below shippedDir for the schema check. Where the top has no role data
 // (or dir does not exist), def (the shipped default, DefaultData; "":
-// none) is in force there, taken whole. A file that does not parse, or is
-// not an object, is an error: nothing is to be rendered then, and the
-// last rendering stays in force (as OPA keeps its previous data when a
-// file does not load).
+// none) is in force there, taken whole, unless a data.json is there
+// (Plan.JSON). A file that does not parse, or is not an object, is an
+// error: nothing is to be rendered then, and the last rendering stays in
+// force (as OPA keeps its previous data when a file does not load).
 func PlanRender(dir, def, shippedDir string) (Plan, error) {
 	var p Plan
 	var errs []error
+	topJSON := false
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) && path == dir {
@@ -86,6 +93,13 @@ func PlanRender(dir, def, shippedDir string) (Plan, error) {
 		if _, err := os.Stat(file); errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
+		if strings.EqualFold(filepath.Ext(file), ".json") {
+			p.JSON = append(p.JSON, file)
+			if rel == "." {
+				topJSON = true
+			}
+			return nil
+		}
 		if err := p.add(rel, file, ignored, shippedDir); err != nil {
 			errs = append(errs, err)
 		}
@@ -94,7 +108,7 @@ func PlanRender(dir, def, shippedDir string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	if !slices.ContainsFunc(p.Sources, func(s Source) bool { return s.Rel == "." }) && def != "" {
+	if !slices.ContainsFunc(p.Sources, func(s Source) bool { return s.Rel == "." }) && def != "" && !topJSON {
 		if _, err := os.Stat(def); err == nil {
 			if err := p.add(".", def, nil, shippedDir); err != nil {
 				errs = append(errs, err)

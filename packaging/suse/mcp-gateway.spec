@@ -317,6 +317,17 @@ if [ -f "$f" ] && grep -qx "$(sha256sum <"$f" | cut -d' ' -f1)" %{_datadir}/mcp-
     rm -f "$f"
     echo "Removed $f, the default of an earlier package: the shipped default (%{_datadir}/mcp-gateway/rbac/data.yaml) is in force."
 fi
+# Configuration in JSON is no longer read since 1.7, and the gateway
+# denies every request while some is left over. Nothing converts it here
+# (it may belong to configuration management): the update names it.
+p=%{_sysconfdir}/mcp-gateway/policy
+for f in $(find "$p" -name '*.json' -type f 2>/dev/null | sort); do
+    case $f in
+    "$p"/rbac/*/data.json | "$p"/rbac/data.json) [ -f "${f%%.json}.yaml" ] && continue ;;
+    "$p"/rbac/* | */rbac/*) continue ;;
+    esac
+    echo "$f: configuration in JSON is no longer read since 1.7, and the gateway denies every request until it is converted: mcp-gateway-admin policy convert $f"
+done
 
 %preun
 %service_del_preun mcp-gateway.service mcp-opa.service mcp-policy-render.service

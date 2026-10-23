@@ -3898,7 +3898,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       and removes an unchanged one, which then follows the shipped
       default.
 38. **Configuration files in YAML only** (deprecated in 1.6, removed in
-    1.7; D10; stage A done):
+    1.7; D10; done):
     - the goal: the files administrators write are YAML, and only YAML:
       `gateway.yaml` and its drop-ins, server definitions (already), the
       role data, and the data files of custom Rego below
@@ -3960,6 +3960,34 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       name and the policy fails closed, the compatibility test against
       1.6 passes, and an update from 1.6 with converted files changes
       nothing.
+      As built (1.7): a leftover is what 1.6 read as configuration
+      (`policydata.JSONFiles`): a `data.json` without a `data.yaml` in a
+      directory of the role data, and a `*.json` data file below the
+      policy directory outside `rbac/`; a `data.json` next to a
+      `data.yaml` was ignored in 1.6 already (what `policy convert`
+      leaves) and blocks nothing. `policydata.Read` refuses a file in
+      JSON (`ErrJSON`, naming the convert command); standard input may
+      still be JSON (`policy write`, as Cockpit sends it). The renderer
+      renders nothing for a leftover's directory, not even the default
+      for the top (exit status 3), and names its files `data.yaml` (JSON
+      content, which is YAML): `mcp-opa.service` runs with `--ignore
+      '*.json'`, so OPA reads no JSON below `/etc/mcp-gateway/policy`.
+      Without that data, custom rules might allow what it denied, so the
+      gateway fails closed itself: `pep.Guard` around OPA denies every
+      decision with the leftover's problem as the reason (metric
+      `policy_failures_total{reason="blocked"}`) and lists nothing while
+      the `jsonGuard` finds one (it looks again at most every 2 s, and
+      logs each file when found and the end when gone); not while OPA
+      runs on bundles, which do not load the local policy.
+      `mcp-gateway --check` and `--check-policy-data` fail, the doctor's
+      `json-policy-data` and `role data` fail, `mcp-policy-bundle`
+      builds no bundle, a package update (`%posttrans`) names each file,
+      and Cockpit shows the JSON converted, for saving or converting.
+      OPA's `--watch` watches only directories it loaded a file from, so
+      a `data.yaml` written into a directory made after OPA started that
+      held only (ignored) JSON goes unseen until another change; `policy
+      convert` creates and removes a file in the policy directory, which
+      OPA watches as given, to make it look again (found by the VM test).
 
 ## 12. Open items
 

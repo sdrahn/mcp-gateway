@@ -270,7 +270,7 @@ func TestPolicyBundleKeygen(t *testing.T) {
 	}
 	dir := t.TempDir()
 	key, bundle := filepath.Join(dir, "keys", "signing.pem"), filepath.Join(dir, "bundle", "policy.tar.gz")
-	writeFile(t, filepath.Join(dir, "data", "rbac", "data.json"), `{"roles": {}, "bindings": {}}`)
+	writeFile(t, filepath.Join(dir, "data", "rbac", "data.yaml"), "roles: {}\nbindings: {}\n")
 	run := func(args ...string) (string, error) {
 		cmd := exec.Command("sh", append([]string{filepath.Join("..", "tools", "mcp-policy-bundle")}, args...)...)
 		cmd.Env = append(os.Environ(), "OPA="+opa)
@@ -305,7 +305,7 @@ func TestPolicyBundleKeygen(t *testing.T) {
 	// Role data that fails its schema is not signed.
 	gateway := buildBinary(t, filepath.Join(dir, "bin"), "./cmd/mcp-gateway")
 	bad := filepath.Join(dir, "bad")
-	writeFile(t, filepath.Join(bad, "rbac", "data.json"), `{"roles": {"r": {"permissions": [{"server": "fs", "tool": "x", "efect": "deny"}]}}}`)
+	writeFile(t, filepath.Join(bad, "rbac", "data.yaml"), `{"roles": {"r": {"permissions": [{"server": "fs", "tool": "x", "efect": "deny"}]}}}`)
 	cmd := exec.Command("sh", filepath.Join("..", "tools", "mcp-policy-bundle"),
 		"-k", key, "-o", filepath.Join(dir, "bad.tar.gz"), "-n", "-V", filepath.Join("..", "policy"), "-L", bad)
 	cmd.Env = append(os.Environ(), "OPA="+opa, "MCP_GATEWAY="+gateway)
@@ -321,7 +321,7 @@ func TestPolicyBundleKeygen(t *testing.T) {
 	yml := filepath.Join(dir, "yml")
 	writeFile(t, filepath.Join(yml, "rbac", "data.json"), `{"roles": {"old": {"permissions": []}}}`)
 	writeFile(t, filepath.Join(yml, "rbac", "data.yaml"), "# in force\nroles:\n  new: {permissions: []}\n")
-	writeFile(t, filepath.Join(yml, "rbac", "managers", "data.json"), `{"alice": "bob"}`)
+	writeFile(t, filepath.Join(yml, "rbac", "managers", "data.yaml"), "alice: bob\n")
 	writeFile(t, filepath.Join(yml, "rbac", "notes.json"), `{"x": 1}`)
 	ymlBundle := filepath.Join(dir, "yml.tar.gz")
 	cmd = exec.Command("sh", filepath.Join("..", "tools", "mcp-policy-bundle"),
@@ -335,6 +335,25 @@ func TestPolicyBundleKeygen(t *testing.T) {
 	b, err = exec.Command(opa, "eval", "--format", "raw", "--bundle", ymlBundle, "json.marshal(data.mcp.rbac)").CombinedOutput()
 	if err != nil || strings.TrimSpace(string(b)) != `{"managers":{"alice":"bob"},"roles":{"new":{"permissions":[]}}}` {
 		t.Fatalf("the bundle's role data: %v %s", err, b)
+	}
+	// Configuration in JSON is no longer read (since 1.7): a data.json
+	// without a data.yaml, or a custom data file in JSON, is named, and no
+	// bundle is built.
+	left := filepath.Join(dir, "left")
+	writeFile(t, filepath.Join(left, "rbac", "data.json"), `{"roles": {}}`)
+	writeFile(t, filepath.Join(left, "limits", "data.json"), `{"max": 1}`)
+	leftBundle := filepath.Join(dir, "left.tar.gz")
+	cmd = exec.Command("sh", filepath.Join("..", "tools", "mcp-policy-bundle"),
+		"-k", key, "-o", leftBundle, "-n", "-V", filepath.Join("..", "policy"), "-L", left)
+	cmd.Env = append(os.Environ(), "OPA="+opa, "MCP_GATEWAY="+gateway)
+	b, err = cmd.CombinedOutput()
+	for _, f := range []string{filepath.Join(left, "rbac", "data.json"), filepath.Join(left, "limits", "data.json")} {
+		if err == nil || !strings.Contains(string(b), f+": configuration in JSON is no longer read since 1.7: convert it to YAML with mcp-gateway-admin policy convert "+f) {
+			t.Errorf("JSON left over: %s: %v %s", f, err, b)
+		}
+	}
+	if _, err := os.Stat(leftBundle); err == nil {
+		t.Error("bundle written with configuration in JSON")
 	}
 	// With mcp-policy-render (as installed), the bundle carries the role
 	// data as rendered for directory mode: YAML read as the gateway reads

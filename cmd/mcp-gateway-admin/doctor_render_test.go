@@ -29,10 +29,19 @@ func TestDoctorRendering(t *testing.T) {
 	d := &doctorRun{policyData: filepath.Join(rbac, "data.json"), rendered: filepath.Join(dir, "run", "rbac")}
 	details := func(r doctor.Result) string { return strings.Join(r.Details, "\n") }
 
+	// Role data in JSON alone is no longer read (since 1.7): a failure
+	// naming the command, and nothing to compare the rendering with.
 	write("data.json", `{"roles": {}}`)
-	if r := d.roleData(); r.Status != doctor.OK || !strings.Contains(r.Summary, "data.json valid") {
+	if r := d.roleData(); r.Status != doctor.Fail || !strings.Contains(r.Summary, "data.json: configuration in JSON is no longer read since 1.7") ||
+		!strings.Contains(details(r), "the gateway denies every request until it is converted") || !d.rbacBroken {
 		t.Errorf("JSON alone: %+v", r)
 	}
+	if r := d.rendering(); r.Status != doctor.Skip {
+		t.Errorf("JSON alone, rendering: %+v", r)
+	}
+	d.rbacBroken = false
+	write("data.yaml", "roles: {}\n")
+	d.roleData()
 	if r := d.rendering(); r.Status != doctor.Fail || !strings.Contains(r.Summary, "OPA has no role data") ||
 		!strings.Contains(details(r), "systemctl restart mcp-policy-render.service") {
 		t.Errorf("not rendered: %+v", r)
@@ -60,9 +69,9 @@ func TestDoctorRendering(t *testing.T) {
 	}
 
 	write("data.yaml", "roles: {r: {permissions: []}}\n")
-	write("managers/data.json", `{"alice": "bob"}`)
-	if r := d.rendering(); r.Status != doctor.Warn || !strings.Contains(details(r), "not current: "+filepath.Join(d.rendered, "data.json")) ||
-		!strings.Contains(details(r), "not current: "+filepath.Join(d.rendered, "managers", "data.json")) {
+	write("managers/data.yaml", "alice: bob\n")
+	if r := d.rendering(); r.Status != doctor.Warn || !strings.Contains(details(r), "not current: "+filepath.Join(d.rendered, "data.yaml")) ||
+		!strings.Contains(details(r), "not current: "+filepath.Join(d.rendered, "managers", "data.yaml")) {
 		t.Errorf("stale: %+v", r)
 	}
 	render()
@@ -77,24 +86,18 @@ func TestDoctorRendering(t *testing.T) {
 		!strings.Contains(details(r), "OPA keeps the role data it had") {
 		t.Errorf("broken: %+v", r)
 	}
-	// Broken JSON: its line and column, and the servers' roles are not
-	// checked against it (one note, not a failure per server).
-	if err := os.Remove(filepath.Join(rbac, "data.yaml")); err != nil {
-		t.Fatal(err)
-	}
-	write("data.json", "{\n  \"roles\": {\"dev\": {\"permissions\": [{\"server\": \"fs\"},]}}\n}\n")
+	// Broken YAML: the servers' roles are not checked against it (one
+	// note, not a failure per server).
 	d.rbac, d.rbacFile, d.rbacBroken = nil, "", false
-	if r := d.roleData(); r.Status != doctor.Fail ||
-		r.Summary != filepath.Join(rbac, "data.json")+": line 2, column 54: invalid character ']' looking for beginning of value" {
-		t.Errorf("broken JSON: %+v", r)
-	}
+	d.roleData()
 	if !d.rbacBroken || len(d.roleFiles()) != 0 {
-		t.Errorf("broken JSON: rbacBroken %v, role files %v", d.rbacBroken, d.roleFiles())
+		t.Errorf("broken: rbacBroken %v, role files %v", d.rbacBroken, d.roleFiles())
 	}
 }
 
-// The doctor names each file of the local policy in JSON with the command
-// that converts it (deprecated since 1.6), and is content once all is YAML.
+// The doctor fails on each file of the local policy in JSON, naming the
+// command that converts it (no longer read since 1.7), and is content
+// once all is YAML.
 func TestDoctorJSONFiles(t *testing.T) {
 	policy := filepath.Join(t.TempDir(), "policy")
 	write := func(name, content string) string {
@@ -115,7 +118,7 @@ func TestDoctorJSONFiles(t *testing.T) {
 	role := write("rbac/data.json", `{"roles": {}}`)
 	custom := write("limits/data.json", `{"limits": {}}`)
 	r := d.jsonFiles()
-	if r.Status != doctor.Warn || !strings.Contains(r.Summary, "2 file(s) in JSON, deprecated since 1.6") ||
+	if r.Status != doctor.Fail || !strings.Contains(r.Summary, "2 file(s) in JSON, no longer read since 1.7: the gateway denies every request") ||
 		strings.Join(r.Details, "\n") != custom+": mcp-gateway-admin policy convert "+custom+"\n"+role+": mcp-gateway-admin policy convert "+role {
 		t.Errorf("JSON: %+v", r)
 	}

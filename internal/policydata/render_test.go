@@ -29,13 +29,15 @@ func readFile(t *testing.T, path string) string {
 
 func TestRender(t *testing.T) {
 	src, out, shipped := t.TempDir(), filepath.Join(t.TempDir(), "rbac"), t.TempDir()
-	// The top in YAML, its JSON ignored; a subdirectory in JSON (chapter
-	// 12); one without role data; a file OPA loaded before.
+	// The top in YAML, its JSON ignored; a subdirectory (chapter 12); one
+	// without role data; a file OPA loaded before; the rendering of 1.6,
+	// in JSON.
 	writeFile(t, filepath.Join(src, "data.yaml"), "# who may do what\nroles:\n  tester:\n    permissions:\n      - {server: fs, tool: 'read_*'}\nbindings:\n  users: {alice: [tester, nope]}\n")
 	writeFile(t, filepath.Join(src, "data.json"), `{"roles": {"old": {"permissions": []}}}`)
-	writeFile(t, filepath.Join(src, "managers", "data.json"), `{"alice": "bob"}`)
+	writeFile(t, filepath.Join(src, "managers", "data.yaml"), "alice: bob\n")
 	writeFile(t, filepath.Join(src, "empty", "README"), "nothing")
 	writeFile(t, filepath.Join(src, "extra.json"), `{"x": 1}`)
+	writeFile(t, filepath.Join(out, "data.json"), `{"roles": {"old": {"permissions": []}}}`)
 
 	p, err := PlanRender(src, "", shipped)
 	if err != nil {
@@ -50,22 +52,24 @@ func TestRender(t *testing.T) {
 	if len(p.Problems) != 1 || !strings.Contains(p.Problems[0], `unknown role "nope"`) {
 		t.Errorf("problems %q", p.Problems)
 	}
-	if !slices.Equal(p.Unloaded, []string{filepath.Join(src, "extra.json")}) {
-		t.Errorf("unloaded %q", p.Unloaded)
+	if !slices.Equal(p.Unloaded, []string{filepath.Join(src, "extra.json")}) || len(p.JSON) != 0 {
+		t.Errorf("unloaded %q, JSON %q", p.Unloaded, p.JSON)
 	}
 
+	// Rendered as data.yaml (OPA ignores *.json from 1.7), the rendering
+	// of 1.6 removed.
 	written, removed, err := p.Render(out)
-	if err != nil || !slices.Equal(written, []string{"data.json", "managers/data.json"}) || len(removed) != 0 {
+	if err != nil || !slices.Equal(written, []string{"data.yaml", "managers/data.yaml"}) || !slices.Equal(removed, []string{"data.json"}) {
 		t.Fatalf("render: %v %v %v", written, removed, err)
 	}
-	if got := strings.Join(strings.Fields(readFile(t, filepath.Join(out, "data.json"))), ""); got !=
+	if got := strings.Join(strings.Fields(readFile(t, filepath.Join(out, "data.yaml"))), ""); got !=
 		`{"roles":{"tester":{"permissions":[{"server":"fs","tool":"read_*"}]}},"bindings":{"users":{"alice":["tester","nope"]}}}` {
 		t.Errorf("rendered %s", got)
 	}
-	if got := readFile(t, filepath.Join(out, "managers", "data.json")); got != `{"alice": "bob"}` {
+	if got := strings.Join(strings.Fields(readFile(t, filepath.Join(out, "managers", "data.yaml"))), ""); got != `{"alice":"bob"}` {
 		t.Errorf("managers %s", got)
 	}
-	if fi, err := os.Stat(filepath.Join(out, "data.json")); err != nil || fi.Mode().Perm() != 0o644 {
+	if fi, err := os.Stat(filepath.Join(out, "data.yaml")); err != nil || fi.Mode().Perm() != 0o644 {
 		t.Errorf("mode %v %v", fi, err)
 	}
 
@@ -82,10 +86,10 @@ func TestRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w, r, err := p.Stale(out); err != nil || len(w) != 0 || !slices.Equal(r, []string{"managers/data.json"}) {
+	if w, r, err := p.Stale(out); err != nil || len(w) != 0 || !slices.Equal(r, []string{"managers/data.yaml"}) {
 		t.Errorf("stale: %v %v %v", w, r, err)
 	}
-	if _, removed, err := p.Render(out); err != nil || !slices.Equal(removed, []string{"managers/data.json"}) {
+	if _, removed, err := p.Render(out); err != nil || !slices.Equal(removed, []string{"managers/data.yaml"}) {
 		t.Errorf("removed %v %v", removed, err)
 	}
 	if _, err := os.Stat(filepath.Join(out, "managers")); !os.IsNotExist(err) {
@@ -112,23 +116,52 @@ func TestRenderBroken(t *testing.T) {
 	}
 	for _, tc := range []struct{ name, file, content, err string }{
 		{"YAML", "data.yaml", "roles: {}\nroles: {}\n", `line 2: key "roles" is already defined`},
-		{"JSON", "data.yaml", "", ""},
+		{"in a subdirectory", "sub/data.yaml", "a: [", "sub/data.yaml: yaml: line 1"},
 		{"not an object", "data.yaml", "- a\n- b\n", "not an object"},
 	} {
-		if tc.name == "JSON" {
-			// data.json broken below, in a subdirectory, with the top fine.
-			writeFile(t, filepath.Join(src, "data.yaml"), "roles: {}\n")
-			writeFile(t, filepath.Join(src, "sub", "data.json"), `{"a": `)
-			tc.err = "sub/data.json: line 1, column 6: unexpected end of JSON input"
-		} else {
-			writeFile(t, filepath.Join(src, tc.file), tc.content)
-		}
+		writeFile(t, filepath.Join(src, tc.file), tc.content)
 		if _, err := PlanRender(src, "", t.TempDir()); err == nil || !strings.Contains(err.Error(), tc.err) {
 			t.Errorf("%s: %v, want %q", tc.name, err, tc.err)
 		}
 	}
-	if got := readFile(t, filepath.Join(out, "data.json")); strings.Join(strings.Fields(got), "") != `{"roles":{}}` {
+	if got := readFile(t, filepath.Join(out, "data.yaml")); strings.Join(strings.Fields(got), "") != `{"roles":{}}` {
 		t.Errorf("last rendering: %s", got)
+	}
+}
+
+// Role data in JSON is no longer read (since 1.7): a data.json without a
+// data.yaml is reported, renders nothing, and keeps the shipped default
+// out of force; what was rendered from it before is removed, so the
+// policy has no role data from it (it fails closed).
+func TestRenderJSON(t *testing.T) {
+	src, out := t.TempDir(), t.TempDir()
+	def := filepath.Join(t.TempDir(), "data.yaml")
+	writeFile(t, def, "roles: {shipped: {}}\n")
+	writeFile(t, filepath.Join(src, "data.yaml"), "roles: {mine: {}}\n")
+	writeFile(t, filepath.Join(src, "managers", "data.yaml"), "alice: bob\n")
+	p, err := PlanRender(src, def, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := p.Render(out); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"data.yaml", "managers/data.yaml"} {
+		if err := os.Remove(filepath.Join(src, f)); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(src, strings.TrimSuffix(f, ".yaml")+".json"), "{}")
+	}
+	p, err = PlanRender(src, def, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{filepath.Join(src, "data.json"), filepath.Join(src, "managers", "data.json")}
+	if len(p.Sources) != 0 || !slices.Equal(p.JSON, want) {
+		t.Errorf("sources %+v, JSON %q", p.Sources, p.JSON)
+	}
+	if _, removed, err := p.Render(out); err != nil || !slices.Equal(removed, []string{"data.yaml", "managers/data.yaml"}) {
+		t.Errorf("removed %v %v", removed, err)
 	}
 }
 
@@ -156,16 +189,16 @@ func TestRenderDefault(t *testing.T) {
 	for _, tc := range []struct{ name, setup, want string }{
 		{"no directory", "", `{"roles":{"viewer":{"permissions":[]},"admin":{"permissions":[]}}}`},
 		{"an empty directory", "mkdir", `{"roles":{"viewer":{"permissions":[]},"admin":{"permissions":[]}}}`},
-		{"the administrator's data.json, taken whole", "data.json", `{"roles":{"mine":{"permissions":[]}}}`},
+		{"the administrator's data.yaml, taken whole", "data.yaml", `{"roles":{"mine":{"permissions":[]}}}`},
 	} {
 		switch tc.setup {
 		case "mkdir":
 			if err := os.MkdirAll(filepath.Join(src, "managers"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			writeFile(t, filepath.Join(src, "managers", "data.json"), `{"alice": "bob"}`)
-		case "data.json":
-			writeFile(t, filepath.Join(src, "data.json"), `{"roles": {"mine": {"permissions": []}}}`)
+			writeFile(t, filepath.Join(src, "managers", "data.yaml"), "alice: bob\n")
+		case "data.yaml":
+			writeFile(t, filepath.Join(src, "data.yaml"), `{"roles": {"mine": {"permissions": []}}}`)
 		}
 		p, err := PlanRender(src, def, "")
 		if err != nil {
@@ -175,8 +208,8 @@ func TestRenderDefault(t *testing.T) {
 			t.Fatalf("%s: %+v", tc.name, p.Sources)
 		}
 		wantFile := def
-		if tc.setup == "data.json" {
-			wantFile = filepath.Join(src, "data.json")
+		if tc.setup == "data.yaml" {
+			wantFile = filepath.Join(src, "data.yaml")
 		}
 		if p.Sources[0].File != wantFile {
 			t.Errorf("%s: in force %s, want %s", tc.name, p.Sources[0].File, wantFile)
@@ -184,18 +217,18 @@ func TestRenderDefault(t *testing.T) {
 		if _, _, err := p.Render(out); err != nil {
 			t.Fatal(err)
 		}
-		if got := strings.Join(strings.Fields(readFile(t, filepath.Join(out, "data.json"))), ""); got != tc.want {
+		if got := strings.Join(strings.Fields(readFile(t, filepath.Join(out, "data.yaml"))), ""); got != tc.want {
 			t.Errorf("%s: rendered %s", tc.name, got)
 		}
 		if tc.setup != "" {
-			if got := readFile(t, filepath.Join(out, "managers", "data.json")); got != `{"alice": "bob"}` {
+			if got := strings.Join(strings.Fields(readFile(t, filepath.Join(out, "managers", "data.yaml"))), ""); got != `{"alice":"bob"}` {
 				t.Errorf("%s: managers %q", tc.name, got)
 			}
 		}
 	}
 	// A default that does not parse is an error, as the administrator's is.
 	writeFile(t, def, "roles: [\n")
-	if err := os.Remove(filepath.Join(src, "data.json")); err != nil {
+	if err := os.Remove(filepath.Join(src, "data.yaml")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := PlanRender(src, def, ""); err == nil {

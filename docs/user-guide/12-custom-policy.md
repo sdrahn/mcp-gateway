@@ -22,7 +22,7 @@ trees into one policy:
 | Directory | Contents |
 |---|---|
 | `/usr/share/mcp-gateway/policy/` | the shipped logic: `mcp/authz.rego` (with `mcp/reasons.rego`, the reasons of denials, and `mcp/builtin.rego`, the gateway's own tools), `mcp/filter.rego`, `mcp/approvals.rego`, `mcp/log.rego` |
-| `/etc/mcp-gateway/policy/` | your files: `rbac/data.yaml`, and any `.rego` and `data.yaml` files you add (JSON is still read, but deprecated since 1.6) |
+| `/etc/mcp-gateway/policy/` | your files: `rbac/data.yaml`, and any `.rego` and `data.yaml` files you add (JSON is no longer read since 1.7) |
 | `/run/mcp-opa/rbac/` | the role data as OPA loads it: what `mcp-policy-render.service` renders from `/etc/mcp-gateway/policy/rbac/` |
 
 - A `.rego` file defines rules in the package it declares
@@ -687,17 +687,24 @@ and writes a `mcp-policy-change` audit event. Changes to data elsewhere
 take effect as well, but agents are not told, so their tool lists may be
 stale until they reconnect.
 
-Data files in JSON are still read, but deprecated since 1.6, as the role
-data in JSON is (chapter 6, "YAML or JSON"): each warns with its name,
-and 1.7 no longer reads them. Convert one with
+Data files in JSON are no longer read since 1.7, as role data in JSON is
+not (chapter 6, "YAML, not JSON"): OPA skips them, and while one is
+left over the gateway denies every request and lists nothing, as your
+rules might allow what its data was there to deny. The gateway's log,
+the doctor, `mcp-gateway --check`, `mcp-policy-bundle` and a package
+update name each, with the command that converts it:
 
 ```bash
 mcp-gateway-admin policy convert /etc/mcp-gateway/policy/limits/data.json
 ```
 
 It writes `data.yaml` next to it, the same data, and, outside `rbac/`,
-removes `data.json` (OPA would load both and refuse them); `--to json`
-converts it back, again removing the other.
+removes `data.json`; `--to json` converts it back for an earlier
+release, again removing the other. OPA watches only the directories it
+loaded a file from: in a directory made after it started that held only
+JSON, it sees a `data.yaml` only after the next change elsewhere below
+`/etc/mcp-gateway/policy`. `policy convert` makes such a change itself;
+if you write the YAML by other means there, restart `mcp-opa.service`.
 
 OPA runs without network access; rules cannot fetch data at decision
 time (`http.send` fails). Deliver data as files, or in bundles from a

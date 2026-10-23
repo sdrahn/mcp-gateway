@@ -33,16 +33,16 @@ func TestRun(t *testing.T) {
 	}
 	write("data.json", `{"roles": {"old": {"permissions": []}}}`)
 	write("data.yaml", "roles: {new: {permissions: []}}\nbindings: {users: {alice: [nope]}}\n")
-	if rc, msg := render("-check"); rc != 1 || !strings.Contains(msg, "not current: data.json") {
+	if rc, msg := render("-check"); rc != 1 || !strings.Contains(msg, "not current: data.yaml") {
 		t.Errorf("check before: %d %s", rc, msg)
 	}
 	rc, msg := render()
-	if rc != 0 || !strings.Contains(msg, "rendered data.json") ||
+	if rc != 0 || !strings.Contains(msg, "rendered data.yaml") ||
 		!strings.Contains(msg, filepath.Join(src, "data.json")+" is ignored: "+filepath.Join(src, "data.yaml")+" is in force") ||
 		!strings.Contains(msg, `warning: `+filepath.Join(src, "data.yaml")) {
 		t.Errorf("render: %d %s", rc, msg)
 	}
-	if b, _ := os.ReadFile(filepath.Join(out, "data.json")); !strings.Contains(string(b), `"new"`) {
+	if b, _ := os.ReadFile(filepath.Join(out, "data.yaml")); !strings.Contains(string(b), `"new"`) {
 		t.Errorf("rendered %s", b)
 	}
 	if rc, msg := render("-check"); rc != 0 || !strings.Contains(msg, out+" is current") {
@@ -54,8 +54,21 @@ func TestRun(t *testing.T) {
 	if rc, msg := render(); rc != 1 || !strings.Contains(msg, "the last rendering in "+out+" stays in force") {
 		t.Errorf("broken: %d %s", rc, msg)
 	}
-	if b, _ := os.ReadFile(filepath.Join(out, "data.json")); !strings.Contains(string(b), `"new"`) {
+	if b, _ := os.ReadFile(filepath.Join(out, "data.yaml")); !strings.Contains(string(b), `"new"`) {
 		t.Errorf("after broken %s", b)
+	}
+
+	// Only the JSON left: no longer read (since 1.7), exit status 3, and
+	// nothing rendered for it any more.
+	if err := os.Remove(filepath.Join(src, "data.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if rc, msg := render(); rc != exitJSON || !strings.Contains(msg, filepath.Join(src, "data.json")+": configuration in JSON is no longer read since 1.7: convert it to YAML with mcp-gateway-admin policy convert ") ||
+		!strings.Contains(msg, "removed data.yaml") {
+		t.Errorf("JSON: %d %s", rc, msg)
+	}
+	if rc, msg := render("-check"); rc != exitJSON || !strings.Contains(msg, out+" is current") {
+		t.Errorf("check JSON: %d %s", rc, msg)
 	}
 
 	var stdout, stderr bytes.Buffer
@@ -125,37 +138,39 @@ func TestWatch(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	rendered("data.json", `{"roles":{"a":{"permissions":[]}}}`)
+	// Role data in JSON is no longer read: nothing rendered.
+	rendered("data.yaml", "")
 	write("data.yaml", "roles: {b: {permissions: []}}\n")
-	rendered("data.json", `{"roles":{"b":{"permissions":[]}}}`)
+	rendered("data.yaml", `{"roles":{"b":{"permissions":[]}}}`)
 	write("managers/data.yaml", "alice: bob\n")
-	rendered("managers/data.json", `{"alice":"bob"}`)
+	rendered("managers/data.yaml", `{"alice":"bob"}`)
 	if err := os.RemoveAll(filepath.Join(src, "managers")); err != nil {
 		t.Fatal(err)
 	}
-	rendered("managers/data.json", "")
+	rendered("managers/data.yaml", "")
+	// Back to the JSON alone: its rendering is gone, not the JSON's.
 	if err := os.Remove(filepath.Join(src, "data.yaml")); err != nil {
 		t.Fatal(err)
 	}
-	rendered("data.json", `{"roles":{"a":{"permissions":[]}}}`)
+	rendered("data.yaml", "")
 	// Many writes in a row: the last one is in force.
 	for i := 0; i < 20; i++ {
 		write("data.yaml", fmt.Sprintf("roles: {r%d: {permissions: []}}\n", i))
 	}
-	rendered("data.json", `{"roles":{"r19":{"permissions":[]}}}`)
+	rendered("data.yaml", `{"roles":{"r19":{"permissions":[]}}}`)
 	// Not parsing: the rendering stays, and the next good one is taken.
 	write("data.yaml", "roles: [\n")
 	time.Sleep(100 * time.Millisecond)
-	rendered("data.json", `{"roles":{"r19":{"permissions":[]}}}`)
+	rendered("data.yaml", `{"roles":{"r19":{"permissions":[]}}}`)
 	write("data.yaml", "roles: {fixed: {permissions: []}}\n")
-	rendered("data.json", `{"roles":{"fixed":{"permissions":[]}}}`)
+	rendered("data.yaml", `{"roles":{"fixed":{"permissions":[]}}}`)
 	// The directory removed and created again (watched in its parent).
 	if err := os.RemoveAll(src); err != nil {
 		t.Fatal(err)
 	}
-	rendered("data.json", "")
-	write("data.json", `{"roles": {"again": {"permissions": []}}}`)
-	rendered("data.json", `{"roles":{"again":{"permissions":[]}}}`)
+	rendered("data.yaml", "")
+	write("data.yaml", "roles: {again: {permissions: []}}\n")
+	rendered("data.yaml", `{"roles":{"again":{"permissions":[]}}}`)
 
 	cancel()
 	if rc := <-done; rc != 0 {
@@ -169,7 +184,8 @@ func TestWatch(t *testing.T) {
 			ready++
 		}
 	}
-	if ready != 1 || !strings.Contains(strings.Join(notified, "\n"), "STATUS=role data not rendered") || notified[len(notified)-1] != "STOPPING=1" {
+	all := strings.Join(notified, "\n")
+	if ready != 1 || !strings.Contains(all, "STATUS=role data not rendered") || !strings.Contains(all, "STATUS=role data in JSON left out") || notified[len(notified)-1] != "STOPPING=1" {
 		t.Errorf("notified %q", notified)
 	}
 	if !strings.Contains(stderr.String(), "role data not rendered; the last rendering") {
@@ -195,7 +211,7 @@ func TestWatchDefault(t *testing.T) {
 	rendered := func(want string) {
 		t.Helper()
 		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-			b, _ := os.ReadFile(filepath.Join(out, "data.json"))
+			b, _ := os.ReadFile(filepath.Join(out, "data.yaml"))
 			if got := strings.Join(strings.Fields(string(b)), ""); got == want {
 				return
 			} else if time.Now().After(deadline) {

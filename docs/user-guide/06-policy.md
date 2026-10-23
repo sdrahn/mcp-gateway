@@ -7,7 +7,7 @@ The policy has two parts:
 | Part | Where | Who maintains it |
 |---|---|---|
 | **logic** (Rego): how roles, permissions, grants and approver rules are evaluated | `/usr/share/mcp-gateway/policy/` | the package |
-| **data**: roles, bindings, approver rules | `/etc/mcp-gateway/policy/rbac/data.yaml` (or `data.json`); until you write one, the shipped default `/usr/share/mcp-gateway/rbac/data.yaml` | you (by hand or in Cockpit) |
+| **data**: roles, bindings, approver rules | `/etc/mcp-gateway/policy/rbac/data.yaml`; until you write one, the shipped default `/usr/share/mcp-gateway/rbac/data.yaml` | you (by hand or in Cockpit) |
 
 For most installations, editing the data is all that is needed.
 
@@ -54,36 +54,40 @@ approvers:
 - **scopes**: what a token's scopes let remote principals do at most
   (optional; see [Token scopes](#token-scopes)).
 
-### YAML or JSON
+### YAML, not JSON
 
 The role data is YAML, `data.yaml`: comments (`#`) say why a role
-allows what it does or who asked for a binding. The same data as JSON,
-`data.json`, is still read, as before 1.5, but **deprecated since 1.6**:
-1.7 no longer reads it. Where both exist, `data.yaml` is in force and
-`data.json` is ignored (the doctor, `mcp-gateway --check-policy-data`
-and the journal of `mcp-policy-render.service` name it). Until you
-write either, the shipped default `/usr/share/mcp-gateway/rbac/data.yaml`
-is in force; your file replaces it as a whole.
+allows what it does or who asked for a binding. Until you write one, the
+shipped default `/usr/share/mcp-gateway/rbac/data.yaml` is in force;
+your file replaces it as a whole.
 
-Each file in JSON that is read warns, with its name and the command that
-converts it: the gateway at start, `mcp-gateway --check` and
-`--check-policy-data`, the doctor (`policy data in JSON`,
-`json-policy-data`) and Cockpit's Policy tab, which offers the
-conversion. The same goes for the data files of custom Rego in JSON
-(chapter 12). Nothing converts your files by itself: they may belong to
-configuration management, which would write the JSON back; convert them
-there, or with
+Role data in JSON, `data.json`, was read until 1.6 (deprecated since
+1.6) and is **no longer read since 1.7**. A `data.json` without a
+`data.yaml` next to it is an error, and the policy fails closed: OPA has
+no role data from it (not the shipped default either), and the gateway
+denies every request and lists nothing until it is converted. Each
+names the file and the command that converts it: the gateway's log
+("configuration in JSON is no longer read since 1.7; every request is
+denied until it is converted"), a denied call's reason,
+`mcp-gateway --check` and `--check-policy-data` (which fail), the
+doctor (`policy data in JSON`, `json-policy-data`, and `role data`
+fail), `mcp-policy-render.service`'s journal, a package update and
+Cockpit's Policy tab, which offers the conversion. The same goes for
+the data files of custom Rego in JSON (chapter 12). Nothing converts
+your files by itself: they may belong to configuration management, which
+would write the JSON back; convert them there, or with
 
 ```bash
 mcp-gateway-admin policy convert      # data.json → data.yaml, the same data in the same order
 ```
 
 which writes `data.yaml` next to `data.json`, in force from then on, and
-leaves `data.json` as it is, ignored, until you remove it.
-`mcp-gateway-admin policy convert --to json` goes the other way, for
-going back to an earlier release (without the comments; 1.4 and earlier
-read only `data.json` and refuse both files, so remove `data.yaml` for
-them).
+leaves `data.json` as it is, ignored, until you remove it (a `data.json`
+next to a `data.yaml` blocks nothing; the doctor and the renderer name
+it as ignored). `mcp-gateway-admin policy convert --to json` goes the
+other way, for going back to an earlier release (without the comments;
+1.4 and earlier read only `data.json` and refuse both files, so remove
+`data.yaml` for them).
 
 A few things to know about YAML here:
 
@@ -494,7 +498,7 @@ approve their own agent's calls.
 ## Changing the policy
 
 Edit `/etc/mcp-gateway/policy/rbac/data.yaml` (or use the Policy tab in
-Cockpit, chapter 8; `data.json` is still read, but deprecated). Until you write one, the shipped
+Cockpit, chapter 8; `data.json` is no longer read since 1.7). Until you write one, the shipped
 default is in force; start from a copy of it, which then replaces it as a
 whole (the default's later changes no longer apply):
 
@@ -504,8 +508,8 @@ cp /usr/share/mcp-gateway/rbac/data.yaml /etc/mcp-gateway/policy/rbac/data.yaml
 
 A `data.json` of yours converts with `mcp-gateway-admin policy convert`,
 which writes `data.yaml` next to it (in force from then on) and leaves
-`data.json` as it is, ignored, until you remove it ([YAML or
-JSON](#yaml-or-json)). OPA watches the policy directories and loads
+`data.json` as it is, ignored, until you remove it ([YAML, not
+JSON](#yaml-not-json)). OPA watches the policy directories and loads
 changes within seconds; the gateway notices right after OPA has loaded
 them (it watches the same directories), tells connected agents to list
 their tools again and writes a `mcp-policy-change` audit event. No
@@ -521,8 +525,8 @@ Check the file first:
 mcp-gateway --check-policy-data
 ```
 
-It checks the file in force (`data.yaml`, else `data.json`): a YAML or
-JSON error with its line, then the file against the role data's JSON Schema
+It checks the file in force (`data.yaml`; a `data.json` alone fails, as
+it is no longer read): a YAML error with its line, then the file against the role data's JSON Schema
 (`/usr/share/mcp-gateway/schema/rbac.schema.json`) and reports every
 problem with its location, for example
 

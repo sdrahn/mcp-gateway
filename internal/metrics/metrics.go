@@ -24,7 +24,7 @@ var (
 		"Policy decisions enforced, by action and effect (a call asked again after an approval counts twice).",
 		"action", "effect")
 	PolicyFailures = NewCounter("mcp_gateway_policy_failures_total",
-		"Decisions that failed closed: OPA did not answer (error) or answered with an invalid decision (invalid).",
+		"Decisions that failed closed: OPA did not answer (error) or answered with an invalid decision (invalid), or the gateway did not ask it as configuration in JSON is left over (blocked).",
 		"reason")
 	// Up to 30s: on a small host a listing's filtering can take seconds,
 	// and policy.timeout may be raised that far.

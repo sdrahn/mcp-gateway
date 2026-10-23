@@ -26,7 +26,7 @@ Any argument is an error (status 2).
 | `--config FILE` | configuration file, read alone (default: `/etc/mcp-gateway/gateway.yaml`, else `/usr/etc/mcp-gateway/gateway.yaml`, else built-in defaults, with the drop-ins of `/etc/mcp-gateway/gateway.d` over it) |
 | `--check` | validate the configuration, all MCP server definitions and the role data (if the file exists), print a summary, exit (status 1 on errors) |
 | `--check-policy-data` | validate only the role data against its schema, print each problem, exit (status 1 on problems) |
-| `--policy-data FILE` | role data for the two checks, YAML or JSON (default: `/etc/mcp-gateway/policy/rbac/data.json`, the file in force: `data.yaml` before `data.json` in its directory, else the shipped default; `-`: standard input; empty: none) |
+| `--policy-data FILE` | role data for the two checks (default: `/etc/mcp-gateway/policy/rbac/data.json`, the file in force: `data.yaml` in its directory, else the shipped default; a `data.json` without a `data.yaml` fails, as it is no longer read since 1.7; `-`: standard input, YAML or JSON; empty: none) |
 | `--default-policy-data FILE` | the shipped default role data, in force while the directory of `--policy-data` has none (default: `/usr/share/mcp-gateway/rbac/data.yaml`; empty: none) |
 | `--shipped-policy DIR` | shipped policy with the roles of the server setups, which bindings may name; its setup role files are checked too (default: `/usr/share/mcp-gateway/policy`; empty: none) |
 | `--debug` | log debug messages |
@@ -367,7 +367,9 @@ mcp-gateway-admin policy write [--yaml] [--dry-run] [--policy-data FILE] < DATA
 
 `show` prints the role data in force as JSON: `{"file", "origin"
 ("yaml", "json" or "default"), "ignored", "data", "yaml"}`, with
-`"yaml"` the file's text (or the data converted, for `data.json`), and
+`"yaml"` the file's text (or the data converted, for a `data.json`
+without `data.yaml`, which is no longer read: shown for saving as
+`data.yaml`), and
 `"error"` and the text instead of `"data"` when the file does not parse.
 `write` reads role data on standard input (JSON; with `--yaml`, YAML)
 and checks it against the schema; JSON is merged into `data.yaml` next
@@ -383,12 +385,13 @@ Writes data in JSON as YAML, the same data with the keys in their order,
 next to it with `.yaml` for `.json` (or `-o OUT`; `-`: standard output):
 role data (default FILE: `/etc/mcp-gateway/policy/rbac/data.json`), or a
 data file of custom Rego below `/etc/mcp-gateway/policy` (chapter 12).
-JSON there is deprecated since 1.6. Role data's `data.yaml` is then in
-force, and `data.json` stays as it is, ignored, until you remove it;
-other data, which OPA loads itself and refuses twice, is removed once
-the YAML is written. `--to json` converts YAML back to JSON, without its
-comments, for an earlier release (default FILE: `data.yaml` of the role
-data), and likewise removes custom data's YAML. An existing file is
+JSON there is no longer read since 1.7, and the gateway denies every
+request while some is left over (chapter 6). Role data's `data.yaml` is
+then in force, and `data.json` stays as it is, ignored, until you remove
+it; other data is removed once the YAML is written. `--to json` converts
+YAML back to JSON, without its comments, for an earlier release (default
+FILE: `data.yaml` of the role data), and likewise removes custom data's
+YAML (which this release then no longer reads, and says so). An existing file is
 replaced only with `--force`. Exit status 0; 1 if the file is missing,
 in the format already, does not parse, or the file to write exists; 2 on
 usage errors.
@@ -400,9 +403,13 @@ usage errors.
 ```
 
 Writes the role data in force below `/etc/mcp-gateway/policy/rbac` (in
-each directory `data.yaml` before `data.json`; for the top, the shipped
-default `/usr/share/mcp-gateway/rbac/data.yaml` while it has none) as
-JSON to `/run/mcp-opa/rbac`, which OPA loads as `data.mcp.rbac`.
+each directory `data.yaml`; for the top, the shipped default
+`/usr/share/mcp-gateway/rbac/data.yaml` while it has none) as JSON, in
+files named `data.yaml`, to `/run/mcp-opa/rbac`, which OPA loads as
+`data.mcp.rbac`. A `data.json` without a `data.yaml` is no longer read
+(since 1.7): it is reported with the command that converts it, nothing
+is rendered for its directory (for the top, not the default either), and
+the exit status is 3.
 `mcp-policy-render.service` runs it as root with `-watch`: it renders,
 is ready (OPA starts after it), and renders again on every change below
 `rbac/` and of the default (inotify, and a check every minute). Role
@@ -422,11 +429,13 @@ Builds and signs a policy bundle, or (`-G`) creates a signing key pair.
 Chapter 6 lists the options. The environment variable `OPA` selects the
 `opa` binary. Before building, the role data is checked with
 `mcp-gateway --check-policy-data` if `mcp-gateway` (or the program in
-`MCP_GATEWAY`) is found; with problems, no bundle is built. The role data
+`MCP_GATEWAY`) is found; with problems, no bundle is built, nor while a
+file in JSON is left over below `-L` (no longer read since 1.7; each is
+named with the command that converts it). The role data
 goes into the bundle as `mcp-policy-render` renders it (the program in
 `MCP_POLICY_RENDER`, default `/usr/libexec/mcp-gateway/mcp-policy-render`),
-as in directory mode; without it, the file in force of each directory
-as it is. `-D FILE` is the default role data, in the bundle while `-L`'s
+as in directory mode; without it, each directory's `data.yaml` as it
+is. `-D FILE` is the default role data, in the bundle while `-L`'s
 `rbac/` has none (default: `/usr/share/mcp-gateway/rbac/data.yaml`).
 
 ## Control API
@@ -543,7 +552,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/etc/mcp-gateway/servers.d/` | your server definitions |
 | `/usr/share/mcp-gateway/policy/` | policy logic; `mcp/profiles/<setup>/data.yaml`: roles of setup packages |
 | `/usr/share/mcp-gateway/rbac/data.yaml` | default role data, in force while `/etc/mcp-gateway/policy/rbac` has none; `previous-defaults.sha256`: the defaults earlier packages installed in `/etc` (an unchanged copy is removed on update) |
-| `/etc/mcp-gateway/policy/rbac/data.yaml`, `data.json` | your role data (`data.yaml` in force where both exist); below it, `<name>/data.yaml` or `data.json` as `data.mcp.rbac.<name>` |
+| `/etc/mcp-gateway/policy/rbac/data.yaml` | your role data; below it, `<name>/data.yaml` as `data.mcp.rbac.<name>` (a `data.json` is no longer read since 1.7) |
 | `/run/mcp-opa/rbac/` | the role data as OPA loads it, written by `mcp-policy-render` (root, `mcpopa_rbac_t`) |
 | `/usr/libexec/mcp-gateway/mcp-policy-render` | renders the role data for OPA |
 | `/usr/share/mcp-gateway/schema/rbac.schema.json` | JSON Schema (draft-07) of the role data |

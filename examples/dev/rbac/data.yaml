@@ -1,0 +1,37 @@
+# Example role data (docs/user-guide/06-policy.md): run-dev.sh binds the
+# current user to developer.
+
+roles:
+  developer:
+    permissions:
+      - {server: fs, tool: list_*}
+      - {server: fs, tool: read_*}
+      - {server: fs, resource: 'file://${home}/*'}
+      - {server: fs, tool: search_files}
+      - {server: fs, tool: directory_tree}
+      - {server: fs, tool: get_file_info}
+      - server: fs
+        tool: write_file
+        require_approval: true
+        approval_channel: form
+        args: {path: '^${home}/'}
+      - server: fs
+        tool: edit_file
+        require_approval: true
+        approval_channel: form
+        args: {path: '^${home}/'}
+      - server: fs
+        tool: create_directory
+        require_approval: true
+        approval_channel: form
+        args: {path: '^${home}/'}
+      - server: fs
+        tool: move_file
+        require_approval: true
+        approval_channel: form
+        args: {source: '^${home}/', destination: '^${home}/'}
+      - {server: fs, tool: delete_*, effect: deny}
+      - {server: '*', prompt: '*'}
+bindings:
+  groups: {}
+  users: {}

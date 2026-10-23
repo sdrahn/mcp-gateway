@@ -1,8 +1,9 @@
 // Command mcp-policy-render writes the role data in force below
-// /etc/mcp-gateway/policy/rbac (data.yaml before data.json, in every
-// directory; for the top, the shipped default while it has none) as JSON
-// to /run/mcp-opa/rbac, which OPA loads as data.mcp.rbac
-// (docs/architecture.md, roadmap step 37). With -watch it
+// /etc/mcp-gateway/policy/rbac (data.yaml in every directory; for the
+// top, the shipped default while it has none) to /run/mcp-opa/rbac, which
+// OPA loads as data.mcp.rbac (docs/architecture.md, roadmap step 37). A
+// data.json without a data.yaml is no longer read (since 1.7, step 38):
+// it is reported, and nothing is rendered for its directory. With -watch it
 // runs as root as mcp-policy-render.service, renders, tells systemd it is
 // ready (OPA starts after it) and renders again on every change below
 // the role data's directory (inotify, and a check every minute). Role
@@ -53,7 +54,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	watch := fs.Bool("watch", false, "render, then again on every change, until stopped (mcp-policy-render.service)")
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	fs.Usage = func() {
-		_, _ = fmt.Fprintf(stderr, "usage: %s [options]\n\nWrites the role data in force as JSON for OPA.\n\n", name)
+		_, _ = fmt.Fprintf(stderr, "usage: %s [options]\n\nWrites the role data in force for OPA.\n\n", name)
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -107,7 +108,10 @@ func (r renderer) plan() (policydata.Plan, bool) {
 		}
 	}
 	for _, f := range p.Unloaded {
-		r.say("%s is not loaded: only data.yaml or data.json is role data", f)
+		r.say("%s is not loaded: only data.yaml is role data", f)
+	}
+	for _, f := range p.JSON {
+		r.say("%s; until then its directory has no role data, and the gateway denies every request", policydata.JSONProblem(f))
 	}
 	for _, pr := range p.Problems {
 		r.say("warning: %s", pr)
@@ -137,8 +141,15 @@ func (r renderer) render(verbose bool) int {
 	if verbose && len(p.Sources) == 0 {
 		r.say("no role data in %s", r.src)
 	}
+	if len(p.JSON) > 0 {
+		return exitJSON
+	}
 	return 0
 }
+
+// exitJSON is the exit status of a rendering that left out role data in
+// JSON (Plan.JSON): rendered, without it.
+const exitJSON = 3
 
 func (r renderer) check() int {
 	p, ok := r.plan()
@@ -160,6 +171,9 @@ func (r renderer) check() int {
 		return 1
 	}
 	r.say("%s is current", r.out)
+	if len(p.JSON) > 0 {
+		return exitJSON
+	}
 	return 0
 }
 
@@ -187,7 +201,11 @@ func (r renderer) watch(ctx context.Context, notify func(string) error) int {
 	}
 	status := func(rc int) {
 		s := "STATUS=role data rendered to " + r.out
-		if rc != 0 {
+		switch rc {
+		case 0:
+		case exitJSON:
+			s = "STATUS=role data in JSON left out: it is no longer read (journalctl -u mcp-policy-render.service)"
+		default:
 			s = "STATUS=role data not rendered (journalctl -u mcp-policy-render.service); the last rendering stays in force"
 		}
 		_ = notify(s)

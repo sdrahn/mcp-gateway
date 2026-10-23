@@ -122,7 +122,7 @@ contains the policy logic of the version it was built with.
 From 0.4 on, and from 1.0 on as before, these are a stable interface:
 
 - `gateway.yaml` and the server definitions (chapters 3 and 4);
-- the role data, `data.yaml` or `data.json` (chapter 6);
+- the role data, `data.yaml` (chapter 6);
 - the policy input and decision documents a custom policy reads and
   returns (chapter 12);
 - the control API (`/v1`, chapter 11), which Cockpit and your own
@@ -157,7 +157,7 @@ at `/metrics`.
 | Metric | Type | Meaning |
 |---|---|---|
 | `mcp_gateway_decisions_total{action,effect}` | counter | decisions enforced; a call asked again after an approval counts twice, and each delivery of its result counts once more (chapter 12, "Deciding again on delivery") |
-| `mcp_gateway_policy_failures_total{reason}` | counter | decisions that failed closed: `error` (OPA did not answer), `invalid` (malformed decision) |
+| `mcp_gateway_policy_failures_total{reason}` | counter | decisions that failed closed: `error` (OPA did not answer), `invalid` (malformed decision), `blocked` (configuration in JSON left over, not asked, chapter 6) |
 | `mcp_gateway_opa_query_duration_seconds{query}` | histogram | time of queries to OPA, e.g. `query="mcp/authz/decision"`, in buckets from 1ms to 30s |
 | `mcp_gateway_opa_query_errors_total{query}` | counter | failed queries to OPA |
 | `mcp_gateway_instance_starts_total{server}` | counter | server instances started |
@@ -251,7 +251,7 @@ account, a path) that stay the same across releases (chapter 11).
 |---|---|
 | configuration | `gateway.yaml` and the server definitions; deprecated keys warn |
 | role data | the schema and references (as `--check-policy-data`); skipped when the file does not exist (policy from a bundle) |
-| policy data in JSON | the role data in force and the data of custom Rego below `/etc/mcp-gateway/policy` that are JSON, deprecated since 1.6 and no longer read by 1.7: warns, naming each file with the `mcp-gateway-admin policy convert` line that converts it (chapter 6, "YAML or JSON") |
+| policy data in JSON | a `data.json` role data without a `data.yaml`, and the data of custom Rego below `/etc/mcp-gateway/policy` in JSON, no longer read since 1.7: fails while one is left over, as the gateway then denies every request, naming each file with the `mcp-gateway-admin policy convert` line that converts it (chapter 6, "YAML, not JSON") |
 | services, gateway status | `mcp-gateway.service` and `mcp-opa.service` active; the running version, and whether an update waits for a restart |
 | state files | that `mcp-gateway` owns every file in `/var/lib/mcp-gateway`; a file root owns (the gateway was run as root) keeps the service from starting |
 | TLS | with `http.listen`: that `cert_file` and `key_file` load as a pair, and that `mcp-gateway` (every directory on the way too) and the gateway's SELinux domain can read them (`mcpgw_etc_t` under `/etc/mcp-gateway`, `cert_t` under `/etc/pki`, or `usr_t`): without, the gateway does not start, and `mcp-gateway --check`, which runs as root, does not notice. Also that the certificate has not expired (a warning 14 days before) and names the host of `http.audience` (clients refuse it otherwise); notes a self-signed certificate, which clients must trust. Needs root |

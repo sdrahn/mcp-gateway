@@ -252,17 +252,17 @@ loaded otherwise.
 `/etc/mcp-gateway` (your configuration) and `/var/lib/mcp-gateway`
 (grants, pending approvals, audit key) are left in place; remove them by
 hand if they are no longer needed. Your role data
-(`/etc/mcp-gateway/policy/rbac/data.yaml` or `data.json`) stays as it is,
+(`/etc/mcp-gateway/policy/rbac/data.yaml`) stays as it is,
 and is in force again after installing again.
 
 **Updating from 1.4 or earlier**: those packages installed the default
 role data as `/etc/mcp-gateway/policy/rbac/data.json`. An unchanged copy
 is removed on update (the update says so), and the shipped default in
 `/usr/share/mcp-gateway/rbac/data.yaml` is in force from then on, with
-its future changes. A changed copy stays, in force, and is yours: it
-keeps working as JSON, which is deprecated since 1.6 and no longer read
-by 1.7 (each file in JSON warns, chapter 6). Convert it to YAML, with
-room for comments:
+its future changes. A changed copy stays and is yours, but JSON is no
+longer read since 1.7: until it is converted the gateway denies every
+request (the update names the file, chapter 6). Convert it to YAML, with
+room for comments, best before updating to 1.7:
 
 ```bash
 mcp-gateway-admin policy convert      # writes data.yaml next to data.json; data.yaml is in force

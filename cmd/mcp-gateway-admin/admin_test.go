@@ -46,8 +46,9 @@ func testAdmin(t *testing.T) (*adminServer, string) {
 	cfg := write("gateway.yaml", "servers_dir: "+filepath.Join(dir, "servers.d")+"\nvendor_servers_dir: "+filepath.Join(dir, "none")+
 		"\nstate_dir: "+filepath.Join(dir, "state")+
 		"\npolicy:\n  opa_socket: "+filepath.Join(dir, "opa.sock")+"\napprovals:\n  control_socket: "+filepath.Join(dir, "control.sock")+"\n")
-	rbac := write("etc-policy/rbac/data.json", `{"roles": {"reader": {"permissions": [{"server": "sys", "tool": "read_*"}]}},
+	write("etc-policy/rbac/data.yaml", `{"roles": {"reader": {"permissions": [{"server": "sys", "tool": "read_*"}]}},
 "bindings": {"users": {"`+currentUser(t)+`": ["reader"]}}}`)
+	rbac := filepath.Join(dir, "etc-policy", "rbac", "data.json")
 	a := &adminServer{configPath: cfg, policyData: rbac, shipped: filepath.Join(dir, "shipped"),
 		etcPolicy: filepath.Join(dir, "etc-policy"), rendered: filepath.Join(dir, "run", "rbac"), opa: "opa"}
 	renderRoles(t, a)
@@ -315,8 +316,8 @@ func TestExplainDecision(t *testing.T) {
 		t.Errorf("unknown kind: %s", text)
 	}
 
-	// data.yaml next to data.json: OPA has the YAML (as rendered) and
-	// never both; the explanation follows what OPA has.
+	// data.yaml changed: the explanation follows what OPA has (as
+	// rendered).
 	yml := filepath.Join(filepath.Dir(a.policyData), "data.yaml")
 	if err := os.WriteFile(yml, []byte("# writers now\nroles:\n  writer:\n    permissions:\n      - {server: sys, tool: write_file}\n"+
 		"bindings:\n  users:\n    "+me+": [writer]\n"), 0o644); err != nil {
@@ -333,7 +334,7 @@ func TestExplainDecision(t *testing.T) {
 	}
 	text, _, _ = callTool(t, a, "explain_decision", map[string]any{"user": me, "server": "sys", "name": "read_file"})
 	if !strings.Contains(text, ": deny") {
-		t.Errorf("the JSON's role is gone:\n%s", text)
+		t.Errorf("the old role is gone:\n%s", text)
 	}
 	if err := os.RemoveAll(a.rendered); err != nil {
 		t.Fatal(err)
