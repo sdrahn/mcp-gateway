@@ -615,6 +615,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | policy change detection | when written (local policy); 10 s for policy from a bundle server | `policy.watch_interval` |
 | configuration change detection | when written; 10 s where a directory cannot be watched | `policy.watch_interval` |
 | instance idle stop | 15 min | `supervisor.idle_timeout` |
+| instance start (until `initialize` answers) | 30 s | `supervisor.start_timeout` |
 | HTTP session idle | 30 min | `http.session_idle_timeout` |
 | instance memory / tasks / runtime | 512 MiB / 64 / 8 h | no |
 | restart backoff | 1 s doubling to 2 min | no |

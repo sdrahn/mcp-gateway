@@ -267,6 +267,10 @@ type Supervisor struct {
 	// IdleTimeout stops an instance this long after its last session
 	// ended.
 	IdleTimeout time.Duration `yaml:"idle_timeout"`
+	// StartTimeout is how long a new instance may take to answer MCP's
+	// initialize (or server/discover) before its start fails: raise it
+	// on small hosts, where interpreters start slowly.
+	StartTimeout time.Duration `yaml:"start_timeout"`
 	// MCSRange is the category range ("cN.cM") backend instances get
 	// their category pairs from. Keep it disjoint from libvirt's
 	// (/usr/share/mcp-gateway/mcs drop-ins confine libvirt to c0.c767).
@@ -536,6 +540,7 @@ const (
 	DefaultProgressInterval      = 15 * time.Second
 	DefaultRetryWait             = 25 * time.Second
 	DefaultIdleTimeout           = 15 * time.Minute
+	DefaultStartTimeout          = 30 * time.Second
 	DefaultSessionsPerPrincipal  = 64
 	DefaultInstancesPerPrincipal = 32
 	DefaultRequestsPerPrincipal  = 64
@@ -693,6 +698,9 @@ func (g *Gateway) setDefaults() {
 	if g.Supervisor.IdleTimeout == 0 {
 		g.Supervisor.IdleTimeout = DefaultIdleTimeout
 	}
+	if g.Supervisor.StartTimeout == 0 {
+		g.Supervisor.StartTimeout = DefaultStartTimeout
+	}
 	if g.Limits.SessionsPerPrincipal == 0 {
 		g.Limits.SessionsPerPrincipal = DefaultSessionsPerPrincipal
 	}
@@ -795,6 +803,9 @@ func (g *Gateway) Validate() error {
 	}
 	if g.Supervisor.IdleTimeout < 0 {
 		return errors.New("supervisor.idle_timeout: must not be negative")
+	}
+	if g.Supervisor.StartTimeout < time.Second {
+		return errors.New("supervisor.start_timeout: must be at least 1s")
 	}
 	switch g.Supervisor.Mode {
 	case "systemd", "exec":

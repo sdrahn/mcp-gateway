@@ -7,6 +7,15 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- `supervisor.start_timeout` (default `30s`, as fixed until now): how
+  long a new instance may take to answer MCP's `initialize`. Raise it on
+  small hosts (a Raspberry Pi), where interpreted servers start slowly;
+  it reloads, applying to the next start. A start that takes longer
+  fails with "*name* did not answer initialize within 30s
+  (supervisor.start_timeout)" instead of "context deadline exceeded".
+
 ### Changed
 
 - The aggregated endpoint asks its servers for their lists at the same

@@ -493,7 +493,7 @@ for tool calls) says why; the audit record has the same reason.
 | `rate limit exceeded` | a `rate_limit` obligation; wait |
 | `argument "x" violates a constraint: it must match …` | an `arg_constraints` obligation; the pattern the argument must match follows |
 | `output withheld: result of N bytes exceeds the limit of M` | a `max_output_bytes` obligation |
-| `backend unavailable; retry in 8s` | the instance crashed or could not start and is backing off; read its journal (`journalctl -u 'mcp-<server>-*'`) |
+| `backend unavailable; retry in 8s` | the instance crashed or could not start and is backing off; read its journal (`journalctl -u 'mcp-<server>-*'`). The gateway's log says why it did not start: "*name* did not answer initialize within 30s (supervisor.start_timeout)" is a server that starts too slowly for the host; raise `supervisor.start_timeout` (`mcp-gateway-admin config set supervisor.start_timeout 2m`) |
 | `backend unavailable` | the instance died during the call |
 
 ### Errors from servers

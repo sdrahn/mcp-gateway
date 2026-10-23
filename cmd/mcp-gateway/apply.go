@@ -32,6 +32,7 @@ func applyConfig(log *slog.Logger, next, running *config.Gateway, certs *certSto
 	opa.SetTimeout(next.Policy.Timeout)
 	r.SetSettings(router.Settings{
 		IdleTimeout:              next.Supervisor.IdleTimeout,
+		StartTimeout:             next.Supervisor.StartTimeout,
 		ProgressInterval:         next.Approvals.ProgressInterval,
 		MaxSessionsPerPrincipal:  next.Limits.SessionsPerPrincipal,
 		MaxInstancesPerPrincipal: next.Limits.InstancesPerPrincipal,

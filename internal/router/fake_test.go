@@ -298,6 +298,9 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 		f.methods = append(f.methods, m.Method)
 		f.metas = append(f.metas, meta)
 		f.seenMu.Unlock()
+		if strings.HasPrefix(f.name, "mute") {
+			continue // a server that never answers anything (a start that hangs)
+		}
 		if f.modernRequest(c, m, p.Name, meta) {
 			continue
 		}

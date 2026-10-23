@@ -17,6 +17,7 @@ var Reloadable = []string{
 	"notifications",
 	"limits",
 	"supervisor.idle_timeout",
+	"supervisor.start_timeout",
 	"policy.timeout",
 	"policy.watch_interval",
 	"http.cert_file",

@@ -2816,8 +2816,9 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       file changes, and on `systemctl reload`): keys that can change
       without ending sessions take effect at once (`approval_timeout`,
       `approvals.url_template` and `progress_interval`,
-      `notifications.email`, `limits`, `supervisor.idle_timeout`,
-      `policy.timeout` and `watch_interval`), and the TLS certificate
+      `notifications.email`, `limits`, `supervisor.idle_timeout` and
+      `start_timeout`, `policy.timeout` and `watch_interval`), and the
+      TLS certificate
       and key of `http` and the SMTP password are read anew, so that a
       renewed certificate needs no restart. Keys bound to what the
       gateway set up at start (sockets and their group, `http.listen`

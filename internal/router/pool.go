@@ -41,10 +41,11 @@ const (
 // one per (session, backend) for backends with isolation: session. An
 // instance stays up for idle after its last session detached.
 type pool struct {
-	launcher supervisor.Launcher
-	idle     time.Duration
-	log      *slog.Logger
-	now      func() time.Time
+	launcher     supervisor.Launcher
+	idle         time.Duration
+	startTimeout time.Duration // how long an instance may take to initialize (0: defaultStartTimeout)
+	log          *slog.Logger
+	now          func() time.Time
 	// onListChanged is handed to every upstream (see upstreamHooks).
 	onListChanged func(*upstream, *jsonrpc.Message)
 	// current, if set, returns the definition of a server in force: an
@@ -150,10 +151,10 @@ func (e *NoHomeError) Error() string {
 }
 
 // configure sets the idle timeout and the instance limits.
-func (p *pool) configure(idle time.Duration, perPrincipal, total int) {
+func (p *pool) configure(idle, start time.Duration, perPrincipal, total int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.idle, p.maxPerPrincipal, p.maxTotal = idle, perPrincipal, total
+	p.idle, p.startTimeout, p.maxPerPrincipal, p.maxTotal = idle, start, perPrincipal, total
 }
 
 // errDefinitionChanged is returned by acquire for a definition that
@@ -381,7 +382,11 @@ func (p *pool) start(ctx context.Context, b *config.Backend, pr principal.Princi
 		metrics.InstanceFailures.Inc(b.Name, "start")
 		return nil, err
 	}
+	p.mu.Lock()
+	startTimeout := p.startTimeout
+	p.mu.Unlock()
 	hooks := upstreamHooks{
+		startTimeout:  startTimeout,
 		era:           p.era(b),
 		learnEra:      func(e era) { p.setEra(b, e) },
 		internal:      pr.Transport == principal.TransportInternal,
