@@ -28,6 +28,7 @@ message is explained.
 | [11. Reference](11-reference.md) | Commands, control API, audit records, paths, SELinux types and booleans |
 | [12. Custom policy (Rego)](12-custom-policy.md) | The policy contract (queries, inputs, decisions), extending or replacing the shipped logic, writing policy from scratch, testing and deploying |
 | [13. System management servers](13-system-management-servers.md) | systemd, firewalld, snapper, suseconnect and zypp MCP servers, and podman for the users' own containers: setup packages, accounts, SELinux domains, polkit, read freely and change only with approval |
+| [14. Tuning](14-tuning.md) | What to measure, settings for slow server starts, policy decisions, many users, remote clients and approvals; starting points for a small host (Raspberry Pi), a typical server and many users |
 
 ## Quick start (openSUSE Tumbleweed)
 
