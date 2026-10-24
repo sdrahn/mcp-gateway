@@ -1299,7 +1299,12 @@ END
 	# only when <label> is not an experiment; the default subvolume back.
 	snapper_rollback() {
 		local target before after ok=yes
-		target=$(snapper --no-dbus -c root create --print-number --description "vmtest rollback target")
+		# The target as an agent takes it: through the gateway and snapperd,
+		# which labels the snapshot (one taken with snapper --no-dbus from
+		# this shell is admin_home_t, which the server's domain cannot read).
+		stool alice snapper create_snapshot '{"config":"root","type":"single","pre_number":0,"description":"vmtest rollback target","cleanup_algorithm":"","userdata":{}}'
+		target=$(jq -r '.structuredContent.result // empty' <<<"$out" 2>/dev/null)
+		ls -Zd "/.snapshots/${target:-0}/snapshot" 2>&1 | sed 's/^/  target: /'
 		before=$(btrfs subvolume get-default / 2>&1)
 		stool_approved alice snapper rollback "{\"config\":\"root\",\"number\":${target:-0},\"description\":\"vmtest rollback\",\"cleanup_algorithm\":\"\",\"userdata\":{}}"
 		[ "$rc" = 0 ] || ok=no
