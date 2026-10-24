@@ -359,6 +359,16 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - name: Install QEMU
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils
+      # The image, kept for a week (per ISO week): most runs need no
+      # download from download.opensuse.org, whose mirrors can be slow.
+      # run-vm.sh only reads it (the VM's disk is an overlay).
+      - name: Image cache key
+        id: image
+        run: echo "week=$(date -u +%G-%V)" >>"$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vm/base.qcow2
+          key: vm-image-${{ matrix.distro }}-${{ steps.image.outputs.week }}
       # The tests, the test client and the privileged test server come
       # with mcp-gateway-tests, as on a product system (openQA).
       - name: Run the VM tests (${{ matrix.name }})

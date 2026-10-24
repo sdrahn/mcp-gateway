@@ -40,9 +40,43 @@ log() { echo "[$(date +%T)] $*"; }
 }
 
 log "work directory: $work"
-if [ ! -f "$work/base.qcow2" ]; then
-	log "downloading $image_url"
-	curl -fsSL --retry 3 -o "$work/base.qcow2" "$image_url"
+# download_image: the image to $work/base.qcow2, failing fast on a
+# stalled or crawling transfer (download.opensuse.org redirects to a
+# mirror, and a slow one can take most of the job's time): each of three
+# attempts gives up below 1 MB/s for a minute or after 10 minutes, well
+# within the job's hour. An image from download.opensuse.org is tried
+# there first, then from the origin server (no redirect), then from a
+# full mirror. A partial file is never taken for the image; an image
+# already there (the CI cache) is used as it is.
+download_image() {
+	local url urls=("$image_url")
+	case $image_url in
+	https://download.opensuse.org/*)
+		urls+=("https://downloadcontent.opensuse.org/${image_url#https://download.opensuse.org/}"
+			"https://ftp.gwdg.de/pub/opensuse/${image_url#https://download.opensuse.org/}") ;;
+	*) urls+=("$image_url" "$image_url") ;;
+	esac
+	for url in "${urls[@]}"; do
+		log "downloading $url"
+		if curl -fsSL --connect-timeout 30 --speed-limit 1000000 --speed-time 60 --max-time 600 \
+			-o "$work/base.qcow2.part" "$url" &&
+			qemu-img info "$work/base.qcow2.part" >/dev/null; then
+			mv "$work/base.qcow2.part" "$work/base.qcow2"
+			log "downloaded $(du -h "$work/base.qcow2" | cut -f1)"
+			return 0
+		fi
+		rm -f "$work/base.qcow2.part"
+		sleep 10
+	done
+	echo "could not download $image_url" >&2
+	return 1
+}
+
+if [ -f "$work/base.qcow2" ] && qemu-img info "$work/base.qcow2" >/dev/null 2>&1; then
+	log "image: $work/base.qcow2 (cached)"
+else
+	rm -f "$work/base.qcow2"
+	download_image
 fi
 qemu-img create -q -f qcow2 -b "$work/base.qcow2" -F qcow2 "$work/disk.qcow2" 20G
 
