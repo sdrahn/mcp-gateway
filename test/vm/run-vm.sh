@@ -168,7 +168,7 @@ fi
 # snapshot, as snapper rollback needs.
 if vm 'findmnt -no OPTIONS / | tr , "\n" | grep -qx ro'; then
 	log "making the read-only root file system writable (transactional system)"
-	vm 'btrfs property set -ts / ro false && mount -o remount,rw /' || exit 1
+	vm 'mount -o remount,rw / && btrfs property set -ts / ro false' || exit 1
 	vm 'btrfs filesystem resize max / >/dev/null
 		systemctl disable --now transactional-update.timer rebootmgr.service 2>/dev/null; true'
 fi
