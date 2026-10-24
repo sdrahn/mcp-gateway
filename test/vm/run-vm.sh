@@ -169,6 +169,14 @@ fi
 if vm 'findmnt -no OPTIONS / | tr , "\n" | grep -qx ro'; then
 	log "making the read-only root file system writable (transactional system)"
 	vm 'mount -o remount,rw / && btrfs property set -ts / ro false' || exit 1
+	# Its root directory's label on disk, seen through /.snapshots, made
+	# root_t as / shows: snapshots of / came out admin_home_t, which
+	# mcpsrv_snapper_t cannot open (presumably the image's label on disk,
+	# hidden on / by its mount options; both are printed).
+	vm 'findmnt -no OPTIONS / | sed "s/^/  mount options of \/: /"
+		d=$(btrfs subvolume get-default / | sed -n "s/.* path @//p")
+		[ -n "$d" ] && [ -d "$d" ] && { ls -Zd "$d" | sed "s/^/  on disk: /"; chcon system_u:object_r:root_t:s0 "$d"; ls -Zd / "$d" | sed "s/^/  now: /"; }
+		true'
 	vm 'btrfs filesystem resize max / >/dev/null
 		systemctl disable --now transactional-update.timer rebootmgr.service 2>/dev/null; true'
 fi
