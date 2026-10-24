@@ -278,6 +278,7 @@ uname -r
 echo "LSMs: $(cat /sys/kernel/security/lsm)"
 check "SELinux is enforcing" test "$(getenforce)" = Enforcing
 sestatus | grep -E 'policy name|mode'
+echo "  label of /: $(ls -Zd / | cut -d" " -f1)"
 
 section "Install"
 # The packages are installed (CI: test/vm/prepare.sh; openQA: from the
@@ -1292,6 +1293,11 @@ END
 		sr_orig=$(btrfs subvolume get-default / | awk '{print $2}')
 		sr_last=$(snapper --no-dbus --csvout -c root list --columns number | tail -1)
 		echo "  default subvolume: $(btrfs subvolume get-default /)"
+		# Snapshots of / take its label. On MicroOS in CI, / is root_t
+		# before the packages are installed and admin_home_t here (the
+		# labels of / along the way are printed): put back, so that the
+		# rollbacks test the server and not that.
+		restorecon -v / | sed 's/^/  /'
 	else
 		echo "  the root file system is not btrfs with snapper (rollback not tested): $(stat -f -c %T /)"
 	fi

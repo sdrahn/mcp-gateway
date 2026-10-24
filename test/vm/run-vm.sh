@@ -195,6 +195,7 @@ fi
 log "installing the packages"
 vm 'bash /root/vmtest/prepare.sh /root/vmtest' 2>&1 | tee "$work/prepare.log"
 [ "${PIPESTATUS[0]}" = 0 ] || exit 1
+vm 'ls -Zd /' | sed 's/^/  after the installation: /'
 log "running the tests"
 args="--disposable --results /root/vmtest/results --rpms /root/vmtest/rpms"
 [ -n "$servers" ] && args+=" --servers /root/vmtest/servers"
