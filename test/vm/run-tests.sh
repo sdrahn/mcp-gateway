@@ -1031,10 +1031,10 @@ section "Server setups"
 # systemd changes a unit after an approval, all with SELinux enforcing.
 if [ -n "$setups" ]; then
 	if [ "$setups" = built ]; then
-		# Not their SELinux contexts: "." would give / that of the
-		# directory they come from (admin_home_t), and snapshots of /
-		# take it.
-		cp -a --no-preserve=context "$servers/." /
+		# Without their xattrs (SELinux contexts among them): "." would
+		# give / that of the directory they come from (admin_home_t), and
+		# snapshots of / take it.
+		cp -r --preserve=mode,ownership,timestamps "$servers/." /
 		# CI artifacts do not keep file modes.
 		chmod 0755 /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
 			/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp/zypp-mcp-tool /usr/bin/mcp-server-snapper \
