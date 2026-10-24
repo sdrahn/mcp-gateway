@@ -169,6 +169,12 @@ fi
 if vm 'findmnt -no OPTIONS / | tr , "\n" | grep -qx ro'; then
 	log "making the read-only root file system writable (transactional system)"
 	vm 'mount -o remount,rw / && btrfs property set -ts / ro false' || exit 1
+	# The root subvolume relabelled (in the first run, / itself was
+	# admin_home_t, and snapper's domain could not open it), with its
+	# labels before and after.
+	vm 'ls -Zd / /usr/share/polkit-1/actions | sed "s/^/  /"
+		restorecon -R -x / || echo "  restorecon failed"
+		ls -Zd / | sed "s/^/  after restorecon: /"'
 	vm 'btrfs filesystem resize max / >/dev/null
 		systemctl disable --now transactional-update.timer rebootmgr.service 2>/dev/null; true'
 fi
