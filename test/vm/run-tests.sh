@@ -278,7 +278,6 @@ uname -r
 echo "LSMs: $(cat /sys/kernel/security/lsm)"
 check "SELinux is enforcing" test "$(getenforce)" = Enforcing
 sestatus | grep -E 'policy name|mode'
-echo "  label of /: $(ls -Zd / | cut -d" " -f1)"
 
 section "Install"
 # The packages are installed (CI: test/vm/prepare.sh; openQA: from the
@@ -1032,7 +1031,10 @@ section "Server setups"
 # systemd changes a unit after an approval, all with SELinux enforcing.
 if [ -n "$setups" ]; then
 	if [ "$setups" = built ]; then
-		cp -a "$servers/." /
+		# Not their SELinux contexts: "." would give / that of the
+		# directory they come from (admin_home_t), and snapshots of /
+		# take it.
+		cp -a --no-preserve=context "$servers/." /
 		# CI artifacts do not keep file modes.
 		chmod 0755 /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
 			/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp/zypp-mcp-tool /usr/bin/mcp-server-snapper \
@@ -1286,18 +1288,17 @@ END
 	# subvolume is a snapshot (MicroOS; a default openSUSE installation).
 	# Each rollback goes to a new snapshot, and the default subvolume is
 	# put back afterwards: the system boots as before.
-	sr_rollback=no sr_orig="" sr_last=0 sr_probed=""
+	sr_rollback=no sr_orig="" sr_last=0
 	if [ "$(stat -f -c %T /)" = btrfs ] && snapper --no-dbus -c root get-config >/dev/null 2>&1 &&
 		btrfs subvolume get-default / | grep -qE '\.snapshots/[0-9]+/snapshot$'; then
 		sr_rollback=yes
 		sr_orig=$(btrfs subvolume get-default / | awk '{print $2}')
 		sr_last=$(snapper --no-dbus --csvout -c root list --columns number | tail -1)
 		echo "  default subvolume: $(btrfs subvolume get-default /)"
-		# Snapshots of / take its label. On MicroOS in CI, / is root_t
-		# before the packages are installed and admin_home_t here (the
-		# labels of / along the way are printed): put back, so that the
-		# rollbacks test the server and not that.
-		restorecon -v / | sed 's/^/  /'
+		echo "  label of /: $(ls -Zd / | cut -d" " -f1)"
+		# The plugin domains rollback enters (mcp_snapper.te), as this
+		# policy names them.
+		echo "  snapper.if: $(grep -hoE 'snapper_[a-z_]*plugin[a-z_]*' /usr/share/selinux/devel/include/*/snapper.if 2>/dev/null | sort -u | tr '\n' ' ')"
 	else
 		echo "  the root file system is not btrfs with snapper (rollback not tested): $(stat -f -c %T /)"
 	fi
@@ -1311,21 +1312,6 @@ END
 		stool alice snapper create_snapshot '{"config":"root","type":"single","pre_number":0,"description":"vmtest rollback target","cleanup_algorithm":"","userdata":{}}'
 		target=$(jq -r '.structuredContent.result // empty' <<<"$out" 2>/dev/null)
 		ls -Zd "/.snapshots/${target:-0}/snapshot" 2>&1 | sed 's/^/  target: /'
-		# Where the target's label comes from (MicroOS: admin_home_t,
-		# though / is root_t): the labels on disk, snapperd's context, and
-		# a snapshot taken with btrfs alone.
-		if [ -z "$sr_probed" ]; then
-			sr_probed=yes
-			for d in / /root /.snapshots "/.snapshots/${target:-0}" "/.snapshots/${target:-0}/snapshot"; do
-				echo "  $d: $(ls -Zd "$d" 2>&1 | cut -d" " -f1) xattr: $(getfattr --absolute-names --only-values -n security.selinux "$d" 2>&1 | tr -d "\0")"
-			done
-			ps -eZ | grep -E 'snapperd' | sed 's/^/  /'
-			btrfs subvolume snapshot -r / /.snapshots/vmtest-probe >/dev/null 2>&1 &&
-				ls -Zd /.snapshots/vmtest-probe | sed 's/^/  btrfs snapshot of \/: /' &&
-				btrfs subvolume delete /.snapshots/vmtest-probe >/dev/null
-			btrfs subvolume show "/.snapshots/${target:-0}/snapshot" 2>&1 | grep -E 'Parent UUID|^\s*UUID|Name' | sed 's/^/  /'
-			btrfs subvolume show / 2>&1 | grep -E '^\s*UUID|Name' | sed 's/^/  \/: /'
-		fi
 		before=$(btrfs subvolume get-default / 2>&1)
 		stool_approved alice snapper rollback "{\"config\":\"root\",\"number\":${target:-0},\"description\":\"vmtest rollback\",\"cleanup_algorithm\":\"\",\"userdata\":{}}"
 		[ "$rc" = 0 ] || ok=no
@@ -1333,7 +1319,7 @@ END
 		echo "  default subvolume after the rollback: $after"
 		[ "$before" != "$after" ] || ok=no
 		case $1 in
-		experiment*) echo "  $1: rollback $([ "$ok" = yes ] && echo worked || echo failed)" ;;
+		experiment*) echo "  $1: rollback $([ "$ok" = yes ] && echo worked || echo failed) (rc=$rc, default subvolume $([ "$before" != "$after" ] && echo changed || echo unchanged))" ;;
 		*)
 			check "$1: rollback after an approval" test "$rc" = 0
 			check "$1: rollback set a new default subvolume" test "$before" != "$after" ;;
