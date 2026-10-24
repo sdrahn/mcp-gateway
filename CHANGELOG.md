@@ -5,7 +5,28 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.8.0 — 2026-10-24
+
+Servers that need one capability run in the sandbox. A server that
+needs a single right of root, such as mcp-server-tukit (tukitd answers
+only callers holding CAP_SYS_ADMIN), no longer has to be `privileged:
+true`, without any sandbox: `sandbox.capabilities` names what its
+instances keep, and the rest of the sandbox stays.
+
+Upgrading from 1.7.x needs no changes to `gateway.yaml`, server
+definitions, role data or custom policies. After the update, restart
+the gateway (`systemctl restart mcp-gateway.service`); the package does
+not. The SELinux modules do not change. Things to know:
+
+- **A server you run as `privileged: true` only for one capability** can
+  move to `sandbox.capabilities` (chapter 4, "Servers with a
+  capability"). SELinux still decides whether its domain may use the
+  capability; calls through wildcard permissions ask, as for privileged
+  servers.
+- **`GET /v1/servers`** lists a server's `capabilities` (a new, optional
+  field).
+
+### Added
 
 - **Servers with a capability.** `sandbox.capabilities` (for example
   `[CAP_SYS_ADMIN]`) lets a server keep the named capabilities and the
