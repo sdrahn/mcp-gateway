@@ -14,8 +14,6 @@
 #   WORK       working directory (default: a new temporary directory); the
 #              serial console log, test output and results (TAP, JUnit)
 #              are left there
-#   PROVISION  cloud-init (default), or combustion for an image without
-#              cloud-init (MicroOS kvm-and-xen)
 #
 # If SELinux is not enforcing in the image, it is installed and enabled
 # first (with a relabelling reboot). Needs qemu-system-x86_64, qemu-img,
@@ -96,26 +94,7 @@ growpart:
   devices: ["/"]
 EOF
 printf 'instance-id: mcpgw-vmtest\nlocal-hostname: mcpgw-vmtest\n' >"$work/meta-data"
-# PROVISION=combustion: an image without cloud-init (MicroOS kvm-and-xen),
-# provisioned by a combustion script, given to it through QEMU's fw_cfg
-# (no file system the initrd would have to mount). The
-# files it writes in the first boot's initrd have no SELinux labels yet:
-# the system relabels and reboots once.
-seed=(-drive file="$work/seed.img",if=virtio,format=raw)
-if [ "${PROVISION:-cloud-init}" = combustion ]; then
-	cat >"$work/combustion-script" <<EOF
-#!/bin/bash
-mkdir -p -m 0700 /root/.ssh
-echo '$(cat "$work/key.pub")' >>/root/.ssh/authorized_keys
-chmod 0600 /root/.ssh/authorized_keys
-echo mcpgw-vmtest >/etc/hostname
-systemctl enable sshd.service
-touch /etc/selinux/.autorelabel
-EOF
-	seed=(-fw_cfg name=opt/org.opensuse.combustion/script,file="$work/combustion-script")
-else
-	cloud-localds "$work/seed.img" "$work/user-data" "$work/meta-data"
-fi
+cloud-localds "$work/seed.img" "$work/user-data" "$work/meta-data"
 
 ssh_opts=(-i "$work/key" -p "$port" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
 	-o LogLevel=ERROR -o ConnectTimeout=5 -o ServerAliveInterval=15)
@@ -124,7 +103,7 @@ vm() { ssh "${ssh_opts[@]}" root@127.0.0.1 "$@"; }
 log "booting the VM"
 qemu-system-x86_64 -enable-kvm -cpu host -smp 2 -m 4096 \
 	-drive file="$work/disk.qcow2",if=virtio \
-	"${seed[@]}" \
+	-drive file="$work/seed.img",if=virtio,format=raw \
 	-nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:$port-:22 \
 	-display none -serial file:"$work/console.log" \
 	-pidfile "$work/qemu.pid" -daemonize
@@ -158,19 +137,6 @@ if [ "$(vm 'getenforce 2>/dev/null || echo Missing')" != Enforcing ]; then
 		sleep 10
 		wait_ssh
 	done
-fi
-
-# A transactional system (MicroOS): its root file system is a read-only
-# btrfs snapshot, changed only through transactional-update and a
-# reboot. The tests install packages as on any system, so in this
-# disposable VM the snapshot is made writable instead, and nothing
-# updates or reboots it meanwhile. It stays the default subvolume, a
-# snapshot, as snapper rollback needs.
-if vm 'findmnt -no OPTIONS / | tr , "\n" | grep -qx ro'; then
-	log "making the read-only root file system writable (transactional system)"
-	vm 'mount -o remount,rw / && btrfs property set -ts / ro false' || exit 1
-	vm 'btrfs filesystem resize max / >/dev/null
-		systemctl disable --now transactional-update.timer rebootmgr.service 2>/dev/null; true'
 fi
 
 log "copying the test payload"

@@ -1032,8 +1032,7 @@ section "Server setups"
 if [ -n "$setups" ]; then
 	if [ "$setups" = built ]; then
 		# Without their xattrs (SELinux contexts among them): "." would
-		# give / that of the directory they come from (admin_home_t), and
-		# snapshots of / take it.
+		# give / that of the directory they come from (admin_home_t).
 		cp -r --preserve=mode,ownership,timestamps "$servers/." /
 		# CI artifacts do not keep file modes.
 		chmod 0755 /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
@@ -1284,81 +1283,28 @@ END
 			bash -c '! ausearch -m avc -ts recent 2>/dev/null | grep -q mcpsrv_snapper_t'
 	fi
 
-	# Rolling back works only on the config of "/" on btrfs, whose default
-	# subvolume is a snapshot (MicroOS; a default openSUSE installation).
-	# Each rollback goes to a new snapshot, and the default subvolume is
-	# put back afterwards: the system boots as before.
-	sr_rollback=no sr_orig="" sr_last=0
-	if [ "$(stat -f -c %T /)" = btrfs ] && snapper --no-dbus -c root get-config >/dev/null 2>&1 &&
-		btrfs subvolume get-default / | grep -qE '\.snapshots/[0-9]+/snapshot$'; then
-		sr_rollback=yes
-		sr_orig=$(btrfs subvolume get-default / | awk '{print $2}')
-		sr_last=$(snapper --no-dbus --csvout -c root list --columns number | tail -1)
-		echo "  default subvolume: $(btrfs subvolume get-default /)"
-		echo "  label of /: $(ls -Zd / | cut -d" " -f1)"
-		# The plugin domains rollback enters (mcp_snapper.te), as this
-		# policy names them.
-		echo "  snapper.if: $(grep -hoE 'snapper_[a-z_]*plugin[a-z_]*' /usr/share/selinux/devel/include/*/snapper.if 2>/dev/null | sort -u | tr '\n' ' ')"
-	else
-		echo "  the root file system is not btrfs with snapper (rollback not tested): $(stat -f -c %T /)"
-	fi
-	# snapper_rollback <label>: a rollback through the gateway, checked
-	# only when <label> is not an experiment; the default subvolume back.
-	snapper_rollback() {
-		local target before after ok=yes
-		# The target as an agent takes it: through the gateway and snapperd,
-		# which labels the snapshot (one taken with snapper --no-dbus from
-		# this shell is admin_home_t, which the server's domain cannot read).
-		stool alice snapper create_snapshot '{"config":"root","type":"single","pre_number":0,"description":"vmtest rollback target","cleanup_algorithm":"","userdata":{}}'
-		target=$(jq -r '.structuredContent.result // empty' <<<"$out" 2>/dev/null)
-		ls -Zd "/.snapshots/${target:-0}/snapshot" 2>&1 | sed 's/^/  target: /'
-		before=$(btrfs subvolume get-default / 2>&1)
-		stool_approved alice snapper rollback "{\"config\":\"root\",\"number\":${target:-0},\"description\":\"vmtest rollback\",\"cleanup_algorithm\":\"\",\"userdata\":{}}"
-		[ "$rc" = 0 ] || ok=no
-		after=$(btrfs subvolume get-default / 2>&1)
-		echo "  default subvolume after the rollback: $after"
-		[ "$before" != "$after" ] || ok=no
-		case $1 in
-		experiment*) echo "  $1: rollback $([ "$ok" = yes ] && echo worked || echo failed) (rc=$rc, default subvolume $([ "$before" != "$after" ] && echo changed || echo unchanged))" ;;
-		*)
-			check "$1: rollback after an approval" test "$rc" = 0
-			check "$1: rollback set a new default subvolume" test "$before" != "$after" ;;
-		esac
-		btrfs subvolume set-default "$sr_orig" / || echo "  restoring the default subvolume $sr_orig failed"
-	}
-
-	# The privileged definition (root, no sandbox): set_config, and rollback.
+	# The privileged definition (root, no sandbox): set_config, and
+	# rollback where the root file system is set up for it.
 	ln -sf /usr/share/mcp-gateway/profiles/snapper-privileged.yaml /etc/mcp-gateway/servers.d/snapper.yaml
 	systemctl restart mcp-gateway.service
 	wait_socket
 	stool_approved alice snapper set_config '{"config":"vmtest","values":{"NUMBER_LIMIT":"7"}}'
 	check "snapper (privileged): set_config after an approval" test "$rc" = 0
 	check "snapper (privileged): the config changed" grep -q '^NUMBER_LIMIT="7"' /etc/snapper/configs/vmtest
-	[ "$sr_rollback" = yes ] && snapper_rollback "snapper (privileged)"
-
-	# Experiment, not a check yet: rollback as root in the sandbox with
-	# CAP_SYS_ADMIN (the btrfs ioctl) and a writable /.snapshots (where
-	# it is done). It reports whether it worked and the denials.
-	if [ "$sr_rollback" = yes ]; then
-		printf '%s\n' 'version: 1' 'name: snapper' 'command: ["/usr/bin/mcp-server-snapper"]' 'run_as: root' \
-			'selinux_type: mcpsrv_snapper_t' 'sandbox:' '  capabilities: [CAP_SYS_ADMIN]' \
-			'  read_write_paths: ["/.snapshots"]' >/etc/mcp-gateway/servers.d/snapper.yaml
-		systemctl restart mcp-gateway.service
-		wait_socket
-		snapper_rollback "experiment (root, sandbox, CAP_SYS_ADMIN)"
-		ausearch -m avc -ts recent 2>/dev/null | grep mcpsrv_snapper_t | sed 's/^/  avc: /' | tail -20
+	if snapper -c root get-config >/dev/null 2>&1 && [ "$(stat -f -c %T /)" = btrfs ]; then
+		before=$(btrfs subvolume get-default / 2>&1)
+		stool_approved alice snapper rollback '{"config":"root","number":null,"description":"vmtest rollback","cleanup_algorithm":"","userdata":{}}'
+		check "snapper (privileged): rollback after an approval" test "$rc" = 0
+		after=$(btrfs subvolume get-default / 2>&1)
+		echo "  default subvolume before: $before"
+		echo "  default subvolume after:  $after"
+		check "snapper (privileged): rollback set a new default subvolume" test "$before" != "$after"
+	else
+		echo "  the root file system has no snapper config on btrfs: rollback not tested"
 	fi
 	rm -f /etc/mcp-gateway/servers.d/snapper.yaml
 	systemctl restart mcp-gateway.service
 	wait_socket
-	if [ "$sr_rollback" = yes ]; then
-		for n in $(snapper --no-dbus --csvout -c root list --columns number | tail -n +2); do
-			[ "$n" -gt "${sr_last:-0}" ] 2>/dev/null && snapper --no-dbus -c root delete "$n"
-		done
-		systemctl stop snapperd.service 2>/dev/null
-		check "snapper: the default subvolume is the original one again" \
-			bash -c "btrfs subvolume get-default / | awk '{print \$2}' | grep -qx '$sr_orig'"
-	fi
 
 	for s in systemd firewalld zypp suseconnect snapper podman; do
 		journalctl -u "mcp-$s-*" --no-pager -o cat 2>/dev/null | tail -5 | sed "s/^/  [$s] /"

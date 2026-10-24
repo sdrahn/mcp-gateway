@@ -40,20 +40,3 @@ optional_policy(`
 	read_files_pattern(mcpsrv_snapper_t, snapperd_conf_t, snapperd_conf_t)
 	list_dirs_pattern(mcpsrv_snapper_t, snapperd_conf_t, snapperd_conf_t)
 ')
-# rollback runs snapper's plugins (/usr/lib/snapper/plugins: grub, the
-# transactional /etc), in their own domains, as for snapper run by root
-# (openSUSE's policy; not in every policy).
-optional_policy(`
-	gen_require(`
-		type snapper_grub_plugin_t, snapper_grub_plugin_exec_t;
-	')
-	domtrans_pattern(mcpsrv_snapper_t, snapper_grub_plugin_exec_t, snapper_grub_plugin_t)
-	role system_r types snapper_grub_plugin_t;
-')
-optional_policy(`
-	gen_require(`
-		type snapper_tu_etc_plugin_t, snapper_tu_etc_plugin_exec_t;
-	')
-	domtrans_pattern(mcpsrv_snapper_t, snapper_tu_etc_plugin_exec_t, snapper_tu_etc_plugin_t)
-	role system_r types snapper_tu_etc_plugin_t;
-')

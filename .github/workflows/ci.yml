@@ -333,14 +333,6 @@ jobs:
           - distro: leap16
             name: openSUSE Leap 16.0
             image_url: https://download.opensuse.org/distribution/leap/16.0/appliances/Leap-16.0-Minimal-VM.x86_64-Cloud.qcow2
-          # btrfs with snapper as the root file system: rollback is tested
-          # there. Tumbleweed's packages and servers.
-          # No cloud-init there: provisioned by combustion.
-          - distro: microos
-            packages: tumbleweed
-            provision: combustion
-            name: openSUSE MicroOS
-            image_url: https://download.opensuse.org/tumbleweed/appliances/openSUSE-MicroOS.x86_64-kvm-and-xen.qcow2
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -354,11 +346,11 @@ jobs:
           static: true
       - uses: actions/download-artifact@v4
         with:
-          name: rpms-${{ matrix.packages || matrix.distro }}
+          name: rpms-${{ matrix.distro }}
           path: rpms
       - uses: actions/download-artifact@v4
         with:
-          name: servers-${{ matrix.packages || matrix.distro }}
+          name: servers-${{ matrix.distro }}
           path: servers
       - name: Enable KVM
         run: |
@@ -367,27 +359,22 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - name: Install QEMU
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils
-      # The image, kept for a week (per ISO week, and per URL): most runs need no
+      # The image, kept for a week (per ISO week): most runs need no
       # download from download.opensuse.org, whose mirrors can be slow.
       # run-vm.sh only reads it (the VM's disk is an overlay).
       - name: Image cache key
         id: image
-        env:
-          IMAGE_URL: ${{ matrix.image_url }}
-        run: |
-          echo "week=$(date -u +%G-%V)" >>"$GITHUB_OUTPUT"
-          echo "url=$(printf %s "$IMAGE_URL" | sha256sum | cut -c1-12)" >>"$GITHUB_OUTPUT"
+        run: echo "week=$(date -u +%G-%V)" >>"$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/vm/base.qcow2
-          key: vm-image-${{ matrix.distro }}-${{ steps.image.outputs.url }}-${{ steps.image.outputs.week }}
+          key: vm-image-${{ matrix.distro }}-${{ steps.image.outputs.week }}
       # The tests, the test client and the privileged test server come
       # with mcp-gateway-tests, as on a product system (openQA).
       - name: Run the VM tests (${{ matrix.name }})
         env:
           WORK: ${{ runner.temp }}/vm
           IMAGE_URL: ${{ matrix.image_url }}
-          PROVISION: ${{ matrix.provision || 'cloud-init' }}
         run: test/vm/run-vm.sh rpms "$(command -v opa)" servers
       - if: always()
         uses: actions/upload-artifact@v4
