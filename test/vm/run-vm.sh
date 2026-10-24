@@ -97,12 +97,13 @@ growpart:
 EOF
 printf 'instance-id: mcpgw-vmtest\nlocal-hostname: mcpgw-vmtest\n' >"$work/meta-data"
 # PROVISION=combustion: an image without cloud-init (MicroOS kvm-and-xen),
-# provisioned by a combustion script on a disk labeled "ignition". The
+# provisioned by a combustion script, given to it through QEMU's fw_cfg
+# (no file system the initrd would have to mount). The
 # files it writes in the first boot's initrd have no SELinux labels yet:
 # the system relabels and reboots once.
+seed=(-drive file="$work/seed.img",if=virtio,format=raw)
 if [ "${PROVISION:-cloud-init}" = combustion ]; then
-	mkdir -p "$work/combustion/combustion"
-	cat >"$work/combustion/combustion/script" <<EOF
+	cat >"$work/combustion-script" <<EOF
 #!/bin/bash
 mkdir -p -m 0700 /root/.ssh
 echo '$(cat "$work/key.pub")' >>/root/.ssh/authorized_keys
@@ -111,7 +112,7 @@ echo mcpgw-vmtest >/etc/hostname
 systemctl enable sshd.service
 touch /etc/selinux/.autorelabel
 EOF
-	genisoimage -quiet -V ignition -r -J -o "$work/seed.img" "$work/combustion"
+	seed=(-fw_cfg name=opt/org.opensuse.combustion/script,file="$work/combustion-script")
 else
 	cloud-localds "$work/seed.img" "$work/user-data" "$work/meta-data"
 fi
@@ -123,7 +124,7 @@ vm() { ssh "${ssh_opts[@]}" root@127.0.0.1 "$@"; }
 log "booting the VM"
 qemu-system-x86_64 -enable-kvm -cpu host -smp 2 -m 4096 \
 	-drive file="$work/disk.qcow2",if=virtio \
-	-drive file="$work/seed.img",if=virtio,format=raw \
+	"${seed[@]}" \
 	-nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:$port-:22 \
 	-display none -serial file:"$work/console.log" \
 	-pidfile "$work/qemu.pid" -daemonize
