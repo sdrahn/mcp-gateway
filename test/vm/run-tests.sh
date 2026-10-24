@@ -1285,7 +1285,7 @@ END
 	# subvolume is a snapshot (MicroOS; a default openSUSE installation).
 	# Each rollback goes to a new snapshot, and the default subvolume is
 	# put back afterwards: the system boots as before.
-	sr_rollback=no sr_orig="" sr_last=0
+	sr_rollback=no sr_orig="" sr_last=0 sr_probed=""
 	if [ "$(stat -f -c %T /)" = btrfs ] && snapper --no-dbus -c root get-config >/dev/null 2>&1 &&
 		btrfs subvolume get-default / | grep -qE '\.snapshots/[0-9]+/snapshot$'; then
 		sr_rollback=yes
@@ -1305,6 +1305,21 @@ END
 		stool alice snapper create_snapshot '{"config":"root","type":"single","pre_number":0,"description":"vmtest rollback target","cleanup_algorithm":"","userdata":{}}'
 		target=$(jq -r '.structuredContent.result // empty' <<<"$out" 2>/dev/null)
 		ls -Zd "/.snapshots/${target:-0}/snapshot" 2>&1 | sed 's/^/  target: /'
+		# Where the target's label comes from (MicroOS: admin_home_t,
+		# though / is root_t): the labels on disk, snapperd's context, and
+		# a snapshot taken with btrfs alone.
+		if [ -z "$sr_probed" ]; then
+			sr_probed=yes
+			for d in / /root /.snapshots "/.snapshots/${target:-0}" "/.snapshots/${target:-0}/snapshot"; do
+				echo "  $d: $(ls -Zd "$d" 2>&1 | cut -d" " -f1) xattr: $(getfattr --absolute-names --only-values -n security.selinux "$d" 2>&1 | tr -d "\0")"
+			done
+			ps -eZ | grep -E 'snapperd' | sed 's/^/  /'
+			btrfs subvolume snapshot -r / /.snapshots/vmtest-probe >/dev/null 2>&1 &&
+				ls -Zd /.snapshots/vmtest-probe | sed 's/^/  btrfs snapshot of \/: /' &&
+				btrfs subvolume delete /.snapshots/vmtest-probe >/dev/null
+			btrfs subvolume show "/.snapshots/${target:-0}/snapshot" 2>&1 | grep -E 'Parent UUID|^\s*UUID|Name' | sed 's/^/  /'
+			btrfs subvolume show / 2>&1 | grep -E '^\s*UUID|Name' | sed 's/^/  \/: /'
+		fi
 		before=$(btrfs subvolume get-default / 2>&1)
 		stool_approved alice snapper rollback "{\"config\":\"root\",\"number\":${target:-0},\"description\":\"vmtest rollback\",\"cleanup_algorithm\":\"\",\"userdata\":{}}"
 		[ "$rc" = 0 ] || ok=no
