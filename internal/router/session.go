@@ -1706,7 +1706,7 @@ func (s *Session) admitBackendRequest(u *upstream, method string, params json.Ra
 		dec = pep.Evaluate(s.ctx, s.r.PDP, pep.Input{
 			Principal: p,
 			Action:    action,
-			Resource:  pep.Resource{Server: u.backend.Name, Kind: "client", Name: method, Privileged: u.backend.Privileged},
+			Resource:  pep.Resource{Server: u.backend.Name, Kind: "client", Name: method, Privileged: u.backend.Elevated()},
 			Args:      args,
 			Context:   s.policyContext(decisionID),
 		})

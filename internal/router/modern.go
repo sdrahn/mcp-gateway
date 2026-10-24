@@ -398,7 +398,7 @@ func (s *Session) serverCapabilities(b *config.Backend) map[string]any {
 		return pep.Evaluate(s.ctx, s.r.PDP, pep.Input{
 			Principal: s.snapshotPrincipal(),
 			Action:    backendRequests[method],
-			Resource:  pep.Resource{Server: b.Name, Kind: "client", Name: method, Privileged: b.Privileged},
+			Resource:  pep.Resource{Server: b.Name, Kind: "client", Name: method, Privileged: b.Elevated()},
 			Args:      args,
 			Context:   s.policyContext(newDecisionID()),
 		}).Effect == pep.Allow

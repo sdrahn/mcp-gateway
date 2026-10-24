@@ -51,6 +51,7 @@ function site() {
     check(serversText.includes("No running instances you may manage"), "server without instances");
     check(serversText.includes("privileged: no sandbox") && serversText.includes("call running"), "privileged server and busy instance shown");
     check(await page.$eval("#servers .card:nth-child(3) button.danger", b => b.disabled), "busy privileged instance cannot be stopped");
+    check(serversText.includes("sandbox with CAP_SYS_ADMIN: every call by policy and approval"), "a server's capabilities shown");
     check(serversText.includes("previous definition: runs until no session uses it"), "instance of a previous definition marked");
     check(serversText.includes("removed from the configuration") && serversText.includes("server removed: stops once its calls end"),
           "removed server with its instance shown");

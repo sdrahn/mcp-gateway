@@ -238,10 +238,12 @@ func (r *Router) WatchPolicy(ctx context.Context, interval func() time.Duration,
 	}
 }
 
-// privileged reports whether server is a privileged backend.
+// privileged reports whether server is a privileged backend or one with
+// capabilities (config.Backend.Elevated): the policy input's
+// resource.privileged.
 func (r *Router) privileged(server string) bool {
 	b := r.backends()[server]
-	return b != nil && b.Privileged
+	return b != nil && b.Elevated()
 }
 
 // Instances describes the running backend instances.

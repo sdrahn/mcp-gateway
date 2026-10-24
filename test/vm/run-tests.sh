@@ -975,6 +975,54 @@ check "the gateway logged that it waited" journal_since_start_has 'waiting for p
 systemctl start mcp-gateway.service
 wait_socket
 
+section "Server with a capability"
+# The same test server in the sandbox with CAP_SYS_ADMIN only
+# (sandbox.capabilities), as mcp-server-tukit runs: that capability and
+# no other, no_new_privs, its category pair, and approvals as for a
+# privileged server. Using it in the kernel is left to SELinux, which does
+# not grant it (the denials are checked at the end).
+cp /etc/mcp-gateway/servers.d/privtest.yaml /root/privtest/privileged.yaml
+cat >/etc/mcp-gateway/servers.d/privtest.yaml <<'END'
+name: privtest
+command: ["/usr/libexec/mcpgw-privtest"]
+run_as: root
+selinux_type: mcpsrv_privtest_t
+sandbox:
+  capabilities: [CAP_SYS_ADMIN]
+END
+check "the gateway accepts the server with a capability" /usr/bin/mcp-gateway --check --policy-data=
+systemctl restart mcp-gateway.service
+wait_socket
+check "the start log warns about the server with a capability" journal_since_start_has 'server with capabilities'
+# read_file is allowed only through the wildcard: it asks.
+ptool_approved alice read_file '{"path":"/proc/self/status"}' >/root/privtest/cap-call.log
+sed 's/^/  /' /root/privtest/cap-call.log | cut -c1-200
+check "a call through a wildcard asks for an approval" grep -q 'approval: a-' /root/privtest/cap-call.log
+check "... and runs after it" succeeded_with "CapEff"
+c_unit=$(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-privtest-*' | awk 'NR==1{print $1}')
+c_pid=$(systemctl show -p MainPID --value "${c_unit:-none}" 2>/dev/null)
+c_ctx=$(label "${c_pid:-1}")
+echo "  ${c_unit:-no unit}: $c_ctx"
+check "the instance runs as root" test "$(proc_user "${c_pid:-1}")" = root
+check "the instance runs in mcpsrv_privtest_t with a category pair" test -n "$(categories "$c_ctx")"
+if [ -n "$c_pid" ] && [ "$c_pid" != 0 ]; then
+	grep -E '^(NoNewPrivs|Cap[A-Za-z]+):' "/proc/$c_pid/status" | sed 's/^/  /'
+	check "the instance holds CAP_SYS_ADMIN and nothing else" grep -q '^CapEff:[[:space:]]*0000000000200000$' "/proc/$c_pid/status"
+	check "... nor can it gain another (bounding set)" grep -q '^CapBnd:[[:space:]]*0000000000200000$' "/proc/$c_pid/status"
+	check "the instance has no_new_privs" grep -q '^NoNewPrivs:[[:space:]]*1' "/proc/$c_pid/status"
+fi
+lists_capability() { control alice GET /v1/servers | jq -e '.[] | select(.name == "privtest") | .capabilities == ["CAP_SYS_ADMIN"]' >/dev/null; }
+check "the control API lists the capability" lists_capability
+# Not from a package, as a privileged definition.
+mkdir -p /usr/share/mcp-gateway/servers.d
+sed 's/^name: privtest/name: privvendor/' /etc/mcp-gateway/servers.d/privtest.yaml >/usr/share/mcp-gateway/servers.d/privvendor.yaml
+/usr/bin/mcp-gateway --check --policy-data= >/root/privtest/vendor-check.log 2>&1
+check "a vendor definition with a capability is refused" grep -q 'sandbox.capabilities: only allowed in' /root/privtest/vendor-check.log
+rm -f /usr/share/mcp-gateway/servers.d/privvendor.yaml
+cp /root/privtest/privileged.yaml /etc/mcp-gateway/servers.d/privtest.yaml
+systemctl restart mcp-gateway.service
+wait_socket
+
 section "Server setups"
 # The setup packages with the real servers, built from upstream
 # (test/vm/build-servers.sh): each server reads through the gateway, and

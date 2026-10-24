@@ -348,7 +348,7 @@ func (a *adminServer) explain(ctx context.Context, p explainArgs) map[string]any
 			if b := backends[p.Server]; b == nil {
 				notes = append(notes, "no server "+strconv.Quote(p.Server)+" is registered: the gateway would refuse before asking the policy")
 			} else {
-				res.Privileged = b.Privileged
+				res.Privileged = b.Elevated()
 			}
 		}
 	}

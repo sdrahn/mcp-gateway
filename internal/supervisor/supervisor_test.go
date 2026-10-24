@@ -151,7 +151,7 @@ func TestSystemdProperties(t *testing.T) {
 	if _, ok := m["RestrictAddressFamilies"]; !ok {
 		t.Error("RestrictAddressFamilies missing")
 	}
-	for k, want := range map[string]any{"CapabilityBoundingSet": uint64(0), "NoNewPrivileges": true,
+	for k, want := range map[string]any{"CapabilityBoundingSet": uint64(0), "AmbientCapabilities": uint64(0), "NoNewPrivileges": true,
 		"RestrictSUIDSGID": true, "ProtectSystem": "strict", "UMask": uint32(0o077)} {
 		if m[k] != want {
 			t.Errorf("%s = %v, want %v", k, m[k], want)
@@ -220,6 +220,30 @@ func TestSystemdPropertiesPrivileged(t *testing.T) {
 	s.SELinux = false
 	if m = propMap(t, s, b, alice(), ""); m["SELinuxContext"] != nil {
 		t.Errorf("SELinuxContext without SELinux: %v", m["SELinuxContext"])
+	}
+}
+
+// A server with capabilities keeps exactly those, in the bounding and
+// the ambient set, and the rest of the sandbox.
+func TestSystemdPropertiesCapabilities(t *testing.T) {
+	s := &Systemd{SELinux: true}
+	b := &config.Backend{Name: "tukit", Command: []string{"/usr/bin/mcp-server-tukit"}, SELinuxType: "mcpsrv_tukit_t",
+		RunAs: "root", Sandbox: config.Sandbox{ProtectHome: "yes", Capabilities: []string{"CAP_SYS_ADMIN"}}}
+	m := propMap(t, s, b, alice(), "c3,c7")
+	for k, want := range map[string]any{"CapabilityBoundingSet": uint64(1 << 21), "AmbientCapabilities": uint64(1 << 21),
+		"NoNewPrivileges": true, "ProtectSystem": "strict", "ProtectHome": "yes", "PrivateDevices": true,
+		"RestrictSUIDSGID": true, "UMask": uint32(0o077), "User": "root", "PrivateNetwork": true} {
+		if m[k] != want {
+			t.Errorf("%s = %v, want %v", k, m[k], want)
+		}
+	}
+	for _, k := range []string{"SystemCallFilter", "RestrictAddressFamilies"} {
+		if _, ok := m[k]; !ok {
+			t.Errorf("%s missing", k)
+		}
+	}
+	if m["SELinuxContext"] != "system_u:system_r:mcpsrv_tukit_t:s0:c3,c7" {
+		t.Errorf("SELinuxContext %v", m["SELinuxContext"])
 	}
 }
 

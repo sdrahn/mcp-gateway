@@ -285,6 +285,42 @@ func (p *recordPDP) Decide(ctx context.Context, in pep.Input) (pep.Decision, err
 	return p.fakePDP.Decide(ctx, in)
 }
 
+// Policy sees resource.privileged for privileged servers and servers with
+// capabilities, and not for others.
+func TestPolicyInputPrivileged(t *testing.T) {
+	for _, tc := range []struct {
+		b    config.Backend
+		want bool
+	}{
+		{config.Backend{Name: "fs", Isolation: config.IsolationPrincipal}, false},
+		{config.Backend{Name: "fs", Isolation: config.IsolationPrincipal, Privileged: true}, true},
+		{config.Backend{Name: "fs", Isolation: config.IsolationPrincipal,
+			Sandbox: config.Sandbox{Capabilities: []string{"CAP_SYS_ADMIN"}}}, true},
+	} {
+		r, _ := testRouter(t, time.Hour)
+		pdp := &recordPDP{}
+		r.PDP = pdp
+		b := tc.b
+		r.Backends["fs"] = &b
+		c := connect(t, r, alice(), "fs", nil)
+		c.roundTrip(1, "tools/call", map[string]any{"name": "read_file"})
+		pdp.mu.Lock()
+		var calls int
+		for _, in := range pdp.inputs {
+			if in.Action == "tools.call" {
+				calls++
+				if in.Resource.Privileged != tc.want {
+					t.Errorf("privileged %v, elevated %v: resource.privileged = %v", b.Privileged, b.Elevated(), in.Resource.Privileged)
+				}
+			}
+		}
+		pdp.mu.Unlock()
+		if calls == 0 {
+			t.Errorf("privileged %v, elevated %v: no tools.call decided", b.Privileged, b.Elevated())
+		}
+	}
+}
+
 // Policy sees a modern request's protocol version, capabilities and
 // client, and no session.
 func TestAgentPolicyInput(t *testing.T) {

@@ -490,6 +490,12 @@ type Sandbox struct {
 	// StateDirectory is a directory below /var/lib that systemd creates
 	// for the instance, owned by its user and writable (StateDirectory=).
 	StateDirectory string `yaml:"state_directory"`
+	// Capabilities are Linux capabilities (CAP_SYS_ADMIN, ...) the
+	// instance keeps, in its bounding and ambient sets, for a server that
+	// needs one right but no more: the rest of the sandbox stays.
+	// Only the administrator's directory may define a server with
+	// capabilities, as a privileged one.
+	Capabilities []string `yaml:"capabilities"`
 }
 
 // stateDirectory is a relative path of plain names, as StateDirectory=
@@ -506,6 +512,9 @@ var gatewayPaths = []string{
 
 // validate checks the sandbox relaxations.
 func (s *Sandbox) validate() error {
+	if err := s.validateCapabilities(); err != nil {
+		return err
+	}
 	switch s.ProtectHome {
 	case "yes", "read-only", "read-write":
 	default:
@@ -934,7 +943,7 @@ func checkURL(s string) error {
 // file in a later dir overrides the file with the same name in an earlier
 // one; an empty file, or a symlink to /dev/null, masks it (as with systemd
 // units). Pass the vendor dir first, the administrator's last: only the
-// last dir may define privileged backends.
+// last dir may define privileged backends and backends with capabilities.
 func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 	byFile := map[string]string{}
 	for _, dir := range dirs {
@@ -971,8 +980,12 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 		if err := b.Validate(); err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
 		}
-		if b.Privileged && (len(dirs) == 0 || filepath.Dir(p) != filepath.Clean(dirs[len(dirs)-1])) {
-			return nil, fmt.Errorf("%s: privileged: only allowed in %s", p, dirs[len(dirs)-1])
+		if b.Elevated() && (len(dirs) == 0 || filepath.Dir(p) != filepath.Clean(dirs[len(dirs)-1])) {
+			key := "privileged"
+			if !b.Privileged {
+				key = "sandbox.capabilities"
+			}
+			return nil, fmt.Errorf("%s: %s: only allowed in %s", p, key, dirs[len(dirs)-1])
 		}
 		if first, dup := from[b.Name]; dup {
 			return nil, duplicateName(b.Name, first, p, dirs)
@@ -1166,6 +1179,12 @@ func (b *Backend) Validate() error {
 		if len(b.Sandbox.ReadWritePaths) > 0 {
 			return errors.New("sandbox.read_write_paths: has no effect on a privileged backend, which may write everywhere")
 		}
+		if len(b.Sandbox.Capabilities) > 0 {
+			return errors.New("sandbox.capabilities: has no effect on a privileged backend, which has all of them")
+		}
+	}
+	if len(b.Sandbox.Capabilities) > 0 && b.URL != "" {
+		return errors.New("sandbox.capabilities: not for a url server (its connector needs none)")
 	}
 	if _, err := b.ParseCredentials(); err != nil {
 		return err

@@ -600,10 +600,11 @@ func (p *pool) retiredDone(e *poolEntry) {
 	go e.up.close()
 }
 
-// mustKeep reports whether e is a privileged instance with a request in
-// flight, which the pool does not stop.
+// mustKeep reports whether e is an instance of a privileged server (or
+// one with capabilities) with a request in flight, which the pool does
+// not stop.
 func mustKeep(e *poolEntry) bool {
-	return e.up != nil && e.up.backend.Privileged && e.up.busy()
+	return e.up != nil && e.up.backend.Elevated() && e.up.busy()
 }
 
 // scheduleStop stops e, which no session uses, after the idle timeout
@@ -650,7 +651,8 @@ type InstanceInfo struct {
 	// Sessions is the number of sessions using the instance; 0 while it
 	// waits for the idle timeout.
 	Sessions int `json:"sessions"`
-	// Privileged instances (section 5.7.1) are not stopped while Busy
+	// Privileged instances, those of privileged servers and servers with
+	// capabilities (section 5.7.1), are not stopped while Busy
 	// (requests in flight).
 	Privileged bool `json:"privileged,omitempty"`
 	Busy       bool `json:"busy,omitempty"`
@@ -678,7 +680,7 @@ func (p *pool) list() []InstanceInfo {
 		info := InstanceInfo{ID: e.up.id, Server: e.up.backend.Name, Unit: e.up.unit,
 			Sub: e.principal.Sub, Issuer: e.principal.Issuer, UID: e.principal.UID,
 			Transport: e.principal.Transport, Isolation: e.isolation, Started: e.started, Sessions: e.refs,
-			Privileged: e.up.backend.Privileged, Busy: e.up.busy(), Definition: "current"}
+			Privileged: e.up.backend.Elevated(), Busy: e.up.busy(), Definition: "current"}
 		switch {
 		case e.drain:
 			info.Definition = "removed"
@@ -756,7 +758,8 @@ func (p *pool) stopFor(server string, match func(principal.Principal) bool) int 
 	return len(found)
 }
 
-// closeAll stops every instance. Privileged instances first refuse new
+// closeAll stops every instance. Privileged instances (and those with
+// capabilities) first refuse new
 // requests and get until drainTimeout to answer those in flight.
 func (p *pool) closeAll() {
 	p.mu.Lock()
@@ -773,7 +776,7 @@ func (p *pool) closeAll() {
 		<-e.ready
 		switch {
 		case e.up == nil:
-		case e.up.backend.Privileged:
+		case e.up.backend.Elevated():
 			e.up.draining.Store(true)
 			privileged = append(privileged, e)
 		default:

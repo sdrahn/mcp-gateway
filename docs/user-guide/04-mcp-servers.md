@@ -316,6 +316,7 @@ Server names must be unique across all files.
 | `sandbox.protect_home` | `read-only` | access to home directories: `yes` (none), `read-only`, `read-write` |
 | `sandbox.read_write_paths` | none | existing absolute paths the instance may write despite `ProtectSystem=strict` (systemd `ReadWritePaths=`); paths of the gateway itself, and directories containing them, are refused |
 | `sandbox.state_directory` | none | a directory below `/var/lib` (a relative name, e.g. `my-server`) that systemd creates for the instance, owned by its user, mode 0700, writable and kept across instances (systemd `StateDirectory=`) |
+| `sandbox.capabilities` | none | Linux capabilities the instance keeps, e.g. `[CAP_SYS_ADMIN]` (names as in capabilities(7)), for a server that needs one right but not the rights of a root service; the rest of the sandbox stays. Accepted only in `/etc/mcp-gateway/servers.d`. See [Servers with a capability](#servers-with-a-capability). |
 | `privileged` | `false` | run without the sandbox, with the rights of a root service, for servers that change the system as a whole (package installation); needs `run_as: root` and is accepted only in `/etc/mcp-gateway/servers.d`. See [Privileged servers](#privileged-servers). |
 
 Example with everything:
@@ -443,7 +444,8 @@ Each instance runs as a transient systemd service named
   file system read-only except `/dev`, `/proc`, `/sys` and the home as
   configured, the `state_directory` and the `read_write_paths`),
   `ProtectHome` as configured, private `/tmp` and `/dev`, no
-  capabilities, the `@system-service` system call set only, protected
+  capabilities (but those of `sandbox.capabilities`), the
+  `@system-service` system call set only, protected
   kernel tunables, modules, logs, clock, hostname and control groups,
   `UMask=0077`; without `network: true` a private network namespace and
   only `AF_UNIX` sockets;
@@ -679,6 +681,54 @@ mcp_gateway_backend_rpm(zypp)
 /usr/bin/mcp-server-zypp                     --  gen_context(system_u:object_r:mcpsrv_zypp_exec_t,s0)
 /usr/libexec/mcp-server-zypp/zypp-mcp-tool   --  gen_context(system_u:object_r:rpm_exec_t,s0)
 ```
+
+## Servers with a capability
+
+Some servers need one right a sandboxed process lacks, and nothing
+else. mcp-server-tukit talks to tukitd, which answers only callers with
+`CAP_SYS_ADMIN`; tukitd then makes the changes in a new snapshot, so
+the server itself writes nothing. Such a server keeps the sandbox and
+names the capability:
+
+```yaml
+# /etc/mcp-gateway/servers.d/tukit.yaml
+name: tukit
+command: ["/usr/bin/mcp-server-tukit"]
+run_as: root
+selinux_type: mcpsrv_tukit_t
+sandbox:
+  protect_home: "yes"
+  capabilities: [CAP_SYS_ADMIN]
+```
+
+- Only the administrator's directory may define one, as for privileged
+  servers: a definition with `sandbox.capabilities` in
+  `/usr/share/mcp-gateway/servers.d` stops the gateway from starting (a
+  symlink in `/etc` to a shipped file is the administrator's choice).
+  With `privileged` it is an error (a privileged server has every
+  capability), and so is it with `url`.
+- The instance gets the whole sandbox of an ordinary one (above) with
+  the named capabilities in its bounding set and, when it does not run
+  as root, its ambient set (systemd `CapabilityBoundingSet=` and
+  `AmbientCapabilities=`); `NoNewPrivileges` stays on.
+- **SELinux decides what the capability allows.** The kernel checks a
+  capability in the process's domain too: a domain without `allow
+  mcpsrv_<name>_t self:capability sys_admin;` holds `CAP_SYS_ADMIN` in
+  its capability sets, which is what tukitd checks (it reads them from
+  `/proc`), but cannot use it in the kernel. Grant the domain a
+  capability only for what the server does with it itself.
+- With `run_as: root`, the instance runs as root without the other
+  capabilities: on a read-only file system (`ProtectSystem=strict`),
+  without home directories and with private `/tmp` and `/dev`, root
+  without `CAP_DAC_OVERRIDE` can write next to nothing. That suits a
+  service like tukitd whose D-Bus policy lets in root only.
+- **Treated as a privileged server** by the policy (`resource.privileged`
+  is `true`: only permissions naming server and tool without wildcards
+  allow a call without approval), by the audit (every decision goes to
+  the kernel audit log) and by the gateway (the instance is not stopped
+  while a call runs). `mcp-gateway --check` and the start log warn about
+  the server with its capabilities; the servers list
+  (`"capabilities"`) and Cockpit show them.
 
 ## Servers that speak HTTP
 

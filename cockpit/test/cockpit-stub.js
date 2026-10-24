@@ -67,6 +67,8 @@
                                               isolation: "principal", started: new Date().toISOString(), sessions: 0, privileged: true, busy: true }] },
                               { name: "tickets", selinux_type: "mcpsrv_http_t", isolation: "principal", network: true, run_as: "dynamic",
                                 sign_in: true, instances: [] },
+                              { name: "tukit", selinux_type: "mcpsrv_tukit_t", isolation: "principal", network: false, run_as: "root",
+                                capabilities: ["CAP_SYS_ADMIN"], instances: [] },
                               { name: "web", removed: true, instances: [{ id: "i3", server: "web", unit: "mcp-web-i3.service", sub: "alice", uid: 1001,
                                   transport: "unix", isolation: "principal", started: new Date().toISOString(), sessions: 0, busy: true,
                                   definition: "removed" }] }],

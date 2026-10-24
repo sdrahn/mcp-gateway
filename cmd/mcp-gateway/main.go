@@ -186,9 +186,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		for _, w := range backends[name].Warnings {
 			log.Warn(w, "server", name)
 		}
-		if backends[name].Privileged {
-			log.Warn("privileged server: runs as root without sandbox; every call is decided by policy and approval", "server", name)
-		}
+		warnElevated(log, name, backends[name])
 	}
 	if err := config.CheckSignIn(gw, backends); err != nil {
 		return err
@@ -366,9 +364,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		configDirs:  reloadDirs(configPath),
 		loaded: func(next map[string]*config.Backend) {
 			for _, name := range slices.Sorted(maps.Keys(next)) {
-				if next[name].Privileged {
-					log.Warn("privileged server: runs as root without sandbox; every call is decided by policy and approval", "server", name)
-				}
+				warnElevated(log, name, next[name])
 			}
 			if sd != nil && sd.SELinux {
 				warnMissingSELinuxTypes(log, next, supervisor.ContextValid)
@@ -695,6 +691,17 @@ func watchMCS(ctx context.Context, log *slog.Logger, auditLog *audit.Logger, sd 
 	}
 	check(supervisor.ScanMCS("/proc"))
 	supervisor.WatchMCS(ctx, "/proc", mcsWatchInterval, check)
+}
+
+// warnElevated logs a server with rights beyond the sandbox: privileged,
+// or with capabilities.
+func warnElevated(log *slog.Logger, name string, b *config.Backend) {
+	switch {
+	case b.Privileged:
+		log.Warn("privileged server: runs as root without sandbox; every call is decided by policy and approval", "server", name)
+	case len(b.Sandbox.Capabilities) > 0:
+		log.Warn("server with capabilities: runs in the sandbox with "+strings.Join(b.Sandbox.Capabilities, ", ")+"; every call is decided by policy and approval as for a privileged server", "server", name)
+	}
 }
 
 // warnMissingSELinuxTypes logs servers whose selinux_type the loaded
