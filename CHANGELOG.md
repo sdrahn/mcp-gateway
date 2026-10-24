@@ -7,6 +7,15 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- `snapper-root.yaml` (mcp-gateway-profile-snapper, in
+  `/usr/share/mcp-gateway/profiles`): mcp-server-snapper as root in the
+  sandbox, for `set_config` without the privileged definition. Rolling
+  back still needs `snapper-privileged.yaml` (chapter 13).
+- CI: the VM tests also run on openSUSE MicroOS, whose root file system
+  is btrfs with snapper: they roll back through the gateway there.
+
 ## v1.8.0 — 2026-10-24
 
 Servers that need one capability run in the sandbox. A server that

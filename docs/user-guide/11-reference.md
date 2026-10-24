@@ -548,7 +548,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/etc/mcp-gateway/gateway.yaml` | your configuration |
 | `/etc/mcp-gateway/gateway.d/` | your drop-ins, read over the configuration (chapter 3) |
 | `/usr/share/mcp-gateway/servers.d/` | package server definitions |
-| `/usr/share/mcp-gateway/profiles/` | definitions to link into `/etc/mcp-gateway/servers.d` by hand: `zypp-privileged.yaml`, `snapper-privileged.yaml` (chapter 13) |
+| `/usr/share/mcp-gateway/profiles/` | definitions to link into `/etc/mcp-gateway/servers.d` by hand: `zypp-privileged.yaml`, `snapper-root.yaml`, `snapper-privileged.yaml` (chapter 13) |
 | `/etc/mcp-gateway/servers.d/` | your server definitions |
 | `/usr/share/mcp-gateway/policy/` | policy logic; `mcp/profiles/<setup>/data.yaml`: roles of setup packages |
 | `/usr/share/mcp-gateway/rbac/data.yaml` | default role data, in force while `/etc/mcp-gateway/policy/rbac` has none; `previous-defaults.sha256`: the defaults earlier packages installed in `/etc` (an unchanged copy is removed on update) |

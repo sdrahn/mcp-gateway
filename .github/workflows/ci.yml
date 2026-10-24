@@ -333,6 +333,12 @@ jobs:
           - distro: leap16
             name: openSUSE Leap 16.0
             image_url: https://download.opensuse.org/distribution/leap/16.0/appliances/Leap-16.0-Minimal-VM.x86_64-Cloud.qcow2
+          # btrfs with snapper as the root file system: rollback is tested
+          # there. Tumbleweed's packages and servers.
+          - distro: microos
+            packages: tumbleweed
+            name: openSUSE MicroOS
+            image_url: https://download.opensuse.org/tumbleweed/appliances/openSUSE-MicroOS.x86_64-OpenStack-Cloud.qcow2
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -346,11 +352,11 @@ jobs:
           static: true
       - uses: actions/download-artifact@v4
         with:
-          name: rpms-${{ matrix.distro }}
+          name: rpms-${{ matrix.packages || matrix.distro }}
           path: rpms
       - uses: actions/download-artifact@v4
         with:
-          name: servers-${{ matrix.distro }}
+          name: servers-${{ matrix.packages || matrix.distro }}
           path: servers
       - name: Enable KVM
         run: |

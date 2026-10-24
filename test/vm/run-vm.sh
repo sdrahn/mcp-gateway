@@ -139,6 +139,19 @@ if [ "$(vm 'getenforce 2>/dev/null || echo Missing')" != Enforcing ]; then
 	done
 fi
 
+# A transactional system (MicroOS): its root file system is a read-only
+# btrfs snapshot, changed only through transactional-update and a
+# reboot. The tests install packages as on any system, so in this
+# disposable VM the snapshot is made writable instead, and nothing
+# updates or reboots it meanwhile. It stays the default subvolume, a
+# snapshot, as snapper rollback needs.
+if vm 'findmnt -no OPTIONS / | tr , "\n" | grep -qx ro'; then
+	log "making the read-only root file system writable (transactional system)"
+	vm 'btrfs property set -ts / ro false && mount -o remount,rw /' || exit 1
+	vm 'btrfs filesystem resize max / >/dev/null
+		systemctl disable --now transactional-update.timer rebootmgr.service 2>/dev/null; true'
+fi
+
 log "copying the test payload"
 vm 'rm -rf /root/vmtest && mkdir -p /root/vmtest/rpms'
 scp -q -i "$work/key" -P "$port" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \

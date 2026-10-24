@@ -1,0 +1,19 @@
+# mcp-server-snapper as root in the sandbox: what snapper.yaml does, and
+# set_config (snapperd lets only root change configs), with no
+# capabilities and no account to name in ALLOW_USERS. rollback does not
+# work here: it sets the default subvolume itself, which needs the
+# privileged definition (snapper-privileged.yaml). Enable it by linking
+# it as /etc/mcp-gateway/servers.d/snapper.yaml; see chapter 13 of the
+# user guide.
+version: 1
+name: snapper
+command: ["/usr/bin/mcp-server-snapper"]
+run_as: root
+selinux_type: mcpsrv_snapper_t
+# No landlock: snapper lists the root directory itself (and the
+# snapshots below it), which a Landlock rule allows only together with
+# everything beneath.
+tool_notes:
+  rollback: >-
+    Not available in this setup: the call fails after taking its
+    snapshots. Rolling back needs the privileged definition.
