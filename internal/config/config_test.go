@@ -290,6 +290,47 @@ func TestLoadBackendsPrivileged(t *testing.T) {
 	}
 }
 
+func TestLoadBackendsCapabilities(t *testing.T) {
+	vendor, admin := t.TempDir(), t.TempDir()
+	const def = "name: tukit\ncommand: [/usr/bin/mcp-server-tukit]\nrun_as: root\nsandbox:\n  capabilities: [CAP_SYS_ADMIN]\n"
+	writeFile(t, admin, "tukit.yaml", def)
+	bs, err := LoadBackends(vendor, admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := bs["tukit"]
+	if b.Privileged || !b.Elevated() || b.Sandbox.CapabilityMask() != 1<<21 {
+		t.Errorf("tukit: privileged %v, elevated %v, mask %#x", b.Privileged, b.Elevated(), b.Sandbox.CapabilityMask())
+	}
+	two := Sandbox{Capabilities: []string{"CAP_NET_BIND_SERVICE", "CAP_SYS_ADMIN"}}
+	if m := two.CapabilityMask(); m != 1<<10|1<<21 {
+		t.Errorf("mask of two: %#x", m)
+	}
+	if (&Backend{}).Elevated() || (&Sandbox{}).CapabilityMask() != 0 {
+		t.Error("a plain backend is elevated")
+	}
+	// As for privileged servers: not from a package.
+	writeFile(t, vendor, "other.yaml", strings.Replace(def, "tukit", "other", 1))
+	for _, dirs := range [][]string{{vendor, admin}, {vendor, filepath.Join(admin, "missing")}} {
+		if _, err := LoadBackends(dirs...); err == nil || !strings.Contains(err.Error(), "sandbox.capabilities: only allowed in") {
+			t.Errorf("%v: err = %v", dirs, err)
+		}
+	}
+	for content, want := range map[string]string{
+		"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  capabilities: [cap_sys_admin]\n":                                 "unknown capability \"cap_sys_admin\"",
+		"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  capabilities: [CAP_EVERYTHING]\n":                                "unknown capability",
+		"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  capabilities: [CAP_SYS_ADMIN, CAP_SYS_ADMIN]\n":                  "named twice",
+		"name: a\ncommand: [/usr/bin/a]\nrun_as: root\nprivileged: true\nsandbox:\n  capabilities: [CAP_SYS_ADMIN]\n": "no effect on a privileged backend",
+		"name: a\nurl: https://mcp.example.com/mcp\nsandbox:\n  capabilities: [CAP_SYS_ADMIN]\n":                      "not for a url server",
+	} {
+		dir := t.TempDir()
+		writeFile(t, dir, "a.yaml", content)
+		if _, err := LoadBackends(dir); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: err = %v, want %q", content, err, want)
+		}
+	}
+}
+
 func TestLoadBackendsErrors(t *testing.T) {
 	tests := map[string][]string{
 		"bad name":         {"name: Bad_Name\ncommand: [/usr/bin/a]\n"},

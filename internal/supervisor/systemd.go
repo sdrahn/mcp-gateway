@@ -257,11 +257,14 @@ func sandboxProperties(b *config.Backend, prop func(string, any) sddbus.Property
 		prop("LockPersonality", true),
 		prop("RestrictRealtime", true),
 		prop("RestrictSUIDSGID", true),
-		// No capabilities at all, and only the syscalls of ordinary
+		// No capabilities but those the definition names (which only
+		// the administrator's directory may: sandbox.capabilities), in
+		// the bounding set and the ambient set (which an instance not
+		// running as root needs to keep them); and only the syscalls of ordinary
 		// services. (MemoryDenyWriteExecute stays off: it breaks JIT
 		// runtimes such as Node.js, which many MCP servers use.)
-		prop("CapabilityBoundingSet", uint64(0)),
-		prop("AmbientCapabilities", uint64(0)),
+		prop("CapabilityBoundingSet", b.Sandbox.CapabilityMask()),
+		prop("AmbientCapabilities", b.Sandbox.CapabilityMask()),
 		prop("SystemCallArchitectures", []string{"native"}),
 		prop("SystemCallFilter", struct {
 			Allow    bool

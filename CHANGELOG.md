@@ -7,6 +7,15 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+- **Servers with a capability.** `sandbox.capabilities` (for example
+  `[CAP_SYS_ADMIN]`) lets a server keep the named capabilities and the
+  rest of the sandbox, for a server that needs one right but not the
+  rights of a root service, such as mcp-server-tukit, which calls
+  tukitd. Only `/etc/mcp-gateway/servers.d` may define one; the policy,
+  the audit and the pool treat it as a privileged server, and the
+  servers list, `--check` and Cockpit show its capabilities (user guide,
+  chapter 4, "Servers with a capability").
+
 ## v1.7.0 — 2026-10-23
 
 Small hosts and the end of configuration in JSON. On a Raspberry Pi 4

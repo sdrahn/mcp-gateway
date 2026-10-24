@@ -160,6 +160,7 @@ function renderServers(servers, signIns) {
         let facts = [s.selinux_type || "mcpsrv_generic_t", "isolation: " + s.isolation,
             s.network ? "network" : "no network", "runs as " + s.run_as];
         if (s.privileged) facts.push("privileged: no sandbox, every call by policy and approval");
+        if (s.capabilities && s.capabilities.length) facts.push("sandbox with " + s.capabilities.join(", ") + ": every call by policy and approval");
         if (s.sign_in) facts.push("each user signs in");
         if (s.landlock) facts.push("Landlock");
         if (s.removed) facts = ["removed from the configuration; its instances stop once their calls end"];

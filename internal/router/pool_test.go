@@ -229,9 +229,14 @@ func isClosed(ch chan struct{}, wait time.Duration) bool {
 }
 
 func TestPrivilegedInstanceKeptWhileCallRuns(t *testing.T) {
-	for _, privileged := range []bool{false, true} {
+	for _, b := range []*config.Backend{
+		{Name: "zypp", Isolation: config.IsolationPrincipal},
+		{Name: "zypp", Isolation: config.IsolationPrincipal, Privileged: true},
+		// Capabilities: kept as a privileged instance is.
+		{Name: "zypp", Isolation: config.IsolationPrincipal, Sandbox: config.Sandbox{Capabilities: []string{"CAP_SYS_ADMIN"}}},
+	} {
+		privileged := b.Elevated()
 		p, l, _ := testPool(t, 0) // stop as soon as unused
-		b := &config.Backend{Name: "zypp", Isolation: config.IsolationPrincipal, Privileged: privileged}
 		u, release, err := p.acquire(context.Background(), b, alice())
 		if err != nil {
 			t.Fatal(err)

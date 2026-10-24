@@ -1,5 +1,6 @@
 # GET /v1/servers
 # Fields may be added, never renamed or removed (docs/architecture.md, D10).
+[].capabilities
 [].instances
 [].instances[].busy
 [].instances[].definition

@@ -580,7 +580,8 @@ Approvers learn about pending approvals without watching the inbox:
   ProtectKernelTunables=yes, ProtectKernelModules=yes, ProtectKernelLogs=yes
   ProtectControlGroups=yes, ProtectClock=yes, ProtectHostname=yes
   LockPersonality=yes, RestrictRealtime=yes, RestrictSUIDSGID=yes
-  CapabilityBoundingSet=     # none
+  CapabilityBoundingSet=     # none (sandbox.capabilities: those)
+  AmbientCapabilities=       # none (sandbox.capabilities: those)
   SystemCallArchitectures=native
   SystemCallFilter=@system-service
   UMask=0077
@@ -694,6 +695,20 @@ privileged: true
 - **Visible.** `mcp-gateway --check`, the servers list and the Cockpit
   page mark privileged servers; the control API refuses to stop a busy
   privileged instance (`409`).
+
+**Backends with capabilities.** A server may need one right a sandbox
+removes and nothing more: mcp-server-tukit calls tukitd, which answers
+only callers holding `CAP_SYS_ADMIN` and does the work itself. Its
+definition keeps the sandbox and names the capabilities
+(`sandbox.capabilities: [CAP_SYS_ADMIN]`), which the instance keeps in
+its bounding and ambient sets; nothing else of the sandbox changes. The
+kernel checks a capability against the SELinux domain as well, so a
+domain not granted `capability sys_admin` holds the capability (what a
+peer reads from `/proc`) without being able to use it. Such a backend
+is defined, like a privileged one, only in `/etc/mcp-gateway/servers.d`,
+and counts as privileged for the policy (`resource.privileged`), the
+kernel audit and the pool (`config.Backend.Elevated`); `GET /v1/servers`
+lists its `capabilities`.
 
 #### 5.7.2 Servers that speak HTTP
 
