@@ -998,7 +998,9 @@ check "the start log warns about the server with a capability" journal_since_sta
 ptool_approved alice read_file '{"path":"/proc/self/status"}' >/root/privtest/cap-call.log
 sed 's/^/  /' /root/privtest/cap-call.log | cut -c1-200
 check "a call through a wildcard asks for an approval" grep -q 'approval: a-' /root/privtest/cap-call.log
-check "... and runs after it" succeeded_with "CapEff"
+# (ptool keeps the first 300 characters: the start of /proc/self/status;
+# the capability sets are checked on the instance below.)
+check "... and runs after it" succeeded_with "mcpgw-privtest"
 c_unit=$(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-privtest-*' | awk 'NR==1{print $1}')
 c_pid=$(systemctl show -p MainPID --value "${c_unit:-none}" 2>/dev/null)
 c_ctx=$(label "${c_pid:-1}")
