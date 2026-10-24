@@ -202,7 +202,13 @@ Notes:
   the setup package's from mcp-gateway 0.12.1 on, allow it; the doctor
   warns when no rule does and the server reports a version before 0.3.5
   (or, not having started it, cannot tell), and notes that a rule's
-  `readlog` is no longer needed when it reports 0.3.5 or later. The `--allow-read` and
+  `readlog` is no longer needed when it reports 0.3.5 or later. The
+  action comes with the package's action file,
+  `/usr/share/polkit-1/actions/com.suse.gatekeeper.policy`; without it
+  polkit does not know the action, every read fails with "Action
+  com.suse.gatekeeper.readlog is not registered", and no rule can help:
+  update systemd-mcp to 0.3.5 or later, or install the file (the doctor
+  warns for a server that reports 0.3.4 then). The `--allow-read` and
   `--allow-write` options have no effect in version 0.3.5; do not use
   `--noauth`, which is meant for its HTTP mode.
 - `tool_notes` (chapter 4) tell agents what a tool's schema does not:
@@ -682,6 +688,7 @@ journalctl -u 'mcp-systemd-*' -u 'mcp-firewalld-*' -u 'mcp-snapper-*' -b
 | a change runs without approval (audit: `effect: allow`) | a role of the principal allows the tool without approval (often `admin`) | check the principal's roles; only reads may match a permission without `require_approval` |
 | audit: `ask`, but nothing appears in Cockpit | the approval could not be delivered | `journalctl -u mcp-gateway.service \| grep -iE 'approval\|elicit'`; the control socket must be enabled |
 | "calling method was canceled by user" | `systemd-mcp`'s own authorization: its polkit check found no rule for the account in `run_as` (for reads with 0.3.4: none allowing `com.suse.gatekeeper.readlog`; the doctor says so), or the file `get_file` names is not readable for the server (the gateway's own configuration never is) | the polkit rule above, for that account; for the gateway's configuration, the server `gateway-admin` (chapter 10, "Asking an agent"). The `--allow-*` options have no effect in 0.3.5; do not use `--noauth` |
+| "Action com.suse.gatekeeper.readlog is not registered" | `systemd-mcp` 0.3.4 checks reads with this polkit action, and polkit does not know it: the action file `/usr/share/polkit-1/actions/com.suse.gatekeeper.policy` is missing, unreadable for polkitd (its SELinux label), or not read yet | systemd-mcp 0.3.5 or later; or install the file, `restorecon -v` it and `systemctl restart polkit.service` |
 | "Interactive authentication required", `NOT_AUTHORIZED` after approval | the service's polkit check for the instance's account | the polkit rule above, for the account in `run_as` |
 | snapper calls fail with "D-Bus call failed: org.freedesktop.DBus.Error.Failed" | the account is not in the snapper configuration's `ALLOW_USERS`/`ALLOW_GROUPS` (`mcp-gateway-admin doctor` names it), or the tool needs root (`set_config`, `rollback`) | `snapper -c <config> set-config ALLOW_USERS=…`; for root, the privileged definition |
 | role data edits do not take effect | the file in force is another one (`data.yaml` before `data.json`), the role data does not parse, or it was not rendered (`mcp-policy-render.service` not running) | `mcp-gateway-admin doctor` (role data, role data for OPA); `journalctl -u mcp-policy-render.service`; `systemctl restart mcp-policy-render.service`; compare `curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/bindings` with the file |

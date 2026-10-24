@@ -1138,6 +1138,20 @@ END
 	check "systemd: list_log takes from as the note says" test "$rc" = 0
 	mcp-gateway-admin doctor --server systemd >/root/vmtest/doctor-systemd.txt 2>&1
 	check "doctor: the systemd tool notes name its tools" bash -c '! grep -q "tool_notes name tools" /root/vmtest/doctor-systemd.txt'
+	# Without its read action's file, polkit does not know the action:
+	# a warning only for systemd-mcp 0.3.4, which checks reads with it,
+	# not for the server here (built at 0.3.5 or later, or the product's).
+	gk=/usr/share/polkit-1/actions/com.suse.gatekeeper.policy
+	sd_version=$(journalctl -u 'mcp-systemd-*' -o cat 2>/dev/null | sed -n 's/.*starting systemd-mcp.* version=\([^ ]*\).*/\1/p' | tail -1)
+	echo "  systemd-mcp version: ${sd_version:-unknown}"
+	if [ -f "$gk" ] && [ -n "$sd_version" ] && [ "$sd_version" != 0.3.4 ]; then
+		mv "$gk" /root/vmtest/gatekeeper.policy
+		mcp-gateway-admin doctor --server systemd >/root/vmtest/doctor-gk.txt 2>&1
+		mv /root/vmtest/gatekeeper.policy "$gk" && restorecon "$gk"
+		grep -E 'polkit mcp-sysmgmt' /root/vmtest/doctor-gk.txt | sed 's/^/  /'
+		check "doctor: no readlog warning without the action file for systemd-mcp 0.3.5 or later" \
+			bash -c '! grep -q "is not registered" /root/vmtest/doctor-gk.txt'
+	fi
 	stool_approved alice systemd change_unit_state '{"name":"mcpgw-vmtest.service","action":"start","timeout":30}'
 	check "systemd: change_unit_state after an approval" test "$rc" = 0
 	# systemd-mcp reports the start job finished; the unit's state may

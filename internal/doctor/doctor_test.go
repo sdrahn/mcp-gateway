@@ -120,6 +120,47 @@ func TestPolkit(t *testing.T) {
 	}
 }
 
+// Without the action file, polkit does not know systemd-mcp's read
+// action: 0.3.4, which checks every read with it, fails each with "Action
+// ... is not registered"; a server that reported no version gets a note.
+func TestPolkitReadlogNotRegistered(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "60-x.rules"), []byte(`polkit.addRule(function(a, s) { if (s.user == "mcp-sysmgmt") return polkit.Result.YES; });`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := polkitActionsDir
+	polkitActionsDir = t.TempDir()
+	t.Cleanup(func() { polkitActionsDir = old })
+	backends := map[string]*config.Backend{
+		"systemd": {Name: "systemd", RunAs: "mcp-sysmgmt", SELinuxType: "mcpsrv_systemd_t"},
+	}
+	for _, c := range []struct {
+		version, summary, detail string
+		status                   Status
+	}{
+		{"0.3.4", "Action com.suse.gatekeeper.readlog is not registered", "update systemd-mcp to 0.3.5", Warn},
+		{"0.3.4-150700.1.2", "systemd-mcp 0.3.4-150700.1.2 checks every read", "restart polkit.service", Warn},
+		{"", "a polkit rule names mcp-sysmgmt", "is not registered", OK},
+		{"0.3.5", "a polkit rule names mcp-sysmgmt", "", OK},
+		{"0.3.3", "a polkit rule names mcp-sysmgmt", "", OK},
+	} {
+		rs := Polkit(backends, map[string]string{"systemd": c.version}, []string{dir})
+		if len(rs) != 1 {
+			t.Fatalf("%q: %+v", c.version, rs)
+		}
+		r := rs[0]
+		details := strings.Join(r.Details, "\n")
+		if r.Status != c.status || !strings.Contains(r.Summary, c.summary) ||
+			c.detail != "" && !strings.Contains(details, c.detail) || c.detail == "" && details != "" {
+			t.Errorf("%q: %+v", c.version, r)
+		}
+	}
+	// No rule naming the account: that warning, not the note.
+	if rs := Polkit(backends, nil, []string{t.TempDir()}); rs[0].Status != Warn || !strings.Contains(rs[0].Summary, "which no polkit rule names") {
+		t.Errorf("no rule: %+v", rs[0])
+	}
+}
+
 func TestVersionAtLeast(t *testing.T) {
 	for _, c := range []struct {
 		v    string

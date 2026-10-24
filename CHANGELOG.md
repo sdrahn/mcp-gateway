@@ -13,6 +13,11 @@ minor release (with a warning) and removed in the next.
   `/usr/share/mcp-gateway/profiles`): mcp-server-snapper as root in the
   sandbox, for `set_config` without the privileged definition. Rolling
   back still needs `snapper-privileged.yaml` (chapter 13).
+- `mcp-gateway-admin doctor` warns when polkit does not know
+  `com.suse.gatekeeper.readlog` (no action file) while the systemd
+  server reports systemd-mcp 0.3.4, which checks every read with it:
+  reads fail with "Action com.suse.gatekeeper.readlog is not
+  registered". For a server that reported no version, a note.
 
 ## v1.8.0 — 2026-10-24
 
