@@ -14,6 +14,8 @@
 #   WORK       working directory (default: a new temporary directory); the
 #              serial console log, test output and results (TAP, JUnit)
 #              are left there
+#   PROVISION  cloud-init (default), or combustion for an image without
+#              cloud-init (MicroOS kvm-and-xen)
 #
 # If SELinux is not enforcing in the image, it is installed and enabled
 # first (with a relabelling reboot). Needs qemu-system-x86_64, qemu-img,
@@ -94,7 +96,25 @@ growpart:
   devices: ["/"]
 EOF
 printf 'instance-id: mcpgw-vmtest\nlocal-hostname: mcpgw-vmtest\n' >"$work/meta-data"
-cloud-localds "$work/seed.img" "$work/user-data" "$work/meta-data"
+# PROVISION=combustion: an image without cloud-init (MicroOS kvm-and-xen),
+# provisioned by a combustion script on a disk labeled "ignition". The
+# files it writes in the first boot's initrd have no SELinux labels yet:
+# the system relabels and reboots once.
+if [ "${PROVISION:-cloud-init}" = combustion ]; then
+	mkdir -p "$work/combustion/combustion"
+	cat >"$work/combustion/combustion/script" <<EOF
+#!/bin/bash
+mkdir -p -m 0700 /root/.ssh
+echo '$(cat "$work/key.pub")' >>/root/.ssh/authorized_keys
+chmod 0600 /root/.ssh/authorized_keys
+echo mcpgw-vmtest >/etc/hostname
+systemctl enable sshd.service
+touch /etc/selinux/.autorelabel
+EOF
+	genisoimage -quiet -V ignition -r -J -o "$work/seed.img" "$work/combustion"
+else
+	cloud-localds "$work/seed.img" "$work/user-data" "$work/meta-data"
+fi
 
 ssh_opts=(-i "$work/key" -p "$port" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
 	-o LogLevel=ERROR -o ConnectTimeout=5 -o ServerAliveInterval=15)
