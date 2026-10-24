@@ -46,7 +46,7 @@ func TestProfiles(t *testing.T) {
 			t.Errorf("%s has no landlock", f)
 		}
 	}
-	for _, f := range []string{"snapper.yaml", "snapper-privileged.yaml", "zypp-privileged.yaml", "suseconnect.yaml"} {
+	for _, f := range []string{"snapper.yaml", "snapper-root.yaml", "snapper-privileged.yaml", "zypp-privileged.yaml", "suseconnect.yaml"} {
 		if withLandlock[f] {
 			t.Errorf("%s has landlock (see the note in it)", f)
 		}

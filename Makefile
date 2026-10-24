@@ -186,6 +186,7 @@ install-profiles:
 	done
 	install -Dm0644 profiles/zypp/zypp-privileged.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/profiles/zypp-privileged.yaml
 	install -Dm0644 profiles/snapper/snapper-privileged.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/profiles/snapper-privileged.yaml
+	install -Dm0644 profiles/snapper/snapper-root.yaml $(DESTDIR)$(DATADIR)/mcp-gateway/profiles/snapper-root.yaml
 
 install-cockpit:
 	install -d $(DESTDIR)$(COCKPITDIR)

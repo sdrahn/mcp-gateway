@@ -11,4 +11,4 @@ interface they build on.
 | `roles.yaml` | `/usr/share/mcp-gateway/policy/mcp/profiles/<name>/data.yaml` (roles to bind users to) |
 | `polkit.rules` | `/usr/share/polkit-1/rules.d/60-mcp-gateway-<name>.rules` |
 | `sysusers.conf` | `/usr/lib/sysusers.d/mcp-gateway-profile-<name>.conf` |
-| `zypp/zypp-privileged.yaml`, `snapper/snapper-privileged.yaml` | `/usr/share/mcp-gateway/profiles/` (opt-in, see chapter 13) |
+| `zypp/zypp-privileged.yaml`, `snapper/snapper-root.yaml`, `snapper/snapper-privileged.yaml` | `/usr/share/mcp-gateway/profiles/` (opt-in, see chapter 13) |

@@ -93,9 +93,11 @@ a server or a tool does not show up.
   the configs whose `ALLOW_USERS` name it ("snapper: the snapper
   configuration" below). Until you add `mcp-snapper` there, the server
   can list the configs and nothing else; `mcp-gateway-admin doctor` says so.
-  Changing configs and rolling back need root: link
-  `/usr/share/mcp-gateway/profiles/snapper-privileged.yaml` as
-  `/etc/mcp-gateway/servers.d/snapper.yaml`, as for zypp.
+  Changing configs needs root: link
+  `/usr/share/mcp-gateway/profiles/snapper-root.yaml` (root, in the
+  sandbox) as `/etc/mcp-gateway/servers.d/snapper.yaml`. Rolling back
+  needs root without the sandbox: link `snapper-privileged.yaml` there
+  instead, as for zypp.
 
 The rest of this chapter explains what the packages set up, and how to
 do the same by hand for other servers.
@@ -261,11 +263,15 @@ over the system bus: `list_configs`, `get_config`, `list_snapshots`,
   `ALLOW_USERS` (or a group in `ALLOW_GROUPS`); `set_config` needs root.
   The setup runs the server as an account of its own, `mcp-snapper`, so
   that naming it in `ALLOW_USERS` grants nothing to the other servers.
+- For `set_config`, run the server as root in the sandbox
+  (`snapper-root.yaml`: no capabilities, no account to name in
+  `ALLOW_USERS`, every config open to it).
 - `rollback` creates its snapshots through snapperd but sets the
   default btrfs subvolume itself, which needs root and a writable root
-  file system: no sandbox allows it. For `set_config` and `rollback`,
-  run the server privileged (`snapper-privileged.yaml`: root, no
-  sandbox, still in `mcpsrv_snapper_t`). A rollback takes effect at the
+  file system: no sandbox allows it. In `snapper-root.yaml` it fails
+  after taking its snapshots (its tool note says so). For it, run the
+  server privileged (`snapper-privileged.yaml`: root, no sandbox, still
+  in `mcpsrv_snapper_t`). A rollback takes effect at the
   next boot. On a transactional system, roll back with
   `transactional-update rollback` instead (chapter 2).
 - `create_snapshot` only adds a snapshot, which the config's cleanup

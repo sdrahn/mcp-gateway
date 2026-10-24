@@ -242,9 +242,9 @@ Sets up mcp-server-snapper (https://github.com/aschnell/mcp-server-snapper)
 behind mcp-gateway: listing snapper configs and snapshots and creating
 and deleting snapshots as the account mcp-snapper, in the sandbox (roles
 snapper-reader and snapper-operator). snapperd allows the account only
-the configs whose ALLOW_USERS name it. A definition as a privileged
-server, which can also change configs and roll back, is included for the
-administrator to enable.
+the configs whose ALLOW_USERS name it. Two definitions are included for
+the administrator to enable: as root in the sandbox, which can also
+change configs, and as a privileged server, which can also roll back.
 
 %package profile-suseconnect
 Summary:        suseconnect-mcp behind mcp-gateway
@@ -489,6 +489,7 @@ fi
 %{_sysusersdir}/%{name}-profile-snapper.conf
 %dir %{_datadir}/mcp-gateway/profiles
 %{_datadir}/mcp-gateway/profiles/snapper-privileged.yaml
+%{_datadir}/mcp-gateway/profiles/snapper-root.yaml
 
 %files profile-suseconnect
 %{_datadir}/mcp-gateway/servers.d/suseconnect.yaml

@@ -1031,7 +1031,9 @@ section "Server setups"
 # systemd changes a unit after an approval, all with SELinux enforcing.
 if [ -n "$setups" ]; then
 	if [ "$setups" = built ]; then
-		cp -a "$servers/." /
+		# Without their xattrs (SELinux contexts among them): "." would
+		# give / that of the directory they come from (admin_home_t).
+		cp -r --preserve=mode,ownership,timestamps "$servers/." /
 		# CI artifacts do not keep file modes.
 		chmod 0755 /usr/bin/systemd-mcp /usr/bin/firewalld-mcp /usr/bin/mcp-server-zypp \
 			/usr/bin/suseconnect-mcp /usr/libexec/mcp-server-zypp/zypp-mcp-tool /usr/bin/mcp-server-snapper \
@@ -1256,6 +1258,30 @@ END
 	check "snapper: set_config is refused in the sandbox (snapperd: root only)" \
 		bash -c 'grep -q " rc=2 " <<<"$1" && grep -q "SetConfig.*D-Bus call failed" <<<"$1"' _ "$out"
 	check "snapper: ... and the config is unchanged" bash -c '! grep -q "^NUMBER_LIMIT=\"7\"" /etc/snapper/configs/vmtest'
+
+	# snapper-root.yaml (root in the sandbox, no capabilities): set_config.
+	ln -sf /usr/share/mcp-gateway/profiles/snapper-root.yaml /etc/mcp-gateway/servers.d/snapper.yaml
+	systemctl restart mcp-gateway.service
+	wait_socket
+	stool alice snapper list_configs '{}'
+	check "snapper (root, sandbox): list_configs" succeeded_with "vmtest"
+	sr_pid=""
+	for unit in $(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-snapper-*' | awk '{print $1}'); do
+		sr_pid=$(systemctl show -p MainPID --value "$unit")
+	done
+	check "snapper (root, sandbox): the instance runs as root" test "$(proc_user "${sr_pid:-0}")" = root
+	check "snapper (root, sandbox): ... without capabilities" bash -c "! has_capabilities ${sr_pid:-0}"
+	out=$(runuser -u alice -- /usr/local/bin/mcpcall --server snapper --method tools/list --params '{}' 2>&1)
+	rc=$?
+	check "snapper (root, sandbox): rollback's description has the tool note" \
+		succeeded_with "Administrator's note: Not available in this setup"
+	stool_approved alice snapper set_config '{"config":"vmtest","values":{"NUMBER_LIMIT":"9"}}'
+	check "snapper (root, sandbox): set_config after an approval" test "$rc" = 0
+	check "snapper (root, sandbox): the config changed" grep -q '^NUMBER_LIMIT="9"' /etc/snapper/configs/vmtest
+	if command -v ausearch >/dev/null; then
+		check "snapper (root, sandbox): no SELinux denials" \
+			bash -c '! ausearch -m avc -ts recent 2>/dev/null | grep -q mcpsrv_snapper_t'
+	fi
 
 	# The privileged definition (root, no sandbox): set_config, and
 	# rollback where the root file system is set up for it.
