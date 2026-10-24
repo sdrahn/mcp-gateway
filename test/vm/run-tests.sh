@@ -1280,6 +1280,98 @@ END
 	systemctl restart mcp-gateway.service
 	wait_socket
 
+	# Experiment: snapper as root in the sandbox, with CAP_SYS_ADMIN only
+	# (sandbox.capabilities, 1.8), instead of privileged. set_config needs
+	# root (snapperd); rollback sets the default subvolume itself (btrfs
+	# ioctl: CAP_SYS_ADMIN, a writable mount of /.snapshots) and works
+	# only on the config of "/" whose default subvolume is a snapshot.
+	# Where the root file system is btrfs without such a config, the test
+	# sets one up for the while and puts everything back afterwards.
+	sr_fs=$(stat -f -c %T /)
+	echo "  root file system: $sr_fs; default subvolume: $(btrfs subvolume get-default / 2>&1)"
+	sr_config="" sr_default="" sr_orig="" sr_last=0
+	if [ "$sr_fs" = btrfs ]; then
+		sr_orig=$(btrfs subvolume get-default / | awk '{print $2}')
+		if ! snapper --no-dbus -c root get-config >/dev/null 2>&1; then
+			if [ -d /.snapshots ]; then
+				# kiwi's layout: /.snapshots without a config.
+				cp /usr/share/snapper/config-templates/default /etc/snapper/configs/root &&
+					sed -i 's/^SNAPPER_CONFIGS="\(.*\)"/SNAPPER_CONFIGS="\1 root"/' /etc/sysconfig/snapper &&
+					sr_config=template
+			else
+				snapper --no-dbus -c root create-config / && sr_config=created
+			fi
+			restorecon -R /etc/snapper /.snapshots 2>/dev/null
+		fi
+		sr_last=$(snapper --no-dbus --csvout -c root list --columns number 2>/dev/null | tail -1)
+		if ! btrfs subvolume get-default / | grep -qE '\.snapshots/[0-9]+/snapshot$'; then
+			sr_default=$(snapper --no-dbus -c root create --read-write --print-number --description "vmtest default")
+			btrfs subvolume set-default "/.snapshots/$sr_default/snapshot" || sr_default=""
+		fi
+		systemctl stop snapperd.service 2>/dev/null
+		echo "  root config: ${sr_config:-there already}; default now: $(btrfs subvolume get-default / 2>&1)"
+	fi
+	sr_def=/etc/mcp-gateway/servers.d/snapper.yaml
+	{
+		printf 'version: 1\nname: snapper\ncommand: ["/usr/bin/mcp-server-snapper"]\n'
+		printf 'run_as: root\nselinux_type: mcpsrv_snapper_t\nsandbox:\n  capabilities: [CAP_SYS_ADMIN]\n'
+		[ -d /.snapshots ] && printf '  read_write_paths: ["/.snapshots"]\n'
+	} >"$sr_def"
+	sed 's/^/  | /' "$sr_def"
+	systemctl restart mcp-gateway.service
+	wait_socket
+	mcp-gateway --check 2>&1 | grep -iE 'snapper|capabilit' | sed 's/^/  /'
+	stool alice snapper list_configs '{}'
+	check "snapper (root, CAP_SYS_ADMIN): list_configs" succeeded_with "vmtest"
+	sr_pid=""
+	for unit in $(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-snapper-*' | awk '{print $1}'); do
+		sr_pid=$(systemctl show -p MainPID --value "$unit")
+	done
+	grep -E '^Cap(Eff|Bnd|Amb):' "/proc/${sr_pid:-0}/status" 2>/dev/null | sed 's/^/  /'
+	check "snapper (root, CAP_SYS_ADMIN): the instance runs as root" test "$(proc_user "${sr_pid:-0}")" = root
+	check "snapper (root, CAP_SYS_ADMIN): ... with CAP_SYS_ADMIN alone" \
+		grep -qE '^CapEff:[[:space:]]*0000000000200000$' "/proc/${sr_pid:-0}/status"
+	stool_approved alice snapper set_config '{"config":"vmtest","values":{"NUMBER_LIMIT":"9"}}'
+	check "snapper (root, CAP_SYS_ADMIN): set_config after an approval" test "$rc" = 0
+	check "snapper (root, CAP_SYS_ADMIN): the config changed" grep -q '^NUMBER_LIMIT="9"' /etc/snapper/configs/vmtest
+	if [ "$sr_fs" = btrfs ] && snapper --no-dbus -c root get-config >/dev/null 2>&1; then
+		before=$(btrfs subvolume get-default / 2>&1)
+		stool_approved alice snapper rollback '{"config":"root","number":null,"description":"vmtest rollback","cleanup_algorithm":"","userdata":{}}'
+		check "snapper (root, CAP_SYS_ADMIN): rollback after an approval" test "$rc" = 0
+		after=$(btrfs subvolume get-default / 2>&1)
+		echo "  default subvolume before: $before"
+		echo "  default subvolume after:  $after"
+		check "snapper (root, CAP_SYS_ADMIN): rollback set a new default subvolume" test "$before" != "$after"
+	else
+		echo "  the root file system is not btrfs: rollback not tested"
+	fi
+	if command -v ausearch >/dev/null; then
+		ausearch -m avc -ts recent 2>/dev/null | grep -E 'mcpsrv_snapper_t' | sed 's/^/  avc: /' | tail -20
+		check "snapper (root, CAP_SYS_ADMIN): no SELinux denials" \
+			bash -c '! ausearch -m avc -ts recent 2>/dev/null | grep -q mcpsrv_snapper_t'
+	fi
+	journalctl -u 'mcp-snapper-*' --no-pager -o cat 2>/dev/null | tail -10 | sed 's/^/  [snapper] /'
+	rm -f "$sr_def"
+	systemctl restart mcp-gateway.service
+	wait_socket
+	# Put the root file system back as it was.
+	if [ -n "$sr_orig" ]; then
+		btrfs subvolume set-default "$sr_orig" / || echo "  restoring the default subvolume $sr_orig failed"
+		for n in $(snapper --no-dbus --csvout -c root list --columns number 2>/dev/null | tail -n +2); do
+			[ "$n" -gt "${sr_last:-0}" ] 2>/dev/null && snapper --no-dbus -c root delete "$n"
+		done
+		case $sr_config in
+		created) snapper --no-dbus -c root delete-config ;;
+		template)
+			rm -f /etc/snapper/configs/root
+			sed -i 's/^SNAPPER_CONFIGS="\(.*\) root"/SNAPPER_CONFIGS="\1"/' /etc/sysconfig/snapper ;;
+		esac
+		systemctl stop snapperd.service 2>/dev/null
+		echo "  default subvolume restored: $(btrfs subvolume get-default / 2>&1)"
+		check "snapper: the default subvolume is the original one again" \
+			bash -c "btrfs subvolume get-default / | awk '{print \$2}' | grep -qx '$sr_orig'"
+	fi
+
 	for s in systemd firewalld zypp suseconnect snapper podman; do
 		journalctl -u "mcp-$s-*" --no-pager -o cat 2>/dev/null | tail -5 | sed "s/^/  [$s] /"
 	done
