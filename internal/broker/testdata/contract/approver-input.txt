@@ -3,7 +3,9 @@
 # Fields may be added, never renamed or removed (docs/architecture.md, D10).
 approver
 approver.groups
+approver.issuer
 approver.name
+approver.remote
 approver.uid
 grant
 grant.approved_by

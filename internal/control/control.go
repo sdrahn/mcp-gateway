@@ -310,7 +310,7 @@ func (s *Server) metrics(w http.ResponseWriter, _ *http.Request, a broker.Approv
 		writeError(w, http.StatusNotFound, "no metrics")
 		return
 	}
-	if a.UID != 0 {
+	if !a.Root() {
 		writeError(w, http.StatusForbidden, "metrics are for root")
 		return
 	}

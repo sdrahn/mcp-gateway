@@ -119,10 +119,10 @@ func main() {
 			err = serveProxy(os.Args[2])
 		case len(os.Args) == 4 && os.Args[1] == "-oauth":
 			err = serveOAuth(os.Args[2], os.Args[3])
-		case len(os.Args) == 4 && os.Args[1] == "-idp":
-			err = serveIdP(os.Args[2], os.Args[3])
+		case len(os.Args) >= 4 && os.Args[1] == "-idp":
+			err = serveIdP(os.Args[2], os.Args[3], os.Args[4:])
 		default:
-			err = fmt.Errorf("usage: %s [-http ADDR | -https ADDR CERTFILE | -proxy ADDR | -oauth ADDR CERTFILE | -idp ADDR CERTFILE]", os.Args[0])
+			err = fmt.Errorf("usage: %s [-http ADDR | -https ADDR CERTFILE | -proxy ADDR | -oauth ADDR CERTFILE | -idp ADDR CERTFILE [ID[:SECRET]=REDIRECT_URI...]]", os.Args[0])
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)

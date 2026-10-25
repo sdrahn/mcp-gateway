@@ -298,3 +298,46 @@ func TestCertificateBoundTokens(t *testing.T) {
 		t.Errorf("bound token refused with require_bound_tokens: %v", err)
 	}
 }
+
+func TestIDToken(t *testing.T) {
+	idp := newIdP(t)
+	o := idp.oauth(nil)
+	ctx := context.Background()
+	id := func(over map[string]any) string {
+		c := map[string]any{"aud": "page-client", "nonce": "n-1", "scope": nil}
+		for k, v := range over {
+			c[k] = v
+		}
+		return idp.rsaToken(t, c)
+	}
+	p, err := o.IDToken(ctx, id(nil), "page-client", "n-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Sub != "u-123" || p.Issuer != idp.srv.URL || len(p.Groups) != 1 || p.Groups[0] != "dev" || len(p.Scopes) != 0 {
+		t.Errorf("principal %+v", p)
+	}
+	for name, c := range map[string]struct {
+		over          map[string]any
+		client, nonce string
+	}{
+		"another client":             {nil, "other-client", "n-1"},
+		"an access token (audience)": {map[string]any{"aud": audience}, "page-client", "n-1"},
+		"another nonce":              {nil, "page-client", "n-2"},
+		"no nonce":                   {map[string]any{"nonce": nil}, "page-client", "n-1"},
+		"no nonce expected":          {nil, "page-client", ""},
+		"expired":                    {map[string]any{"exp": time.Now().Add(-time.Hour).Unix()}, "page-client", "n-1"},
+		"no iat":                     {map[string]any{"iat": time.Now().Add(time.Hour).Unix()}, "page-client", "n-1"},
+		"another issuer":             {map[string]any{"iss": "https://evil.example"}, "page-client", "n-1"},
+		"no subject":                 {map[string]any{"sub": nil}, "page-client", "n-1"},
+		"several audiences, no azp":  {map[string]any{"aud": []string{"page-client", "x"}}, "page-client", "n-1"},
+		"azp of another client":      {map[string]any{"aud": []string{"page-client", "x"}, "azp": "x"}, "page-client", "n-1"},
+	} {
+		if _, err := o.IDToken(ctx, id(c.over), c.client, c.nonce); !errors.Is(err, ErrInvalidToken) {
+			t.Errorf("%s: err %v, want invalid token", name, err)
+		}
+	}
+	if _, err := o.IDToken(ctx, id(map[string]any{"aud": []string{"page-client", "x"}, "azp": "page-client"}), "page-client", "n-1"); err != nil {
+		t.Errorf("several audiences with azp: %v", err)
+	}
+}

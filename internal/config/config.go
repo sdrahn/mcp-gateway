@@ -261,6 +261,52 @@ type Approvals struct {
 	// agents that show nothing while a call waits. Unset,
 	// DefaultNoWait applies; [] names none.
 	NoWait []string `yaml:"no_wait"`
+	// Page is the gateway's own approval page on its HTTP listener,
+	// signed in with the identity provider (roadmap step 39 stage C).
+	Page ApprovalPage `yaml:"page"`
+}
+
+// ApprovalPage configures the gateway's approval page: approvers sign in
+// with the identity provider of http.issuer (OpenID Connect,
+// authorization code with PKCE) as a client registered there. Without
+// ClientID there is no page.
+type ApprovalPage struct {
+	// ClientID is the gateway's client at the identity provider, with
+	// <origin of http.audience>/approvals/callback as redirect URI.
+	ClientID string `yaml:"client_id"`
+	// ClientSecretFile holds the client's secret, for a confidential
+	// client (client_secret_basic); empty: a public client (PKCE only).
+	ClientSecretFile string `yaml:"client_secret_file"`
+	// Scopes are asked for besides openid.
+	Scopes []string `yaml:"scopes"`
+	// SessionTTL is how long a sign-in on the page lasts.
+	SessionTTL time.Duration `yaml:"session_ttl"`
+}
+
+// DefaultPageSessionTTL is approvals.page.session_ttl's default.
+const DefaultPageSessionTTL = 8 * time.Hour
+
+// PageEnabled reports whether the gateway serves its approval page.
+func (g *Gateway) PageEnabled() bool { return g.Approvals.Page.ClientID != "" }
+
+// PageOrigin is the origin of the gateway's public MCP URL
+// (http.audience), where the approval page is served; "" if unknown.
+func (g *Gateway) PageOrigin() string {
+	u, err := url.Parse(g.HTTP.Audience)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+// ApprovalURLTemplate is the approval page URL in force: url_template,
+// else the gateway's own page when it is set up
+// (<origin>/approvals/{id}), else "".
+func (g *Gateway) ApprovalURLTemplate() string {
+	if g.Approvals.URLTemplate != "" || !g.PageEnabled() || g.PageOrigin() == "" {
+		return g.Approvals.URLTemplate
+	}
+	return g.PageOrigin() + "/approvals/{id}"
 }
 
 // DefaultNoWait is Approvals.NoWait's default: Kit, which shows nothing
@@ -713,6 +759,9 @@ func (g *Gateway) setDefaults() {
 	if g.Approvals.NoWait == nil {
 		g.Approvals.NoWait = DefaultNoWait()
 	}
+	if g.Approvals.Page.SessionTTL == 0 {
+		g.Approvals.Page.SessionTTL = DefaultPageSessionTTL
+	}
 	if g.Agents.MaxVersion == nil {
 		g.Agents.MaxVersion = DefaultMaxVersion()
 	}
@@ -824,6 +873,27 @@ func (g *Gateway) Validate() error {
 	}
 	if g.Approvals.ControlSocket != "-" && !filepath.IsAbs(g.Approvals.ControlSocket) {
 		return fmt.Errorf("approvals.control_socket: must be an absolute path or \"-\", got %q", g.Approvals.ControlSocket)
+	}
+	if pg := g.Approvals.Page; pg.ClientID != "" {
+		if g.HTTP.Listen == "" || g.HTTP.Issuer == "" || g.PageOrigin() == "" {
+			return errors.New("approvals.page: needs the HTTP listener (http.listen, http.issuer and http.audience): approvers sign in with its identity provider and come back to <origin of http.audience>/approvals/callback")
+		}
+		if g.Approvals.ControlSocket == "-" {
+			return errors.New("approvals.page: needs the control socket (approvals.control_socket is \"-\", which turns off the out-of-band and url channels)")
+		}
+		if pg.ClientSecretFile != "" && !filepath.IsAbs(pg.ClientSecretFile) {
+			return fmt.Errorf("approvals.page.client_secret_file: must be an absolute path, got %q", pg.ClientSecretFile)
+		}
+		if pg.SessionTTL < time.Minute || pg.SessionTTL > 7*24*time.Hour {
+			return errors.New("approvals.page.session_ttl: must be between 1m and 168h")
+		}
+		for _, sc := range pg.Scopes {
+			if sc == "" || strings.ContainsAny(sc, " \t\"") {
+				return fmt.Errorf("approvals.page.scopes: invalid scope %q", sc)
+			}
+		}
+	} else if pg.ClientSecretFile != "" {
+		return errors.New("approvals.page.client_secret_file: needs approvals.page.client_id")
 	}
 	if t := g.Approvals.URLTemplate; t != "" {
 		if !strings.Contains(t, "{id}") {

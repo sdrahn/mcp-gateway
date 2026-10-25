@@ -229,12 +229,52 @@ type Pending struct {
 	result chan *pep.Grant // nil grant: denied; nil channel: no call waits
 }
 
-// Approver is a human deciding on approvals (through the control API).
+// Approver is a human deciding on approvals: through the control API,
+// identified by the kernel (a local account), or signed in on the
+// gateway's approval page (Remote).
 type Approver struct {
 	Name   string   `json:"name"`
 	UID    uint32   `json:"uid"`
 	Groups []string `json:"groups"`
+	// Remote: signed in with the identity provider on the approval page,
+	// not identified by the kernel. A remote approver is never root, even
+	// when its sign-in maps to uid 0, and policy sees "remote": true.
+	Remote bool `json:"-"`
+	// Issuer is a remote approver's identity provider.
+	Issuer string `json:"-"`
+	// NoUID: a remote approver without a local account; uid is left out
+	// (so "self" matches nothing).
+	NoUID bool `json:"-"`
 }
+
+// PolicyApprover is the approver as approver rules see it: uid only for
+// an approver with a local account, so that "self" matches nothing for a
+// remote approver without one.
+type PolicyApprover struct {
+	Name   string   `json:"name"`
+	UID    *uint32  `json:"uid,omitempty"`
+	Groups []string `json:"groups"`
+	// Remote and Issuer: signed in on the approval page.
+	Remote bool   `json:"remote,omitempty"`
+	Issuer string `json:"issuer,omitempty"`
+}
+
+// policyView is a as approver rules see it.
+func (a Approver) policyView() *PolicyApprover {
+	v := &PolicyApprover{Name: a.Name, Groups: a.Groups, Remote: a.Remote, Issuer: a.Issuer}
+	if !a.NoUID {
+		uid := a.UID
+		v.UID = &uid
+	}
+	return v
+}
+
+// Root reports whether a is the local root account, which may do
+// everything the control API offers.
+func (a Approver) Root() bool { return !a.Remote && a.UID == 0 }
+
+// owns reports whether uid (nil: no local account) is a's own.
+func (a Approver) owns(uid *uint32) bool { return !a.NoUID && uid != nil && *uid == a.UID }
 
 // New returns a broker.
 func New(opts Options) (*Broker, error) {
@@ -672,7 +712,7 @@ func sameUID(a, b *uint32) bool {
 // ApproverInput is the input of the approver rules (data.mcp.approvals):
 // the approver and what they want to act on.
 type ApproverInput struct {
-	Approver *Approver       `json:"approver,omitempty"`
+	Approver *PolicyApprover `json:"approver,omitempty"`
 	Request  *ApprovalTarget `json:"request,omitempty"`
 	Instance *InstanceTarget `json:"instance,omitempty"`
 	Grant    *pep.Grant      `json:"grant,omitempty"`
@@ -731,13 +771,13 @@ type InstanceTarget struct {
 // ask queries the approver policy; errors deny. Root may always act: it
 // controls the host (and the policy) anyway.
 func (b *Broker) ask(ctx context.Context, a Approver, path string, input ApproverInput) bool {
-	if a.UID == 0 {
+	if a.Root() {
 		return true
 	}
 	if b.opts.Policy == nil {
 		return false
 	}
-	input.Approver = &a
+	input.Approver = a.policyView()
 	ok, err := b.opts.Policy.Bool(ctx, path, input)
 	if err != nil {
 		b.log.Warn("approver policy failed", "path", path, "err", err)
@@ -753,8 +793,8 @@ func (b *Broker) MayApprove(ctx context.Context, a Approver, p Pending) bool {
 }
 
 func (b *Broker) mayApprove(ctx context.Context, a Approver, p *Pending) bool {
-	if b.opts.Policy == nil && a.UID != 0 {
-		return p.Principal.UID != nil && *p.Principal.UID == a.UID
+	if b.opts.Policy == nil && !a.Root() {
+		return a.owns(p.Principal.UID)
 	}
 	return b.ask(ctx, a, approvePath, ApproverInput{Request: p.Target()})
 }
@@ -772,13 +812,13 @@ func (b *Broker) MayReviewPolicy(ctx context.Context, a Approver) bool {
 // (manage_instance), so approval policies written before it keep
 // working.
 func (b *Broker) MayManageTask(ctx context.Context, a Approver, t TaskTarget) bool {
-	if a.UID == 0 {
+	if a.Root() {
 		return true
 	}
 	if b.opts.Policy == nil {
-		return t.UID != nil && *t.UID == a.UID
+		return a.owns(t.UID)
 	}
-	ok, err := b.opts.Policy.Bool(ctx, manageTaskPath, ApproverInput{Approver: &a, Task: &t})
+	ok, err := b.opts.Policy.Bool(ctx, manageTaskPath, ApproverInput{Approver: a.policyView(), Task: &t})
 	if errors.Is(err, pep.ErrUndefined) {
 		return b.MayManageInstance(ctx, a, t.Server, t.UID)
 	}
@@ -795,13 +835,13 @@ func (b *Broker) MayManageTask(ctx context.Context, a Approver, t TaskTarget) bo
 // every server of the endpoint (of "default" for an endpoint without
 // servers), so approval policies written before it keep working.
 func (b *Broker) MayManageSession(ctx context.Context, a Approver, c SessionTarget) bool {
-	if a.UID == 0 {
+	if a.Root() {
 		return true
 	}
 	if b.opts.Policy == nil {
-		return c.UID != nil && *c.UID == a.UID
+		return a.owns(c.UID)
 	}
-	ok, err := b.opts.Policy.Bool(ctx, manageSessionPath, ApproverInput{Approver: &a, Session: &c})
+	ok, err := b.opts.Policy.Bool(ctx, manageSessionPath, ApproverInput{Approver: a.policyView(), Session: &c})
 	if errors.Is(err, pep.ErrUndefined) {
 		servers := c.Servers
 		if len(servers) == 0 {
@@ -826,8 +866,8 @@ func (b *Broker) MayManageSession(ctx context.Context, a Approver, c SessionTarg
 // instance of server run for the principal with uid (nil: no local
 // account). The same approver rules as for grants apply.
 func (b *Broker) MayManageInstance(ctx context.Context, a Approver, server string, uid *uint32) bool {
-	if b.opts.Policy == nil && a.UID != 0 {
-		return uid != nil && *uid == a.UID
+	if b.opts.Policy == nil && !a.Root() {
+		return a.owns(uid)
 	}
 	return b.ask(ctx, a, manageInstancePath, ApproverInput{Instance: &InstanceTarget{Server: server, UID: uid}})
 }
@@ -836,15 +876,15 @@ func (b *Broker) MayManageInstance(ctx context.Context, a Approver, server strin
 // of the principal with uid (nil: no local account). The same approver
 // rules as for instances apply.
 func (b *Broker) MayManageSignIn(ctx context.Context, a Approver, server string, uid *uint32) bool {
-	if b.opts.Policy == nil && a.UID != 0 {
-		return uid != nil && *uid == a.UID
+	if b.opts.Policy == nil && !a.Root() {
+		return a.owns(uid)
 	}
 	return b.ask(ctx, a, manageSignInPath, ApproverInput{SignIn: &InstanceTarget{Server: server, UID: uid}})
 }
 
 func (b *Broker) mayManage(ctx context.Context, a Approver, g pep.Grant) bool {
-	if b.opts.Policy == nil && a.UID != 0 {
-		return g.UID != nil && *g.UID == a.UID
+	if b.opts.Policy == nil && !a.Root() {
+		return a.owns(g.UID)
 	}
 	return b.ask(ctx, a, manageGrantPath, ApproverInput{Grant: &g})
 }

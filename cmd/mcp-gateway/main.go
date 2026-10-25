@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-systemd/v22/daemon"
+	"github.com/sdrahn/mcp-gateway/internal/approvalpage"
 	"github.com/sdrahn/mcp-gateway/internal/audit"
 	"github.com/sdrahn/mcp-gateway/internal/authn"
 	"github.com/sdrahn/mcp-gateway/internal/broker"
@@ -258,7 +259,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		Timeout:     gw.ApprovalTimeout,
 		GrantsFile:  filepath.Join(gw.StateDir, "grants.json"),
 		PendingFile: filepath.Join(gw.StateDir, "pending.json"),
-		URLTemplate: gw.Approvals.URLTemplate,
+		URLTemplate: gw.ApprovalURLTemplate(),
 		OOB:         control,
 		Policy:      opa,
 		Audit:       auditLog,
@@ -298,8 +299,12 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 			return err
 		}
 	}
-	if !control && gw.Approvals.URLTemplate != "" {
+	if !control && gw.ApprovalURLTemplate() != "" {
 		log.Warn("approvals.url_template is set but the control socket is disabled; url approvals cannot be decided")
+	}
+	page, err := newApprovalPage(log, gw, b, auditLog)
+	if err != nil {
+		return err
 	}
 	signIns, err := newSignIns(log, gw, launcher, auditLog)
 	if err != nil {
@@ -437,7 +442,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	stopHTTP := func() {}
 	if gw.HTTP.Listen != "" {
 		httpErrs = make(chan error, 1)
-		if stopHTTP, err = serveHTTP(log, gw.HTTP, certs, r, signIns, httpErrs); err != nil {
+		if stopHTTP, err = serveHTTP(log, gw.HTTP, certs, r, signIns, page, httpErrs); err != nil {
 			stop()
 			return errors.Join(err, <-served)
 		}
@@ -495,7 +500,9 @@ func newSignIns(log *slog.Logger, gw *config.Gateway, launcher supervisor.Launch
 // serveHTTP starts the remote transport (MCP Streamable HTTP, OAuth
 // resource server). The returned function ends all HTTP sessions and
 // shuts the server down.
-func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Router, signIns *signin.Manager, errc chan<- error) (func(), error) {
+func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Router, signIns *signin.Manager,
+	page *approvalpage.Page, errc chan<- error) (func(), error) {
+	tokens := authn.NewOAuth(cfg, nil)
 	h, err := transport.NewHTTPHandler(transport.HTTPConfig{
 		Resource:             cfg.Audience,
 		AuthorizationServers: []string{cfg.Issuer},
@@ -513,7 +520,7 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Ro
 		},
 		Request: r.ServeRequest,
 		Log:     log,
-	}, authn.NewOAuth(cfg, nil), r.ServeClient)
+	}, tokens, r.ServeClient)
 	if err != nil {
 		return nil, err
 	}
@@ -523,10 +530,18 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Ro
 	}
 	tlsConfig.GetCertificate = certs.getCertificate
 	var handler http.Handler = h
-	if signIns != nil {
-		// The sign-in callback and client metadata, beside MCP.
+	if signIns != nil || page != nil {
 		mux := http.NewServeMux()
-		mux.Handle("/oauth/", signIns.Handler())
+		if signIns != nil {
+			// The sign-in callback and client metadata, beside MCP.
+			mux.Handle("/oauth/", signIns.Handler())
+		}
+		if page != nil {
+			// The approval page, beside MCP; it validates ID tokens with
+			// the key set the listener validates access tokens with.
+			page.Tokens = tokens
+			mux.Handle("/approvals/", page.Handler())
+		}
 		mux.Handle("/", h)
 		handler = mux
 	}
@@ -550,6 +565,35 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Ro
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}, nil
+}
+
+// newApprovalPage sets up the gateway's approval page (approvals.page),
+// or returns nil without one. The client secret is read once, at start.
+func newApprovalPage(log *slog.Logger, gw *config.Gateway, b *broker.Broker, auditLog *audit.Logger) (*approvalpage.Page, error) {
+	pc := gw.Approvals.Page
+	if !gw.PageEnabled() {
+		return nil, nil
+	}
+	secret := ""
+	if pc.ClientSecretFile != "" {
+		data, err := os.ReadFile(pc.ClientSecretFile)
+		if err != nil {
+			return nil, fmt.Errorf("approvals.page.client_secret_file: %w", err)
+		}
+		if secret = strings.TrimSpace(string(data)); secret == "" {
+			return nil, fmt.Errorf("approvals.page.client_secret_file: %s is empty", pc.ClientSecretFile)
+		}
+	}
+	pg := &approvalpage.Page{
+		Issuer: gw.HTTP.Issuer, Origin: gw.PageOrigin(),
+		ClientID: pc.ClientID, ClientSecret: secret, Scopes: pc.Scopes, SessionTTL: pc.SessionTTL,
+		Broker: b, Audit: auditLog, Log: log,
+		// The gateway reaches the identity provider directly, as for its
+		// key set.
+		Client: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: nil}},
+	}
+	log.Info("approval page", "url", pg.Origin+"/approvals/", "client_id", pc.ClientID, "redirect_uri", pg.RedirectURI())
+	return pg, nil
 }
 
 // startExe is the program file the gateway was started from (nil if

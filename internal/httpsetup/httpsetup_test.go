@@ -301,3 +301,76 @@ func TestChanges(t *testing.T) {
 		t.Error("an empty block changes something")
 	}
 }
+
+func TestClockSkew(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Date", time.Now().Add(-5*time.Minute).UTC().Format(http.TimeFormat))
+		base := "https://" + r.Host
+		if r.URL.Path == "/jwks" {
+			_, _ = fmt.Fprint(w, `{"keys":[{"kty":"EC","use":"sig"}]}`)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"issuer": base, "jwks_uri": base + "/jwks",
+			"authorization_endpoint": base + "/a", "token_endpoint": base + "/t", "code_challenge_methods_supported": []string{"S256"}})
+	}))
+	defer srv.Close()
+	rs := IdentityProvider(context.Background(), config.HTTP{Issuer: srv.URL}, srv.Client())
+	if rs[0].Status != doctor.Warn || !strings.Contains(strings.Join(rs[0].Details, " "), "differ by 5m") {
+		t.Errorf("skew: %+v", rs[0])
+	}
+}
+
+func TestApprovalPage(t *testing.T) {
+	var answer func(w http.ResponseWriter, r *http.Request)
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		base := "https://" + r.Host
+		if r.URL.Path == "/authorize" {
+			answer(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"issuer": base, "authorization_endpoint": base + "/authorize",
+			"token_endpoint": base + "/token", "code_challenge_methods_supported": []string{"S256"}})
+	}))
+	defer srv.Close()
+	gw := &config.Gateway{HTTP: config.HTTP{Listen: ":9443", Issuer: srv.URL, Audience: "https://gw.example.com:9443/mcp"}}
+	ctx := context.Background()
+	if r := ApprovalPage(ctx, gw, srv.Client(), true); r.Status != doctor.Skip {
+		t.Errorf("no page: %+v", r)
+	}
+	gw.Approvals.Page.ClientID = "approvals"
+	const redirect = "https://gw.example.com:9443/approvals/callback"
+	answer = func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("client_id") != "approvals" || q.Get("redirect_uri") != redirect || q.Get("code_challenge_method") != "S256" {
+			http.Error(w, "<html><body><h1>Invalid parameter: redirect_uri</h1></body></html>", http.StatusBadRequest)
+			return
+		}
+		http.Redirect(w, r, redirect+"?code=x&state="+q.Get("state"), http.StatusFound)
+	}
+	r := ApprovalPage(ctx, gw, srv.Client(), true)
+	if r.Status != doctor.OK || !strings.Contains(r.Summary, "sends approvers back to the page") ||
+		!strings.Contains(strings.Join(r.Details, " "), "a public client") {
+		t.Errorf("registered: %+v", r)
+	}
+	gw.HTTP.Audience = "https://other.example.com:9443/mcp"
+	r = ApprovalPage(ctx, gw, srv.Client(), true)
+	if r.Status != doctor.Fail || !strings.Contains(r.Summary, "HTTP 400): Invalid parameter: redirect_uri") ||
+		!strings.Contains(strings.Join(r.Details, " "), "with the redirect URI https://other.example.com:9443/approvals/callback") {
+		t.Errorf("redirect URI not registered: %+v", r)
+	}
+	gw.HTTP.Audience = "https://gw.example.com:9443/mcp"
+	answer = func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, redirect+"?error=invalid_scope&error_description=openid", http.StatusFound)
+	}
+	if r = ApprovalPage(ctx, gw, srv.Client(), true); r.Status != doctor.Warn || !strings.Contains(r.Details[0], "invalid_scope") {
+		t.Errorf("error answer: %+v", r)
+	}
+	answer = func(w http.ResponseWriter, _ *http.Request) { _, _ = fmt.Fprint(w, "<form>sign in</form>") }
+	if r = ApprovalPage(ctx, gw, srv.Client(), true); r.Status != doctor.OK || !strings.Contains(r.Summary, "takes the sign-in request") {
+		t.Errorf("login form: %+v", r)
+	}
+	gw.Approvals.Page.ClientSecretFile = t.TempDir() + "/missing"
+	if r = ApprovalPage(ctx, gw, srv.Client(), true); r.Status != doctor.Fail || !strings.Contains(r.Summary, "client_secret_file") {
+		t.Errorf("missing secret: %+v", r)
+	}
+}

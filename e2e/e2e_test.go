@@ -279,6 +279,24 @@ func setupWith(t *testing.T, rbac string, roots map[string]string, extra string,
 			"name: %s\ncommand: [%q, --root, %q]\nrun_as: gateway\n", name, demo, root))
 	}
 	gwSock := filepath.Join(tmp, "mcp.sock")
+	// An approvals block in extra goes into the one below; one that sets
+	// up the approval page replaces the fixed url_template, which would
+	// win over the page's.
+	urlTemplate := "  url_template: https://gw.example.com/approvals/{id}\n"
+	approvalsExtra := ""
+	if before, after, ok := strings.Cut(extra, "approvals:\n"); ok && (before == "" || strings.HasSuffix(before, "\n")) {
+		end := len(after)
+		for i, line := range strings.SplitAfter(after, "\n") {
+			if line != "" && !strings.HasPrefix(line, " ") {
+				end = len(strings.Join(strings.SplitAfter(after, "\n")[:i], ""))
+				break
+			}
+		}
+		approvalsExtra, extra = after[:end], before+after[end:]
+		if strings.Contains(approvalsExtra, "  page:") {
+			urlTemplate = ""
+		}
+	}
 	writeFile(t, filepath.Join(tmp, "gateway.yaml"), fmt.Sprintf(`
 socket: %s
 servers_dir: %s
@@ -293,9 +311,9 @@ supervisor:
   idle_timeout: 1h
 approvals:
   control_socket: %s
-  url_template: https://gw.example.com/approvals/{id}
-  progress_interval: 1s
-%s`, gwSock, filepath.Join(tmp, "servers.d"), filepath.Join(tmp, "state"), opaSock, filepath.Join(tmp, "control.sock"), extra))
+%s  progress_interval: 1s
+%s%s`, gwSock, filepath.Join(tmp, "servers.d"), filepath.Join(tmp, "state"), opaSock, filepath.Join(tmp, "control.sock"),
+		urlTemplate, approvalsExtra, extra))
 	gwCmd, gwLogs := start(t, gateway, "--config", filepath.Join(tmp, "gateway.yaml"))
 	waitFor(t, gwSock)
 	return &env{tmp: tmp, connect: connect, gwSock: gwSock, ctlSock: filepath.Join(tmp, "control.sock"), opa: opaCmd,

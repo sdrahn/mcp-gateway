@@ -29,7 +29,7 @@ the agent let progress extend the timeout. An agent that sends no
 | Channel | Where the decision is made | Trust | Requirements |
 |---|---|---|---|
 | `form` | a dialog of the **agent's own client** (MCP form elicitation) | low: the agent's client answers, it may be configured to accept automatically | the client supports elicitation |
-| `url` (default) | the **approval page** (Cockpit), which the client offers to open (MCP URL elicitation) | high: the approver authenticates to Cockpit; the agent cannot see or influence the page | `approvals.url_template` set, the client supports URL elicitation, the control socket enabled |
+| `url` (default) | the **approval page** (Cockpit, or the gateway's own page), which the client offers to open (MCP URL elicitation) | high: the approver authenticates to Cockpit, or signs in with the identity provider; the agent cannot see or influence the page | `approvals.url_template` set, or the gateway's page set up; the client supports URL elicitation, the control socket enabled |
 | `oob` | the approval page, the **desktop notification** or the **mail** leads there, or the **command line** (`mcp-gateway-admin approvals`, below); the agent only gets a log message ("Waiting for approval of fs/write_file at … (id a-…)"), or, for the agents `approvals.no_wait` names (Kit), a tool error at once that says how to get it decided (below) | high | the control socket enabled |
 
 The policy names a channel per permission (`approval_channel`); the
@@ -46,8 +46,10 @@ from the server's approver rules so that someone else must approve
 
 ### Setting up the approval page
 
-The approval page is the Cockpit page (chapter 8). Tell the gateway its
-public address so it can hand agents a link:
+The approval page is the Cockpit page (chapter 8), or the gateway's own
+page on its HTTPS listener (below), which needs no Cockpit. For
+Cockpit, tell the gateway its public address so it can hand agents a
+link:
 
 ```yaml
 approvals:
@@ -56,6 +58,59 @@ approvals:
 
 `{id}` is replaced by the approval id. For remote agents, the host must
 be reachable by the person using the agent.
+
+## The gateway's approval page
+
+With the HTTPS listener for remote agents (chapter 5, "Remote agents (HTTPS)"),
+the gateway serves an approval page of its own: `/approvals/` lists the
+approvals the signed-in approver may decide and the grants they may
+revoke, `/approvals/{id}` shows one approval (the call, for whom, the
+agent's client as it names itself, the arguments, the scopes) to approve
+or deny. Approvers sign in with the identity provider the gateway
+already takes tokens from (OpenID Connect, authorization code with
+PKCE). Links in URL elicitations, mail and desktop notifications lead
+there once it is set up, unless `approvals.url_template` names another
+page (Cockpit).
+
+1. Register a client for the page at the identity provider, with the
+   redirect URI `https://<host:port of http.audience>/approvals/callback`
+   and the authorization code flow. With **Keycloak**: in the realm of
+   `http.issuer`, *Clients → Create client*, client ID
+   `mcp-gateway-approvals`, *Standard flow* on, *Valid redirect URIs*
+   the URI above; *Client authentication* off for a public client, or on
+   for a confidential one (then copy its secret from *Credentials*).
+2. Tell the gateway, which checks the client at the provider:
+
+   ```console
+   # mcp-gateway-admin setup http --client-id mcp-gateway-approvals --write
+   # mcp-gateway-admin setup http --client-id mcp-gateway-approvals \
+       --client-secret-file /etc/mcp-gateway/approvals-client-secret --write   # confidential
+   # systemctl restart mcp-gateway.service
+   ```
+
+   That sets `approvals.page.client_id` (and `client_secret_file`;
+   chapter 3); the page is served from the next start. The secret file
+   belongs in `/etc/mcp-gateway`, readable by root and the
+   `mcp-gateway` group (`chmod 0640`, `chgrp mcp-gateway`).
+3. `mcp-gateway-admin doctor` checks it from then on (`approval page`,
+   chapter 10).
+
+Who may decide is as for every approval: the approver rules (chapter 6)
+match the principal the sign-in makes, as a token's would. With
+`http.local_user_claim` that is the local account the ID token names
+(`user:alice`, the account's groups), else the token's subject and
+groups (`user:<sub>`, `group:` with the groups of `http.groups_claim`).
+"self" matches only a sign-in that maps to the principal's own local
+account. A sign-in is never root, also when it maps to the account root.
+
+The page keeps the sign-in as a session cookie of its own for
+`approvals.page.session_ttl` (8 h; *Sign out* ends it); it never takes
+an agent's token (a request with `Authorization: Bearer` is sent to
+sign in). Decisions need the page's own form: without its CSRF token,
+or from another origin, they are refused and nothing is decided. The
+page is never shown in a frame, and is not cached. Sign-ins are audited
+(`mcp-approver-sign-in`), decisions and revocations with `via=page`
+(chapter 11, "Audit records").
 
 ## Scopes and grants
 
@@ -232,6 +287,8 @@ Approvers learn about pending approvals from:
 
 - the **Cockpit** Approvals tab, live;
 - the **command line**: `mcp-gateway-admin approvals watch`;
+- the gateway's **own approval page** (above), where links lead once it
+  is set up;
 - the **agent's user**, for the agents `approvals.no_wait` names ("Agents
   told at once", above): the tool error says what to ask an approver for;
 - **desktop notifications** (`mcp-gateway-desktop`);

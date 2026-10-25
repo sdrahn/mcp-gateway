@@ -2856,6 +2856,188 @@ fi
 check "doctor --json: the check's id is approval-reach" \
 	sh -c 'mcp-gateway-admin doctor --no-start --json 2>/dev/null | jq -e "any(.[]?; .id == \"approval-reach\")" >/dev/null'
 
+section "The gateway's approval page"
+# Roadmap step 39 stage C (D21): approvals decided on the gateway's own
+# page on its HTTPS listener, signed in with the identity provider
+# (privsrv -idp, which signs in the user /login names and runs the
+# authorization code flow with PKCE for the client "approvals"), with
+# curl and a cookie jar as the browser. ivy's read_file still needs
+# jack's approval (the sections above); kim may sign in but approves
+# nothing. Then the doctor's identity provider and approval page checks,
+# against the provider and with each mistake they name.
+if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
+	pp_since=$(date +%s)
+	pp_url=https://gw.vmtest:9443
+	rm -f /root/vmtest-idp.pem
+	/usr/libexec/mcpgw-privtest -idp 127.0.0.6:443 /root/vmtest-idp.pem "approvals=$pp_url/approvals/callback" &
+	pp_idp=$!
+	eventually 10 test -s /root/vmtest-idp.pem
+	hl_cert
+	mcp-gateway-admin setup http -url "$pp_url/mcp" -issuer https://idp.vmtest -cert /etc/mcp-gateway/tls/cert.pem \
+		-key /etc/mcp-gateway/tls/key.pem -local-user-claim preferred_username -scopes mcp -client-id approvals -write \
+		>/root/pp-setup.txt 2>&1
+	sed 's/^/  /' /root/pp-setup.txt | head -40
+	check "setup http -client-id writes approvals.page.client_id" grep -qF 'client_id: approvals' "$hl_dropin"
+	check "... and checks the client at the identity provider" grep -qE '^OK +approval page: the identity provider takes the sign-in request' /root/pp-setup.txt
+	systemctl restart mcp-gateway.service
+	wait_socket
+	check "the gateway listens on 9443" eventually 30 hl_listening
+	pp_logged() { journalctl -u mcp-gateway.service -o cat --since "@$pp_since" | grep -F 'approval page' | grep -qF "redirect_uri=$pp_url/approvals/callback"; }
+	check "the gateway serves its approval page" eventually 10 pp_logged
+
+	# pp_get USER URL [CURL ARGS...]: GET as USER's browser (cookie jar
+	# /root/vmtest/pp-USER.jar), following redirects; sets pp_code, pp_body.
+	pp_get() {
+		local u=$1 url=$2
+		shift 2
+		pp_code=$(curl -s --noproxy '*' -L -b "/root/vmtest/pp-$u.jar" -c "/root/vmtest/pp-$u.jar" -o /root/vmtest/pp-body \
+			-w '%{http_code}' "$@" "$url")
+		pp_body=$(cat /root/vmtest/pp-body)
+		echo "  [$u GET ${url#"$pp_url"}] $pp_code $(sed 's/<[^>]*>/ /g' <<<"$pp_body" | tr -s ' \n' ' ' | cut -c1-200)"
+	}
+	# pp_post USER PATH FORM [CURL ARGS...]: POST FORM from the page
+	# (Origin: the page's, or $pp_origin).
+	pp_post() {
+		local u=$1 path=$2 form=$3
+		shift 3
+		pp_code=$(curl -s --noproxy '*' -b "/root/vmtest/pp-$u.jar" -c "/root/vmtest/pp-$u.jar" -o /root/vmtest/pp-body \
+			-w '%{http_code}' -H "Origin: ${pp_origin:-$pp_url}" "$@" --data "$form" "$pp_url$path")
+		pp_body=$(cat /root/vmtest/pp-body)
+		echo "  [$u POST $path] $pp_code $(sed 's/<[^>]*>/ /g' <<<"$pp_body" | tr -s ' \n' ' ' | cut -c1-200)"
+	}
+	pp_csrf() { sed -n 's/.*name="csrf" value="\([^"]*\)".*/\1/p' <<<"$pp_body" | head -1; }
+	pp_signin() {
+		rm -f "/root/vmtest/pp-$1.jar"
+		curl -s --noproxy '*' -c "/root/vmtest/pp-$1.jar" "https://idp.vmtest/login?user=$1" >/dev/null
+	}
+
+	# The tool error of a Kit call names the page now: url_template
+	# defaults to it.
+	nw_call
+	pp_kit=$(nw_id)
+	check "no_wait: the tool error names the gateway's page (url_template defaults to it)" \
+		grep -qF "or decides at $pp_url/approvals/$pp_kit" <<<"$out"
+	ac_admin jack approvals deny "$pp_kit"
+	nw_call
+	ac_call
+	check "ivy's read_file waits for an approval" eventually 30 ac_pending
+
+	pp_signin jack
+	pp_get jack "$pp_url/approvals/$ac_id"
+	check "page: jack signs in at the identity provider and sees ivy's call" \
+		bash -c '[ "$1" = 200 ] && grep -qF "fs/read_file" <<<"$2" && grep -qF "Signed in as <b>jack</b>" <<<"$2" && grep -qF "/home/ivy/notes.txt" <<<"$2"' _ "$pp_code" "$pp_body"
+	pp_jack_csrf=$(pp_csrf)
+	pp_signed() { since=$pp_since audit_since TRUSTED_APP | grep 'op=mcp-approver-sign-in' | grep -F 'principal=jack' | grep -q 'res=success'; }
+	check "... the sign-in is audited (mcp-approver-sign-in)" eventually 10 pp_signed
+	pp_hdr=$(curl -s --noproxy '*' -b /root/vmtest/pp-jack.jar -D - -o /dev/null "$pp_url/approvals/" | tr -d '\r')
+	check "page: refuses to be framed (X-Frame-Options, frame-ancestors)" \
+		bash -c 'grep -qi "^x-frame-options: DENY" <<<"$1" && grep -qi "^content-security-policy:.*frame-ancestors '"'"'none'"'"'" <<<"$1"' _ "$pp_hdr"
+	pp_post jack "/approvals/$ac_id" "decision=approve&scope=once"
+	check "page: a decision without the CSRF token is refused" test "$pp_code" = 403
+	pp_origin=https://evil.vmtest pp_post jack "/approvals/$ac_id" "decision=approve&scope=once&csrf=$pp_jack_csrf"
+	check "page: a decision from another origin is refused" test "$pp_code" = 403
+	check "... and ivy's call still waits" kill -0 "$ac_pid"
+	pp_post jack "/approvals/$ac_id" "decision=approve&scope=once&csrf=$pp_jack_csrf"
+	check "page: jack approves it" bash -c '[ "$1" = 303 ]' _ "$pp_code"
+	wait "$ac_pid"
+	check "... and ivy's call runs" grep -q '"isError":false' /root/vmtest/ac-call.out
+	pp_audit() { since=$pp_since audit_since TRUSTED_APP | grep 'op=mcp-approval' | grep -F "id=$1" | grep -F 'by=jack' | grep -q 'via=page'; }
+	check "... audited as decided by jack on the page (via=page)" eventually 10 pp_audit "$ac_id"
+
+	# kim: signed in, no approver.
+	ac_call
+	check "a second read_file waits" eventually 30 ac_pending
+	pp_signin kim
+	pp_get kim "$pp_url/approvals/"
+	check "page: kim signs in, and her inbox shows nothing to decide" \
+		bash -c '[ "$1" = 200 ] && grep -qF "No approvals wait for you" <<<"$2" && ! grep -qF "$3" <<<"$2"' _ "$pp_code" "$pp_body" "$ac_id"
+	pp_kim_csrf=$(pp_csrf)
+	pp_get kim "$pp_url/approvals/$ac_id"
+	check "page: ivy's call is unknown to kim" test "$pp_code" = 404
+	pp_post kim "/approvals/$ac_id" "decision=approve&scope=once&csrf=$pp_kim_csrf"
+	check "page: kim's approval is refused, as for an unknown id" test "$pp_code" = 404
+	check "... and ivy's call still waits" kill -0 "$ac_pid"
+
+	# An agent's token is no page session.
+	pp_tok=$(hl_tok "aud=$pp_url/mcp&sub=jack&preferred_username=jack&scope=mcp")
+	pp_loc=$(curl -s --noproxy '*' -o /dev/null -w '%{http_code} %{redirect_url}' -H "Authorization: Bearer $pp_tok" "$pp_url/approvals/$ac_id")
+	echo "  [bearer token] $pp_loc"
+	check "page: jack's agent token is not a sign-in (sent to the identity provider)" \
+		bash -c '[[ $1 == "302 https://idp.vmtest/authorize?"* ]]' _ "$pp_loc"
+	pp_code=$(curl -s --noproxy '*' -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $pp_tok" -H "Origin: $pp_url" \
+		--data "decision=approve&scope=once" "$pp_url/approvals/$ac_id")
+	check "... and cannot decide (403)" test "$pp_code" = 403
+
+	# 1h: a grant, listed on the page and revoked there; then a denial.
+	pp_post jack "/approvals/$ac_id" "decision=approve&scope=1h&csrf=$pp_jack_csrf"
+	wait "$ac_pid"
+	check "page: jack approves the second call for 1h; it runs" grep -q '"isError":false' /root/vmtest/ac-call.out
+	# jack manages every fs grant, earlier sections' too: ivy's is the one
+	# for read_file.
+	ac_admin jack grants --json
+	pp_grant=$(jq -r '.[] | select(.sub == "ivy" and .tool == "read_file") | .id' <<<"$out" 2>/dev/null | head -1)
+	pp_get jack "$pp_url/approvals/"
+	check "page: the inbox lists ivy's 1h grant, to revoke" bash -c '[ -n "$1" ] && grep -qF "/approvals/grants/$1/revoke" <<<"$2"' _ "$pp_grant" "$pp_body"
+	pp_post jack "/approvals/grants/${pp_grant:-x}/revoke" "csrf=$pp_jack_csrf"
+	check "page: jack revokes it" test "$pp_code" = 303
+	pp_revoked() { since=$pp_since audit_since TRUSTED_APP | grep 'op=mcp-grant-revoke' | grep -F "id=$1" | grep -q 'via=page'; }
+	check "... audited as revoked on the page" eventually 10 pp_revoked "${pp_grant:-x}"
+	ac_call
+	check "... and ivy's next call asks again" eventually 30 ac_pending
+	pp_post jack "/approvals/$ac_id" "decision=deny&csrf=$pp_jack_csrf"
+	wait "$ac_pid"
+	check "page: jack denies the next call; it is refused" bash -c '[ "$1" = 303 ] && ! grep -q "\"isError\":false" /root/vmtest/ac-call.out' _ "$pp_code"
+	pp_post jack /approvals/logout "csrf=$pp_jack_csrf"
+	pp_post jack "/approvals/$ac_id" "decision=deny&csrf=$pp_jack_csrf"
+	check "page: after signing out, the page decides nothing (403)" test "$pp_code" = 403
+	pp_no_denials() {
+		! since=$pp_since audit_since AVC | grep -E 'scontext=[^ ]*:mcpgw_t:' | grep -vE "$expected_denial" | grep -q .
+	}
+	check "no SELinux denials of the gateway for the page and its sign-ins" pp_no_denials
+
+	# The doctor: the provider and the page's client, then each mistake.
+	mcp-gateway-admin doctor --no-start >/root/vmtest/pp-doctor.txt 2>&1
+	grep -E 'identity provider|approval page' /root/vmtest/pp-doctor.txt | sed 's/^/  /'
+	check "doctor: identity provider OK" grep -qE '^OK +identity provider: https://idp.vmtest: 1 signing key' /root/vmtest/pp-doctor.txt
+	check "doctor: approval page OK" grep -qE '^OK +approval page: ' /root/vmtest/pp-doctor.txt
+	check "doctor --json: their ids are identity-provider and approval-page" sh -c \
+		'mcp-gateway-admin doctor --no-start --json 2>/dev/null | jq -e "[.[].id] | index(\"identity-provider\") != null and index(\"approval-page\") != null" >/dev/null'
+	# pp_doctor KEY VALUE CHECK PATTERN: with KEY set to VALUE (in the
+	# drop-in; it takes effect at the next start, so the running gateway
+	# is not affected), the doctor's CHECK line matches PATTERN.
+	pp_doctor() {
+		mcp-gateway-admin config set "$1" "$2" >/dev/null 2>&1
+		mcp-gateway-admin doctor --no-start >/root/vmtest/pp-doctor.txt 2>&1
+		grep -E "$3" /root/vmtest/pp-doctor.txt | sed 's/^/  /'
+		grep -qE "$4" /root/vmtest/pp-doctor.txt
+	}
+	check "doctor: an issuer that does not match fails, naming the provider's" \
+		pp_doctor http.issuer https://idp.vmtest/wrong 'identity provider' '^FAIL +identity provider: the identity provider calls itself "https://idp.vmtest"'
+	mcp-gateway-admin config set http.issuer https://idp.vmtest >/dev/null
+	check "doctor: a key set it cannot reach fails, naming it" \
+		pp_doctor http.jwks_url https://idp.vmtest/nokeys 'identity provider' '^FAIL +identity provider: key set https://idp.vmtest/nokeys: HTTP 404'
+	mcp-gateway-admin config unset http.jwks_url >/dev/null
+	check "doctor: a redirect URI the provider does not know fails, naming it" \
+		pp_doctor http.audience https://gw2.vmtest:9443/mcp 'approval page' '^FAIL +approval page: .*redirect_uri https://gw2.vmtest:9443/approvals/callback is not registered'
+	mcp-gateway-admin config set http.audience "$pp_url/mcp" >/dev/null
+	check "doctor: an unknown client fails" \
+		pp_doctor approvals.page.client_id other 'approval page' '^FAIL +approval page: .*unknown client other'
+	mcp-gateway-admin config set approvals.page.client_id approvals >/dev/null
+	check "doctor: all OK again" bash -c '! grep -qE "^FAIL +(identity provider|approval page)" <(mcp-gateway-admin doctor --no-start 2>&1)'
+
+	for k in approvals.page.client_id http.listen http.cert_file http.key_file http.issuer http.audience http.local_user_claim http.scopes http.groups_claim; do
+		mcp-gateway-admin config unset "$k" >/dev/null
+	done
+	rm -f /etc/pki/trust/anchors/mcp-vmtest-gw.pem /etc/pki/trust/anchors/mcp-vmtest-idp.pem
+	update-ca-certificates
+	systemctl restart mcp-gateway.service
+	wait_socket
+	kill "$pp_idp" 2>/dev/null
+	wait "$pp_idp" 2>/dev/null
+else
+	skip "the gateway's approval page (no HTTPS listener set up above: semanage or openssl not installed)"
+fi
+
 cat /root/ac-data-before.yaml >/etc/mcp-gateway/policy/rbac/data.yaml
 # Out of mcp-users again: without roles, the self-check would name them.
 for u in ivy jack kim; do gpasswd -d "$u" mcp-users >/dev/null; done

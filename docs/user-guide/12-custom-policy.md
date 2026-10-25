@@ -246,7 +246,11 @@ listing and calling consistent.
  "request":  {"principal": { … }, "server": "fs", "name": "write_file", "action": "tools.call"}}
 ```
 
-`approver` is identified by the kernel on the control socket. For
+`approver` is identified by the kernel on the control socket, or
+signed in on the gateway's approval page: then it has `"remote": true`
+and `issuer`, and `uid` only if the sign-in maps to a local account
+(`http.local_user_claim`); root's unconditional rights never apply to
+it. For
 `manage_grant` the input has `grant` (a grant object as above) instead
 of `request`; for `manage_instance` it has `instance`
 (`{"server", "uid"}`); for `manage_task` it has `task`

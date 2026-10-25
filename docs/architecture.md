@@ -4034,8 +4034,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       OPA watches as given, to make it look again (found by the VM test).
 
 39. **Approvals without Cockpit** (1.9.0, a release not marked as the
-    latest; 2.0 once tested and fixed, as a major feature; D21; stages A
-    and B done):
+    latest; 2.0 once tested and fixed, as a major feature; D21; stages A,
+    B and C done):
     - the problem: every out-of-band approval ends on the Cockpit page.
       Notifications and mail only link there, the control API is the
       local socket, and an agent like Kit shows nothing while a call
@@ -4072,7 +4072,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       scopes and the same audit records (`via: cli`); `watch` follows
       `/v1/events` as a terminal inbox. Over SSH this covers a gateway
       per host without anything else running;
-    - stage C, the gateway's own approval page: on its HTTPS
+    - stage C (done), the gateway's own approval page: on its HTTPS
       listener, `https://host:port/approvals/{id}` and an inbox, signed
       in with the identity provider the gateway already validates
       tokens from (OIDC authorization code with PKCE, the approver's
@@ -4085,9 +4085,14 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       (server, tool, arguments unless policy hides them, the agent's
       self-reported client), protects decisions against CSRF, frames
       nothing, and gives no access beyond deciding and revoking one's
-      own grants. With it, the doctor gets an `identity provider` check
-      (also the gateway-admin server's `doctor` tool, which stays
-      read-only): the discovery document and the key set reachable, its
+      own grants. As built: `approvals.page` (client id, secret file,
+      scopes, session lifetime), `/approvals/` and `/approvals/{id}` on
+      the listener; the approver is the principal the ID token maps to
+      (`local_user_claim`), never root, with `remote` and `issuer` in the
+      approver rules' input; sign-ins audited as `mcp-approver-sign-in`,
+      decisions with `via=page`. With it, the doctor gets an `identity provider` check
+      (the gateway-admin server's `doctor` tool skips it with the reason:
+      that server has no network, `network: false`): the discovery document and the key set reachable, its
       issuer the one `http.issuer` names, the keys usable, the clock
       skew against the provider, and the gateway's own client (stages C
       and D: authorization code with PKCE, device flow, a redirect URI

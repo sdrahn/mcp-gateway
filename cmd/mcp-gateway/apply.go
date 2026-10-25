@@ -28,7 +28,7 @@ func applyConfig(log *slog.Logger, next, running *config.Gateway, certs *certSto
 		return err
 	}
 	certs.cert.Store(cert)
-	b.SetApprovals(next.ApprovalTimeout, next.Approvals.URLTemplate)
+	b.SetApprovals(next.ApprovalTimeout, approvalURLTemplate(running, next))
 	opa.SetTimeout(next.Policy.Timeout)
 	r.SetSettings(router.Settings{
 		IdleTimeout:              next.Supervisor.IdleTimeout,
@@ -49,10 +49,19 @@ func applyConfig(log *slog.Logger, next, running *config.Gateway, certs *certSto
 		NoRequestTimeout:         next.Agents.NoRequestTimeout,
 		NoWait:                   next.Approvals.NoWait,
 	})
-	if running.Approvals.ControlSocket == "-" && next.Approvals.URLTemplate != "" {
+	if running.Approvals.ControlSocket == "-" && approvalURLTemplate(running, next) != "" {
 		log.Warn("approvals.url_template is set but the control socket is disabled; url approvals cannot be decided")
 	}
 	return nil
+}
+
+// approvalURLTemplate is the approval page URL after a reload: next's
+// url_template, else the page the gateway serves, which is set up at the
+// start (approvals.page and http take effect at the next start).
+func approvalURLTemplate(running, next *config.Gateway) string {
+	g := *next
+	g.HTTP, g.Approvals.Page = running.HTTP, running.Approvals.Page
+	return g.ApprovalURLTemplate()
 }
 
 // reloadFiles lists the files besides servers.d whose change triggers a
