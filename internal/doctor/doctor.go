@@ -72,6 +72,7 @@ var checkIDs = map[string]string{
 	"firewall":            "firewall",
 	"approval reach":      "approval-reach",
 	"approval page":       "approval-page",
+	"webhooks":            "webhooks",
 	// mcp-gateway-admin setup http
 	"http block":        "http-block",
 	"identity provider": "identity-provider",
@@ -92,6 +93,7 @@ var checkPrefixes = []struct{ prefix, id string }{
 	{"server ", "server"},
 	{"snapper ", "snapper"},
 	{"tool notes ", "tool-notes"},
+	{"webhook ", "webhook"},
 }
 
 // Identify sets each result's ID and Subject from its Check label (see
@@ -850,6 +852,9 @@ func ApprovalReach(gw *config.Gateway, notifyInstalled bool) Result {
 	if notifyInstalled {
 		ways = append(ways, "desktop notifications")
 	}
+	if n := len(gw.Approvals.Webhooks); n > 0 {
+		ways = append(ways, fmt.Sprintf("webhooks (%d)", n))
+	}
 	if len(ways) > 0 {
 		r.Status, r.Summary = OK, "out-of-band approvals reach approvers through "+strings.Join(ways, ", ")
 		return r
@@ -859,11 +864,11 @@ func ApprovalReach(gw *config.Gateway, notifyInstalled bool) Result {
 		noWait = strings.Join(gw.Approvals.NoWait, ", ")
 	}
 	r.Status = Warn
-	r.Summary = "out-of-band approvals reach no approver by themselves: no mail (notifications.email), no approval page (approvals.url_template), no desktop notifications (mcp-gateway-desktop)"
+	r.Summary = "out-of-band approvals reach no approver by themselves: no mail (notifications.email), no approval page (approvals.url_template), no webhooks (approvals.webhooks), no desktop notifications (mcp-gateway-desktop)"
 	r.Details = []string{
 		"approvers see them only in Cockpit's Approvals tab or with mcp-gateway-admin approvals (watch);",
 		fmt.Sprintf("agents named in approvals.no_wait (%s) are told to ask for one, others wait up to approval_timeout (%s);", noWait, gw.ApprovalTimeout),
-		"set up mail or the approval page, or install mcp-gateway-desktop (user guide, chapter 7)"}
+		"set up mail, the approval page or a webhook, or install mcp-gateway-desktop (user guide, chapter 7)"}
 	return r
 }
 

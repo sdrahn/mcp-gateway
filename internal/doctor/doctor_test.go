@@ -593,6 +593,11 @@ func TestApprovalReach(t *testing.T) {
 	if r := ApprovalReach(gw, true); r.Status != OK || !strings.Contains(r.Summary, "desktop notifications") {
 		t.Errorf("notify agent: %+v", r)
 	}
+	gw.Approvals.Webhooks = []config.Webhook{{Name: "chat"}}
+	if r := ApprovalReach(gw, false); r.Status != OK || r.Summary != "out-of-band approvals reach approvers through webhooks (1)" {
+		t.Errorf("webhook: %+v", r)
+	}
+	gw.Approvals.Webhooks = nil
 	gw.Notifications.Email.SMTP = "localhost:25"
 	gw.Approvals.URLTemplate = "https://gw/a/{id}"
 	if r := ApprovalReach(gw, false); r.Status != OK || r.Summary != "out-of-band approvals reach approvers through mail, a link to the approval page" {

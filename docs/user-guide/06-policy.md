@@ -470,14 +470,16 @@ first key that exists applies (`<server>`, else `default`, else
 | `role:<role>` | users holding the role through the bindings |
 | `group:<group>` | members of a group (local, or of a directory through SSSD) |
 | `user:<user>` | a local user |
-| `remote-user:<sub>` | an approver signed in on the gateway's approval page (chapter 7) without a local account, with that token subject |
-| `remote-group:<group>` | one such approver whose token's groups (`http.groups_claim`) have the group |
+| `remote-user:<sub>` | an approver signed in on the gateway's approval page (chapter 7) without a local account, with that token subject; or one a webhook's callback names so (chapter 7, "Webhooks") |
+| `remote-group:<group>` | one such approver whose token's groups (`http.groups_claim`), or the callback's `groups`, have the group |
 
 `self`, `role:`, `group:` and `user:` match local accounts only, and a
 sign-in on the approval page that maps to one (`http.local_user_claim`);
 `remote-user:` and `remote-group:` only sign-ins without a local
 account. A remote subject or token group named like a local user or
-group never gets its rights.
+group never gets its rights. A webhook's callback names a local account
+(`user:<name>`) only where the webhook has `local_accounts: true`; that
+approver then matches as the account does, but never as root.
 
 The same rules decide who may **see and revoke grants**, who may
 **see and stop instances** of a server, who may **see and cancel

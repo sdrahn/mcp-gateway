@@ -30,7 +30,7 @@ the agent let progress extend the timeout. An agent that sends no
 |---|---|---|---|
 | `form` | a dialog of the **agent's own client** (MCP form elicitation) | low: the agent's client answers, it may be configured to accept automatically | the client supports elicitation |
 | `url` (default) | the **approval page** (Cockpit, or the gateway's own page), which the client offers to open (MCP URL elicitation) | high: the approver authenticates to Cockpit, or signs in with the identity provider; the agent cannot see or influence the page | `approvals.url_template` set, or the gateway's page set up; the client supports URL elicitation, the control socket enabled |
-| `oob` | the approval page, the **desktop notification** or the **mail** leads there, or the **command line** (`mcp-gateway-admin approvals`, below); the agent only gets a log message ("Waiting for approval of fs/write_file at … (id a-…)"), or, for the agents `approvals.no_wait` names (Kit), a tool error at once that says how to get it decided (below) | high | the control socket enabled |
+| `oob` | the approval page, the **desktop notification** or the **mail** leads there, or the **command line** (`mcp-gateway-admin approvals`, below), or a **webhook**'s receiver (a chat, a ticket system; below); the agent only gets a log message ("Waiting for approval of fs/write_file at … (id a-…)"), or, for the agents `approvals.no_wait` names (Kit), a tool error at once that says how to get it decided (below) | high | the control socket enabled |
 
 The policy names a channel per permission (`approval_channel`); the
 shipped policy uses `oob` as fallback. So if the agent cannot do URL
@@ -336,6 +336,107 @@ public client with the **device authorization grant** (Keycloak: *OAuth
 - The device flow asks the user to confirm a code shown by a program:
   confirm only codes from your own `approvals login`.
 
+## Webhooks
+
+A webhook brings approvals to where a team already decides on changes:
+a chat bot (Slack, Teams, Matrix), a ticket system (ServiceNow, Jira),
+or one inbox for many gateways, each posting there. The gateway posts
+each new pending approval to the webhook's URL; the receiver (or an
+adapter in front of it) shows it, and sends the decision back to the
+gateway on a callback, naming who decided.
+
+```yaml
+# /etc/mcp-gateway/gateway.d/60-webhooks.yaml
+approvals:
+  webhooks:
+    - name: chat
+      url: https://chatops.example.com/mcp-gateway
+      secret_file: /etc/mcp-gateway/webhook-chat.secret
+```
+
+```console
+# openssl rand -hex 32 >/etc/mcp-gateway/webhook-chat.secret
+# chgrp mcp-gateway /etc/mcp-gateway/webhook-chat.secret
+# chmod 0640 /etc/mcp-gateway/webhook-chat.secret
+# systemctl restart mcp-gateway.service
+# mcp-gateway-admin doctor        # "webhook chat": the receiver takes a signed ping
+```
+
+**Signatures.** Every post, and every callback, carries
+`X-MCP-Gateway-Signature: t=<unix time>,v1=<hex>`, where `<hex>` is the
+HMAC-SHA256 of `<unix time>.<body>` with the webhook's secret (at least
+32 characters, shared with the receiver). The receiver checks it before
+trusting a post; the gateway takes a callback only with a valid
+signature at most five minutes old, and only once (the same callback
+again is refused with 409).
+
+**Posts.** `X-MCP-Gateway-Event` says what a post is: `pending` (a new
+approval), `resolved` (one the webhook got was decided, expired or
+withdrawn), `ping` (the doctor's check). A `pending` post:
+
+```json
+{"type": "pending", "gateway": "gw1.example.com", "id": "a-7f3e9c…", "new": true,
+ "call": {"server": "fs", "tool": "write_file", "action": "tools/call", "principal": "ivy",
+          "client": "claude-code 2.1", "scopes": ["once", "1h"],
+          "created": "…", "expires": "…", "waiting": true},
+ "url": "https://gw1.example.com:9443/approvals/a-7f3e9c…",
+ "callback": "https://gw1.example.com:9443/approvals/webhook/chat",
+ "time": "…"}
+```
+
+The call's arguments are left out: they leave the host. `include_args:
+true` sends them (`call.args`). `servers: [fs, zypp]` limits a webhook to
+those servers' approvals. `url` is the approval page, where it is set up
+(above): a receiver can just link there instead of deciding
+itself.
+
+**Callbacks.** To decide, the receiver posts to `callback`, signed the
+same way:
+
+```json
+{"id": "a-7f3e9c…", "decision": "approve", "scope": "once", "approver": "remote-user:jack@example.com", "groups": ["ops"]}
+```
+
+- `decision` is `approve` or `deny`; `scope` one the approval offers.
+- `approver` names who decided, as the approver rules (chapter 6) see
+  them: `remote-user:<name>`, with `groups` for `remote-group:` rules.
+  With `local_accounts: true` on the webhook it may also name a local
+  account, `user:<name>`, which the rules then treat as that account
+  (`user:`, `group:`, `role:` and `self` match it; never root).
+- The gateway decides only if the rules allow that approver, as for any
+  decision. The receiver vouches for the name, as the identity provider
+  does for a sign-in: let only a receiver that authenticated the person
+  call back, and keep the secret to it.
+- Answers: 200 with the grant (approved), 204 (denied), 401 (unsigned,
+  wrongly signed, or older than five minutes), 409 (a replay), 404 (no
+  such approval, or not one that approver may decide), 400 (a scope not
+  offered, or a body the gateway does not take).
+- Callbacks come to the HTTPS listener (`http.listen`); without it a
+  webhook only posts, and the doctor warns that decisions cannot come
+  back.
+- Each signed callback is audited (`mcp-webhook-callback`, with the
+  webhook and the approver; refused ones too, such as a replay or an
+  approver the rules do not allow), decisions with `via=webhook`.
+  Callbacks without a valid signature are only answered (401), not
+  audited: anyone who reaches the listener could send them.
+
+A receiver checks a post in a few lines, e.g. in Python:
+
+```python
+import hashlib, hmac, time
+
+def verified(secret: bytes, body: bytes, header: str) -> bool:
+    parts = dict(p.split("=", 1) for p in header.split(","))
+    if abs(time.time() - int(parts["t"])) > 300:
+        return False
+    mac = hmac.new(secret, parts["t"].encode() + b"." + body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(mac, parts["v1"])
+```
+
+Under SELinux the gateway reaches HTTP ports (80, 443, 8080, 8443 and
+the like) only; a receiver elsewhere needs its port labeled `http_port_t`.
+Receivers are reached directly, not through a proxy.
+
 ## Notifications
 
 Approvers learn about pending approvals from:
@@ -347,7 +448,9 @@ Approvers learn about pending approvals from:
 - the **agent's user**, for the agents `approvals.no_wait` names ("Agents
   told at once", above): the tool error says what to ask an approver for;
 - **desktop notifications** (`mcp-gateway-desktop`);
-- **e-mail** (configured in the gateway).
+- **e-mail** (configured in the gateway);
+- **webhooks** (above): a chat, a ticket system or one inbox for many
+  gateways, which may also decide on a signed callback.
 
 Neither notifications nor mail can approve: they link to the approval
 page, where the approver authenticates. Anyone in a desktop session could

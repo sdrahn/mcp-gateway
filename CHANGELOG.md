@@ -9,6 +9,22 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- Approval webhooks (`approvals.webhooks`): each new pending approval
+  is posted to a receiver (a chat bot, a ticket system, one inbox for
+  many gateways), signed with the webhook's secret
+  (`X-MCP-Gateway-Signature: t=…,v1=…`, HMAC-SHA256 over the timestamp
+  and the body) and without the call's arguments unless `include_args`;
+  `servers` limits a webhook to some servers' approvals. Decided or gone,
+  it is posted again (`resolved`). The receiver decides on a signed
+  callback to `/approvals/webhook/<name>` on the HTTPS listener, naming
+  the approver (`remote-user:<name>`, or with `local_accounts` a local
+  `user:<name>`, never root); the gateway takes it only with a valid
+  signature at most five minutes old, only once, and only for an
+  approver the rules allow. Callbacks are audited
+  (`mcp-webhook-callback`, refused signed ones too), decisions with
+  `via=webhook`. The doctor's new check `webhook <name>` posts a signed
+  ping; `approval reach` counts webhooks (user guide, chapter 7,
+  "Webhooks"; roadmap step 39 stage E).
 - Deciding from another host: `mcp-gateway-admin approvals` and `grants`
   take `--gateway https://host:port` and work on that gateway, as signed
   in there with `approvals login --gateway` (the OAuth device flow at the

@@ -3177,6 +3177,103 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 		pp_doctor approvals.page.device_client_id approvals 'approval page' '^FAIL +approval page: the identity provider refuses the device authorization for approvals'
 	mcp-gateway-admin config unset approvals.page.device_client_id >/dev/null
 
+	section "Approval webhooks"
+	# Roadmap step 39 stage E (D21): the gateway posts each new pending
+	# approval to a webhook (privsrv -webhook, https://hooks.vmtest, a
+	# receiver that checks the signature on its own and keeps what it
+	# got), signed and without the call's arguments; the receiver calls
+	# back to decide, naming the approver. ivy's read_file still needs
+	# jack's approval: a callback naming jack (local_accounts) approves;
+	# unsigned, stale, wrongly signed and replayed callbacks are refused,
+	# and so are kim and a remote jack, whom the rules do not allow.
+	wh_since=$(date +%s)
+	grep -q 'hooks\.vmtest' /etc/hosts || echo '127.0.0.7 hooks.vmtest' >>/etc/hosts
+	openssl rand -hex 32 >/root/vmtest/wh-secret
+	install -m 0640 -g mcp-gateway /root/vmtest/wh-secret /etc/mcp-gateway/webhook-chat.secret
+	rm -f /root/vmtest-hooks.pem
+	/usr/libexec/mcpgw-privtest -webhook 127.0.0.7:443 /root/vmtest-hooks.pem /root/vmtest/wh-secret 2>/root/vmtest/wh-receiver.log &
+	wh_pid=$!
+	eventually 10 test -s /root/vmtest-hooks.pem
+	install -m 0644 /root/vmtest-hooks.pem /etc/pki/trust/anchors/mcp-vmtest-hooks.pem
+	update-ca-certificates
+	wh_dropin=/etc/mcp-gateway/gateway.d/60-vmtest-webhook.yaml
+	printf '%s\n' 'approvals:' '  webhooks:' '    - name: chat' '      url: https://hooks.vmtest/hook' \
+		'      secret_file: /etc/mcp-gateway/webhook-chat.secret' '      local_accounts: true' >"$wh_dropin"
+	restorecon "$wh_dropin" /etc/mcp-gateway/webhook-chat.secret
+	check "the configuration with the webhook is valid" /usr/bin/mcp-gateway --check --policy-data=
+	systemctl restart mcp-gateway.service
+	wait_socket
+	check "the gateway listens on 9443 again" eventually 30 hl_listening
+	wh_logged() { journalctl -u mcp-gateway.service -o cat --since "@$wh_since" | grep -F 'approval webhook' | grep -qF "callback=$pp_url/approvals/webhook/chat"; }
+	check "the gateway posts to the webhook and takes its callbacks on the listener" eventually 10 wh_logged
+	wh_doctor=$(mcp-gateway-admin doctor --no-start 2>&1)
+	grep -E 'webhook|approval reach' <<<"$wh_doctor" | sed 's/^/  /'
+	check "doctor: the receiver takes the webhook's signed posts" \
+		bash -c 'grep -qE "^OK +webhook chat: the receiver takes signed posts; decisions come back to $2/approvals/webhook/chat" <<<"$1"' _ "$wh_doctor" "$pp_url"
+	check "doctor: approvals reach approvers through the webhook" bash -c 'grep -qE "^OK +approval reach: .*webhooks \(1\)" <<<"$1"' _ "$wh_doctor"
+
+	# wh_posts: what the receiver got. wh_got EVENT ID: a verified post.
+	wh_posts() { curl -s --noproxy '*' https://hooks.vmtest/posts; }
+	wh_got() { wh_posts | jq -e --arg e "$1" --arg id "$2" 'any(.[]; .event == $e and .verified and .body.id == $id)' >/dev/null; }
+	# wh_decide MODE APPROVER [DECISION]: the receiver calls back for
+	# $ac_id; sets wh_status, the gateway's answer.
+	wh_decide() {
+		local o
+		o=$(curl -s --noproxy '*' --data-urlencode "id=$ac_id" --data-urlencode "mode=$1" --data-urlencode "approver=$2" \
+			--data-urlencode "decision=${3:-approve}" --data-urlencode scope=once https://hooks.vmtest/decide)
+		wh_status=$(jq -r .status <<<"$o" 2>/dev/null)
+		echo "  [callback $1, $2] $o"
+	}
+	ac_call
+	check "ivy's read_file waits for an approval" eventually 30 ac_pending
+	check "webhook: the pending approval is posted, with a valid signature" eventually 15 wh_got pending "$ac_id"
+	wh_post=$(wh_posts | jq -c --arg id "$ac_id" '[.[] | select(.event == "pending" and .body.id == $id)][0].body')
+	echo "  $wh_post"
+	check "... without the call's arguments" bash -c '! grep -qF "/home/ivy/notes.txt" <<<"$1" && ! jq -e ".call.args" >/dev/null <<<"$1"' _ "$wh_post"
+	check "... naming the tool, the principal and where to call back" \
+		bash -c 'jq -e --arg cb "$2" ".call.tool == \"read_file\" and .call.principal == \"ivy\" and .callback == \$cb" >/dev/null <<<"$1"' \
+		_ "$wh_post" "$pp_url/approvals/webhook/chat"
+	wh_decide unsigned user:jack
+	check "callback: an unsigned one is refused (401)" test "$wh_status" = 401
+	wh_decide stale user:jack
+	check "callback: one signed ten minutes ago is refused (401)" test "$wh_status" = 401
+	wh_decide wrong-secret user:jack
+	check "callback: one signed with another secret is refused (401)" test "$wh_status" = 401
+	wh_decide signed user:kim
+	check "callback: one naming kim, whom the rules do not allow, is refused (404)" test "$wh_status" = 404
+	wh_decide signed remote-user:jack
+	check "callback: one naming a remote jack without the local account is refused (404)" test "$wh_status" = 404
+	check "... and ivy's call still waits" kill -0 "$ac_pid"
+	wh_decide signed user:jack
+	check "callback: one naming jack, signed, approves" test "$wh_status" = 200
+	wait "$ac_pid"
+	check "... and ivy's call runs" grep -q '"isError":false' /root/vmtest/ac-call.out
+	wh_decide replay user:jack
+	check "callback: the same one again is refused as a replay (409)" test "$wh_status" = 409
+	wh_audit() { since=$wh_since audit_since TRUSTED_APP | grep 'op=mcp-approval' | grep -F "id=$ac_id" | grep -F 'by=jack' | grep -q 'via=webhook'; }
+	check "... audited as decided by jack through a webhook (via=webhook)" eventually 10 wh_audit
+	wh_cb() { since=$wh_since audit_since TRUSTED_APP | grep 'op=mcp-webhook-callback' | grep -F 'webhook=chat' | grep -F "approver=$1" | grep -q "res=$2"; }
+	check "... the callback audited with the webhook and the approver (mcp-webhook-callback)" eventually 10 wh_cb user:jack success
+	check "... and the refused one naming kim" eventually 10 wh_cb user:kim failed
+	check "webhook: the decision is posted too" eventually 15 wh_got resolved "$ac_id"
+
+	# The doctor: a receiver that does not take the signature.
+	cp /etc/mcp-gateway/webhook-chat.secret /root/vmtest/wh-secret-saved
+	openssl rand -hex 32 >/etc/mcp-gateway/webhook-chat.secret
+	wh_doctor=$(mcp-gateway-admin doctor --no-start 2>&1)
+	grep -E '^[A-Z]+ +webhook' <<<"$wh_doctor" | sed 's/^/  /'
+	check "doctor: a secret the receiver does not share fails, with its answer" \
+		bash -c 'grep -qE "^FAIL +webhook chat: the receiver does not take a signed post: .*401 Unauthorized" <<<"$1"' _ "$wh_doctor"
+	cat /root/vmtest/wh-secret-saved >/etc/mcp-gateway/webhook-chat.secret
+	wh_no_denials() {
+		! since=$wh_since audit_since AVC | grep -E 'scontext=[^ ]*:mcpgw_t:' | grep -vE "$expected_denial" | grep -q .
+	}
+	check "no SELinux denials of the gateway for the webhook's posts and callbacks" wh_no_denials
+	sed 's/^/  receiver: /' /root/vmtest/wh-receiver.log | cut -c1-240 | tail -12
+	rm -f "$wh_dropin" /etc/mcp-gateway/webhook-chat.secret /etc/pki/trust/anchors/mcp-vmtest-hooks.pem
+	kill "$wh_pid" 2>/dev/null
+	wait "$wh_pid" 2>/dev/null
+
 	for k in approvals.page.device_client_id approvals.page.client_id http.listen http.cert_file http.key_file http.issuer http.audience http.local_user_claim http.scopes http.groups_claim; do
 		mcp-gateway-admin config unset "$k" >/dev/null
 	done
@@ -3187,7 +3284,7 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	kill "$pp_idp" 2>/dev/null
 	wait "$pp_idp" 2>/dev/null
 else
-	skip "the gateway's approval page (no HTTPS listener set up above: semanage or openssl not installed)"
+	skip "the gateway's approval page, approvals from another host and approval webhooks (no HTTPS listener set up above: semanage or openssl not installed)"
 fi
 
 cat /root/ac-data-before.yaml >/etc/mcp-gateway/policy/rbac/data.yaml

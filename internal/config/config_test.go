@@ -719,3 +719,40 @@ func TestApprovalPage(t *testing.T) {
 		}
 	}
 }
+
+func TestWebhooks(t *testing.T) {
+	g, err := LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", `approvals:
+  webhooks:
+    - name: chat
+      url: https://hooks.example.com/mcp
+      secret_file: /etc/mcp-gateway/webhook-chat.secret
+      servers: [fs]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := g.Approvals.Webhooks; len(w) != 1 || w[0].Name != "chat" || w[0].IncludeArgs || len(w[0].Servers) != 1 {
+		t.Errorf("webhooks %+v", w)
+	}
+	hook := func(name, url, secret string) string {
+		return "    - name: " + name + "\n      url: " + url + "\n      secret_file: " + secret + "\n"
+	}
+	for content, want := range map[string]string{
+		hook("Chat", "https://h/x", "/s"):                                     "must be lower-case",
+		hook("chat", "https://h/x", "/s") + hook("chat", "https://h/y", "/t"): "is used twice",
+		hook("chat", "http://hooks.example.com/x", "/s"):                      "url:",
+		hook("chat", "https://h/x", "s"):                                      "secret_file: must be an absolute path",
+		hook("chat", "https://h/x", "/s") + "      servers: [\"\"]\n":         "empty server name",
+	} {
+		content = "approvals:\n  webhooks:\n" + content
+		if _, err := LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", content)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v, want %q", content, err, want)
+		}
+	}
+	// A restart applies them.
+	next := *g
+	next.Approvals.Webhooks = nil
+	if got := RestartNeeded(g, &next); len(got) != 1 || got[0] != "approvals.webhooks" {
+		t.Errorf("restart needed %v", got)
+	}
+}
