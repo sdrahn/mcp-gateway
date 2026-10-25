@@ -36,13 +36,13 @@ Any argument is an error (status 2).
 ### mcp-gateway-admin
 
 ```
-mcp-gateway-admin doctor|clients|tasks|config|setup|inspect|profile|review|serve [options]
+mcp-gateway-admin doctor|clients|tasks|approvals|grants|config|setup|inspect|profile|review|serve [options]
 mcp-gateway-admin help [COMMAND]
 mcp-gateway-admin --version
 ```
 
 The commands for administrators: `doctor`, `clients`, `tasks`,
-`config`, `setup` and `serve` come with the package `mcp-gateway`; `inspect`, `profile`
+`approvals`, `grants`, `config`, `setup` and `serve` come with the package `mcp-gateway`; `inspect`, `profile`
 and `review`, which help to add MCP servers, with `mcp-gateway-tools`
 (`zypper install mcp-gateway-tools`, which brings the SELinux policy
 development files `profile` needs). `mcp-gateway-admin COMMAND -h` or
@@ -224,6 +224,48 @@ Exit status 0; 1 when the task is not yours to cancel or there is none
 with that id ("no such task"), the prefix names several, or it has
 ended ("the task has ended"); 2 on usage errors; 3 when the gateway does
 not answer.
+
+### mcp-gateway-admin approvals
+
+```
+mcp-gateway-admin approvals [options]
+mcp-gateway-admin approvals show ID [options]
+mcp-gateway-admin approvals approve ID [options]
+mcp-gateway-admin approvals deny ID [options]
+mcp-gateway-admin approvals watch [options]
+```
+
+Lists the pending approvals you may decide on (`GET /v1/approvals`),
+shows one with its arguments, approves one after a question or denies one
+(`POST /v1/approvals/{id}`, `"via": "cli"`), or follows them as they come
+and go (`GET /v1/events`, until interrupted); chapter 7, "Deciding from
+the command line". ID as for `clients`. The approver rules decide as for
+Cockpit: an approval that is not yours reads as unknown.
+
+| Flag | Meaning |
+|---|---|
+| `--scope S` | `approve`: the scope, one the approval offers (`once`, `session`, a duration such as `1h`); default `once` if offered, else the only one offered |
+| `--yes` | `approve`: approve without asking |
+| `--json` | print the list, the approval (`show`) or the events (`watch`) as the control API's JSON |
+| `--socket PATH` | as for `clients` |
+
+Exit status 0; 1 when the approval is not yours to decide or there is
+none with that id ("no such approval"), the prefix names several, the
+scope is not offered, or the question was answered no; 2 on usage
+errors; 3 when the gateway does not answer (for `watch`: stops
+answering).
+
+### mcp-gateway-admin grants
+
+```
+mcp-gateway-admin grants [options]
+mcp-gateway-admin grants revoke ID [options]
+```
+
+Lists the grants you may see and revoke (`GET /v1/grants`), or revokes
+one after a question (`DELETE /v1/grants/{id}?via=cli`); chapter 7,
+"Scopes and grants". Flags `--yes`, `--json` and `--socket` as for
+`clients`. Exit status as for `clients` ("no such grant").
 
 ### mcp-gateway-admin config
 
@@ -455,9 +497,9 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `GET /v1/status` | `{"version", "restart_pending", "servers_error", "config_error", "restart_needed", "config_reloads"}`: the running gateway's version; `true` when its program was updated and the gateway not yet restarted; why the last reload of the server definitions, or of `gateway.yaml`, failed (absent when it did not); the keys of `gateway.yaml` changed since the start that take effect at the next start (absent when none); how often `gateway.yaml` and its drop-ins were reloaded since the start, failed reloads too (from 1.3) |
 | `GET /v1/approvals` | pending approvals the caller may decide on (list of approvals, below) |
 | `GET /v1/approvals/{id}` | one approval; `404` if unknown or not the caller's to decide |
-| `POST /v1/approvals/{id}` | `{"decision": "approve"\|"deny", "scope": "once"\|"session"\|<duration>}`; returns the grant (`200`) or nothing (`204`, denied); `400 scope not offered` |
+| `POST /v1/approvals/{id}` | `{"decision": "approve"\|"deny", "scope": "once"\|"session"\|<duration>, "via": "cockpit"\|"cli"}`; returns the grant (`200`) or nothing (`204`, denied); `400 scope not offered`. `via` (optional) names the way the decision came, for the audit; anything else is recorded as `api` |
 | `GET /v1/grants` | grants the caller may manage (list of grants, below) |
-| `DELETE /v1/grants/{id}` | revoke; `204` |
+| `DELETE /v1/grants/{id}` | revoke; `204`. `?via=cockpit\|cli` as for decisions |
 | `GET /v1/servers` | registered servers `{"name", "selinux_type", "isolation", "network", "run_as", "privileged", "capabilities", "sign_in", "landlock", "instances"}` with the instances the caller may manage `{"id", "server", "unit", "sub", "iss", "uid", "transport", "session_id", "isolation", "started", "sessions", "privileged", "busy", "definition"}`; an instance's `privileged` is also set for a server with `capabilities` (such an instance is not stopped during a call); `definition` is `current`, `previous` (started from a definition changed since) or `removed`; a server removed from the configuration whose instances still run is listed with `"removed": true` |
 | `DELETE /v1/instances/{id}` | stop an instance; `204`; `409` for a privileged instance with a call running |
 | `GET /v1/tasks` | the agents' tasks the caller may manage (`data.mcp.approvals.manage_task`), newest first: `{"id", "server", "tool", "sub", "iss", "uid", "transport", "status", "status_message", "created", "updated", "ended", "delivered"}`; `status` is `working`, `input_required`, `completed`, `failed` or `cancelled`; `delivered` tells that the agent fetched the result |
@@ -524,8 +566,8 @@ Kernel audit (`TRUSTED_APP`) operations:
 |---|---|---|
 | `mcp-gateway-start` | the gateway started | |
 | `mcp-decision` | a request was denied (`res=failed`), or any decision on a privileged server | `session`, `principal`, `action`, `server`, `target`, `reason`, `decision_id`; for privileged servers also `privileged=yes` and `grant` |
-| `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel` |
-| `mcp-grant-revoke` | a grant was revoked | `id`, `by`, `principal`, `server`, `target` |
+| `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel`; `via` (`cockpit`, `cli`, `api`) when decided through the control API and the caller named it |
+| `mcp-grant-revoke` | a grant was revoked | `id`, `by`, `principal`, `server`, `target`; `via` as for `mcp-approval` |
 | `mcp-policy-change` | OPA loaded a different policy | `revision` |
 | `mcp-config-reload` | the server definitions, or `gateway.yaml` (`file=gateway.yaml`), were reloaded with changes (`res=success`), or could not be (`res=failed`; what was in force stays) | `trigger` (`file change`, `SIGHUP`), `file`, `added`, `changed`, `removed`, `restart_needed`, `error` |
 | `mcp-mcs-collision` | an instance's MCS pair was taken by another workload | `instance`, `pair`, `foreign_pid`, `foreign_context` |

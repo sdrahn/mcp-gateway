@@ -13,7 +13,7 @@ async function decide(id, decision, scope, buttons) {
     buttons.forEach(b => { b.disabled = true });
     try {
         await api.post("/v1/approvals/" + encodeURIComponent(id),
-                       JSON.stringify({ decision, scope }),
+                       JSON.stringify({ decision, scope, via: "cockpit" }),
                        { "Content-Type": "application/json" });
         showError(null);
     } catch (ex) {
@@ -27,7 +27,7 @@ async function decide(id, decision, scope, buttons) {
 async function revoke(id, button) {
     button.disabled = true;
     try {
-        await api.request({ method: "DELETE", path: "/v1/grants/" + encodeURIComponent(id), body: "" });
+        await api.request({ method: "DELETE", path: "/v1/grants/" + encodeURIComponent(id) + "?via=cockpit", body: "" });
         showError(null);
     } catch (ex) {
         showError(describeFailure(ex));

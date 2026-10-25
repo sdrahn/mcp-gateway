@@ -426,7 +426,7 @@ func (b *Broker) viaForm(ctx context.Context, el Elicitor, in pep.Input, ask pep
 // grant, nil if declined.
 func (b *Broker) formAnswer(in pep.Input, ask pep.AskSpec, res ElicitResult) (*pep.Grant, error) {
 	if res.Action != "accept" {
-		b.auditApproval("", false, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, "", pep.ChannelForm)
+		b.auditApproval("", false, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, "", pep.ChannelForm, "")
 		return nil, nil
 	}
 	scope, _ := res.Content["scope"].(string)
@@ -434,7 +434,7 @@ func (b *Broker) formAnswer(in pep.Input, ask pep.AskSpec, res ElicitResult) (*p
 	// recorded as the principal's own.
 	g, err := b.grant(in.Principal, in.Resource.Server, in.Resource.Name, scope, ask.Scopes, in.Principal.Sub, pep.ChannelForm)
 	if err == nil {
-		b.auditApproval(g.ID, true, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, scope, pep.ChannelForm)
+		b.auditApproval(g.ID, true, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, scope, pep.ChannelForm, "")
 	}
 	return g, err
 }
@@ -884,6 +884,13 @@ func (b *Broker) GetPending(ctx context.Context, a Approver, id string) (Pending
 // Resolve records a's decision on approval id. On approval it returns the
 // grant for scope, which must be one the policy offered.
 func (b *Broker) Resolve(ctx context.Context, a Approver, id string, approve bool, scope string) (*pep.Grant, error) {
+	return b.ResolveVia(ctx, a, id, approve, scope, "")
+}
+
+// ResolveVia is Resolve, recording in the audit how the decision came
+// (via: "cockpit", "cli"; "" leaves it out). The caller names it
+// itself: it tells the ways apart, it authorizes nothing.
+func (b *Broker) ResolveVia(ctx context.Context, a Approver, id string, approve bool, scope, via string) (*pep.Grant, error) {
 	b.mu.Lock()
 	b.pruneExpired()
 	p, ok := b.pending[id]
@@ -932,8 +939,8 @@ func (b *Broker) Resolve(ctx context.Context, a Approver, id string, approve boo
 		decision = "approve"
 	}
 	metrics.ApprovalsDecided.Inc(decision)
-	b.log.Info("approval resolved", "id", id, "approved", approve, "by", a.Name, "scope", scope, "waiting", c.result != nil)
-	b.auditApproval(id, approve, c.Principal, c.Server, c.Name, a.Name, scope, c.Channel)
+	b.log.Info("approval resolved", "id", id, "approved", approve, "by", a.Name, "scope", scope, "waiting", c.result != nil, "via", via)
+	b.auditApproval(id, approve, c.Principal, c.Server, c.Name, a.Name, scope, c.Channel, via)
 	if c.result != nil {
 		c.result <- g
 	}
@@ -1015,27 +1022,41 @@ func (b *Broker) ListGrants(ctx context.Context, a Approver) []pep.Grant {
 
 // RevokeGrant removes a grant a may manage.
 func (b *Broker) RevokeGrant(ctx context.Context, a Approver, id string) error {
+	return b.RevokeGrantVia(ctx, a, id, "")
+}
+
+// RevokeGrantVia is RevokeGrant, recording via in the audit as
+// ResolveVia does.
+func (b *Broker) RevokeGrantVia(ctx context.Context, a Approver, id, via string) error {
 	g, ok := b.store.Get(id)
 	if !ok || !b.mayManage(ctx, a, g) {
 		return ErrNotFound
 	}
-	b.log.Info("grant revoked", "id", id, "by", a.Name)
-	b.opts.Audit.Event("mcp-grant-revoke", true, map[string]string{
+	b.log.Info("grant revoked", "id", id, "by", a.Name, "via", via)
+	fields := map[string]string{
 		"id": id, "by": a.Name, "principal": g.Sub, "server": g.Server, "target": g.Tool,
-	})
+	}
+	if via != "" {
+		fields["via"] = via
+	}
+	b.opts.Audit.Event("mcp-grant-revoke", true, fields)
 	return b.store.Revoke(id)
 }
 
 // auditApproval records an approval decision; declines are recorded as
 // failed.
-func (b *Broker) auditApproval(id string, approved bool, p principal.Principal, server, name, by, scope string, c pep.Channel) {
+func (b *Broker) auditApproval(id string, approved bool, p principal.Principal, server, name, by, scope string, c pep.Channel, via string) {
 	if !approved {
 		scope = ""
 	}
-	b.opts.Audit.Event("mcp-approval", approved, map[string]string{
+	fields := map[string]string{
 		"id": id, "principal": p.Sub, "server": server, "target": name,
 		"by": by, "scope": scope, "channel": string(c),
-	})
+	}
+	if via != "" {
+		fields["via"] = via
+	}
+	b.opts.Audit.Event("mcp-approval", approved, fields)
 }
 
 func randomHex(n int) string {

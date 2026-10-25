@@ -9,6 +9,13 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- `mcp-gateway-admin approvals` (list, `show`, `approve`, `deny`,
+  `watch`) and `grants` (list, `revoke`): approvals decided and grants
+  revoked on the command line, also over SSH, without Cockpit, as the
+  user who runs them and with the same approver rules (user guide,
+  chapter 7, "Deciding from the command line"; roadmap step 39 stage B).
+  The control API takes an optional `via` with a decision or revocation,
+  recorded in the audit (`via=cli`, `via=cockpit`).
 - `snapper-root.yaml` (mcp-gateway-profile-snapper, in
   `/usr/share/mcp-gateway/profiles`): mcp-server-snapper as root in the
   sandbox, for `set_config` without the privileged definition. Rolling

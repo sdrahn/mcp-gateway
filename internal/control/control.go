@@ -17,9 +17,9 @@
 //	                            "config_reloads": how often gateway.yaml was reloaded since
 //	GET    /v1/approvals
 //	GET    /v1/approvals/{id}
-//	POST   /v1/approvals/{id}   {"decision": "approve"|"deny", "scope": "session"}
+//	POST   /v1/approvals/{id}   {"decision": "approve"|"deny", "scope": "session", "via": "cli"}
 //	GET    /v1/grants
-//	DELETE /v1/grants/{id}
+//	DELETE /v1/grants/{id}      ?via=cli
 //	GET    /v1/servers          registry, with the instances the caller may see
 //	DELETE /v1/instances/{id}   stop an instance
 //	GET    /v1/tasks            the agents' tasks the caller may see (running and kept)
@@ -221,7 +221,7 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, s.Broker.ListGrants(r.Context(), a))
 	}))
 	mux.HandleFunc("DELETE /v1/grants/{id}", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
-		if err := s.Broker.RevokeGrant(r.Context(), a, r.PathValue("id")); err != nil {
+		if err := s.Broker.RevokeGrantVia(r.Context(), a, r.PathValue("id"), via(r.URL.Query().Get("via"))); err != nil {
 			writeError(w, http.StatusNotFound, "no such grant")
 			return
 		}
@@ -283,6 +283,19 @@ type whatIfResponse struct {
 type resolveRequest struct {
 	Decision string `json:"decision"` // "approve" or "deny"
 	Scope    string `json:"scope"`
+	// Via names the way the decision came ("cockpit", "cli"), for the
+	// audit; the caller names it, it authorizes nothing.
+	Via string `json:"via,omitempty"`
+}
+
+// via is the way a decision came as the caller names it, for the audit:
+// "cockpit" or "cli", "api" for anything else, "" for nothing.
+func via(v string) string {
+	switch v {
+	case "", "cockpit", "cli":
+		return v
+	}
+	return "api"
 }
 
 // errorResponse is the body of every error.
@@ -827,7 +840,7 @@ func (s *Server) resolve(w http.ResponseWriter, r *http.Request, a broker.Approv
 		writeError(w, http.StatusBadRequest, `decision must be "approve" or "deny"`)
 		return
 	}
-	g, err := s.Broker.Resolve(r.Context(), a, r.PathValue("id"), body.Decision == "approve", body.Scope)
+	g, err := s.Broker.ResolveVia(r.Context(), a, r.PathValue("id"), body.Decision == "approve", body.Scope, via(body.Via))
 	switch {
 	case errors.Is(err, broker.ErrNotFound), errors.Is(err, broker.ErrForbidden):
 		writeError(w, http.StatusNotFound, "no such approval")

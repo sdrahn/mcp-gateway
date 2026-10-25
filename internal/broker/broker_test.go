@@ -444,6 +444,31 @@ func TestAuditEvents(t *testing.T) {
 	}
 }
 
+// A decision and a revocation name the way they came (via), when the
+// caller names it.
+func TestAuditVia(t *testing.T) {
+	k := &kernelLog{}
+	b := newBroker(t, func(o *Options) { o.Audit = audit.New(io.Discard, audit.Options{Kernel: k}) })
+	go func() { _, _ = b.Approve(context.Background(), &fakeElicitor{}, input(), urlAsk) }()
+	id := waitPending(t, b, func(ps []Pending) bool { return len(ps) == 1 })[0].ID
+	g, err := b.ResolveVia(context.Background(), admin, id, true, "session", "cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.RevokeGrantVia(context.Background(), admin, g.ID, "cockpit"); err != nil {
+		t.Fatal(err)
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	want := []string{
+		"op=mcp-approval by=carol channel=oob id=" + id + " principal=alice scope=session server=fs target=write_file via=cli res=success",
+		"op=mcp-grant-revoke by=carol id=" + g.ID + " principal=alice server=fs target=write_file via=cockpit res=success",
+	}
+	if !slices.Equal(k.msgs, want) {
+		t.Fatalf("kernel audit messages:\n%q\nwant\n%q", k.msgs, want)
+	}
+}
+
 // waitPending waits for the pending approvals to satisfy cond.
 func waitPending(t *testing.T, b *Broker, cond func([]Pending) bool) []Pending {
 	t.Helper()

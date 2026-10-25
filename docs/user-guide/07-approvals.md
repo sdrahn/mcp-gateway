@@ -30,7 +30,7 @@ the agent let progress extend the timeout. An agent that sends no
 |---|---|---|---|
 | `form` | a dialog of the **agent's own client** (MCP form elicitation) | low: the agent's client answers, it may be configured to accept automatically | the client supports elicitation |
 | `url` (default) | the **approval page** (Cockpit), which the client offers to open (MCP URL elicitation) | high: the approver authenticates to Cockpit; the agent cannot see or influence the page | `approvals.url_template` set, the client supports URL elicitation, the control socket enabled |
-| `oob` | the approval page, the **desktop notification** or the **mail** leads there; the agent only gets a log message ("Waiting for approval of fs/write_file at … (id a-…)") | high | the control socket enabled |
+| `oob` | the approval page, the **desktop notification** or the **mail** leads there, or the **command line** (`mcp-gateway-admin approvals`, below); the agent only gets a log message ("Waiting for approval of fs/write_file at … (id a-…)") | high | the control socket enabled |
 
 The policy names a channel per permission (`approval_channel`); the
 shipped policy uses `oob` as fallback. So if the agent cannot do URL
@@ -161,11 +161,44 @@ restart of the gateway invalidates it; the agent gets "requestState is
 not valid for this request" and calls again, which takes over the
 pending approval.
 
+## Deciding from the command line
+
+Where Cockpit is not running or not reachable, decide in a terminal on
+the gateway's host, also over SSH. `mcp-gateway-admin approvals` talks to
+the control socket as the user who runs it, with the same approver
+rules, scopes and audit as Cockpit:
+
+```console
+$ mcp-gateway-admin approvals
+USER   CALL           CLIENT     SCOPES        SINCE    EXPIRES  WAITING  ID
+alice  fs/write_file  kit 0.3.1  once,session  30s ago  in 1m    yes      a-7f3e9c
+$ mcp-gateway-admin approvals show a-7f3e9c       # with the call's arguments
+$ mcp-gateway-admin approvals approve a-7f3e9c    # asks first; --yes does not
+Approve fs/write_file for alice (a-7f3e9c, scope once)? [y/N] y
+approved a-7f3e9c (fs/write_file for alice, scope once)
+$ mcp-gateway-admin approvals deny a-7f3e9c
+$ mcp-gateway-admin approvals watch               # follow them, Ctrl-C ends
+```
+
+- The id may be shortened to any prefix that names one approval.
+- `approve` grants `once` unless `--scope` names another the approval
+  offers (`session`, a duration such as `1h`); without `once` among them
+  and with several offered, `--scope` is needed.
+- An approval that is not yours to decide reads as unknown ("no such
+  approval"), as in Cockpit. Root sees and decides all.
+- An approval whose call went away (WAITING `no`) can still be decided:
+  the agent's next attempt finds the decision.
+- `mcp-gateway-admin grants` lists the grants approvals left, and
+  `grants revoke ID` revokes one.
+- Decisions and revocations from the command line are audited with
+  `via=cli` (Cockpit's with `via=cockpit`; chapter 11, "Audit records").
+
 ## Notifications
 
 Approvers learn about pending approvals from:
 
 - the **Cockpit** Approvals tab, live;
+- the **command line**: `mcp-gateway-admin approvals watch`;
 - **desktop notifications** (`mcp-gateway-desktop`);
 - **e-mail** (configured in the gateway).
 
@@ -254,8 +287,10 @@ affect the approval.
 
 ## Scripting approvals
 
-The control API (chapter 11) lets scripts see and decide approvals as
-the calling user, with the same approver rules:
+`mcp-gateway-admin approvals` and `grants` with `--json` (and
+`approve --yes`) suit scripts. Underneath is the control API (chapter
+11), which sees and decides approvals as the calling user, with the same
+approver rules:
 
 ```bash
 S=/run/mcp-gateway/control.sock
