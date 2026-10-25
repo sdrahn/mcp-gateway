@@ -4085,7 +4085,18 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       (server, tool, arguments unless policy hides them, the agent's
       self-reported client), protects decisions against CSRF, frames
       nothing, and gives no access beyond deciding and revoking one's
-      own grants;
+      own grants. With it, the doctor gets an `identity provider` check
+      (also the gateway-admin server's `doctor` tool, which stays
+      read-only): the discovery document and the key set reachable, its
+      issuer the one `http.issuer` names, the keys usable, the clock
+      skew against the provider, and the gateway's own client (stages C
+      and D: authorization code with PKCE, device flow, a redirect URI
+      that matches the listener). It names the causes of a bare `401
+      invalid token`. Setting up OIDC stays with root
+      (`mcp-gateway-admin setup http`, extended by the client id and
+      secret), not a tool an agent can call, and tokens are never shown
+      to a model (no token-explaining tool; `setup http --token FILE`
+      explains one on the command line);
     - stage D, the command line against a remote gateway:
       `mcp-gateway-admin approvals --gateway https://host:port …`
       signs in with the OAuth device flow (no browser on the host
@@ -4139,7 +4150,10 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
         cookie jar, the inbox, approve, a decision without the CSRF
         token or from another origin refused, an approver the rules do
         not allow refused, an agent's token not accepted as a page
-        session, the page in a frame refused); "Approvals from another
+        session, the page in a frame refused; the doctor's `identity
+        provider` check OK against the test identity provider, and
+        failing with the cause for a wrong issuer, an unreachable key
+        set and an unregistered redirect URI); "Approvals from another
         host" (D: device-flow sign-in, approve over HTTPS, the token
         file only the user can read, an expired token refused);
         "Approval webhooks" (E: the post signed and without arguments,
