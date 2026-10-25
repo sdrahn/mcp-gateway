@@ -232,11 +232,6 @@ grant_in_scope(g) if {
 	g.session_id == input.principal.session_id
 }
 
-ask_channel := c if {
-	some p in approvable
-	c := object.get(p, "approval_channel", "url")
-}
-
 # Approval scopes: "once" always, and the scopes every approvable
 # permission offers (approval_scopes, default "once" and "session"), so
 # the most restrictive permission decides. Durations ("1h", up to 720h)
