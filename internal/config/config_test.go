@@ -677,3 +677,44 @@ func TestNeedsHome(t *testing.T) {
 		}
 	}
 }
+
+func TestApprovalPage(t *testing.T) {
+	const listener = "http:\n  listen: \":8443\"\n  cert_file: /c\n  key_file: /k\n  issuer: https://idp.example.com\n  audience: https://gw.example.com:8443/mcp\n"
+	g, err := LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", listener+"approvals:\n  page:\n    client_id: approvals\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !g.PageEnabled() || g.Approvals.Page.SessionTTL != DefaultPageSessionTTL {
+		t.Errorf("page %+v", g.Approvals.Page)
+	}
+	if got := g.ApprovalURLTemplate(); got != "https://gw.example.com:8443/approvals/{id}" {
+		t.Errorf("url template %q: the page's by default", got)
+	}
+	g, err = LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", listener+
+		"approvals:\n  url_template: https://cockpit.example.com/a/{id}\n  page:\n    client_id: approvals\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := g.ApprovalURLTemplate(); got != "https://cockpit.example.com/a/{id}" {
+		t.Errorf("url template %q: an explicit one wins", got)
+	}
+	g, err = LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", listener))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.PageEnabled() || g.ApprovalURLTemplate() != "" {
+		t.Errorf("without client_id: page %v, template %q", g.PageEnabled(), g.ApprovalURLTemplate())
+	}
+	for content, want := range map[string]string{
+		"approvals:\n  page:\n    client_id: a\n":                                       "needs the HTTP listener",
+		listener + "approvals:\n  control_socket: \"-\"\n  page:\n    client_id: a\n":   "needs the control socket",
+		listener + "approvals:\n  page:\n    client_id: a\n    client_secret_file: s\n": "must be an absolute path",
+		listener + "approvals:\n  page:\n    client_secret_file: /s\n":                  "needs approvals.page.client_id",
+		listener + "approvals:\n  page:\n    client_id: a\n    session_ttl: 10s\n":      "session_ttl: must be between",
+		listener + "approvals:\n  page:\n    client_id: a\n    scopes: [\"a b\"]\n":     "invalid scope",
+	} {
+		if _, err := LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", content)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v, want %q", content, err, want)
+		}
+	}
+}

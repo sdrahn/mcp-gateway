@@ -376,6 +376,14 @@ support it ask the user to authorize that scope. Keep `http.scopes` for
 the scope every token must carry (for example `mcp`); the ceiling
 scopes come on top of it.
 
+### Approvals for remote users
+
+A remote user's approvals are decided like a local user's (chapter 7).
+Where Cockpit is not at hand, the gateway's own approval page on this
+listener does it, signed in with the same identity provider: set it up
+with `mcp-gateway-admin setup http --client-id ID` (chapter 7, "The
+gateway's approval page"); approval links then lead there.
+
 ### Sessions and resumability
 
 - The gateway creates an MCP session at `initialize` and returns its id

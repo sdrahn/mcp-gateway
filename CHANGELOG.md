@@ -9,6 +9,24 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- The gateway's own approval page on its HTTPS listener
+  (`/approvals/`): approvers sign in with the identity provider of
+  `http.issuer` (OpenID Connect, authorization code with PKCE, as the
+  client `approvals.page.client_id`) and decide the approvals the
+  approver rules give them, and revoke grants, without Cockpit.
+  `approvals.url_template` defaults to it, so URL elicitations, mail and
+  desktop notifications lead there. A sign-in is a session cookie of the
+  page (`approvals.page.session_ttl`), never an agent's token; decisions
+  need the page's CSRF token and origin; the page is never framed.
+  Sign-ins are audited (`mcp-approver-sign-in`), decisions with
+  `via=page`. `mcp-gateway-admin setup http --client-id` sets it up and
+  checks the client (user guide, chapter 7, "The gateway's approval
+  page"; roadmap step 39 stage C). A remote approver is never root, and
+  approver rules see `remote` and `issuer` (chapter 12).
+- Doctor checks `identity provider` (discovery, issuer, key set, clock
+  skew; also run by `doctor` now, not only `setup http`) and `approval
+  page` (the identity provider takes the page's client and redirect
+  URI).
 - Agents told at once about an out-of-band approval: for the clients
   `approvals.no_wait` names (`[kit]` by default; `"*"` for all), such an
   approval is not waited for. The call is answered at once with a tool

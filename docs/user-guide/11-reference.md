@@ -182,6 +182,8 @@ the same across releases; the texts may change.
 | `polkit` | account | polkit *account* |
 | `principals` | | principals |
 | `approval-reach` | | approval reach |
+| `identity-provider` | | identity provider |
+| `approval-page` | | approval page |
 | `approver-group` | group name | approver group *group* |
 
 ### mcp-gateway-admin clients
@@ -322,6 +324,8 @@ if a check failed, 2 on usage errors, 0 otherwise.
 | `--groups-claim NAME` | token claim with the groups (`http.groups_claim`, default `groups`) |
 | `--local-user-claim NAME` | token claim naming a local account (`http.local_user_claim`) |
 | `--scopes LIST` | comma-separated scopes every token must carry (`http.scopes`; `""` for none) |
+| `--client-id ID` | the gateway's client for its approval page at the identity provider (`approvals.page.client_id`; chapter 7, "The gateway's approval page"); takes effect at the next start |
+| `--client-secret-file FILE` | file with that client's secret, for a confidential client (`approvals.page.client_secret_file`) |
 | `--token FILE` | an access token to check as the gateway takes it (`-`: standard input); it is never printed |
 | `--policy-data FILE` | role data, for the ceiling of the token's scopes (default: `/etc/mcp-gateway/policy/rbac/data.json`; empty: none; unreadable: left out) |
 | `--write` | write the keys of the `http` block to the drop-in |
@@ -333,7 +337,8 @@ The checks, with their `id`s:
 | `id` | What |
 |---|---|
 | `http-block` | what `--write` wrote, or would write |
-| `identity-provider` | `<issuer>/.well-known/openid-configuration` answers (with the system's CA certificates, as the gateway fetches it), names the issuer exactly as configured, and its key set has signing keys; notes PKCE (`S256`) and dynamic client registration |
+| `identity-provider` | `<issuer>/.well-known/openid-configuration` answers (with the system's CA certificates, as the gateway fetches it), names the issuer exactly as configured, and its key set has signing keys; the clocks agree within a minute; notes PKCE (`S256`) and dynamic client registration |
+| `approval-page` | with `--client-id` (or `approvals.page.client_id`): the identity provider takes the page's sign-in request for the client and its redirect URI, as `doctor` checks it |
 | `tls` | the certificate and key, as `doctor` checks them |
 | `selinux-port` | the listener's port is labeled `mcp_port_t`, and the identity provider's port `http_port_t` or `http_cache_port_t` (the gateway's SELinux domain reaches no other) |
 | `firewall` | firewalld lets the port in, as `doctor` checks it |
@@ -567,7 +572,8 @@ Kernel audit (`TRUSTED_APP`) operations:
 |---|---|---|
 | `mcp-gateway-start` | the gateway started | |
 | `mcp-decision` | a request was denied (`res=failed`), or any decision on a privileged server | `session`, `principal`, `action`, `server`, `target`, `reason`, `decision_id`; for privileged servers also `privileged=yes` and `grant` |
-| `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel`; `via` (`cockpit`, `cli`, `api`) when decided through the control API and the caller named it |
+| `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel`; `via`: `page` on the gateway's approval page, `cockpit`, `cli` or `api` when decided through the control API and the caller named it |
+| `mcp-approver-sign-in` | an approver signed in on the gateway's approval page (`res=success`), or a sign-in failed after the identity provider answered (`res=failed`) | `principal`, `issuer`, `via` (`page`), `reason` |
 | `mcp-grant-revoke` | a grant was revoked | `id`, `by`, `principal`, `server`, `target`; `via` as for `mcp-approval` |
 | `mcp-policy-change` | OPA loaded a different policy | `revision` |
 | `mcp-config-reload` | the server definitions, or `gateway.yaml` (`file=gateway.yaml`), were reloaded with changes (`res=success`), or could not be (`res=failed`; what was in force stays) | `trigger` (`file change`, `SIGHUP`), `file`, `added`, `changed`, `removed`, `restart_needed`, `error` |

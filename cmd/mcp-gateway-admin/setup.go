@@ -36,7 +36,9 @@ http block in force, and waits for the gateway to reload it. Then it
 checks what else has to be right: the identity provider's metadata and
 keys, as the gateway fetches them; the certificate and key, as the
 gateway's account and SELinux domain read them; the SELinux labels of
-the port and of the identity provider's port; firewalld; with -token, an
+the port and of the identity provider's port; firewalld; with
+-client-id, the gateway's client for its approval page (approvals.page)
+at the identity provider; with -token, an
 access token as the gateway takes it (whom it makes the principal, with
 which groups and scopes, the ceiling its scopes set in the role data,
 or why it is refused); and the listener, as a client
@@ -74,6 +76,9 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&a.KeyFile, "key", "", "private key file, PEM (http.key_file)")
 	fs.StringVar(&a.GroupsClaim, "groups-claim", "", "token claim with the principal's groups (http.groups_claim; default groups)")
 	fs.StringVar(&a.LocalUserClaim, "local-user-claim", "", "token claim naming a local account to act as, e.g. preferred_username (http.local_user_claim)")
+	var page config.ApprovalPage
+	fs.StringVar(&page.ClientID, "client-id", "", "the approval page's client at the identity provider, with <origin of -url>/approvals/callback as redirect URI (approvals.page.client_id)")
+	fs.StringVar(&page.ClientSecretFile, "client-secret-file", "", "file with that client's secret, for a confidential client (approvals.page.client_secret_file)")
 	scopes := fs.String("scopes", "", "comma-separated scopes every token must carry, e.g. mcp (http.scopes; \"\" for none)")
 	tokenFile := fs.String("token", "", "file with an access token to check as the gateway takes it, - for standard input")
 	policyData := fs.String("policy-data", policydata.DefaultPath, "role data, for the ceiling of the token's scopes (empty: none)")
@@ -102,7 +107,7 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 	})
 
 	c := &configCmd{stdout: stdout, stderr: stderr, socket: *socket}
-	cur, err := c.httpInForce()
+	cur, curPage, err := c.httpInForce()
 	if err != nil {
 		say(stderr, "mcp-gateway-admin setup http:", err)
 		return 1
@@ -131,8 +136,19 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 	root := os.Geteuid() == 0
 
 	var rs []doctor.Result
-	rs = append(rs, c.dropInResult(cur, h, *write))
+	if page.ClientID == "" {
+		page.ClientID = curPage.ClientID
+	}
+	if page.ClientSecretFile == "" {
+		page.ClientSecretFile = curPage.ClientSecretFile
+	}
+	rs = append(rs, c.dropInResult(cur, h, curPage, page, *write))
 	rs = append(rs, httpsetup.IdentityProvider(ctx, h, client)...)
+	if page.ClientID != "" {
+		gw := &config.Gateway{HTTP: h}
+		gw.Approvals.Page = page
+		rs = append(rs, httpsetup.ApprovalPage(ctx, gw, client, root))
+	}
 	rs = append(rs, setupTLS(h, root)...)
 	rs = append(rs, setupPorts(h, root)...)
 	rs = append(rs, setupFirewall(h, root)...)
@@ -159,28 +175,29 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 	return doctorExit(rs, false)
 }
 
-// httpInForce returns the http block as the gateway reads it:
-// gateway.yaml (else the package default) with the drop-ins over it.
-func (c *configCmd) httpInForce() (config.HTTP, error) {
+// httpInForce returns the http and approvals.page blocks as the gateway
+// reads them: gateway.yaml (else the package default) with the drop-ins
+// over it.
+func (c *configCmd) httpInForce() (config.HTTP, config.ApprovalPage, error) {
 	base, dropIns, err := c.files()
 	if err != nil {
-		return config.HTTP{}, err
+		return config.HTTP{}, config.ApprovalPage{}, err
 	}
 	g, err := config.ResolveFiles(base, dropIns)
 	if err != nil {
-		return config.HTTP{}, err
+		return config.HTTP{}, config.ApprovalPage{}, err
 	}
-	return g.HTTP, nil
+	return g.HTTP, g.Approvals.Page, nil
 }
 
 // dropInResult sets the keys of the http block that h changes in the
 // drop-in config set writes (with write), checked as config set checks
 // it, and waits for the gateway to reload it; or says what writing it
 // would change.
-func (c *configCmd) dropInResult(cur, h config.HTTP, write bool) doctor.Result {
+func (c *configCmd) dropInResult(cur, h config.HTTP, curPage, page config.ApprovalPage, write bool) doctor.Result {
 	r := doctor.Result{Check: "http block", Status: doctor.OK}
 	target := filepath.Join(configDropInDir, adminDropIn)
-	changes := httpsetup.Changes(cur, h)
+	changes := append(httpsetup.Changes(cur, h), httpsetup.PageChanges(curPage, page)...)
 	if len(changes) == 0 {
 		r.Summary = "the configuration in force has this http block"
 		return r
@@ -209,7 +226,11 @@ func (c *configCmd) dropInResult(cur, h config.HTTP, write bool) doctor.Result {
 	keys := make([]string, len(changes))
 	for i, ch := range changes {
 		keys[i] = ch.Key
-		setKey(doc.Content[0], strings.Split(ch.Key, "."), httpsetup.Node(h, ch.Key))
+		node := httpsetup.Node(h, ch.Key)
+		if strings.HasPrefix(ch.Key, "approvals.page.") {
+			node = httpsetup.PageNode(page, ch.Key)
+		}
+		setKey(doc.Content[0], strings.Split(ch.Key, "."), node)
 	}
 	w, err := c.writeDropIn(target, doc, old, keys)
 	if err != nil {
@@ -221,14 +242,14 @@ func (c *configCmd) dropInResult(cur, h config.HTTP, write bool) doctor.Result {
 		r.Summary = target + " has this http block already"
 		return r
 	}
-	restart := "http.listen takes effect at start: systemctl restart mcp-gateway.service (the checks below see the gateway as it runs now)"
+	restart := "http.listen and approvals.page take effect at start: systemctl restart mcp-gateway.service (the checks below see the gateway as it runs now)"
 	switch {
 	case w.statusErr != nil:
 		r.Details = append(r.Details, "the gateway does not answer; it reads the file when it runs")
 		return r
 	case w.before.ConfigReloads == nil:
 		r.Details = append(r.Details, "this gateway does not report its reloads: see mcp-gateway-admin doctor whether it took the change")
-		if cur.Listen != h.Listen {
+		if cur.Listen != h.Listen || len(httpsetup.PageChanges(curPage, page)) > 0 {
 			r.Details = append(r.Details, restart)
 		}
 		return r
@@ -241,7 +262,7 @@ func (c *configCmd) dropInResult(cur, h config.HTTP, write bool) doctor.Result {
 	case st.ConfigError != "":
 		r.Status = doctor.Fail
 		r.Details = append(r.Details, "the gateway did not load it and runs with the configuration it had: "+st.ConfigError)
-	case slices.Contains(st.RestartNeeded, "http.listen"):
+	case slices.ContainsFunc(st.RestartNeeded, func(k string) bool { return k == "http.listen" || strings.HasPrefix(k, "approvals.page.") }):
 		r.Details = append(r.Details, restart)
 	default:
 		r.Details = append(r.Details, "in force")

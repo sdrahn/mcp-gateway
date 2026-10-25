@@ -90,7 +90,7 @@ func (fakePolicy) Bool(_ context.Context, path string, input any) (bool, error) 
 	case manageGrantPath:
 		uid = in.Grant.UID
 	}
-	return uid != nil && *uid == a.UID, nil
+	return uid != nil && a.UID != nil && *uid == *a.UID, nil
 }
 
 func newBroker(t *testing.T, mod func(*Options)) *Broker {
@@ -723,9 +723,9 @@ func TestMayManageTask(t *testing.T) {
 			switch path {
 			case manageTaskPath:
 				return slices.Contains(in.Approver.Groups, "helpdesk") ||
-					(in.Task.UID != nil && *in.Task.UID == in.Approver.UID), nil
+					(in.Task.UID != nil && *in.Task.UID == *in.Approver.UID), nil
 			case manageInstancePath:
-				return in.Instance.UID != nil && *in.Instance.UID == in.Approver.UID, nil
+				return in.Instance.UID != nil && *in.Instance.UID == *in.Approver.UID, nil
 			}
 			return false, nil
 		})
@@ -743,7 +743,7 @@ func TestMayManageTask(t *testing.T) {
 			if path == manageTaskPath {
 				return false, fmt.Errorf("%w for %s", pep.ErrUndefined, path)
 			}
-			return in.Instance != nil && in.Instance.UID != nil && *in.Instance.UID == in.Approver.UID, nil
+			return in.Instance != nil && in.Instance.UID != nil && *in.Instance.UID == *in.Approver.UID, nil
 		})
 	})
 	if !without.MayManageTask(context.Background(), aliceApprover, task) || without.MayManageTask(context.Background(), bobApprover, task) {
@@ -774,9 +774,9 @@ func TestMayManageSession(t *testing.T) {
 			switch path {
 			case manageSessionPath:
 				return slices.Contains(in.Approver.Groups, "helpdesk") ||
-					(in.Session.UID != nil && *in.Session.UID == in.Approver.UID), nil
+					(in.Session.UID != nil && *in.Session.UID == *in.Approver.UID), nil
 			case manageInstancePath:
-				return in.Instance.UID != nil && *in.Instance.UID == in.Approver.UID, nil
+				return in.Instance.UID != nil && *in.Instance.UID == *in.Approver.UID, nil
 			}
 			return false, nil
 		})
@@ -799,7 +799,7 @@ func TestMayManageSession(t *testing.T) {
 			if in.Instance.Server == "zypp" && in.Approver.Name == "dave" {
 				return false, nil // dave approves for fs only
 			}
-			return (in.Instance.UID != nil && *in.Instance.UID == in.Approver.UID) || in.Approver.Name == "dave", nil
+			return (in.Instance.UID != nil && *in.Instance.UID == *in.Approver.UID) || in.Approver.Name == "dave", nil
 		})
 	})
 	if !without.MayManageSession(context.Background(), aliceApprover, session) || without.MayManageSession(context.Background(), bobApprover, session) {
@@ -824,5 +824,42 @@ func TestMayManageSession(t *testing.T) {
 	if !noPolicy.MayManageSession(context.Background(), Approver{Name: "root"}, session) ||
 		!noPolicy.MayManageSession(context.Background(), aliceApprover, session) || noPolicy.MayManageSession(context.Background(), bobApprover, session) {
 		t.Fatal("without policy")
+	}
+}
+
+// A remote approver (the approval page) is never root, also when its
+// sign-in maps to uid 0, and policy sees no uid without a local account.
+func TestRemoteApprover(t *testing.T) {
+	ivy := uint32(1001)
+	p := Pending{Principal: principal.Principal{Sub: "ivy", UID: &ivy}}
+	b := newBroker(t, func(o *Options) { o.Policy = nil })
+	ctx := context.Background()
+	if !b.MayApprove(ctx, Approver{Name: "root"}, p) {
+		t.Error("local root may not approve")
+	}
+	for _, a := range []Approver{
+		{Name: "root", Remote: true, NoUID: true},
+		{Name: "root", Remote: true}, // mapped to the local account root
+	} {
+		if a.Root() || b.MayApprove(ctx, a, p) {
+			t.Errorf("remote %+v is root", a)
+		}
+	}
+	if v := (Approver{Name: "zed", Remote: true, NoUID: true, Issuer: "https://idp"}).policyView(); v.UID != nil || !v.Remote || v.Issuer != "https://idp" {
+		t.Errorf("policy view %+v", v)
+	}
+	if v := (Approver{Name: "jack", UID: 1001}).policyView(); v.UID == nil || *v.UID != 1001 || v.Remote {
+		t.Errorf("policy view %+v", v)
+	}
+	// "self" without a local account matches nothing, root's call included.
+	var asked *PolicyApprover
+	b = newBroker(t, func(o *Options) {
+		o.Policy = policyFunc(func(_ string, in ApproverInput) (bool, error) {
+			asked = in.Approver
+			return in.Approver.UID != nil && *in.Approver.UID == *in.Request.Principal.UID, nil
+		})
+	})
+	if b.MayApprove(ctx, Approver{Name: "zed", Remote: true, NoUID: true}, p) || asked == nil || asked.UID != nil {
+		t.Errorf("remote approver without uid: asked %+v", asked)
 	}
 }

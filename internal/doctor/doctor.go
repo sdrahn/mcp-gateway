@@ -71,6 +71,7 @@ var checkIDs = map[string]string{
 	"TLS":                 "tls",
 	"firewall":            "firewall",
 	"approval reach":      "approval-reach",
+	"approval page":       "approval-page",
 	// mcp-gateway-admin setup http
 	"http block":        "http-block",
 	"identity provider": "identity-provider",
@@ -843,7 +844,7 @@ func ApprovalReach(gw *config.Gateway, notifyInstalled bool) Result {
 	if gw.Notifications.Email.SMTP != "" {
 		ways = append(ways, "mail")
 	}
-	if gw.Approvals.URLTemplate != "" {
+	if gw.ApprovalURLTemplate() != "" {
 		ways = append(ways, "a link to the approval page")
 	}
 	if notifyInstalled {

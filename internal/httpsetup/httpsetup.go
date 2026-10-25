@@ -20,6 +20,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -122,7 +124,9 @@ func IdentityProvider(ctx context.Context, h config.HTTP, client *http.Client) [
 	}
 	discovery := strings.TrimSuffix(h.Issuer, "/") + "/.well-known/openid-configuration"
 	var md metadata
-	if err := getJSON(ctx, client, discovery, &md); err != nil {
+	sent := time.Now()
+	date, err := getJSONDate(ctx, client, discovery, &md)
+	if err != nil {
 		if h.JWKSURL == "" {
 			return fail(fmt.Sprintf("%s: %v", discovery, err), reachHint(err, h.Issuer)...)
 		}
@@ -162,6 +166,20 @@ func IdentityProvider(ctx context.Context, h config.HTTP, client *http.Client) [
 	}
 	r.Status = doctor.OK
 	r.Summary = fmt.Sprintf("%s: %d signing key(s)", h.Issuer, signing)
+	// Tokens carry the provider's time (iat, exp); the gateway allows a
+	// minute of difference (authn's leeway).
+	if !date.IsZero() {
+		skew := sent.Sub(date).Round(time.Second)
+		if skew < 0 {
+			skew = -skew
+		}
+		if skew > ClockLeeway+time.Second { // Date has seconds only
+			r.Status = doctor.Warn
+			r.Details = append(r.Details, fmt.Sprintf("this host's clock and the identity provider's differ by %s, more than the minute the gateway allows: it may refuse new tokens as not yet valid, or take expired ones; synchronize the clocks (chronyc tracking)", skew))
+		} else {
+			r.Details = append(r.Details, fmt.Sprintf("clock: within %s of the identity provider's", max(skew, time.Second)))
+		}
+	}
 	if md.AuthorizationEndpoint == "" || md.TokenEndpoint == "" {
 		r.Status = doctor.Warn
 		r.Details = append(r.Details, "no authorization_endpoint or token_endpoint: interactive agents cannot get a token from it")
@@ -176,6 +194,101 @@ func IdentityProvider(ctx context.Context, h config.HTTP, client *http.Client) [
 		r.Details = append(r.Details, "dynamic client registration at "+md.RegistrationEndpoint+": agents may register themselves")
 	}
 	return []doctor.Result{r}
+}
+
+// ClockLeeway is the difference between clocks the gateway allows in a
+// token's times (internal/authn).
+const ClockLeeway = time.Minute
+
+// ApprovalPage checks the gateway's client for its approval page
+// (approvals.page) at the identity provider: the secret file (as root,
+// who reads it as the gateway's start does), the endpoints the sign-in
+// uses, and an authorization request as the page sends it, not followed:
+// a provider that does not know the client or its redirect URI refuses
+// it (most with 400), which otherwise shows only when an approver signs
+// in.
+func ApprovalPage(ctx context.Context, gw *config.Gateway, client *http.Client, root bool) doctor.Result {
+	r := doctor.Result{Check: "approval page"}
+	pg := gw.Approvals.Page
+	if !gw.PageEnabled() {
+		r.Status, r.Summary = doctor.Skip, "no approval page (approvals.page.client_id)"
+		return r
+	}
+	redirect := gw.PageOrigin() + "/approvals/callback"
+	fail := func(summary string, details ...string) doctor.Result {
+		r.Status, r.Summary, r.Details = doctor.Fail, summary, details
+		return r
+	}
+	if pg.ClientSecretFile != "" && root {
+		if b, err := os.ReadFile(pg.ClientSecretFile); err != nil {
+			return fail("approvals.page.client_secret_file: "+err.Error(), "the gateway does not start without it")
+		} else if strings.TrimSpace(string(b)) == "" {
+			return fail("approvals.page.client_secret_file: " + pg.ClientSecretFile + " is empty")
+		}
+	}
+	var md metadata
+	discovery := strings.TrimSuffix(gw.HTTP.Issuer, "/") + "/.well-known/openid-configuration"
+	if err := getJSON(ctx, client, discovery, &md); err != nil {
+		return fail(fmt.Sprintf("%s: %v", discovery, err), reachHint(err, gw.HTTP.Issuer)...)
+	}
+	if md.AuthorizationEndpoint == "" || md.TokenEndpoint == "" {
+		return fail("the identity provider names no authorization_endpoint or token_endpoint: approvers cannot sign in")
+	}
+	if len(md.CodeChallengeMethods) > 0 && !slices.Contains(md.CodeChallengeMethods, "S256") {
+		return fail("the identity provider does not offer PKCE with S256, which the page uses")
+	}
+	q := url.Values{"response_type": {"code"}, "client_id": {pg.ClientID}, "redirect_uri": {redirect},
+		"scope": {"openid"}, "state": {"doctor"}, "nonce": {"doctor"},
+		"code_challenge": {"E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"}, "code_challenge_method": {"S256"}}
+	target := md.AuthorizationEndpoint
+	if strings.Contains(target, "?") {
+		target += "&" + q.Encode()
+	} else {
+		target += "?" + q.Encode()
+	}
+	probe := *client
+	probe.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return fail(err.Error())
+	}
+	resp, err := probe.Do(req)
+	if err != nil {
+		return fail(fmt.Sprintf("authorization endpoint %s: %v", md.AuthorizationEndpoint, err))
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	_ = resp.Body.Close()
+	where := fmt.Sprintf("client %s, redirect URI %s", pg.ClientID, redirect)
+	switch loc := resp.Header.Get("Location"); {
+	case resp.StatusCode >= 300 && resp.StatusCode < 400 && strings.HasPrefix(loc, redirect):
+		r.Status, r.Summary = doctor.OK, "the identity provider sends approvers back to the page ("+where+")"
+		if u, err := url.Parse(loc); err == nil && u.Query().Get("error") != "" {
+			r.Status = doctor.Warn
+			r.Details = []string{"it answered the sign-in request with " + u.Query().Get("error") + ": " + u.Query().Get("error_description")}
+		}
+	case resp.StatusCode < 400:
+		r.Status, r.Summary = doctor.OK, "the identity provider takes the sign-in request ("+where+")"
+	default:
+		return fail(fmt.Sprintf("the identity provider refuses the sign-in request (HTTP %d): %s", resp.StatusCode, snippet(body)),
+			"register "+pg.ClientID+" there as a client with the redirect URI "+redirect+" (authorization code with PKCE)",
+			"set approvals.page.client_id to the client's id, or approvals.page.client_secret_file for a confidential client")
+	}
+	if pg.ClientSecretFile == "" {
+		r.Details = append(r.Details, "a public client (no approvals.page.client_secret_file): the identity provider must allow that for "+pg.ClientID)
+	}
+	return r
+}
+
+// snippet is the start of an error page, as text on one line.
+func snippet(b []byte) string {
+	s := strings.Join(strings.Fields(regexp.MustCompile(`<[^>]*>`).ReplaceAllString(string(b), " ")), " ")
+	if len(s) > 200 {
+		s = s[:200] + "…"
+	}
+	if s == "" {
+		return "no text"
+	}
+	return s
 }
 
 // reachHint says what to do about an identity provider the checks could
@@ -194,27 +307,35 @@ func reachHint(err error, target string) []string {
 }
 
 func getJSON(ctx context.Context, client *http.Client, u string, v any) error {
+	_, err := getJSONDate(ctx, client, u, v)
+	return err
+}
+
+// getJSONDate is getJSON, returning the answer's Date header too (zero
+// if it has none).
+func getJSONDate(ctx context.Context, client *http.Client, u string, v any) (time.Time, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
 		var ue *url.Error
 		if errors.As(err, &ue) {
-			return ue.Err // the URL is said already
+			return time.Time{}, ue.Err // the URL is said already
 		}
-		return err
+		return time.Time{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	date, _ := http.ParseTime(resp.Header.Get("Date"))
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		return date, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(v); err != nil {
-		return fmt.Errorf("not JSON: %v", err)
+		return date, fmt.Errorf("not JSON: %v", err)
 	}
-	return nil
+	return date, nil
 }
 
 // Port types of the gateway's SELinux domain (selinux/mcp_gateway.te):

@@ -234,15 +234,24 @@ approvals:
   progress_interval: 15s
   retry_wait: 25s
   no_wait: [kit]
+  page:
+    client_id: ""
+    client_secret_file: ""
+    scopes: []
+    session_ttl: 8h
 ```
 
 | Key | Default | Meaning |
 |---|---|---|
 | `approval_timeout` | `120s` | how long a call waits for a human decision before it is denied |
 | `approvals.control_socket` | `/run/mcp-gateway/control.sock` | control API for the Cockpit page, the desktop agent and scripts; `"-"` disables it, and with it the `url` and `oob` channels |
-| `approvals.url_template` | empty | the approval page sent to agents in URL-mode approvals, with `{id}` for the approval id, e.g. `https://gw.example.com:9090/mcp-gateway#/approvals/{id}`; empty disables the `url` channel (policy falls back to `oob`) |
+| `approvals.url_template` | empty | the approval page sent to agents in URL-mode approvals, with `{id}` for the approval id, e.g. `https://gw.example.com:9090/mcp-gateway#/approvals/{id}`; empty: the gateway's own page when `approvals.page` is set up (`<origin of http.audience>/approvals/{id}`), else no `url` channel (policy falls back to `oob`) |
 | `approvals.progress_interval` | `15s` | how often a call waiting for approval reports progress (`notifications/progress`) to an agent that asked for progress; at least `1s` (chapter 7) |
 | `approvals.retry_wait` | `25s` | how long a retry of an agent of MCP 2026-07-28 waits for an approval or a sign-in before it is answered to retry again; keep it below the agents' request timeouts; at least `1s` (chapter 7) |
+| `approvals.page.client_id` | empty | the gateway's own approval page on its HTTPS listener (chapter 7, "The gateway's approval page"): the client registered at the identity provider of `http.issuer`, with `<origin of http.audience>/approvals/callback` as redirect URI. Empty: no page. Needs `http.listen`, `http.issuer`, `http.audience` and the control socket; takes effect at the next start |
+| `approvals.page.client_secret_file` | empty | file with that client's secret, for a confidential client (sent with HTTP basic authentication); empty: a public client (PKCE only). Read at start |
+| `approvals.page.scopes` | `[]` | scopes asked for at sign-in besides `openid` |
+| `approvals.page.session_ttl` | `8h` | how long a sign-in on the page lasts (1m to 168h) |
 | `approvals.no_wait` | `[kit]` | clients, by name (case-insensitive; `"*"` for all), whose calls do not wait for an `oob` approval: they are answered at once with a tool error naming the approval and how to decide it, and the agent's next attempt finds the decision (chapter 7, "Agents told at once"). For agents that show nothing while a call waits. Setting the key replaces the default; `[]` names none |
 
 Who may decide on approvals is policy (chapter 6), not configuration.

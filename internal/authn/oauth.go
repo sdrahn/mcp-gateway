@@ -103,11 +103,18 @@ func (o *OAuth) Authenticate(ctx context.Context, token string, cert *x509.Certi
 		}
 	}
 
+	p := o.principalOf(claims, sub)
+	p.Scopes = scopes
+	return p, nil
+}
+
+// principalOf is the principal claims (validated, with subject sub) make:
+// the token's groups, and the local account local_user_claim names.
+func (o *OAuth) principalOf(claims jwt.MapClaims, sub string) principal.Principal {
 	p := principal.Principal{
 		Sub:       sub,
 		Issuer:    o.cfg.Issuer,
 		Groups:    claimStrings(claims, o.cfg.GroupsClaim),
-		Scopes:    scopes,
 		Transport: principal.TransportHTTP,
 	}
 	// Required and valid (checked above): streams the request opens end
@@ -120,7 +127,44 @@ func (o *OAuth) Authenticate(ctx context.Context, token string, cert *x509.Certi
 			mapLocalUser(&p, name)
 		}
 	}
-	return p, nil
+	return p
+}
+
+// IDToken validates an ID token the approval page got for its client
+// clientID with nonce (OpenID Connect Core, section 3.1.3.7): signed by a
+// key of the issuer's key set, for clientID (azp too when it names more
+// audiences), not expired, with the nonce. It returns the principal its
+// claims make, as for an access token (groups, local account), without
+// scopes: an ID token authorizes nothing by itself.
+func (o *OAuth) IDToken(ctx context.Context, raw, clientID, nonce string) (principal.Principal, error) {
+	claims := jwt.MapClaims{}
+	_, err := jwt.ParseWithClaims(raw, claims,
+		func(t *jwt.Token) (any, error) { return o.key(ctx, t) },
+		jwt.WithValidMethods(allowedAlgs),
+		jwt.WithIssuer(o.cfg.Issuer),
+		jwt.WithAudience(clientID),
+		jwt.WithExpirationRequired(),
+		jwt.WithIssuedAt(),
+		jwt.WithLeeway(leeway),
+		jwt.WithTimeFunc(o.now),
+	)
+	if err != nil {
+		return principal.Principal{}, fmt.Errorf("%w: %v", ErrInvalidToken, err)
+	}
+	if aud, _ := claims.GetAudience(); len(aud) > 1 {
+		if azp, _ := claims["azp"].(string); azp != clientID {
+			return principal.Principal{}, fmt.Errorf("%w: azp %q is not the client %q", ErrInvalidToken, azp, clientID)
+		}
+	}
+	got, _ := claims["nonce"].(string)
+	if nonce == "" || subtle.ConstantTimeCompare([]byte(got), []byte(nonce)) != 1 {
+		return principal.Principal{}, fmt.Errorf("%w: nonce does not match", ErrInvalidToken)
+	}
+	sub, _ := claims["sub"].(string)
+	if sub == "" {
+		return principal.Principal{}, fmt.Errorf("%w: no subject", ErrInvalidToken)
+	}
+	return o.principalOf(claims, sub), nil
 }
 
 // checkBinding enforces certificate-bound tokens (RFC 8705): a token
