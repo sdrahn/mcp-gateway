@@ -4,12 +4,14 @@
 // section 11, step 39 stage E; D21).
 //
 // Every request either way is signed with the webhook's secret: the
-// header X-MCP-Gateway-Signature is "t=<unix time>,v1=<hex HMAC-SHA256
-// of "<t>.<body>">". The gateway takes a callback only with a valid
-// signature at most five minutes old, and only once. The callback names
-// who decided; the receiver vouches for that person as an identity
-// provider does for a sign-in, and the approver rules decide whether
-// they may.
+// header X-MCP-Gateway-Signature is "t=<unix time>,v1=<hex HMAC-SHA256>",
+// over "<t>.<body>" for a post and "callback.<t>.<body>" for a callback,
+// so that nothing one side signed is taken as the other's. The gateway
+// takes a callback only with a valid signature at most five minutes old,
+// only once, and only for an approval of the webhook's servers. The
+// callback names who decided; the receiver vouches for that person as an
+// identity provider does for a sign-in, and the approver rules decide
+// whether they may.
 package webhook
 
 import (
@@ -69,10 +71,21 @@ type Hook struct {
 	LocalAccounts bool
 }
 
-// Sign returns the signature header value of body at t.
-func Sign(secret, body []byte, t time.Time) string {
+// callbackPrefix starts what a callback's signature covers.
+const callbackPrefix = "callback."
+
+// Sign returns the signature header value of a post's body at t.
+func Sign(secret, body []byte, t time.Time) string { return sign(secret, "", body, t) }
+
+// SignCallback returns the signature header value of a callback's body
+// at t.
+func SignCallback(secret, body []byte, t time.Time) string {
+	return sign(secret, callbackPrefix, body, t)
+}
+
+func sign(secret []byte, prefix string, body []byte, t time.Time) string {
 	ts := strconv.FormatInt(t.Unix(), 10)
-	return "t=" + ts + ",v1=" + mac(secret, ts, body)
+	return "t=" + ts + ",v1=" + mac(secret, prefix+ts, body)
 }
 
 func mac(secret []byte, ts string, body []byte) string {
@@ -83,9 +96,20 @@ func mac(secret []byte, ts string, body []byte) string {
 	return hex.EncodeToString(m.Sum(nil))
 }
 
-// Verify checks a signature header value for body at now; it returns the
-// signature (for replay protection) or why it fails.
+// Verify checks the signature header value of a post's body at now; it
+// returns the signature or why it fails.
 func Verify(secret, body []byte, header string, now time.Time) (string, error) {
+	return verify(secret, "", body, header, now)
+}
+
+// VerifyCallback checks the signature header value of a callback's body
+// at now; it returns the signature (for replay protection) or why it
+// fails.
+func VerifyCallback(secret, body []byte, header string, now time.Time) (string, error) {
+	return verify(secret, callbackPrefix, body, header, now)
+}
+
+func verify(secret []byte, prefix string, body []byte, header string, now time.Time) (string, error) {
 	var ts, sig string
 	for _, part := range strings.Split(header, ",") {
 		k, v, _ := strings.Cut(strings.TrimSpace(part), "=")
@@ -106,7 +130,7 @@ func Verify(secret, body []byte, header string, now time.Time) (string, error) {
 	if d := now.Sub(time.Unix(t, 0)); d > maxSkew || d < -maxSkew {
 		return "", fmt.Errorf("signed %s ago, more than %s", d.Round(time.Second), maxSkew)
 	}
-	if !hmac.Equal([]byte(sig), []byte(mac(secret, ts, body))) {
+	if !hmac.Equal([]byte(sig), []byte(mac(secret, prefix+ts, body))) {
 		return "", errors.New("the signature does not match")
 	}
 	return sig, nil
@@ -116,6 +140,7 @@ func Verify(secret, body []byte, header string, now time.Time) (string, error) {
 type Broker interface {
 	Subscribe() (<-chan broker.Event, func())
 	ApprovalURL(id string) string
+	GetPending(ctx context.Context, a broker.Approver, id string) (broker.Pending, error)
 	ResolveVia(ctx context.Context, a broker.Approver, id string, approve bool, scope, via string) (*pep.Grant, error)
 }
 
@@ -141,11 +166,16 @@ type Hooks struct {
 	// lookupUser finds a local account (NSS), for "user:" approvers.
 	lookupUser func(name string) (broker.Approver, error)
 
+	once sync.Once
 	mu   sync.Mutex
 	seen map[string]time.Time // signatures of callbacks taken, by when they lapse
 }
 
-func (h *Hooks) init() {
+// init sets the defaults, once: Run, Send, Ping and Handler may be called
+// from several goroutines.
+func (h *Hooks) init() { h.once.Do(h.defaults) }
+
+func (h *Hooks) defaults() {
 	if h.now == nil {
 		h.now = time.Now
 	}
@@ -154,6 +184,13 @@ func (h *Hooks) init() {
 	}
 	if h.Client == nil {
 		h.Client = &http.Client{Timeout: postTimeout}
+	}
+	if h.Client.CheckRedirect == nil {
+		// A redirect would take the post, its signature and with
+		// include_args the arguments elsewhere, perhaps without TLS.
+		c := *h.Client
+		c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		h.Client = &c
 	}
 	if h.lookupUser == nil {
 		h.lookupUser = localApprover
@@ -309,6 +346,9 @@ func (h *Hooks) sendOnce(ctx context.Context, hk *Hook, kind string, body []byte
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	_ = resp.Body.Close()
+	if loc := resp.Header.Get("Location"); resp.StatusCode/100 == 3 && loc != "" {
+		return fmt.Errorf("%s answered %s to %s: redirects are not followed, set url to the receiver itself", hk.URL, resp.Status, loc)
+	}
 	if resp.StatusCode/100 != 2 {
 		return fmt.Errorf("%s answered %s", hk.URL, resp.Status)
 	}
@@ -361,7 +401,7 @@ func (h *Hooks) callback(w http.ResponseWriter, r *http.Request) {
 		h.Log.Warn("webhook: callback refused", "webhook", name, "approver", approver, "id", id, "reason", msg)
 		writeError(w, status, msg)
 	}
-	sig, err := Verify(hk.Secret, body, r.Header.Get(SignatureHeader), h.now())
+	sig, err := VerifyCallback(hk.Secret, body, r.Header.Get(SignatureHeader), h.now())
 	if err != nil {
 		// Not audited: anyone reaching the listener could fill the audit
 		// trail. What a receiver signed is.
@@ -386,6 +426,18 @@ func (h *Hooks) callback(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		refuse(http.StatusBadRequest, err.Error(), d.Approver, d.ID)
 		return
+	}
+	// A webhook decides only what it may be posted: its servers'
+	// approvals (an approval keeps its server).
+	if len(hk.Servers) > 0 {
+		p, err := h.Broker.GetPending(r.Context(), a, d.ID)
+		if err == nil && !hk.wants(p.Server) {
+			err = broker.ErrNotFound
+		}
+		if err != nil {
+			refuse(http.StatusNotFound, "no such approval of this webhook's servers, or "+d.Approver+" may not decide it", d.Approver, d.ID)
+			return
+		}
 	}
 	g, err := h.Broker.ResolveVia(r.Context(), a, d.ID, d.Decision == "approve", d.Scope, Via)
 	switch {

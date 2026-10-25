@@ -73,7 +73,11 @@ approvals:
     - name: chat
       url: %s/hook
       secret_file: %s
-`, port, certFile, keyFile, provider.srv.URL, origin, receiver.URL, secretFile))
+    - name: tickets
+      url: %s/tickets
+      secret_file: %s
+      servers: [zypp]
+`, port, certFile, keyFile, provider.srv.URL, origin, receiver.URL, secretFile, receiver.URL, secretFile))
 
 	c := newClient(t, e.connect, e.gwSock, "fs")
 	c.initialize(map[string]any{})
@@ -102,10 +106,19 @@ approvals:
 	}
 
 	https := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}}
-	callback := func(body string, sign bool) (int, string) {
+	// callback BODY SIGN [URL]: sign is "", "callback" or "post" (signed
+	// as a post is, which is no callback's signature).
+	callback := func(body, sign string, url ...string) (int, string) {
 		t.Helper()
-		req, _ := http.NewRequest(http.MethodPost, ev.Callback, strings.NewReader(body))
-		if sign {
+		target := ev.Callback
+		if len(url) > 0 {
+			target = url[0]
+		}
+		req, _ := http.NewRequest(http.MethodPost, target, strings.NewReader(body))
+		switch sign {
+		case "callback":
+			req.Header.Set(webhook.SignatureHeader, webhook.SignCallback(secret, []byte(body), time.Now()))
+		case "post":
 			req.Header.Set(webhook.SignatureHeader, webhook.Sign(secret, []byte(body), time.Now()))
 		}
 		resp, err := https.Do(req)
@@ -119,14 +132,23 @@ approvals:
 	decide := func(approver string) string {
 		return fmt.Sprintf(`{"id":%q,"decision":"approve","scope":"once","approver":%q}`, ev.ID, approver)
 	}
-	if code, b := callback(decide("remote-user:chat-approver"), false); code != 401 {
+	if code, b := callback(decide("remote-user:chat-approver"), ""); code != 401 {
 		t.Errorf("unsigned: %d %s", code, b)
 	}
-	if code, b := callback(decide("remote-user:someone-else"), true); code != 404 {
+	if code, b := callback(decide("remote-user:chat-approver"), "post"); code != 401 {
+		t.Errorf("signed as a post: %d %s", code, b)
+	}
+	if code, b := callback(decide("remote-user:someone-else"), "callback"); code != 404 {
 		t.Errorf("not an approver: %d %s", code, b)
 	}
+	// tickets, for zypp's approvals only, may not decide fs's (it shares
+	// the secret here; the receiver could know the id).
+	if code, b := callback(decide("remote-user:chat-approver"), "callback", origin+"/approvals/webhook/tickets"); code != 404 ||
+		!strings.Contains(b, "of this webhook's servers") {
+		t.Errorf("another webhook's servers: %d %s", code, b)
+	}
 	approve := decide("remote-user:chat-approver")
-	sig := webhook.Sign(secret, []byte(approve), time.Now())
+	sig := webhook.SignCallback(secret, []byte(approve), time.Now())
 	signedCall := func() (int, string) {
 		req, _ := http.NewRequest(http.MethodPost, ev.Callback, strings.NewReader(approve))
 		req.Header.Set(webhook.SignatureHeader, sig)

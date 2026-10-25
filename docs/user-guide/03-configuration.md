@@ -257,16 +257,16 @@ approvals:
 | `approvals.progress_interval` | `15s` | how often a call waiting for approval reports progress (`notifications/progress`) to an agent that asked for progress; at least `1s` (chapter 7) |
 | `approvals.retry_wait` | `25s` | how long a retry of an agent of MCP 2026-07-28 waits for an approval or a sign-in before it is answered to retry again; keep it below the agents' request timeouts; at least `1s` (chapter 7) |
 | `approvals.page.client_id` | empty | the gateway's own approval page on its HTTPS listener (chapter 7, "The gateway's approval page"): the client registered at the identity provider of `http.issuer`, with `<origin of http.audience>/approvals/callback` as redirect URI. Empty: no page. Needs `http.listen`, `http.issuer`, `http.audience` and the control socket; takes effect at the next start |
-| `approvals.page.client_secret_file` | empty | file with that client's secret, for a confidential client (sent with HTTP basic authentication); empty: a public client (PKCE only). Read at start |
+| `approvals.page.client_secret_file` | empty | file with that client's secret, for a confidential client (sent with HTTP basic authentication); empty: a public client (PKCE only). Read at start; readable by the group `mcp-gateway` and nobody else (the gateway warns, the doctor fails otherwise) |
 | `approvals.page.scopes` | `[]` | scopes asked for at sign-in besides `openid` |
 | `approvals.page.device_client_id` | empty | the public client with the device authorization grant that `mcp-gateway-admin approvals login --gateway` signs in as, on other hosts (chapter 7, "Deciding from another host"); its ID tokens are the sign-in to the approval API at `/approvals/api/`. Empty: no API. Needs `client_id`; takes effect at the next start |
 | `approvals.page.session_ttl` | `1h` | how long a sign-in on the page lasts (1m to 168h), with the groups its ID token had |
 | `approvals.webhooks` | `[]` | receivers each new pending approval is posted to, signed, and that may decide on a signed callback to `<origin of http.audience>/approvals/webhook/<name>` (chapter 7, "Webhooks"). Takes effect at the next start |
 | `approvals.webhooks[].name` | | the webhook's name, in its callback URL and the audit: lower-case letters, digits, `-` and `_`; unique |
-| `approvals.webhooks[].url` | | where approvals are posted: `https://`, or `http://` to localhost |
-| `approvals.webhooks[].secret_file` | | file with the secret shared with the receiver (at least 32 characters, e.g. `openssl rand -hex 32`), which signs posts and callbacks; read at start, readable by the group `mcp-gateway` |
+| `approvals.webhooks[].url` | | where approvals are posted: `https://`, or `http://` to localhost; the receiver itself (redirects are not followed) |
+| `approvals.webhooks[].secret_file` | | file with the secret shared with the receiver (at least 32 characters, e.g. `openssl rand -hex 32`), which signs posts and callbacks; read at start, readable by the group `mcp-gateway` and nobody else (the gateway warns, the doctor fails otherwise) |
 | `approvals.webhooks[].include_args` | `false` | send the call's arguments in the posts (they leave the host) |
-| `approvals.webhooks[].servers` | `[]` | post only these servers' approvals; empty: all |
+| `approvals.webhooks[].servers` | `[]` | post only these servers' approvals, and take callbacks only for them; empty: all |
 | `approvals.webhooks[].local_accounts` | `false` | callbacks may name local accounts (`user:<name>`), which the approver rules treat as that account (never root); off: only `remote-user:<name>` |
 | `approvals.no_wait` | `[kit]` | clients, by name (case-insensitive; `"*"` for all), whose calls do not wait for an `oob` approval: they are answered at once with a tool error naming the approval and how to decide it, and the agent's next attempt finds the decision (chapter 7, "Agents told at once"). For agents that show nothing while a call waits. Setting the key replaces the default; `[]` names none |
 

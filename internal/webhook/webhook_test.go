@@ -29,6 +29,18 @@ func TestSignVerify(t *testing.T) {
 	if _, err := Verify(secret, body, h, now.Add(time.Minute)); err != nil {
 		t.Errorf("valid: %v", err)
 	}
+	// What one side signs is not the other's: a post's signature is no
+	// callback's, and the other way round.
+	cb := SignCallback(secret, body, now)
+	if _, err := VerifyCallback(secret, body, cb, now); err != nil {
+		t.Errorf("valid callback: %v", err)
+	}
+	if _, err := VerifyCallback(secret, body, h, now); err == nil {
+		t.Error("a post's signature verifies as a callback's")
+	}
+	if _, err := Verify(secret, body, cb, now); err == nil {
+		t.Error("a callback's signature verifies as a post's")
+	}
 	for name, c := range map[string]struct {
 		secret, body []byte
 		header       string
@@ -55,6 +67,20 @@ type fakeBroker struct {
 	ch       chan broker.Event
 	resolved []string
 	err      error
+	servers  map[string]string // pending approval id → server; nil: any id is fs's
+}
+
+func (b *fakeBroker) GetPending(_ context.Context, _ broker.Approver, id string) (broker.Pending, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.servers == nil {
+		return broker.Pending{ID: id, Server: "fs"}, nil
+	}
+	srv, ok := b.servers[id]
+	if !ok {
+		return broker.Pending{}, broker.ErrNotFound
+	}
+	return broker.Pending{ID: id, Server: srv}, nil
 }
 
 func (b *fakeBroker) Subscribe() (<-chan broker.Event, func()) { return b.ch, func() {} }
@@ -251,7 +277,7 @@ func (f *fixture) call(t *testing.T, hook, sig, body string) (int, string) {
 
 func (f *fixture) signed(t *testing.T, body string) (int, string) {
 	t.Helper()
-	return f.call(t, "chat", Sign(secret, []byte(body), f.now), body)
+	return f.call(t, "chat", SignCallback(secret, []byte(body), f.now), body)
 }
 
 func TestCallback(t *testing.T) {
@@ -291,9 +317,10 @@ func TestCallbackRefused(t *testing.T) {
 		want            string
 	}{
 		"unsigned":                     {"chat", "", ok, 401, "not signed"},
-		"wrong secret":                 {"chat", Sign([]byte("not the secret, but just as long"), []byte(ok), time.Now()), ok, 401, "does not match"},
-		"stale":                        {"chat", Sign(secret, []byte(ok), time.Now().Add(-10*time.Minute)), ok, 401, "more than 5m0s"},
-		"no such webhook":              {"tickets", Sign(secret, []byte(ok), time.Now()), ok, 404, "no such webhook"},
+		"wrong secret":                 {"chat", SignCallback([]byte("not the secret, but just as long"), []byte(ok), time.Now()), ok, 401, "does not match"},
+		"signed as a post":             {"chat", Sign(secret, []byte(ok), time.Now()), ok, 401, "does not match"},
+		"stale":                        {"chat", SignCallback(secret, []byte(ok), time.Now().Add(-10*time.Minute)), ok, 401, "more than 5m0s"},
+		"no such webhook":              {"tickets", SignCallback(secret, []byte(ok), time.Now()), ok, 404, "no such webhook"},
 		"bad decision":                 {"chat", "", `{"id":"a-1","decision":"maybe","approver":"remote-user:jack"}`, 400, "decision must be"},
 		"no approver":                  {"chat", "", `{"id":"a-1","decision":"approve"}`, 400, "approver must be"},
 		"a role":                       {"chat", "", `{"id":"a-1","decision":"approve","approver":"role:admin"}`, 400, "approver must be"},
@@ -304,7 +331,7 @@ func TestCallbackRefused(t *testing.T) {
 		sig := c.sig
 		if sig == "" && name != "unsigned" {
 			f.now = f.now.Add(time.Second) // a new signature each
-			sig = Sign(secret, []byte(c.body), f.now)
+			sig = SignCallback(secret, []byte(c.body), f.now)
 		}
 		if code, b := f.call(t, c.hook, sig, c.body); code != c.status || !strings.Contains(b, c.want) {
 			t.Errorf("%s: %d %s, want %d %q", name, code, b, c.status, c.want)
@@ -344,5 +371,58 @@ func TestReplaysForgotten(t *testing.T) {
 	f.now = f.now.Add(2 * time.Minute)
 	if !f.h.firstUse("k", f.now.Add(time.Minute)) {
 		t.Error("a lapsed key is still refused")
+	}
+}
+
+// A webhook with servers decides only those servers' approvals.
+func TestCallbackServers(t *testing.T) {
+	f := newFixture(t)
+	f.h.Hooks = append(f.h.Hooks, Hook{Name: "zypp-only", Secret: secret, Servers: []string{"zypp"}})
+	f.b.servers = map[string]string{"a-fs": "fs", "a-zypp": "zypp"}
+	call := func(id string) (int, string) {
+		f.now = f.now.Add(time.Second)
+		body := `{"id":"` + id + `","decision":"approve","scope":"once","approver":"remote-user:jack"}`
+		return f.call(t, "zypp-only", SignCallback(secret, []byte(body), f.now), body)
+	}
+	if code, b := call("a-fs"); code != 404 || !strings.Contains(b, "no such approval of this webhook's servers") {
+		t.Errorf("fs's approval: %d %s", code, b)
+	}
+	if code, b := call("a-gone"); code != 404 {
+		t.Errorf("unknown approval: %d %s", code, b)
+	}
+	if len(f.b.resolved) != 0 {
+		t.Fatalf("decided %v", f.b.resolved)
+	}
+	if code, b := call("a-zypp"); code != 204 || len(f.b.resolved) != 1 {
+		t.Errorf("zypp's approval: %d %s %v", code, b, f.b.resolved)
+	}
+	f.audit.mu.Lock()
+	defer f.audit.mu.Unlock()
+	if !strings.HasPrefix(f.audit.events[0], "mcp-webhook-callback refused zypp-only remote-user:jack a-fs ") {
+		t.Errorf("audit %q", f.audit.events)
+	}
+}
+
+// Posts follow no redirect: it would take the signed body (and with
+// include_args the arguments) elsewhere.
+func TestNoRedirects(t *testing.T) {
+	firstRetry = 10 * time.Millisecond
+	elsewhere, got := receiver(t, 0)
+	redirecting := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+"/stolen", http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(redirecting.Close)
+	h := &Hooks{Client: redirecting.Client()}
+	err := h.Send(context.Background(), &Hook{Name: "chat", URL: redirecting.URL, Secret: secret}, Event{Type: "pending", ID: "a-1"})
+	if err == nil || !strings.Contains(err.Error(), "307 Temporary Redirect to "+elsewhere.URL+"/stolen: redirects are not followed") {
+		t.Errorf("err %v", err)
+	}
+	select {
+	case r := <-got:
+		t.Errorf("the redirect was followed: %s", r.body)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if h.Client == redirecting.Client() || redirecting.Client().CheckRedirect != nil {
+		t.Error("the client given was changed, not copied")
 	}
 }

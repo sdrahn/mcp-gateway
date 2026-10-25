@@ -4141,9 +4141,12 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       with `X-MCP-Gateway-Signature: t=<unix>,v1=<HMAC-SHA256 of
       "<t>.<body>">`. The callback is authenticated the same way, with
       the webhook's secret (the token per webhook; mTLS left for when a
-      receiver needs it): `POST /approvals/webhook/<name>` on the HTTPS
-      listener, taken only with a signature at most five minutes old and
-      only once (a replay is a 409). It names the approver as
+      receiver needs it), over `callback.<t>.<body>` so that nothing one
+      side signed is taken as the other's: `POST
+      /approvals/webhook/<name>` on the HTTPS listener, taken only with a
+      signature at most five minutes old, only once (a replay is a 409),
+      and only for an approval of the webhook's `servers` (another's is a
+      404 even with its id). It names the approver as
       `remote-user:<name>` (with `groups`), or, with `local_accounts`,
       a local `user:<name>`, looked up through NSS and never root; the
       approver rules see it with `remote` and the issuer
@@ -4154,7 +4157,11 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       ones are not, so that whoever reaches the listener cannot fill the
       audit trail. The
       doctor's `webhook <name>` check posts a signed ping (as root, who
-      can read the secret) and warns when no listener takes callbacks;
+      can read the secret) and warns when no listener takes callbacks.
+      After the security review: posts follow no redirect (it would take
+      the signed body, and the arguments, elsewhere); a secret file
+      others may read (a webhook's, the page's client secret) makes the
+      gateway warn at start and the doctor fail;
       `approval reach` counts webhooks;
     - releases: all five stages go into 1.9.0, published as a release
       that is not marked as the latest on GitHub (1.8 stays the latest);

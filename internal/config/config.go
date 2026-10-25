@@ -291,6 +291,20 @@ type Webhook struct {
 	LocalAccounts bool `yaml:"local_accounts"`
 }
 
+// ExposedSecret reports how a secret file (approvals.page's client
+// secret, a webhook's) is exposed: "" when others may not read or change
+// it, else its mode. The file is stat'ed, not read.
+func ExposedSecret(path string) (string, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if fi.Mode().Perm()&0o006 != 0 {
+		return fmt.Sprintf("%04o", fi.Mode().Perm()), nil
+	}
+	return "", nil
+}
+
 // MinWebhookSecret is the shortest secret a webhook takes.
 const MinWebhookSecret = 32
 

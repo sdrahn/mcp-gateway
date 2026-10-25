@@ -14,17 +14,22 @@ minor release (with a warning) and removed in the next.
   many gateways), signed with the webhook's secret
   (`X-MCP-Gateway-Signature: t=…,v1=…`, HMAC-SHA256 over the timestamp
   and the body) and without the call's arguments unless `include_args`;
-  `servers` limits a webhook to some servers' approvals. Decided or gone,
-  it is posted again (`resolved`). The receiver decides on a signed
-  callback to `/approvals/webhook/<name>` on the HTTPS listener, naming
+  `servers` limits a webhook to some servers' approvals, posted and
+  decided. Decided or gone, it is posted again (`resolved`); posts
+  follow no redirect. The receiver decides on a callback to
+  `/approvals/webhook/<name>` on the HTTPS listener, signed over
+  `callback.<t>.<body>` (so no post's signature is a callback's), naming
   the approver (`remote-user:<name>`, or with `local_accounts` a local
   `user:<name>`, never root); the gateway takes it only with a valid
-  signature at most five minutes old, only once, and only for an
-  approver the rules allow. Callbacks are audited
-  (`mcp-webhook-callback`, refused signed ones too), decisions with
-  `via=webhook`. The doctor's new check `webhook <name>` posts a signed
-  ping; `approval reach` counts webhooks (user guide, chapter 7,
+  signature at most five minutes old, only once, only for an approval of
+  the webhook's servers, and only for an approver the rules allow.
+  Callbacks are audited (`mcp-webhook-callback`, refused signed ones
+  too), decisions with `via=webhook`. The doctor's new check `webhook
+  <name>` posts a signed ping and fails for a secret file others may
+  read; `approval reach` counts webhooks (user guide, chapter 7,
   "Webhooks"; roadmap step 39 stage E).
+- A secret file others may read (a webhook's, `approvals.page`'s client
+  secret): the gateway warns at start, and the doctor fails.
 - Deciding from another host: `mcp-gateway-admin approvals` and `grants`
   take `--gateway https://host:port` and work on that gateway, as signed
   in there with `approvals login --gateway` (the OAuth device flow at the
