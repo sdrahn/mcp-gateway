@@ -236,6 +236,8 @@ mcp-gateway-admin approvals show ID [options]
 mcp-gateway-admin approvals approve ID [options]
 mcp-gateway-admin approvals deny ID [options]
 mcp-gateway-admin approvals watch [options]
+mcp-gateway-admin approvals login --gateway URL
+mcp-gateway-admin approvals logout --gateway URL
 ```
 
 Lists the pending approvals you may decide on (`GET /v1/approvals`),
@@ -243,7 +245,12 @@ shows one with its arguments, approves one after a question or denies one
 (`POST /v1/approvals/{id}`, `"via": "cli"`), or follows them as they come
 and go (`GET /v1/events`, until interrupted); chapter 7, "Deciding from
 the command line". ID as for `clients`. The approver rules decide as for
-Cockpit: an approval that is not yours reads as unknown.
+Cockpit: an approval that is not yours reads as unknown. With `--gateway
+URL`, on the gateway at URL as signed in there with `approvals login`
+(chapter 7, "Deciding from another host"): its approval API,
+`/approvals/api/v1/…` on the HTTPS listener, the same requests and
+answers with an ID token of `approvals.page.device_client_id` as the
+bearer token; decisions are audited with `via=remote-cli`.
 
 | Flag | Meaning |
 |---|---|
@@ -251,10 +258,12 @@ Cockpit: an approval that is not yours reads as unknown.
 | `--yes` | `approve`: approve without asking |
 | `--json` | print the list, the approval (`show`) or the events (`watch`) as the control API's JSON |
 | `--socket PATH` | as for `clients` |
+| `--gateway URL` | a gateway on another host, `https://host:port` (the origin of its `http.audience`; any URL there will do) |
 
 Exit status 0; 1 when the approval is not yours to decide or there is
 none with that id ("no such approval"), the prefix names several, the
-scope is not offered, or the question was answered no; 2 on usage
+scope is not offered, or the question was answered no; with `--gateway`
+also when not signed in there or the sign-in is not accepted; 2 on usage
 errors; 3 when the gateway does not answer (for `watch`: stops
 answering).
 
@@ -326,6 +335,7 @@ if a check failed, 2 on usage errors, 0 otherwise.
 | `--scopes LIST` | comma-separated scopes every token must carry (`http.scopes`; `""` for none) |
 | `--client-id ID` | the gateway's client for its approval page at the identity provider (`approvals.page.client_id`; chapter 7, "The gateway's approval page"); takes effect at the next start |
 | `--client-secret-file FILE` | file with that client's secret, for a confidential client (`approvals.page.client_secret_file`) |
+| `--device-client-id ID` | the public client the command line on other hosts signs in as, with the device flow (`approvals.page.device_client_id`) |
 | `--token FILE` | an access token to check as the gateway takes it (`-`: standard input); it is never printed |
 | `--policy-data FILE` | role data, for the ceiling of the token's scopes (default: `/etc/mcp-gateway/policy/rbac/data.json`; empty: none; unreadable: left out) |
 | `--write` | write the keys of the `http` block to the drop-in |
@@ -572,8 +582,8 @@ Kernel audit (`TRUSTED_APP`) operations:
 |---|---|---|
 | `mcp-gateway-start` | the gateway started | |
 | `mcp-decision` | a request was denied (`res=failed`), or any decision on a privileged server | `session`, `principal`, `action`, `server`, `target`, `reason`, `decision_id`; for privileged servers also `privileged=yes` and `grant` |
-| `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel`; `via`: `page` on the gateway's approval page, `cockpit`, `cli` or `api` when decided through the control API and the caller named it |
-| `mcp-approver-sign-in` | an approver signed in on the gateway's approval page (`res=success`), or a sign-in failed after the identity provider answered (`res=failed`) | `principal`, `issuer`, `via` (`page`), `reason` |
+| `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel`; `via`: `page` on the gateway's approval page, `remote-cli` from `mcp-gateway-admin --gateway`, `cockpit`, `cli` or `api` when decided through the control API and the caller named it |
+| `mcp-approver-sign-in` | an approver signed in on the gateway's approval page (`res=success`), or a sign-in failed after the identity provider answered (`res=failed`); or signed in on another host (`approvals login --gateway`) | `principal`, `issuer`, `via` (`page`, `remote-cli`), `reason` |
 | `mcp-grant-revoke` | a grant was revoked | `id`, `by`, `principal`, `server`, `target`; `via` as for `mcp-approval` |
 | `mcp-policy-change` | OPA loaded a different policy | `revision` |
 | `mcp-config-reload` | the server definitions, or `gateway.yaml` (`file=gateway.yaml`), were reloaded with changes (`res=success`), or could not be (`res=failed`; what was in force stays) | `trigger` (`file change`, `SIGHUP`), `file`, `added`, `changed`, `removed`, `restart_needed`, `error` |

@@ -9,6 +9,19 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- Deciding from another host: `mcp-gateway-admin approvals` and `grants`
+  take `--gateway https://host:port` and work on that gateway, as signed
+  in there with `approvals login --gateway` (the OAuth device flow at the
+  gateway's identity provider, as the public client
+  `approvals.page.device_client_id`; no browser needed where it runs).
+  The sign-in is kept per gateway in `~/.config/mcp-gateway-admin/`,
+  readable by the user only, and renewed with its refresh token. The
+  gateway's approval API (`/approvals/api/v1/…` on the HTTPS listener)
+  takes only that client's ID tokens, and decides under the same approver
+  rules; decisions are audited with `via=remote-cli`. `setup http
+  --device-client-id` sets it up, and the doctor's `approval page` check
+  tries the device authorization (user guide, chapter 7, "Deciding from
+  another host"; roadmap step 39 stage D).
 - The gateway's own approval page on its HTTPS listener
   (`/approvals/`): approvers sign in with the identity provider of
   `http.issuer` (OpenID Connect, authorization code with PKCE, as the

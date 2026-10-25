@@ -8,11 +8,14 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"os/signal"
 	"slices"
 	"sort"
 	"strings"
@@ -28,6 +31,8 @@ const approvalsUsage = `usage: mcp-gateway-admin approvals [options]            
        mcp-gateway-admin approvals approve ID [options]      approve one
        mcp-gateway-admin approvals deny ID [options]         deny one
        mcp-gateway-admin approvals watch [options]           follow them as they come and go
+       mcp-gateway-admin approvals login --gateway URL       sign in to a gateway on another host
+       mcp-gateway-admin approvals logout --gateway URL      forget that sign-in
 
 Lists the approvals waiting for a decision that you may decide on (your
 own, and others' as the approver rules allow; root: all), as Cockpit's
@@ -44,10 +49,21 @@ Decisions are audited as made on the command line.
 "approvals watch" prints the pending approvals, then each new one and
 each decided or expired, until interrupted.
 
+With --gateway URL (https://host:port, the gateway's HTTPS listener), the
+commands work on that gateway instead of the local one, as you signed in
+there: "approvals login --gateway URL" signs in with the gateway's
+identity provider (the device flow: open the link it prints in any
+browser and confirm the code) and keeps the sign-in, readable by you
+only, in ~/.config/mcp-gateway-admin/gateways/; the commands renew it
+while the identity provider allows. The gateway's approver rules decide
+as for the local commands; decisions are audited as made from another
+host.
+
 Exit status: 0; 1 when the approval is not yours to decide or there is
-none with that id (the two read alike), the scope is not offered, or the
-question was answered no; 2 for wrong usage; 3 when the gateway does not
-answer (or, for watch, stops answering).
+none with that id (the two read alike), the scope is not offered, the
+question was answered no, or (--gateway) you are not signed in there or
+the sign-in is not accepted; 2 for wrong usage; 3 when the gateway does
+not answer (or, for watch, stops answering).
 
 Options:
 `
@@ -62,7 +78,8 @@ tool without being asked again, until when.
 "grants revoke ID" revokes one after a question (--yes does not ask): the
 next such call asks for approval again; calls already running finish.
 ID is the id the list shows (g-...), or any prefix of it that names one
-grant.
+grant. With --gateway URL, on that gateway, as signed in there
+(mcp-gateway-admin approvals login --gateway URL).
 
 Exit status: 0; 1 when the grant is not yours to revoke or there is none
 with that id (the two read alike), or the question was answered no; 2 for
@@ -75,6 +92,7 @@ func runApprovals(args []string, stdout, stderr io.Writer) int {
 	f := newAdminFlags("approvals", approvalsUsage, stderr)
 	yes := f.fs.Bool("yes", false, "approve without asking")
 	scope := f.fs.String("scope", "", `the scope to approve with ("once", "session", a duration such as "1h")`)
+	gateway := f.fs.String("gateway", "", "a gateway on another host, https://host:port (see login)")
 	words, rc := f.parse(args)
 	if rc >= 0 {
 		return rc
@@ -82,14 +100,29 @@ func runApprovals(args []string, stdout, stderr io.Writer) int {
 	switch {
 	case len(words) == 0:
 	case len(words) == 1 && words[0] == "watch":
+	case len(words) == 1 && (words[0] == "login" || words[0] == "logout") && *gateway != "":
+		origin, err := gatewayOrigin(*gateway)
+		if err != nil {
+			say(stderr, "mcp-gateway-admin:", err)
+			return exitUsage
+		}
+		if words[0] == "logout" {
+			return remoteLogout(origin, stdout, stderr)
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stop()
+		return remoteLogin(ctx, origin, stdout, stderr)
 	case len(words) == 2 && (words[0] == "show" || words[0] == "approve" || words[0] == "deny"):
 	default:
 		f.fs.Usage()
 		return exitUsage
 	}
-	cc, err := newControlClient(*f.socket)
+	cc, err := clientFor(*f.socket, *gateway)
 	if err != nil {
 		say(stderr, "mcp-gateway-admin:", err)
+		if *gateway != "" {
+			return exitRefused // not signed in there
+		}
 		return exitUnreachable
 	}
 	if len(words) == 1 {
@@ -147,6 +180,15 @@ func runApprovals(args []string, stdout, stderr io.Writer) int {
 	return cc.decide(stdout, stderr, p, short[i], "approve", s)
 }
 
+// clientFor is the control client of the local gateway (socket), or of
+// the one at gateway, signed in.
+func clientFor(socket, gateway string) (*controlClient, error) {
+	if gateway != "" {
+		return newRemoteClient(gateway)
+	}
+	return newControlClient(socket)
+}
+
 // pickScope returns the scope to approve with: asked if offered; without
 // one, "once" if offered, else the only one offered.
 func pickScope(offered []string, asked string) (string, bool) {
@@ -189,29 +231,42 @@ func (cc *controlClient) decide(stdout, stderr io.Writer, p broker.Pending, shor
 }
 
 // watch follows /v1/events: the pending approvals, then their changes.
+// A remote gateway ends the stream when the sign-in's token expires: it
+// is opened again with the renewed one.
 func (cc *controlClient) watch(stdout, stderr io.Writer, raw bool) int {
-	req, err := http.NewRequest(http.MethodGet, "http://gateway/v1/events", nil)
+	known := map[string]broker.Pending{}
+	for first := true; ; first = false {
+		rc, again := cc.watchOnce(stdout, stderr, raw, first, known)
+		if !again || cc.remote == "" {
+			return rc
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// watchOnce follows one events stream; again: it ended after it opened.
+func (cc *controlClient) watchOnce(stdout, stderr io.Writer, raw, first bool, known map[string]broker.Pending) (int, bool) {
+	req, err := http.NewRequest(http.MethodGet, cc.base+"/v1/events", nil)
 	if err != nil {
 		say(stderr, "mcp-gateway-admin:", err)
-		return exitUnreachable
+		return exitUnreachable, false
 	}
 	// The stream stays open: no overall timeout, as for the lists.
 	client := &http.Client{Transport: cc.http.Transport}
 	resp, err := client.Do(req)
 	if err != nil {
 		say(stderr, "mcp-gateway-admin:", cc.unreachable(err))
-		return exitUnreachable
+		return exitUnreachable, false
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		sayf(stderr, "mcp-gateway-admin: /v1/events: %s", apiMessage(resp.StatusCode, data))
-		return exitRefused
+		sayf(stderr, "mcp-gateway-admin: /v1/events: %s", cc.message(resp.StatusCode, data))
+		return exitRefused, false
 	}
-	if !raw {
+	if !raw && first {
 		say(stderr, "Watching the approvals you may decide on (Ctrl-C ends).")
 	}
-	known := map[string]broker.Pending{}
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 64<<10), 4<<20)
 	for sc.Scan() {
@@ -243,6 +298,9 @@ func (cc *controlClient) watch(stdout, stderr io.Writer, raw bool) int {
 			p := *ev.Pending
 			_, seen := known[p.ID]
 			known[p.ID] = p
+			if seen && !first && !ev.New && cc.remote != "" {
+				continue // listed again as the stream opened again
+			}
 			waiting := ""
 			if !p.Waiting {
 				waiting = ", no call waiting"
@@ -263,13 +321,17 @@ func (cc *controlClient) watch(stdout, stderr io.Writer, raw bool) int {
 			}
 		}
 	}
+	if cc.remote != "" {
+		return 0, true
+	}
 	say(stderr, "mcp-gateway-admin: the gateway ended the stream (stopped or restarted?)")
-	return exitUnreachable
+	return exitUnreachable, false
 }
 
 func runGrants(args []string, stdout, stderr io.Writer) int {
 	f := newAdminFlags("grants", grantsUsage, stderr)
 	yes := f.fs.Bool("yes", false, "revoke without asking")
+	gateway := f.fs.String("gateway", "", "a gateway on another host, https://host:port (approvals login --gateway signs in)")
 	words, rc := f.parse(args)
 	if rc >= 0 {
 		return rc
@@ -281,9 +343,12 @@ func runGrants(args []string, stdout, stderr io.Writer) int {
 		f.fs.Usage()
 		return exitUsage
 	}
-	cc, err := newControlClient(*f.socket)
+	cc, err := clientFor(*f.socket, *gateway)
 	if err != nil {
 		say(stderr, "mcp-gateway-admin:", err)
+		if *gateway != "" {
+			return exitRefused // not signed in there
+		}
 		return exitUnreachable
 	}
 	var list []pep.Grant

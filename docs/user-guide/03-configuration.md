@@ -238,6 +238,7 @@ approvals:
     client_id: ""
     client_secret_file: ""
     scopes: []
+    device_client_id: ""
     session_ttl: 1h
 ```
 
@@ -251,6 +252,7 @@ approvals:
 | `approvals.page.client_id` | empty | the gateway's own approval page on its HTTPS listener (chapter 7, "The gateway's approval page"): the client registered at the identity provider of `http.issuer`, with `<origin of http.audience>/approvals/callback` as redirect URI. Empty: no page. Needs `http.listen`, `http.issuer`, `http.audience` and the control socket; takes effect at the next start |
 | `approvals.page.client_secret_file` | empty | file with that client's secret, for a confidential client (sent with HTTP basic authentication); empty: a public client (PKCE only). Read at start |
 | `approvals.page.scopes` | `[]` | scopes asked for at sign-in besides `openid` |
+| `approvals.page.device_client_id` | empty | the public client with the device authorization grant that `mcp-gateway-admin approvals login --gateway` signs in as, on other hosts (chapter 7, "Deciding from another host"); its ID tokens are the sign-in to the approval API at `/approvals/api/`. Empty: no API. Needs `client_id`; takes effect at the next start |
 | `approvals.page.session_ttl` | `1h` | how long a sign-in on the page lasts (1m to 168h), with the groups its ID token had |
 | `approvals.no_wait` | `[kit]` | clients, by name (case-insensitive; `"*"` for all), whose calls do not wait for an `oob` approval: they are answered at once with a tool error naming the approval and how to decide it, and the agent's next attempt finds the decision (chapter 7, "Agents told at once"). For agents that show nothing while a call waits. Setting the key replaces the default; `[]` names none |
 

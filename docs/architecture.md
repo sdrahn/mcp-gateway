@@ -4034,8 +4034,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       OPA watches as given, to make it look again (found by the VM test).
 
 39. **Approvals without Cockpit** (1.9.0, a release not marked as the
-    latest; 2.0 once tested and fixed, as a major feature; D21; stages A,
-    B and C done):
+    latest; 2.0 once tested and fixed, as a major feature; D21; stages A
+    to D done):
     - the problem: every out-of-band approval ends on the Cockpit page.
       Notifications and mail only link there, the control API is the
       local socket, and an agent like Kit shows nothing while a call
@@ -4107,13 +4107,22 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       secret), not a tool an agent can call, and tokens are never shown
       to a model (no token-explaining tool; `setup http --token FILE`
       explains one on the command line);
-    - stage D, the command line against a remote gateway:
+    - stage D (done), the command line against a remote gateway:
       `mcp-gateway-admin approvals --gateway https://host:port …`
       signs in with the OAuth device flow (no browser on the host
       needed) and keeps the approver's token per gateway in the user's
       keyring or a file only they can read; the same API as stage C's
       page, so an approver on a laptop decides on any gateway without
-      SSH;
+      SSH. As built: `approvals login|logout --gateway`; the sign-in is a
+      file (no keyring), `~/.config/mcp-gateway-admin/gateways/<host>.json`
+      mode 0600, refused when others may read it, with the ID token and
+      the refresh token that renews it; the gateway's approval API
+      (`/approvals/api/v1/…`, the control API's requests and answers,
+      events until the token expires) takes only ID tokens of
+      `approvals.page.device_client_id` as bearer tokens (no nonce in the
+      device flow; never an agent's access token, the page's sign-in or a
+      cookie); decisions audited with `via=remote-cli`; the doctor's
+      `approval page` check starts a device authorization for the client;
     - stage E, webhooks for chat and service management: the
       gateway posts each new pending approval (no arguments unless
       `include_args`) to configured URLs, signed (HMAC over the body

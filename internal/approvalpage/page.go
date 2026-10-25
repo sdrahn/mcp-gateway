@@ -44,11 +44,16 @@ type Broker interface {
 	ResolveVia(ctx context.Context, a broker.Approver, id string, approve bool, scope, via string) (*pep.Grant, error)
 	ListGrants(ctx context.Context, a broker.Approver) []pep.Grant
 	RevokeGrantVia(ctx context.Context, a broker.Approver, id, via string) error
+	// For the API's events.
+	Subscribe() (<-chan broker.Event, func())
+	MayApprove(ctx context.Context, a broker.Approver, p broker.Pending) bool
+	ApprovalURL(id string) string
 }
 
 // IDTokens validates the identity provider's ID tokens (authn.OAuth).
 type IDTokens interface {
 	IDToken(ctx context.Context, raw, clientID, nonce string) (principal.Principal, error)
+	ApproverToken(ctx context.Context, raw, clientID string) (principal.Principal, error)
 }
 
 // Auditor records sign-ins on the page (audit.Logger).
@@ -85,10 +90,14 @@ type Page struct {
 	// provider (no secret: a public client).
 	ClientID, ClientSecret string
 	// Scopes are asked for besides openid.
-	Scopes     []string
-	SessionTTL time.Duration
-	Broker     Broker
-	Tokens     IDTokens
+	Scopes []string
+	// DeviceClientID is the client the command line signs in as with the
+	// device flow, whose ID tokens the approval API takes (api.go);
+	// empty: no API.
+	DeviceClientID string
+	SessionTTL     time.Duration
+	Broker         Broker
+	Tokens         IDTokens
 	// Client reaches the identity provider (discovery, token endpoint).
 	Client *http.Client
 	Audit  Auditor
@@ -195,6 +204,7 @@ func (pg *Page) Handler() http.Handler {
 	mux.HandleFunc("GET /approvals/{id}", pg.show)
 	mux.HandleFunc("POST /approvals/{id}", pg.decide)
 	mux.HandleFunc("POST /approvals/grants/{id}/revoke", pg.revoke)
+	pg.apiRoutes(mux)
 	mux.HandleFunc("/approvals/", func(w http.ResponseWriter, r *http.Request) {
 		pg.page(w, http.StatusNotFound, "Not found", "There is no such page.", nil)
 	})
@@ -399,11 +409,15 @@ func (pg *Page) failed(w http.ResponseWriter, sub, reason, hint string) {
 	pg.page(w, http.StatusBadRequest, "Sign-in failed", "Signing in failed: "+reason+". "+hint, nil)
 }
 
-func (pg *Page) audit(ok bool, sub, reason string) {
+func (pg *Page) audit(ok bool, sub, reason string, via ...string) {
 	if pg.Audit == nil {
 		return
 	}
-	f := map[string]string{"principal": sub, "issuer": pg.Issuer, "via": Via}
+	v := Via
+	if len(via) > 0 {
+		v = via[0]
+	}
+	f := map[string]string{"principal": sub, "issuer": pg.Issuer, "via": v}
 	if reason != "" {
 		f["reason"] = reason
 	}

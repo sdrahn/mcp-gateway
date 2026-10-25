@@ -586,8 +586,8 @@ func newApprovalPage(log *slog.Logger, gw *config.Gateway, b *broker.Broker, aud
 	}
 	pg := &approvalpage.Page{
 		Issuer: gw.HTTP.Issuer, Origin: gw.PageOrigin(),
-		ClientID: pc.ClientID, ClientSecret: secret, Scopes: pc.Scopes, SessionTTL: pc.SessionTTL,
-		Broker: b, Audit: auditLog, Log: log,
+		ClientID: pc.ClientID, ClientSecret: secret, DeviceClientID: pc.DeviceClientID,
+		Scopes: pc.Scopes, SessionTTL: pc.SessionTTL, Broker: b, Audit: auditLog, Log: log,
 		// The gateway reaches the identity provider directly, as for its
 		// key set.
 		Client: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: nil}},

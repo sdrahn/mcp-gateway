@@ -141,6 +141,7 @@ type fakeBroker struct {
 	resolved []string
 	revoked  []string
 	seen     []broker.Approver
+	subs     []chan broker.Event
 }
 
 func (b *fakeBroker) may(a broker.Approver) bool {
@@ -208,6 +209,29 @@ func (b *fakeBroker) RevokeGrantVia(_ context.Context, a broker.Approver, id, vi
 	b.revoked = append(b.revoked, id+" via "+via)
 	return nil
 }
+
+func (b *fakeBroker) Subscribe() (<-chan broker.Event, func()) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	ch := make(chan broker.Event, 8)
+	b.subs = append(b.subs, ch)
+	return ch, func() {}
+}
+
+// announce sends an event to the subscribers.
+func (b *fakeBroker) announce(ev broker.Event) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, ch := range b.subs {
+		ch <- ev
+	}
+}
+
+func (b *fakeBroker) MayApprove(_ context.Context, a broker.Approver, _ broker.Pending) bool {
+	return b.may(a)
+}
+
+func (b *fakeBroker) ApprovalURL(id string) string { return "https://gw/approvals/" + id }
 
 func contains(s []string, v string) bool {
 	for _, x := range s {

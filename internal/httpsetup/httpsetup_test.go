@@ -374,3 +374,35 @@ func TestApprovalPage(t *testing.T) {
 		t.Errorf("missing secret: %+v", r)
 	}
 }
+
+func TestApprovalPageDeviceClient(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		base := "https://" + r.Host
+		switch r.URL.Path {
+		case "/authorize":
+			_, _ = fmt.Fprint(w, "<form>sign in</form>")
+		case "/device":
+			if r.PostFormValue("client_id") != "approvals-cli" {
+				w.WriteHeader(400)
+				_, _ = fmt.Fprint(w, `{"error":"unauthorized_client","error_description":"device grant not enabled"}`)
+				return
+			}
+			_, _ = fmt.Fprint(w, `{"device_code":"d","user_code":"U","verification_uri":"x","expires_in":60}`)
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": base, "authorization_endpoint": base + "/authorize",
+				"token_endpoint": base + "/token", "device_authorization_endpoint": base + "/device"})
+		}
+	}))
+	defer srv.Close()
+	gw := &config.Gateway{HTTP: config.HTTP{Listen: ":9443", Issuer: srv.URL, Audience: "https://gw.example.com:9443/mcp"}}
+	gw.Approvals.Page.ClientID, gw.Approvals.Page.DeviceClientID = "approvals", "approvals-cli"
+	r := ApprovalPage(context.Background(), gw, srv.Client(), true)
+	if r.Status != doctor.OK || !strings.Contains(strings.Join(r.Details, " "), "signs in as approvals-cli with the device flow") {
+		t.Errorf("device client: %+v", r)
+	}
+	gw.Approvals.Page.DeviceClientID = "nope"
+	r = ApprovalPage(context.Background(), gw, srv.Client(), true)
+	if r.Status != doctor.Fail || !strings.Contains(r.Summary, "refuses the device authorization for nope (unauthorized_client: device grant not enabled)") {
+		t.Errorf("unknown device client: %+v", r)
+	}
+}

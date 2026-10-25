@@ -709,7 +709,8 @@ func TestApprovalPage(t *testing.T) {
 		"approvals:\n  page:\n    client_id: a\n":                                       "needs the HTTP listener",
 		listener + "approvals:\n  control_socket: \"-\"\n  page:\n    client_id: a\n":   "needs the control socket",
 		listener + "approvals:\n  page:\n    client_id: a\n    client_secret_file: s\n": "must be an absolute path",
-		listener + "approvals:\n  page:\n    client_secret_file: /s\n":                  "needs approvals.page.client_id",
+		listener + "approvals:\n  page:\n    client_secret_file: /s\n":                  "need approvals.page.client_id",
+		listener + "approvals:\n  page:\n    device_client_id: cli\n":                   "need approvals.page.client_id",
 		listener + "approvals:\n  page:\n    client_id: a\n    session_ttl: 10s\n":      "session_ttl: must be between",
 		listener + "approvals:\n  page:\n    client_id: a\n    scopes: [\"a b\"]\n":     "invalid scope",
 	} {

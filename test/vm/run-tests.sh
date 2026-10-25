@@ -2869,7 +2869,7 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	pp_since=$(date +%s)
 	pp_url=https://gw.vmtest:9443
 	rm -f /root/vmtest-idp.pem
-	/usr/libexec/mcpgw-privtest -idp 127.0.0.6:443 /root/vmtest-idp.pem "approvals=$pp_url/approvals/callback" &
+	/usr/libexec/mcpgw-privtest -idp 127.0.0.6:443 /root/vmtest-idp.pem "approvals=$pp_url/approvals/callback" approvals-cli=device &
 	pp_idp=$!
 	eventually 10 test -s /root/vmtest-idp.pem
 	hl_cert
@@ -3048,7 +3048,136 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	mcp-gateway-admin config set approvals.page.client_id approvals >/dev/null
 	check "doctor: all OK again" bash -c '! grep -qE "^FAIL +(identity provider|approval page)" <(mcp-gateway-admin doctor --no-start 2>&1)'
 
-	for k in approvals.page.client_id http.listen http.cert_file http.key_file http.issuer http.audience http.local_user_claim http.scopes http.groups_claim; do
+	section "Approvals from another host"
+	# Roadmap step 39 stage D (D21): mcp-gateway-admin approvals and
+	# grants with --gateway, as an approver on another host would run
+	# them: signed in with the device flow (privsrv -idp's client
+	# approvals-cli; the code confirmed with curl as the browser), the
+	# sign-in kept in a file only the user can read, the gateway's
+	# approval API on its listener deciding under the same approver rules
+	# (ivy's read_file: jack approves, kim does not). Then what is refused:
+	# a file others may read, an expired sign-in, an agent's token.
+	mcp-gateway-admin config set approvals.page.device_client_id approvals-cli >/dev/null
+	systemctl restart mcp-gateway.service
+	wait_socket
+	check "the gateway listens on 9443 again" eventually 30 hl_listening
+	rh_doctor() { mcp-gateway-admin doctor --no-start 2>&1 | grep -A6 -E '^OK +approval page' | grep -qF 'signs in as approvals-cli with the device flow'; }
+	check "doctor: the device client signs in with the device flow" rh_doctor
+	# rh_login USER: approvals login --gateway as USER; the code it prints
+	# confirmed at the identity provider as USER. Sets rh_rc, rh_out.
+	rh_login() {
+		local u=$1 uc i
+		runuser -u "$u" -- mcp-gateway-admin approvals login --gateway "$pp_url" >"/root/vmtest/rh-$u.out" 2>&1 &
+		local pid=$!
+		for i in $(seq 20); do
+			uc=$(sed -n 's/.*confirm the code \([A-Z0-9-]*\)\..*/\1/p' "/root/vmtest/rh-$u.out")
+			[ -n "$uc" ] && break
+			sleep 0.5
+		done
+		pp_signin "$u"
+		curl -s --noproxy '*' -b "/root/vmtest/pp-$u.jar" "https://idp.vmtest/device?user_code=$uc" | sed 's/^/  idp: /'
+		wait "$pid"
+		rh_rc=$?
+		rh_out=$(cat "/root/vmtest/rh-$u.out")
+		sed 's/^/  | /' <<<"$rh_out"
+	}
+	# rh USER ARGS...: mcp-gateway-admin ARGS --gateway as USER; sets out, rc.
+	rh() {
+		local u=$1
+		shift
+		out=$(runuser -u "$u" -- mcp-gateway-admin "$@" --gateway "$pp_url" 2>&1)
+		rc=$?
+		echo "  [$u mcp-gateway-admin $* --gateway] rc=$rc ${out:0:300}"
+	}
+	rh_file=/home/jack/.config/mcp-gateway-admin/gateways/gw.vmtest_9443.json
+	rh jack approvals
+	check "--gateway: before signing in, jack is told to sign in" bash -c '[ "$2" = 1 ] && grep -qF "not signed in to $3" <<<"$1"' _ "$out" "$rc" "$pp_url"
+	rh_login jack
+	check "approvals login --gateway: jack signs in with the device flow" \
+		bash -c '[ "$1" = 0 ] && grep -qF "confirm the code" <<<"$2" && grep -qF "signed in to $3 as jack" <<<"$2"' _ "$rh_rc" "$rh_out" "$pp_url"
+	check "... the sign-in is kept in jack's file, mode 0600" bash -c '[ "$(stat -c "%a %U" "$1")" = "600 jack" ]' _ "$rh_file"
+	check "... in a directory only jack may enter" bash -c '[ "$(stat -c "%a" "$(dirname "$1")")" = 700 ]' _ "$rh_file"
+	rh_signed() { since=$pp_since audit_since TRUSTED_APP | grep 'op=mcp-approver-sign-in' | grep -F 'principal=jack' | grep -q 'via=remote-cli'; }
+	check "... and audited (mcp-approver-sign-in via=remote-cli)" eventually 10 rh_signed
+
+	ac_call
+	check "ivy's read_file waits for an approval" eventually 30 ac_pending
+	rh jack approvals
+	check "approvals --gateway: jack's list shows ivy's call" bash -c 'grep -q "ivy  *fs/read_file" <<<"$1"' _ "$out"
+	rh_login kim
+	rh kim approvals
+	check "approvals --gateway: kim, signed in too, does not see it" bash -c '[ "$2" = 0 ] && ! grep -qF "${3:0:8}" <<<"$1"' _ "$out" "$rc" "$ac_id"
+	rh kim approvals approve "$ac_id" --yes
+	check "approvals approve --gateway: kim may not" test "$rc" = 1
+	rh jack approvals approve "$ac_id" --yes
+	check "approvals approve --gateway: jack approves" bash -c '[ "$2" = 0 ] && grep -qF "approved" <<<"$1"' _ "$out" "$rc"
+	wait "$ac_pid"
+	check "... and ivy's call runs" grep -q '"isError":false' /root/vmtest/ac-call.out
+	rh_audit() { since=$pp_since audit_since TRUSTED_APP | grep 'op=mcp-approval' | grep -F "id=$1" | grep -F 'by=jack' | grep -q 'via=remote-cli'; }
+	check "... audited as decided from another host (via=remote-cli)" eventually 10 rh_audit "$ac_id"
+
+	# 1h, then the grant revoked from the other host; a denial.
+	ac_call
+	check "a second read_file waits" eventually 30 ac_pending
+	rh jack approvals approve "$ac_id" --scope 1h --yes
+	wait "$ac_pid"
+	rh jack grants --json
+	rh_grant=$(jq -r '.[] | select(.sub == "ivy" and .tool == "read_file") | .id' <<<"$out" 2>/dev/null | head -1)
+	check "grants --gateway: jack sees ivy's 1h grant" test -n "$rh_grant"
+	rh jack grants revoke "${rh_grant:-x}" --yes
+	check "grants revoke --gateway: jack revokes it" test "$rc" = 0
+	rh_revoked() { since=$pp_since audit_since TRUSTED_APP | grep 'op=mcp-grant-revoke' | grep -F "id=$1" | grep -q 'via=remote-cli'; }
+	check "... audited as revoked from another host" eventually 10 rh_revoked "${rh_grant:-x}"
+
+	# watch --gateway: the pending approval, then its decision.
+	ac_call
+	check "a third read_file waits" eventually 30 ac_pending
+	runuser -u jack -- timeout 20 mcp-gateway-admin approvals watch --gateway "$pp_url" >/root/vmtest/rh-watch.out 2>&1 &
+	rh_watch=$!
+	rh_watched() { grep -qF "pending $ac_id" /root/vmtest/rh-watch.out; }
+	check "approvals watch --gateway: shows the pending approval" eventually 15 rh_watched
+	rh jack approvals deny "$ac_id"
+	wait "$ac_pid"
+	rh_gone() { grep -qF "gone    $ac_id" /root/vmtest/rh-watch.out; }
+	check "approvals watch --gateway: shows it decided" eventually 10 rh_gone
+	kill "$rh_watch" 2>/dev/null
+	wait "$rh_watch" 2>/dev/null
+
+	# What is refused.
+	chmod 0644 "$rh_file"
+	rh jack approvals
+	check "--gateway: a sign-in file others may read is not used" bash -c '[ "$2" != 0 ] && grep -qF "may be read by others (mode 0644)" <<<"$1"' _ "$out" "$rc"
+	chmod 0600 "$rh_file"
+	# rh_token TOKEN [KEEP-REFRESH]: the kept ID token replaced by TOKEN.
+	rh_token() {
+		jq --arg t "$1" --arg keep "${2:-}" '.id_token = $t | if $keep == "" then del(.refresh_token) else . end' "$rh_file" >/root/vmtest/rh-session.json &&
+			cat /root/vmtest/rh-session.json >"$rh_file"
+	}
+	cp "$rh_file" /root/vmtest/rh-saved.json
+	rh_token "$(hl_tok "aud=approvals-cli&sub=jack&preferred_username=jack&exp=-120")" keep
+	rh jack approvals
+	check "--gateway: an expired sign-in is renewed with its refresh token" bash -c '[ "$2" = 0 ] && [ "$(jq -r .id_token "$1")" != "$3" ]' _ "$rh_file" "$rc" \
+		"$(jq -r .id_token /root/vmtest/rh-session.json)"
+	rh_token "$(hl_tok "aud=approvals-cli&sub=jack&preferred_username=jack&exp=-120")"
+	rh jack approvals
+	check "--gateway: an expired sign-in without one: sign in again" \
+		bash -c '[ "$2" != 0 ] && grep -qF "has expired: mcp-gateway-admin approvals login --gateway" <<<"$1"' _ "$out" "$rc"
+	rh_token "$(hl_tok "aud=$pp_url/mcp&sub=jack&preferred_username=jack&scope=mcp")"
+	rh jack approvals
+	check "--gateway: jack's agent token is no sign-in (401, sign in again)" \
+		bash -c '[ "$2" = 1 ] && grep -qF "is not accepted" <<<"$1"' _ "$out" "$rc"
+	rh_code=$(curl -s --noproxy '*' -o /dev/null -w '%{http_code}' -b /root/vmtest/pp-jack.jar "$pp_url/approvals/api/v1/approvals")
+	check "... nor the page's cookie (401)" test "$rh_code" = 401
+	cp /root/vmtest/rh-saved.json "$rh_file"
+	rh jack approvals logout
+	check "approvals logout --gateway: the sign-in file is gone" bash -c '[ "$2" = 0 ] && [ ! -e "$1" ]' _ "$rh_file" "$rc"
+
+	# The doctor: a device client the identity provider does not know.
+	check "doctor: a device client without the device flow fails" \
+		pp_doctor approvals.page.device_client_id approvals 'approval page' '^FAIL +approval page: the identity provider refuses the device authorization for approvals'
+	mcp-gateway-admin config unset approvals.page.device_client_id >/dev/null
+
+	for k in approvals.page.device_client_id approvals.page.client_id http.listen http.cert_file http.key_file http.issuer http.audience http.local_user_claim http.scopes http.groups_claim; do
 		mcp-gateway-admin config unset "$k" >/dev/null
 	done
 	rm -f /etc/pki/trust/anchors/mcp-vmtest-gw.pem /etc/pki/trust/anchors/mcp-vmtest-idp.pem
