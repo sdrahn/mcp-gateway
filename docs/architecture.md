@@ -4033,7 +4033,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       convert` creates and removes a file in the policy directory, which
       OPA watches as given, to make it look again (found by the VM test).
 
-39. **Approvals without Cockpit** (1.9 to 1.11; D21; planned):
+39. **Approvals without Cockpit** (1.9.0, a release not marked as the
+    latest; 2.0 once tested and fixed, as a major feature; D21; planned):
     - the problem: every out-of-band approval ends on the Cockpit page.
       Notifications and mail only link there, the control API is the
       local socket, and an agent like Kit shows nothing while a call
@@ -4042,7 +4043,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       with 1.8.0). The intended distributed setup is one gateway per
       host, so approvers deal with many gateways, mostly over SSH, and
       enterprises there have an OIDC identity provider;
-    - stage A, 1.9, the agent says what it waits for: for agents that
+    - stage A, the agent says what it waits for: for agents that
       show nothing while a call waits (`agents.no_request_timeout`, Kit
       as shipped) or with `approvals.wait: false`, an `oob` approval no
       longer blocks the call. It is answered at once with a tool error
@@ -4054,7 +4055,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       say `ask`, the decision is still the approver's. The doctor warns
       when `oob` approvals are possible but nothing reaches an approver
       (no mail, no `url_template`, the desktop package not installed);
-    - stage B, 1.9, approvals from the command line:
+    - stage B, approvals from the command line:
       `mcp-gateway-admin approvals list | show ID | approve ID
       [--scope S] | deny ID | watch` and `grants list | revoke ID`,
       over the control socket. The approver is the socket peer's
@@ -4062,7 +4063,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       scopes and the same audit records (`via: cli`); `watch` follows
       `/v1/events` as a terminal inbox. Over SSH this covers a gateway
       per host without anything else running;
-    - stage C, 1.10, the gateway's own approval page: on its HTTPS
+    - stage C, the gateway's own approval page: on its HTTPS
       listener, `https://host:port/approvals/{id}` and an inbox, signed
       in with the identity provider the gateway already validates
       tokens from (OIDC authorization code with PKCE, the approver's
@@ -4076,14 +4077,14 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       self-reported client), protects decisions against CSRF, frames
       nothing, and gives no access beyond deciding and revoking one's
       own grants;
-    - stage D, 1.10, the command line against a remote gateway:
+    - stage D, the command line against a remote gateway:
       `mcp-gateway-admin approvals --gateway https://host:port …`
       signs in with the OAuth device flow (no browser on the host
       needed) and keeps the approver's token per gateway in the user's
       keyring or a file only they can read; the same API as stage C's
       page, so an approver on a laptop decides on any gateway without
       SSH;
-    - stage E, 1.11, webhooks for chat and service management: the
+    - stage E, webhooks for chat and service management: the
       gateway posts each new pending approval (no arguments unless
       `include_args`) to configured URLs, signed (HMAC over the body
       and a timestamp); adapters, or the receiver itself, turn it into
@@ -4094,6 +4095,11 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       decision (`via: webhook`) and audits the receiver and the named
       approver. For many gateways (one per host) this is the central
       inbox: they all post to one place;
+    - releases: all five stages go into 1.9.0, published as a release
+      that is not marked as the latest on GitHub (1.8 stays the latest);
+      after testing and fixes they become 2.0. Until then they may still
+      change, configuration keys and commands included: 2.0 is where they
+      are kept compatible (D10);
     - not planned: a `form` approval strengthened with a one-time code
       (the agent's own client still sees and could answer it);
     - tests: unit tests per stage; the VM test (also for openQA) runs a
