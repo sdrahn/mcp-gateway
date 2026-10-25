@@ -7,6 +7,55 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v1.9.0 — 2026-10-25
+
+Approvals without Cockpit. An out-of-band approval is decided wherever
+the approver is: on the command line over the control socket (also over
+SSH), on the gateway's own approval page on its HTTPS listener (signed
+in with the identity provider), from another host with
+`mcp-gateway-admin approvals --gateway` (the device flow), or by a
+webhook's receiver (a chat bot, a ticket system, one inbox for many
+gateways), on a signed callback. Each way identifies the approver on
+its own, applies the same approver rules, and is audited with `via`.
+Agents that show nothing while a call waits, such as Kit, are told at
+once what the call waits for.
+
+1.9.0 is published but not marked as the latest release: 1.8.0 stays
+the one recommended for use. These features may still change, their
+configuration keys, commands and the webhook format included; 1.10 is
+the release that supports them and keeps them compatible.
+
+Upgrading from 1.8.x needs no changes to `gateway.yaml`, server
+definitions, role data or custom policies. After the update, restart
+the gateway (`systemctl restart mcp-gateway.service`); the package does
+not. The SELinux modules do not change. Things to know:
+
+- **Kit is told at once.** `approvals.no_wait` defaults to `[kit]`: an
+  out-of-band approval of a Kit call is answered at once with a tool
+  error naming the approval and how to decide it, and Kit's next
+  attempt runs once it is approved. `approvals.no_wait: []` keeps Kit's
+  calls waiting as before.
+- **The doctor's new check `approval reach`** warns on a gateway where
+  out-of-band approvals reach no approver by themselves (no mail, no
+  approval page, no webhook, no desktop notifications). It is a
+  warning, not a failure (with `--strict` the doctor exits 3 on it).
+- **The approval page, the approval API and webhooks** are off until
+  configured (`approvals.page`, `approvals.page.device_client_id`,
+  `approvals.webhooks`; `mcp-gateway-admin setup http --client-id`,
+  `--device-client-id`), and take effect at the next start.
+- **Approvers who are not a local account.** The shipped approver rules
+  add `remote-user:` and `remote-group:`; `user:`, `group:`, `role:`
+  and `self` match local accounts only, as before. A custom approvals
+  policy (chapter 12) sees approvers signed in on the page, through the
+  API or named by a webhook with `"remote": true` and an `issuer`, and
+  without `uid` when they have no local account: check `remote` before
+  matching such an approver by name. Nothing changes until one of those
+  ways is set up.
+- **The control API** takes an optional `via` with a decision
+  (`POST /v1/approvals/{id}`) and a revocation
+  (`DELETE /v1/grants/{id}?via=`); Cockpit sends `via=cockpit`, and the
+  audit records it.
+
 ### Added
 
 - Approval webhooks (`approvals.webhooks`): each new pending approval
