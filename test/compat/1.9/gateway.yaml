@@ -53,6 +53,39 @@ approvals:
   # or a sign-in before it is answered to retry again (keep it below the
   # agents' request timeouts).
   retry_wait: 25s
+  # Clients, by name ("*" for all), whose calls do not wait for an oob
+  # approval: answered at once with a tool error that names the approval
+  # and how to decide it; the agent's next attempt finds the decision.
+  # For agents that show nothing while a call waits ([] names none).
+  no_wait: [kit]
+  # The gateway's own approval page on its HTTPS listener (http block):
+  # approvers sign in with the identity provider of http.issuer, as the
+  # client named here, registered there with the redirect URI
+  # <origin of http.audience>/approvals/callback. url_template defaults to
+  # it. Takes effect at the next start.
+  page:
+    client_id: ""
+    # The client's secret, for a confidential client; empty: public.
+    client_secret_file: ""
+    # The public client (device authorization grant) the command line
+    # on other hosts signs in as: mcp-gateway-admin approvals --gateway.
+    device_client_id: ""
+    session_ttl: 1h
+  # Webhooks: each new pending approval is posted, signed with the
+  # secret (HMAC-SHA256 over a timestamp and the body) and without the
+  # call's arguments, to a receiver (a chat bot, a ticket system, one
+  # inbox for many gateways), which may decide on a signed callback to
+  # <origin of http.audience>/approvals/webhook/<name>. Takes effect at
+  # the next start. The secret: openssl rand -hex 32, group mcp-gateway.
+  # webhooks:
+  #   - name: chat
+  #     url: https://chatops.example.com/mcp-gateway
+  #     secret_file: /etc/mcp-gateway/webhook-chat.secret
+  #     include_args: false
+  #     # Only these servers' approvals; empty: all.
+  #     servers: []
+  #     # Callbacks may name local accounts (user:NAME), never root.
+  #     local_accounts: false
   # Who may decide on approvals and revoke grants is policy: "approvers"
   # in /etc/mcp-gateway/policy/rbac/data.json (default: the principal
   # themself and the admin role).
