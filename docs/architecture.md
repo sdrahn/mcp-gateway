@@ -2559,6 +2559,35 @@ identity provider on every message (a round trip per message and a
 dependence on the provider's availability; `exp` and the delivery check
 bound the window instead).
 
+**D21 — Approvals are decided wherever the approver is, never by the agent.**
+*Decision (proposed 2026-10-25, roadmap step 39):* the gateway offers
+several places to decide an out-of-band approval: Cockpit, the command
+line over the control socket, its own approval page and API on the HTTPS
+listener (signed in through the identity provider), and authenticated
+webhook callbacks. All of them identify the approver on their own,
+independently of the agent and its client, apply the same approver
+rules, scopes and audit, and record the way the decision came (`via`).
+None is required: a gateway without Cockpit, or without the HTTPS
+listener, still has a way to decide. An agent that cannot wait visibly
+is told what it waits for at once, instead of blocking silently.
+*Rationale:* the trust in an out-of-band approval comes from the
+approver authenticating somewhere the agent cannot reach, not from
+Cockpit. Requiring Cockpit makes approvals work on lab systems and fail
+where it is not running or not reachable, which is where gateways are
+spread out (one per host). The control socket already authenticates its
+peer, so the command line costs little and works over SSH; the identity
+provider already authenticates agents, so it can authenticate approvers
+too. Webhooks bring approvals to where teams already decide on changes,
+and give many gateways one inbox. Telling the agent at once turns a
+silent wait into a message the user sees.
+*Considered:* keeping Cockpit as the only page (fails without it);
+approving from mail or chat buttons without authentication (links are
+forwarded, anyone can click); a `form` approval with a one-time code
+(the agent's client sees the code); a central approval service for all
+gateways (another component to run and secure; webhooks give one inbox
+without it); approvals in the agent's own terminal (the agent's user is
+often the requester, and the agent could answer).
+
 ## 10. Repository layout
 
 ```
@@ -4003,6 +4032,117 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       held only (ignored) JSON goes unseen until another change; `policy
       convert` creates and removes a file in the policy directory, which
       OPA watches as given, to make it look again (found by the VM test).
+
+39. **Approvals without Cockpit** (1.9.0, a release not marked as the
+    latest; 2.0 once tested and fixed, as a major feature; D21; planned):
+    - the problem: every out-of-band approval ends on the Cockpit page.
+      Notifications and mail only link there, the control API is the
+      local socket, and an agent like Kit shows nothing while a call
+      waits. A user in a terminal with no mail, no desktop session and
+      no way to reach Cockpit has a stuck agent and no idea why (seen
+      with 1.8.0). The intended distributed setup is one gateway per
+      host, so approvers deal with many gateways, mostly over SSH, and
+      enterprises there have an OIDC identity provider;
+    - stage A, the agent says what it waits for: for agents that
+      show nothing while a call waits (`agents.no_request_timeout`, Kit
+      as shipped) or with `approvals.wait: false`, an `oob` approval no
+      longer blocks the call. It is answered at once with a tool error
+      the model passes on: the call, the approval id, and where to
+      decide ("`mcp-gateway-admin approvals approve a-…` on *host*, or
+      the approval page"); a retry of the same call finds the decision
+      (the take-over and the one-time grant of a call that went away
+      exist). The tool error is not a refusal: the policy and audit
+      say `ask`, the decision is still the approver's. The doctor warns
+      when `oob` approvals are possible but nothing reaches an approver
+      (no mail, no `url_template`, the desktop package not installed);
+    - stage B, approvals from the command line:
+      `mcp-gateway-admin approvals list | show ID | approve ID
+      [--scope S] | deny ID | watch` and `grants list | revoke ID`,
+      over the control socket. The approver is the socket peer's
+      account, as for Cockpit, with the same approver rules, the same
+      scopes and the same audit records (`via: cli`); `watch` follows
+      `/v1/events` as a terminal inbox. Over SSH this covers a gateway
+      per host without anything else running;
+    - stage C, the gateway's own approval page: on its HTTPS
+      listener, `https://host:port/approvals/{id}` and an inbox, signed
+      in with the identity provider the gateway already validates
+      tokens from (OIDC authorization code with PKCE, the approver's
+      own sign-in; a page session cookie, never an agent's token).
+      Approver rules match the principal the sign-in maps to, as for a
+      call. `url_template` defaults to this page when the listener and
+      OIDC are configured, so URL elicitation, mail and desktop
+      notifications work without Cockpit; Cockpit stays one way among
+      others. The page shows the call as the approver decides it
+      (server, tool, arguments unless policy hides them, the agent's
+      self-reported client), protects decisions against CSRF, frames
+      nothing, and gives no access beyond deciding and revoking one's
+      own grants;
+    - stage D, the command line against a remote gateway:
+      `mcp-gateway-admin approvals --gateway https://host:port …`
+      signs in with the OAuth device flow (no browser on the host
+      needed) and keeps the approver's token per gateway in the user's
+      keyring or a file only they can read; the same API as stage C's
+      page, so an approver on a laptop decides on any gateway without
+      SSH;
+    - stage E, webhooks for chat and service management: the
+      gateway posts each new pending approval (no arguments unless
+      `include_args`) to configured URLs, signed (HMAC over the body
+      and a timestamp); adapters, or the receiver itself, turn it into
+      a Slack, Teams or Matrix message or a ServiceNow or Jira ticket. A
+      decision comes back on an authenticated callback (mTLS, or a
+      token per webhook) that names who decided; the gateway accepts it
+      only for an approver its rules allow, records it like any
+      decision (`via: webhook`) and audits the receiver and the named
+      approver. For many gateways (one per host) this is the central
+      inbox: they all post to one place;
+    - releases: all five stages go into 1.9.0, published as a release
+      that is not marked as the latest on GitHub (1.8 stays the latest);
+      after testing and fixes they become 2.0. Until then they may still
+      change, configuration keys and commands included: 2.0 is where they
+      are kept compatible (D10);
+    - not planned: a `form` approval strengthened with a one-time code
+      (the agent's own client still sees and could answer it);
+    - tests, dedicated per stage, and first of all for openQA: the VM
+      test is what openQA runs from `mcp-gateway-tests`
+      (`run-tests.sh --results` for TAP and JUnit), so everything a
+      stage needs ships in that package and runs offline, without a
+      browser or a service outside the host:
+      - the tools: `mcpcall` gets a mode that behaves as Kit (no
+        progress token, no elicitation, Kit's client name); `privsrv
+        -idp`, the test identity provider of the sign-in sections, also
+        answers the authorization code flow with PKCE (signing in a
+        test user without a form) and the device flow; `privsrv
+        -webhook` is a receiver that checks signatures, records what it
+        got and calls back with a decision;
+      - one section per stage in `run-tests.sh`, each with check names
+        that say what failed, and skipped with a reason (not passed)
+        where the system lacks what it needs (no HTTPS listener
+        configured, no identity provider): "Approvals told to the agent"
+        (A: the Kit-like call gets the tool error at once with the id
+        and the command; the retry after a command-line approval runs;
+        a deny makes the retry fail; audit says `ask`, then the
+        decision; the doctor's new warning on a gateway without mail);
+        "Approvals from the command line" (B: list, show, approve with
+        each scope, deny, watch sees a new approval, grants list and
+        revoke; another user is refused per the approver rules; root
+        always; `via: cli` in the audit); "The gateway's approval page"
+        (C: sign-in through the test identity provider with curl and a
+        cookie jar, the inbox, approve, a decision without the CSRF
+        token or from another origin refused, an approver the rules do
+        not allow refused, an agent's token not accepted as a page
+        session, the page in a frame refused); "Approvals from another
+        host" (D: device-flow sign-in, approve over HTTPS, the token
+        file only the user can read, an expired token refused);
+        "Approval webhooks" (E: the post signed and without arguments,
+        a callback deciding, an unsigned or replayed callback and one
+        naming a non-approver refused, `via: webhook` in the audit);
+      - each section also checks that no SELinux denials appear for the
+        new paths (the page, the callbacks, the command line), as the
+        suite does at its end;
+      - unit tests per stage beside them (the decision paths, CSRF and
+        session handling, signature checks, the device flow), and the
+        compatibility test (D10) unchanged: 1.8's configuration still
+        works, with Cockpit as before.
 
 ## 12. Open items
 
