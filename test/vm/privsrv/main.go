@@ -18,7 +18,9 @@
 // -proxy ADDR an HTTP proxy that only tunnels (CONNECT); with -oauth ADDR
 // CERTFILE an MCP server each user signs in to, with its authorization
 // server, for auth.vmtest; with -idp ADDR CERTFILE an OpenID provider for
-// the gateway's own HTTP listener, for idp.vmtest (idp.go).
+// the gateway's own HTTP listener, for idp.vmtest (idp.go); with -webhook
+// ADDR CERTFILE SECRETFILE an approval webhook receiver, for hooks.vmtest
+// (webhook.go).
 package main
 
 import (
@@ -121,8 +123,10 @@ func main() {
 			err = serveOAuth(os.Args[2], os.Args[3])
 		case len(os.Args) >= 4 && os.Args[1] == "-idp":
 			err = serveIdP(os.Args[2], os.Args[3], os.Args[4:])
+		case len(os.Args) == 5 && os.Args[1] == "-webhook":
+			err = serveWebhook(os.Args[2], os.Args[3], os.Args[4])
 		default:
-			err = fmt.Errorf("usage: %s [-http ADDR | -https ADDR CERTFILE | -proxy ADDR | -oauth ADDR CERTFILE | -idp ADDR CERTFILE [ID[:SECRET]=REDIRECT_URI...]]", os.Args[0])
+			err = fmt.Errorf("usage: %s [-http ADDR | -https ADDR CERTFILE | -proxy ADDR | -oauth ADDR CERTFILE | -idp ADDR CERTFILE [ID[:SECRET]=REDIRECT_URI...] | -webhook ADDR CERTFILE SECRETFILE]", os.Args[0])
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)

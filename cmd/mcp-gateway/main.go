@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -48,6 +49,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
 	"github.com/sdrahn/mcp-gateway/internal/version"
+	"github.com/sdrahn/mcp-gateway/internal/webhook"
 )
 
 // How often running containers and virtual machines are checked for
@@ -306,6 +308,13 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if err != nil {
 		return err
 	}
+	hooks, err := newWebhooks(log, gw, b, auditLog)
+	if err != nil {
+		return err
+	}
+	if hooks != nil {
+		go hooks.Run(ctx)
+	}
 	signIns, err := newSignIns(log, gw, launcher, auditLog)
 	if err != nil {
 		return err
@@ -442,7 +451,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	stopHTTP := func() {}
 	if gw.HTTP.Listen != "" {
 		httpErrs = make(chan error, 1)
-		if stopHTTP, err = serveHTTP(log, gw.HTTP, certs, r, signIns, page, httpErrs); err != nil {
+		if stopHTTP, err = serveHTTP(log, gw.HTTP, certs, r, signIns, page, hooks, httpErrs); err != nil {
 			stop()
 			return errors.Join(err, <-served)
 		}
@@ -501,7 +510,7 @@ func newSignIns(log *slog.Logger, gw *config.Gateway, launcher supervisor.Launch
 // resource server). The returned function ends all HTTP sessions and
 // shuts the server down.
 func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Router, signIns *signin.Manager,
-	page *approvalpage.Page, errc chan<- error) (func(), error) {
+	page *approvalpage.Page, hooks *webhook.Hooks, errc chan<- error) (func(), error) {
 	tokens := authn.NewOAuth(cfg, nil)
 	h, err := transport.NewHTTPHandler(transport.HTTPConfig{
 		Resource:             cfg.Audience,
@@ -530,7 +539,7 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Ro
 	}
 	tlsConfig.GetCertificate = certs.getCertificate
 	var handler http.Handler = h
-	if signIns != nil || page != nil {
+	if signIns != nil || page != nil || hooks != nil {
 		mux := http.NewServeMux()
 		if signIns != nil {
 			// The sign-in callback and client metadata, beside MCP.
@@ -541,6 +550,10 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Ro
 			// the key set the listener validates access tokens with.
 			page.Tokens = tokens
 			mux.Handle("/approvals/", page.Handler())
+		}
+		if hooks != nil {
+			// The webhooks' signed callbacks.
+			mux.Handle("/approvals/webhook/", hooks.Handler())
 		}
 		mux.Handle("/", h)
 		handler = mux
@@ -594,6 +607,46 @@ func newApprovalPage(log *slog.Logger, gw *config.Gateway, b *broker.Broker, aud
 	}
 	log.Info("approval page", "url", pg.Origin+"/approvals/", "client_id", pc.ClientID, "redirect_uri", pg.RedirectURI())
 	return pg, nil
+}
+
+// newWebhooks sets up the approval webhooks (approvals.webhooks), or
+// returns nil without any. Their secrets are read once, at start. The
+// callbacks come to the HTTP listener; without it the webhooks only post.
+func newWebhooks(log *slog.Logger, gw *config.Gateway, b *broker.Broker, auditLog *audit.Logger) (*webhook.Hooks, error) {
+	if len(gw.Approvals.Webhooks) == 0 {
+		return nil, nil
+	}
+	h := &webhook.Hooks{Broker: b, Audit: auditLog, Log: log,
+		// Receivers are reached directly, as the identity provider is.
+		Client: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: nil}},
+	}
+	origin := gw.PageOrigin()
+	if gw.HTTP.Listen != "" && origin != "" {
+		h.Callback = origin + "/approvals/webhook/{name}"
+	}
+	if u, err := url.Parse(origin); err == nil && u.Hostname() != "" {
+		h.Gateway = u.Hostname()
+	} else if host, err := os.Hostname(); err == nil {
+		h.Gateway = host
+	}
+	for i, w := range gw.Approvals.Webhooks {
+		data, err := os.ReadFile(w.SecretFile)
+		if err != nil {
+			return nil, fmt.Errorf("approvals.webhooks[%d].secret_file: %w", i, err)
+		}
+		secret := strings.TrimSpace(string(data))
+		if len(secret) < config.MinWebhookSecret {
+			return nil, fmt.Errorf("approvals.webhooks[%d].secret_file: %s holds %d characters, fewer than %d", i, w.SecretFile, len(secret), config.MinWebhookSecret)
+		}
+		h.Hooks = append(h.Hooks, webhook.Hook{Name: w.Name, URL: w.URL, Secret: []byte(secret),
+			IncludeArgs: w.IncludeArgs, Servers: w.Servers, LocalAccounts: w.LocalAccounts})
+		cb := strings.ReplaceAll(h.Callback, "{name}", w.Name)
+		if cb == "" {
+			cb = "none (no HTTP listener)"
+		}
+		log.Info("approval webhook", "name", w.Name, "url", w.URL, "callback", cb, "include_args", w.IncludeArgs)
+	}
+	return h, nil
 }
 
 // startExe is the program file the gateway was started from (nil if

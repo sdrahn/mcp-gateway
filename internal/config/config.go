@@ -264,7 +264,37 @@ type Approvals struct {
 	// Page is the gateway's own approval page on its HTTP listener,
 	// signed in with the identity provider (roadmap step 39 stage C).
 	Page ApprovalPage `yaml:"page"`
+	// Webhooks post each new pending approval to receivers (chat bots,
+	// ticket systems, an inbox for many gateways) and take their
+	// decisions on a signed callback (roadmap step 39 stage E).
+	Webhooks []Webhook `yaml:"webhooks"`
 }
+
+// Webhook is a receiver of pending approvals. Posts and callbacks are
+// signed with its secret (HMAC-SHA256 over a timestamp and the body);
+// callbacks come to <origin of http.audience>/approvals/webhook/<name>.
+type Webhook struct {
+	// Name identifies the webhook in its callback URL and the audit.
+	Name string `yaml:"name"`
+	// URL is where the approvals are posted (https, or http to localhost).
+	URL string `yaml:"url"`
+	// SecretFile holds the shared secret (at least 32 characters), read at
+	// start.
+	SecretFile string `yaml:"secret_file"`
+	// IncludeArgs puts the call's arguments into the posts; off by
+	// default, since they leave the host.
+	IncludeArgs bool `yaml:"include_args"`
+	// Servers, if set, limits the posts to these servers' approvals.
+	Servers []string `yaml:"servers"`
+	// LocalAccounts lets callbacks name local accounts (user:<name>);
+	// off, they name remote approvers only (remote-user:<subject>).
+	LocalAccounts bool `yaml:"local_accounts"`
+}
+
+// MinWebhookSecret is the shortest secret a webhook takes.
+const MinWebhookSecret = 32
+
+var webhookName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 
 // ApprovalPage configures the gateway's approval page: approvers sign in
 // with the identity provider of http.issuer (OpenID Connect,
@@ -899,6 +929,28 @@ func (g *Gateway) Validate() error {
 		}
 	} else if pg.ClientSecretFile != "" || pg.DeviceClientID != "" {
 		return errors.New("approvals.page.client_secret_file and device_client_id: need approvals.page.client_id")
+	}
+	names := map[string]bool{}
+	for i, w := range g.Approvals.Webhooks {
+		key := fmt.Sprintf("approvals.webhooks[%d]", i)
+		if !webhookName.MatchString(w.Name) {
+			return fmt.Errorf("%s.name: %q must be lower-case letters, digits, - and _", key, w.Name)
+		}
+		if names[w.Name] {
+			return fmt.Errorf("%s.name: %q is used twice", key, w.Name)
+		}
+		names[w.Name] = true
+		if err := checkURL(w.URL); err != nil {
+			return fmt.Errorf("%s.url: %w", key, err)
+		}
+		if !filepath.IsAbs(w.SecretFile) {
+			return fmt.Errorf("%s.secret_file: must be an absolute path, got %q", key, w.SecretFile)
+		}
+		for _, srv := range w.Servers {
+			if strings.TrimSpace(srv) == "" {
+				return fmt.Errorf("%s.servers: empty server name", key)
+			}
+		}
 	}
 	if t := g.Approvals.URLTemplate; t != "" {
 		if !strings.Contains(t, "{id}") {

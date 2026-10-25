@@ -4035,7 +4035,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
 
 39. **Approvals without Cockpit** (1.9.0, a release not marked as the
     latest; 1.10 once tested and fixed, the supported release with these
-    features; D21; stages A to D done):
+    features; D21; done, all five stages):
     - the problem: every out-of-band approval ends on the Cockpit page.
       Notifications and mail only link there, the control API is the
       local socket, and an agent like Kit shows nothing while a call
@@ -4123,7 +4123,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       device flow; never an agent's access token, the page's sign-in or a
       cookie); decisions audited with `via=remote-cli`; the doctor's
       `approval page` check starts a device authorization for the client;
-    - stage E, webhooks for chat and service management: the
+    - stage E (done), webhooks for chat and service management: the
       gateway posts each new pending approval (no arguments unless
       `include_args`) to configured URLs, signed (HMAC over the body
       and a timestamp); adapters, or the receiver itself, turn it into
@@ -4133,7 +4133,29 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       only for an approver its rules allow, records it like any
       decision (`via: webhook`) and audits the receiver and the named
       approver. For many gateways (one per host) this is the central
-      inbox: they all post to one place;
+      inbox: they all post to one place. As built: `approvals.webhooks`
+      (name, url, secret file of at least 32 characters, `include_args`,
+      `servers`, `local_accounts`; at the next start) and the internal
+      package `webhook`. Posts are `pending` (new approvals), `resolved`
+      (those posted, once decided or gone) and `ping` (the doctor),
+      with `X-MCP-Gateway-Signature: t=<unix>,v1=<HMAC-SHA256 of
+      "<t>.<body>">`. The callback is authenticated the same way, with
+      the webhook's secret (the token per webhook; mTLS left for when a
+      receiver needs it): `POST /approvals/webhook/<name>` on the HTTPS
+      listener, taken only with a signature at most five minutes old and
+      only once (a replay is a 409). It names the approver as
+      `remote-user:<name>` (with `groups`), or, with `local_accounts`,
+      a local `user:<name>`, looked up through NSS and never root; the
+      approver rules see it with `remote` and the issuer
+      `webhook:<name>`, so the receiver vouches for the name as an
+      identity provider does. Signed callbacks, taken or refused (a
+      replay, an approver the rules do not allow), are audited as
+      `mcp-webhook-callback` (webhook, approver, id, reason); unsigned
+      ones are not, so that whoever reaches the listener cannot fill the
+      audit trail. The
+      doctor's `webhook <name>` check posts a signed ping (as root, who
+      can read the secret) and warns when no listener takes callbacks;
+      `approval reach` counts webhooks;
     - releases: all five stages go into 1.9.0, published as a release
       that is not marked as the latest on GitHub (1.8 stays the latest);
       after testing and fixes they become 1.10, the supported release with

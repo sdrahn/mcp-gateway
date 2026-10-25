@@ -184,6 +184,8 @@ the same across releases; the texts may change.
 | `approval-reach` | | approval reach |
 | `identity-provider` | | identity provider |
 | `approval-page` | | approval page |
+| `webhook` | webhook name | webhook *name* |
+| `webhooks` | | webhooks (the gateway-admin server, without network, skips them) |
 | `approver-group` | group name | approver group *group* |
 
 ### mcp-gateway-admin clients
@@ -582,8 +584,9 @@ Kernel audit (`TRUSTED_APP`) operations:
 |---|---|---|
 | `mcp-gateway-start` | the gateway started | |
 | `mcp-decision` | a request was denied (`res=failed`), or any decision on a privileged server | `session`, `principal`, `action`, `server`, `target`, `reason`, `decision_id`; for privileged servers also `privileged=yes` and `grant` |
-| `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel`; `via`: `page` on the gateway's approval page, `remote-cli` from `mcp-gateway-admin --gateway`, `cockpit`, `cli` or `api` when decided through the control API and the caller named it |
+| `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel`; `via`: `page` on the gateway's approval page, `remote-cli` from `mcp-gateway-admin --gateway`, `webhook` on a webhook's callback, `cockpit`, `cli` or `api` when decided through the control API and the caller named it |
 | `mcp-approver-sign-in` | an approver signed in on the gateway's approval page (`res=success`), or a sign-in failed after the identity provider answered (`res=failed`); or signed in on another host (`approvals login --gateway`) | `principal`, `issuer`, `via` (`page`, `remote-cli`), `reason` |
+| `mcp-webhook-callback` | a webhook's receiver called back with a decision, validly signed (`res=success` taken; `failed` refused: replayed, an approver the rules do not allow, a scope not offered, …; unsigned or stale callbacks are not audited) | `webhook`, `approver` (as the callback names them), `id`, `reason` |
 | `mcp-grant-revoke` | a grant was revoked | `id`, `by`, `principal`, `server`, `target`; `via` as for `mcp-approval` |
 | `mcp-policy-change` | OPA loaded a different policy | `revision` |
 | `mcp-config-reload` | the server definitions, or `gateway.yaml` (`file=gateway.yaml`), were reloaded with changes (`res=success`), or could not be (`res=failed`; what was in force stays) | `trigger` (`file change`, `SIGHUP`), `file`, `added`, `changed`, `removed`, `restart_needed`, `error` |

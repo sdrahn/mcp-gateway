@@ -919,25 +919,32 @@ func orDash(s string) string {
 	return s
 }
 
-// identity checks the HTTP listener's identity provider and the approval
-// page's client there, as the gateway reaches them (directly, not through
-// a proxy). The gateway-admin server has no network: it says so.
+// identity checks the HTTP listener's identity provider, the approval
+// page's client there and the approval webhooks' receivers, as the
+// gateway reaches them (directly, not through a proxy). The gateway-admin server has no network: it says so.
 func (d *doctorRun) identity() []doctor.Result {
-	if d.gw.HTTP.Listen == "" {
+	if d.gw.HTTP.Listen == "" && len(d.gw.Approvals.Webhooks) == 0 {
 		return nil
+	}
+	if d.isolated && d.gw.HTTP.Listen == "" {
+		return []doctor.Result{{Check: "webhooks", Status: doctor.Skip,
+			Summary: "the gateway-admin server has no network (network: false): mcp-gateway-admin doctor checks the webhooks"}}
 	}
 	if d.isolated {
 		return []doctor.Result{{Check: "identity provider", Status: doctor.Skip,
-			Summary: "the gateway-admin server has no network (network: false): mcp-gateway-admin doctor checks the identity provider and the approval page's client"}}
+			Summary: "the gateway-admin server has no network (network: false): mcp-gateway-admin doctor checks the identity provider, the approval page's client and the webhooks"}}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*identityTimeout)
 	defer cancel()
 	client := &http.Client{Timeout: identityTimeout, Transport: &http.Transport{Proxy: nil}}
-	rs := httpsetup.IdentityProvider(ctx, d.gw.HTTP, client)
+	var rs []doctor.Result
+	if d.gw.HTTP.Listen != "" {
+		rs = httpsetup.IdentityProvider(ctx, d.gw.HTTP, client)
+	}
 	if d.gw.PageEnabled() {
 		rs = append(rs, httpsetup.ApprovalPage(ctx, d.gw, client, d.root))
 	}
-	return rs
+	return append(rs, doctor.Webhooks(ctx, d.gw, client, d.root)...)
 }
 
 // identityTimeout bounds each request to the identity provider.

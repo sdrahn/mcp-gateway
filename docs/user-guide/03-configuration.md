@@ -240,6 +240,13 @@ approvals:
     scopes: []
     device_client_id: ""
     session_ttl: 1h
+  webhooks: []
+  # - name: chat
+  #   url: https://chatops.example.com/mcp-gateway
+  #   secret_file: /etc/mcp-gateway/webhook-chat.secret
+  #   include_args: false
+  #   servers: []
+  #   local_accounts: false
 ```
 
 | Key | Default | Meaning |
@@ -254,6 +261,13 @@ approvals:
 | `approvals.page.scopes` | `[]` | scopes asked for at sign-in besides `openid` |
 | `approvals.page.device_client_id` | empty | the public client with the device authorization grant that `mcp-gateway-admin approvals login --gateway` signs in as, on other hosts (chapter 7, "Deciding from another host"); its ID tokens are the sign-in to the approval API at `/approvals/api/`. Empty: no API. Needs `client_id`; takes effect at the next start |
 | `approvals.page.session_ttl` | `1h` | how long a sign-in on the page lasts (1m to 168h), with the groups its ID token had |
+| `approvals.webhooks` | `[]` | receivers each new pending approval is posted to, signed, and that may decide on a signed callback to `<origin of http.audience>/approvals/webhook/<name>` (chapter 7, "Webhooks"). Takes effect at the next start |
+| `approvals.webhooks[].name` | | the webhook's name, in its callback URL and the audit: lower-case letters, digits, `-` and `_`; unique |
+| `approvals.webhooks[].url` | | where approvals are posted: `https://`, or `http://` to localhost |
+| `approvals.webhooks[].secret_file` | | file with the secret shared with the receiver (at least 32 characters, e.g. `openssl rand -hex 32`), which signs posts and callbacks; read at start, readable by the group `mcp-gateway` |
+| `approvals.webhooks[].include_args` | `false` | send the call's arguments in the posts (they leave the host) |
+| `approvals.webhooks[].servers` | `[]` | post only these servers' approvals; empty: all |
+| `approvals.webhooks[].local_accounts` | `false` | callbacks may name local accounts (`user:<name>`), which the approver rules treat as that account (never root); off: only `remote-user:<name>` |
 | `approvals.no_wait` | `[kit]` | clients, by name (case-insensitive; `"*"` for all), whose calls do not wait for an `oob` approval: they are answered at once with a tool error naming the approval and how to decide it, and the agent's next attempt finds the decision (chapter 7, "Agents told at once"). For agents that show nothing while a call waits. Setting the key replaces the default; `[]` names none |
 
 Who may decide on approvals is policy (chapter 6), not configuration.

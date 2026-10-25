@@ -247,9 +247,11 @@ listing and calling consistent.
 ```
 
 `approver` is identified by the kernel on the control socket, or
-signed in on the gateway's approval page: then it has `"remote": true`
-and `issuer`, and `uid` only if the sign-in maps to a local account
-(`http.local_user_claim`); root's unconditional rights never apply to
+signed in on the gateway's approval page, or named by a webhook's
+callback: then it has `"remote": true` and `issuer` (the identity
+provider's, or `webhook:<name>` for a callback), and `uid` only if
+the sign-in maps to a local account (`http.local_user_claim`), or the
+callback names one (`local_accounts`); root's unconditional rights never apply to
 it. The shipped rules match an approver with `"remote": true` and no
 `uid` only by `remote-user:` and `remote-group:` (chapter 6). For
 `manage_grant` the input has `grant` (a grant object as above) instead
