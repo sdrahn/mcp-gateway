@@ -2925,7 +2925,9 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	# Requests without a sign-in leave nothing on the gateway (the sign-in
 	# in progress is in a sealed cookie): 1100 of them, more than the
 	# 1000 the page once kept, do not keep jack from signing in.
-	pp_flood=$(curl -s --noproxy '*' -o /dev/null -w '%{http_code}\n' $(printf "$pp_url/approvals/ %.0s" $(seq 1100)) | sort | uniq -c | tr -s ' \n' ' ')
+	pp_many=()
+	for _ in $(seq 1100); do pp_many+=(-o /dev/null "$pp_url/approvals/"); done # -o: each URL's own
+	pp_flood=$(curl -s --noproxy '*' -w '%{http_code}\n' "${pp_many[@]}" | sort | uniq -c | tr -s ' \n' ' ')
 	echo "  [1100 requests without a sign-in] $pp_flood"
 	check "page: 1100 requests without a sign-in are each sent to sign in" bash -c '[[ $1 == " 1100 302 " ]]' _ "$pp_flood"
 	pp_signin jack
