@@ -3198,11 +3198,12 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	update-ca-certificates
 	wh_dropin=/etc/mcp-gateway/gateway.d/60-vmtest-webhook.yaml
 	# tickets: another webhook (the same receiver and secret here), for
-	# zypp's approvals only.
+	# zypp's approvals only; it may name jack too, so that only its servers
+	# keep it from deciding ivy's fs approval.
 	printf '%s\n' 'approvals:' '  webhooks:' '    - name: chat' '      url: https://hooks.vmtest/hook' \
 		'      secret_file: /etc/mcp-gateway/webhook-chat.secret' '      local_accounts: true' \
 		'    - name: tickets' '      url: https://hooks.vmtest/hook' '      secret_file: /etc/mcp-gateway/webhook-chat.secret' \
-		'      servers: [zypp]' >"$wh_dropin"
+		'      servers: [zypp]' '      local_accounts: true' >"$wh_dropin"
 	restorecon "$wh_dropin" /etc/mcp-gateway/webhook-chat.secret
 	check "the configuration with the webhook is valid" /usr/bin/mcp-gateway --check --policy-data=
 	systemctl restart mcp-gateway.service
