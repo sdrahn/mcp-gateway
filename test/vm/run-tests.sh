@@ -2082,6 +2082,38 @@ cl_metrics=$(curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/me
 check "metrics time the listings' filtering" \
 	grep -qE '^mcp_gateway_opa_query_duration_seconds_count\{query="mcp/filter/visible"\} [1-9]' <<<"$cl_metrics"
 
+# Two permissions asking approval of one tool through different channels
+# (issue #298: a member of wheel with admin, which asks on privileged
+# servers through url, and a setup's operator role asking oob): the
+# strictest channel decides, and the listing shows the tools, where it
+# once failed whole ("filtering failed; hiding everything").
+useradd -m chan && usermod -aG mcp-users chan
+cp /etc/mcp-gateway/policy/rbac/data.yaml /root/ch-data-before.yaml
+jq '.roles.chanurl = {"permissions": [{"server": "fs", "tool": "list_allowed_directories"},
+		{"server": "fs", "tool": "write_file", "require_approval": true}]}
+	| .roles.chanoob = {"permissions": [{"server": "fs", "tool": "write_*", "require_approval": true, "approval_channel": "oob"}]}
+	| .bindings.users.chan = ["chanurl", "chanoob"]' \
+	/root/ch-data-before.yaml >/root/ch-data.yaml && cat /root/ch-data.yaml >/etc/mcp-gateway/policy/rbac/data.yaml
+ch_policy() {
+	curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/bindings/users/chan |
+		jq -e '.result | index("chanoob")' >/dev/null
+}
+check "the role data with chan's two channels is in force" eventually 20 ch_policy
+ch_since=$(date +%s)
+call chan --method tools/list --params '{}'
+check "two channels for one tool: chan's listing shows the tools" \
+	bash -c '[ "$1" = 0 ] && grep -qF "\"write_file\"" <<<"$2" && grep -qF "\"list_allowed_directories\"" <<<"$2"' _ "$rc" "$out"
+ch_failed() { journalctl -u mcp-gateway.service -o cat --since "@$ch_since" | grep -F 'sub=chan' | grep -qF 'filtering failed'; }
+check "... and the gateway hid nothing (no \"filtering failed\")" bash -c '! "$@"' _ ch_failed
+out=$(runuser -u chan -- timeout 30 /usr/local/bin/mcpcall --client kit --server fs --method tools/call \
+	--params '{"name":"write_file","arguments":{"path":"/home/chan/x.txt","content":"x"}}' 2>&1)
+echo "  [chan as kit] ${out:0:300}"
+check "... and writing asks for an approval" grep -qF "approval needed" <<<"$out"
+ch_id=$(grep -oE 'mcp-gateway-admin approvals approve a-[0-9a-f]+' <<<"$out" | head -1 | awk '{print $4}')
+[ -n "$ch_id" ] && mcp-gateway-admin approvals deny "$ch_id" >/dev/null 2>&1
+cat /root/ch-data-before.yaml >/etc/mcp-gateway/policy/rbac/data.yaml
+userdel -r chan 2>/dev/null
+
 section "Update without restart"
 gw_pid=$(systemctl show -p MainPID --value mcp-gateway.service)
 ls -li /usr/bin/mcp-gateway | sed 's/^/  before: /'

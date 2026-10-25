@@ -7,6 +7,18 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Fixed
+
+- No tools listed for a principal holding two permissions that ask for
+  approval of the same tool through different `approval_channel`s, for
+  example a member of `wheel` (the shipped `admin` role, which asks on
+  privileged servers through `url`) also bound to a server setup's
+  operator role asking `oob`: the policy failed with
+  `eval_conflict_error` ("complete rules must not produce multiple
+  outputs", `authz.rego` line 235), and the gateway hid every tool of
+  every server ("filtering failed; hiding everything"). The strictest
+  channel now decides: `oob`, then `url`, then `form` (#298).
+
 ## v1.9.0 — 2026-10-25
 
 Approvals without Cockpit. An out-of-band approval is decided wherever
