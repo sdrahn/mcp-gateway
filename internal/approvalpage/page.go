@@ -12,6 +12,8 @@ package approvalpage
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -57,15 +59,17 @@ type Auditor interface {
 const (
 	// Via is how the page's decisions are audited.
 	Via = "page"
-	// sessionCookie holds the sign-in; loginCookie binds a sign-in in
-	// progress to the browser that started it. __Host-: Secure, Path=/,
-	// no Domain, so no other host can set them.
+	// sessionCookie holds the sign-in; loginCookie holds a sign-in in
+	// progress, sealed: the page keeps nothing for a browser that has
+	// not signed in, so requests without a sign-in cannot crowd out
+	// others'. __Host-: Secure, Path=/, no Domain, so no other host can
+	// set them.
 	sessionCookie = "__Host-mcpgw-approvals"
 	loginCookie   = "__Host-mcpgw-approvals-login"
-	// loginTTL bounds a sign-in in progress; maxLogins and maxSessions
-	// bound what requests without a sign-in can make the page keep.
+	// loginTTL bounds a sign-in in progress; maxSessions bounds the
+	// sign-ins the page keeps (made only after the identity provider
+	// signed someone in).
 	loginTTL    = 10 * time.Minute
-	maxLogins   = 1000
 	maxSessions = 10000
 	metaMaxAge  = time.Hour
 	// exchangeTimeout bounds the code exchange.
@@ -92,23 +96,59 @@ type Page struct {
 
 	now func() time.Time
 
+	// sealer seals the login cookie, with a key made at start: a
+	// restart ends the sign-ins in progress.
+	sealer cipher.AEAD
+
 	mu       sync.Mutex
-	logins   map[string]*login   // by state
 	sessions map[string]*session // by the hash of the cookie
 	meta     *metadata
 	metaAt   time.Time
 }
 
+// login is a sign-in in progress, as the login cookie holds it.
 type login struct {
-	nonce, verifier, next string
-	bind                  [32]byte // hash of the login cookie
-	created               time.Time
+	State    string `json:"s"`
+	Nonce    string `json:"n"`
+	Verifier string `json:"v"`
+	Next     string `json:"x"`
+	Created  int64  `json:"t"`
 }
 
 type session struct {
 	Approver broker.Approver
 	CSRF     string
 	expires  time.Time
+	// done is what the last decision did, shown once on the inbox.
+	done string
+}
+
+// loginAAD binds a sealed login to its cookie.
+var loginAAD = []byte(loginCookie)
+
+// seal makes the login cookie's value: nonce and AES-GCM ciphertext.
+func (pg *Page) seal(l login) string {
+	plain, _ := json.Marshal(l)
+	nonce := make([]byte, pg.sealer.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		panic(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(pg.sealer.Seal(nonce, nonce, plain, loginAAD))
+}
+
+// open returns the login of a cookie value the page sealed.
+func (pg *Page) open(v string) (login, bool) {
+	var l login
+	b, err := base64.RawURLEncoding.DecodeString(v)
+	if err != nil || len(b) < pg.sealer.NonceSize() {
+		return l, false
+	}
+	n := pg.sealer.NonceSize()
+	plain, err := pg.sealer.Open(nil, b[:n], b[n:], loginAAD)
+	if err != nil || json.Unmarshal(plain, &l) != nil {
+		return l, false
+	}
+	return l, true
 }
 
 // metadata is what the page uses of the identity provider's discovery
@@ -134,6 +174,19 @@ func (pg *Page) Handler() http.Handler {
 	}
 	if pg.Client == nil {
 		pg.Client = &http.Client{Timeout: exchangeTimeout}
+	}
+	if pg.sealer == nil {
+		key := make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			panic(err)
+		}
+		block, err := aes.NewCipher(key)
+		if err != nil {
+			panic(err)
+		}
+		if pg.sealer, err = cipher.NewGCM(block); err != nil {
+			panic(err)
+		}
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /approvals/{$}", pg.inbox)
@@ -208,33 +261,16 @@ func (pg *Page) startLogin(w http.ResponseWriter, r *http.Request, next string) 
 	if !strings.HasPrefix(next, "/approvals/") || strings.HasPrefix(next, "/approvals/callback") {
 		next = "/approvals/"
 	}
-	state, nonce, verifier, bind := oauth.NewState(), oauth.NewState(), oauth.NewVerifier(), oauth.NewState()
-	now := pg.now()
-	pg.mu.Lock()
-	if pg.logins == nil {
-		pg.logins = map[string]*login{}
-	}
-	for k, l := range pg.logins {
-		if now.Sub(l.created) > loginTTL {
-			delete(pg.logins, k)
-		}
-	}
-	if len(pg.logins) >= maxLogins {
-		pg.mu.Unlock()
-		pg.page(w, http.StatusServiceUnavailable, "Sign-in unavailable", "Too many sign-ins in progress; try again in a few minutes.", nil)
-		return
-	}
-	pg.logins[state] = &login{nonce: nonce, verifier: verifier, next: next, bind: sha256.Sum256([]byte(bind)), created: now}
-	pg.mu.Unlock()
+	l := login{State: oauth.NewState(), Nonce: oauth.NewState(), Verifier: oauth.NewVerifier(), Next: next, Created: pg.now().Unix()}
 
 	q := url.Values{
 		"response_type":         {"code"},
 		"client_id":             {pg.ClientID},
 		"redirect_uri":          {pg.RedirectURI()},
 		"scope":                 {strings.Join(append([]string{"openid"}, pg.scopes()...), " ")},
-		"state":                 {state},
-		"nonce":                 {nonce},
-		"code_challenge":        {oauth.Challenge(verifier)},
+		"state":                 {l.State},
+		"nonce":                 {l.Nonce},
+		"code_challenge":        {oauth.Challenge(l.Verifier)},
 		"code_challenge_method": {"S256"},
 	}
 	target := md.AuthorizationEndpoint
@@ -243,7 +279,7 @@ func (pg *Page) startLogin(w http.ResponseWriter, r *http.Request, next string) 
 	} else {
 		target += "?" + q.Encode()
 	}
-	http.SetCookie(w, &http.Cookie{Name: loginCookie, Value: bind, Path: "/", MaxAge: int(loginTTL / time.Second),
+	http.SetCookie(w, &http.Cookie{Name: loginCookie, Value: pg.seal(l), Path: "/", MaxAge: int(loginTTL / time.Second),
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	http.Redirect(w, r, target, http.StatusFound)
 }
@@ -258,24 +294,26 @@ func (pg *Page) scopes() []string {
 	return out
 }
 
-// callback completes a sign-in: the state names the sign-in in progress,
-// which the browser's login cookie must match; the code is exchanged with
-// the PKCE verifier; the ID token must carry the nonce.
+// callback completes a sign-in: the browser's login cookie holds the
+// sign-in in progress, whose state the answer must name (a sign-in
+// started in another browser, or a login cookie of another, does not
+// match); the code is exchanged with the PKCE verifier; the ID token
+// must carry the nonce.
 func (pg *Page) callback(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	pg.mu.Lock()
-	l := pg.logins[q.Get("state")]
-	delete(pg.logins, q.Get("state"))
-	pg.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{Name: loginCookie, Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	again := "Open the approval page again to sign in."
-	if l == nil || pg.now().Sub(l.created) > loginTTL {
-		pg.page(w, http.StatusBadRequest, "Sign-in failed", "This sign-in is unknown, used or expired. "+again, nil)
+	var l login
+	ok := false
+	if c, err := r.Cookie(loginCookie); err == nil {
+		l, ok = pg.open(c.Value)
+	}
+	if !ok || pg.now().Sub(time.Unix(l.Created, 0)) > loginTTL {
+		pg.page(w, http.StatusBadRequest, "Sign-in failed", "This sign-in is unknown, used or expired, or was started in another browser. "+again, nil)
 		return
 	}
-	c, err := r.Cookie(loginCookie)
-	if err != nil || subtle.ConstantTimeCompare(hashBytes(c.Value), l.bind[:]) != 1 {
-		pg.failed(w, "", "the sign-in was started in another browser", again)
+	if q.Get("state") == "" || subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(l.State)) != 1 {
+		pg.failed(w, "", "the answer is for another sign-in than this browser's (started in another browser?)", again)
 		return
 	}
 	md, err := pg.metadata(r.Context())
@@ -302,12 +340,12 @@ func (pg *Page) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), exchangeTimeout)
 	defer cancel()
-	idToken, err := pg.exchange(ctx, md.TokenEndpoint, q.Get("code"), l.verifier)
+	idToken, err := pg.exchange(ctx, md.TokenEndpoint, q.Get("code"), l.Verifier)
 	if err != nil {
 		pg.failed(w, "", err.Error(), again)
 		return
 	}
-	p, err := pg.Tokens.IDToken(ctx, idToken, pg.ClientID, l.nonce)
+	p, err := pg.Tokens.IDToken(ctx, idToken, pg.ClientID, l.Nonce)
 	if err != nil {
 		pg.failed(w, "", "the ID token is not valid: "+err.Error(), again)
 		return
@@ -338,7 +376,7 @@ func (pg *Page) callback(w http.ResponseWriter, r *http.Request) {
 	pg.Log.Info("approval page: signed in", "sub", a.Name, "local", !a.NoUID)
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: value, Path: "/", MaxAge: int(pg.SessionTTL / time.Second),
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
-	http.Redirect(w, r, l.next, http.StatusSeeOther)
+	http.Redirect(w, r, l.Next, http.StatusSeeOther)
 }
 
 // approverOf is the approver a sign-in makes: the principal's subject
@@ -503,7 +541,11 @@ func (pg *Page) inbox(w http.ResponseWriter, r *http.Request) {
 	}
 	pending := pg.Broker.ListPending(r.Context(), s.Approver)
 	grants := pg.Broker.ListGrants(r.Context(), s.Approver)
-	pg.render(w, http.StatusOK, inboxTmpl, map[string]any{"S": s, "Pending": pending, "Grants": grants, "Msg": r.URL.Query().Get("done")})
+	pg.mu.Lock()
+	done := s.done
+	s.done = ""
+	pg.mu.Unlock()
+	pg.render(w, http.StatusOK, inboxTmpl, map[string]any{"S": s, "Pending": pending, "Grants": grants, "Msg": done})
 }
 
 func (pg *Page) show(w http.ResponseWriter, r *http.Request) {
@@ -550,7 +592,8 @@ func (pg *Page) decide(w http.ResponseWriter, r *http.Request) {
 		if approve {
 			done = "approved " + id + " (scope " + scope + ")"
 		}
-		http.Redirect(w, r, "/approvals/?done="+url.QueryEscape(done), http.StatusSeeOther)
+		pg.flash(s, done)
+		http.Redirect(w, r, "/approvals/", http.StatusSeeOther)
 	}
 }
 
@@ -564,7 +607,17 @@ func (pg *Page) revoke(w http.ResponseWriter, r *http.Request) {
 		pg.page(w, http.StatusNotFound, "No such grant", "This grant is unknown, expired, or not yours to revoke.", s)
 		return
 	}
-	http.Redirect(w, r, "/approvals/?done="+url.QueryEscape("revoked "+id), http.StatusSeeOther)
+	pg.flash(s, "revoked "+id)
+	http.Redirect(w, r, "/approvals/", http.StatusSeeOther)
+}
+
+// flash keeps what a decision did for the inbox to show once: in the
+// session, not the URL, so that no link can show a decision that was
+// not made.
+func (pg *Page) flash(s *session, done string) {
+	pg.mu.Lock()
+	s.done = done
+	pg.mu.Unlock()
 }
 
 func (pg *Page) logout(w http.ResponseWriter, r *http.Request) {

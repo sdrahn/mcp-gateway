@@ -4090,7 +4090,12 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       the listener; the approver is the principal the ID token maps to
       (`local_user_claim`), never root, with `remote` and `issuer` in the
       approver rules' input; sign-ins audited as `mcp-approver-sign-in`,
-      decisions with `via=page`. With it, the doctor gets an `identity provider` check
+      decisions with `via=page`. After the security review: one without a
+      local account matches only `remote-user:<sub>` and
+      `remote-group:<group>` (never a local name or group), the sign-in
+      in progress is a sealed cookie (nothing kept before the identity
+      provider answers), the inbox's last-decision message comes from the
+      session, and a sign-in lasts 1 h by default. With it, the doctor gets an `identity provider` check
       (the gateway-admin server's `doctor` tool skips it with the reason:
       that server has no network, `network: false`): the discovery document and the key set reachable, its
       issuer the one `http.issuer` names, the keys usable, the clock

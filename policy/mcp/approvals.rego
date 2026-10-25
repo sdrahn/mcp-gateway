@@ -4,14 +4,23 @@
 # task (data.mcp.approvals.manage_task), see or end a client's session
 # (data.mcp.approvals.manage_session) and see or end a
 # principal's sign-in to a server (data.mcp.approvals.manage_sign_in). The gateway queries
-# these from its control API; the approver is identified by the kernel
-# (uid, user and group names), never by the agent.
+# these from its control API and its approval page; the approver is
+# identified by the kernel (uid, user and group names) or signed in with
+# the identity provider on the page, never by the agent.
 #
 # data.mcp.rbac.approvers maps a server name, or "default", to rules:
-#   "self"          the principal themself (same local uid)
-#   "role:<role>"   approvers holding the role (data.mcp.rbac.bindings)
-#   "group:<group>" members of a local group
-#   "user:<user>"   a local user
+#   "self"                 the principal themself (same local uid)
+#   "role:<role>"          approvers holding the role (data.mcp.rbac.bindings)
+#   "group:<group>"        members of a local group
+#   "user:<user>"          a local user
+#   "remote-user:<sub>"    an approver signed in on the page as the token
+#                          subject <sub>, without a local account
+#   "remote-group:<group>" one whose token's groups have <group>, without
+#                          a local account
+# The first four match local accounts only (a sign-in on the page that
+# maps to a local account, http.local_user_claim, is that account): a
+# remote approver without one never matches them by a name or group
+# that is also a local one's; it needs the remote- rules.
 # Without data.mcp.rbac.approvers, only "self" applies.
 package mcp.approvals
 
@@ -148,6 +157,14 @@ rules_for(server) := rules if {
 	rules := data.mcp.rbac.approvers["default"]
 } else := ["self"]
 
+# remote is an approver signed in on the page without a local account.
+default remote := false
+
+remote if {
+	input.approver.remote == true
+	object.get(input.approver, "uid", null) == null
+}
+
 approver_roles contains r if some r in data.mcp.rbac.bindings.users[input.approver.name]
 
 approver_roles contains r if {
@@ -161,16 +178,31 @@ approver_roles contains r if {
 grants("self", subject) if subject.uid == input.approver.uid
 
 grants(rule, _) if {
+	not remote
 	startswith(rule, "role:")
 	substring(rule, 5, -1) in approver_roles
 }
 
 grants(rule, _) if {
+	not remote
 	startswith(rule, "group:")
 	substring(rule, 6, -1) in input.approver.groups
 }
 
 grants(rule, _) if {
+	not remote
 	startswith(rule, "user:")
 	substring(rule, 5, -1) == input.approver.name
+}
+
+grants(rule, _) if {
+	remote
+	startswith(rule, "remote-user:")
+	substring(rule, 12, -1) == input.approver.name
+}
+
+grants(rule, _) if {
+	remote
+	startswith(rule, "remote-group:")
+	substring(rule, 13, -1) in input.approver.groups
 }

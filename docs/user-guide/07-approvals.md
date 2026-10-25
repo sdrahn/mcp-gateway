@@ -96,17 +96,30 @@ page (Cockpit).
    chapter 10).
 
 Who may decide is as for every approval: the approver rules (chapter 6)
-match the principal the sign-in makes, as a token's would. With
-`http.local_user_claim` that is the local account the ID token names
-(`user:alice`, the account's groups), else the token's subject and
-groups (`user:<sub>`, `group:` with the groups of `http.groups_claim`).
-"self" matches only a sign-in that maps to the principal's own local
-account. A sign-in is never root, also when it maps to the account root.
+match the principal the sign-in makes. With `http.local_user_claim`
+that is the local account the ID token names: the rules match it as
+that account (`user:alice`, `group:` with the account's groups, `role:`
+through its bindings, "self" for its own calls). A sign-in without a
+local account matches only the rules written for remote approvers,
+`remote-user:<sub>` (the token's subject) and `remote-group:<group>`
+(a group of `http.groups_claim`); `user:`, `group:` and `role:` never
+match it, so that a subject or token group named like a local account
+or group gets none of its rights. A sign-in is never root, also when it
+maps to the account root.
+
+```yaml
+approvers:
+  fs: ["user:jack", "remote-user:6c1f0e2a-…", "remote-group:fs-approvers"]
+```
 
 The page keeps the sign-in as a session cookie of its own for
-`approvals.page.session_ttl` (8 h; *Sign out* ends it); it never takes
+`approvals.page.session_ttl` (1 h; *Sign out* ends it), with the groups
+the ID token had: a user disabled or a group removed at the identity
+provider keeps the page until then (changed approver rules apply at
+once). It never takes
 an agent's token (a request with `Authorization: Bearer` is sent to
-sign in). Decisions need the page's own form: without its CSRF token,
+sign in), and keeps nothing for a browser that has not signed in (the
+sign-in in progress is in an encrypted cookie). Decisions need the page's own form: without its CSRF token,
 or from another origin, they are refused and nothing is decided. The
 page is never shown in a frame, and is not cached. Sign-ins are audited
 (`mcp-approver-sign-in`), decisions and revocations with `via=page`

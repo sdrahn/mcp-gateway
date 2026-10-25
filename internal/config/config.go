@@ -284,7 +284,7 @@ type ApprovalPage struct {
 }
 
 // DefaultPageSessionTTL is approvals.page.session_ttl's default.
-const DefaultPageSessionTTL = 8 * time.Hour
+const DefaultPageSessionTTL = time.Hour
 
 // PageEnabled reports whether the gateway serves its approval page.
 func (g *Gateway) PageEnabled() bool { return g.Approvals.Page.ClientID != "" }

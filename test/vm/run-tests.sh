@@ -2922,6 +2922,12 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	ac_call
 	check "ivy's read_file waits for an approval" eventually 30 ac_pending
 
+	# Requests without a sign-in leave nothing on the gateway (the sign-in
+	# in progress is in a sealed cookie): 1100 of them, more than the
+	# 1000 the page once kept, do not keep jack from signing in.
+	pp_flood=$(curl -s --noproxy '*' -o /dev/null -w '%{http_code}\n' $(printf "$pp_url/approvals/ %.0s" $(seq 1100)) | sort | uniq -c | tr -s ' \n' ' ')
+	echo "  [1100 requests without a sign-in] $pp_flood"
+	check "page: 1100 requests without a sign-in are each sent to sign in" bash -c '[[ $1 == " 1100 302 " ]]' _ "$pp_flood"
 	pp_signin jack
 	pp_get jack "$pp_url/approvals/$ac_id"
 	check "page: jack signs in at the identity provider and sees ivy's call" \
@@ -2957,6 +2963,21 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	pp_post kim "/approvals/$ac_id" "decision=approve&scope=once&csrf=$pp_kim_csrf"
 	check "page: kim's approval is refused, as for an unknown id" test "$pp_code" = 404
 	check "... and ivy's call still waits" kill -0 "$ac_pid"
+
+	# zed has no local account: signed in, the approver rules match zed
+	# only by remote-user:zed, never by user:zed (a local account's name).
+	pp_rules() {
+		jq --argjson r "$1" '.approvers.fs = $r' /root/ac-data.yaml >/root/pp-data.yaml &&
+			cat /root/pp-data.yaml >/etc/mcp-gateway/policy/rbac/data.yaml
+	}
+	pp_zed_sees() { pp_get zed "$pp_url/approvals/" >/dev/null && grep -qF "/approvals/$ac_id" <<<"$pp_body"; }
+	pp_zed_not() { pp_get zed "$pp_url/approvals/" >/dev/null && [ "$pp_code" = 200 ] && ! grep -qF "/approvals/$ac_id" <<<"$pp_body"; }
+	pp_signin zed
+	pp_rules '["user:jack", "remote-user:zed"]'
+	check "page: zed, remote without a local account, decides under remote-user:zed" eventually 20 pp_zed_sees
+	pp_rules '["user:jack", "user:zed"]'
+	check "page: ... but not under user:zed, a local account's rule" eventually 20 pp_zed_not
+	cat /root/ac-data.yaml >/etc/mcp-gateway/policy/rbac/data.yaml
 
 	# An agent's token is no page session.
 	pp_tok=$(hl_tok "aud=$pp_url/mcp&sub=jack&preferred_username=jack&scope=mcp")

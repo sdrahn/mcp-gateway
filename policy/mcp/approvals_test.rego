@@ -137,3 +137,38 @@ test_review_policy if {
 	approvals.review_policy with input as {"approver": bob}
 		with data.mcp.rbac.approvers as {"default": ["self", "user:bob"]}
 }
+
+# Signed in on the approval page without a local account: never by a
+# local name or group (user:, group:, role: through bindings), only by
+# the remote- rules.
+zed := {"name": "zed", "groups": ["wheel", "ops"], "remote": true, "issuer": "https://idp"}
+
+test_remote_approver_explicit_rules_only if {
+	rbac := {
+		"approvers": {"fs": ["user:zed", "group:wheel", "role:admin"]},
+		"bindings": {"users": {"zed": ["admin"]}, "groups": {"wheel": ["admin"]}},
+	}
+	not approvals.allow with input as {"approver": zed, "request": alice_req} with data.mcp.rbac as rbac
+	not approvals.manage_grant with input as {"approver": zed, "grant": {"server": "fs", "uid": 1001}} with data.mcp.rbac as rbac
+	not approvals.review_policy with input as {"approver": zed} with data.mcp.rbac as {"approvers": {"default": ["role:admin"]}, "bindings": rbac.bindings}
+
+	# the same names, as a local approver: allowed
+	approvals.allow with input as {"approver": {"name": "zed", "uid": 1600, "groups": ["wheel"]}, "request": alice_req} with data.mcp.rbac as rbac
+
+	by_sub := {"approvers": {"fs": ["remote-user:zed"]}, "bindings": {}}
+	approvals.allow with input as {"approver": zed, "request": alice_req} with data.mcp.rbac as by_sub
+	by_group := {"approvers": {"fs": ["remote-group:ops"]}, "bindings": {}}
+	approvals.allow with input as {"approver": zed, "request": alice_req} with data.mcp.rbac as by_group
+	not approvals.allow with input as {"approver": object.union(zed, {"groups": []}), "request": alice_req} with data.mcp.rbac as by_group
+}
+
+# remote- rules never match a local approver, nor a sign-in that maps to
+# a local account (that is the account, matched by the local rules).
+test_remote_rules_not_for_local_accounts if {
+	rbac := {"approvers": {"fs": ["remote-user:jack", "remote-group:ops"]}, "bindings": {}}
+	jack := {"name": "jack", "uid": 1004, "groups": ["ops"]}
+	not approvals.allow with input as {"approver": jack, "request": alice_req} with data.mcp.rbac as rbac
+	mapped := object.union(jack, {"remote": true, "issuer": "https://idp"})
+	not approvals.allow with input as {"approver": mapped, "request": alice_req} with data.mcp.rbac as rbac
+	approvals.allow with input as {"approver": mapped, "request": alice_req} with data.mcp.rbac as {"approvers": {"fs": ["user:jack"]}, "bindings": {}}
+}

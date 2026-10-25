@@ -250,7 +250,8 @@ listing and calling consistent.
 signed in on the gateway's approval page: then it has `"remote": true`
 and `issuer`, and `uid` only if the sign-in maps to a local account
 (`http.local_user_claim`); root's unconditional rights never apply to
-it. For
+it. The shipped rules match an approver with `"remote": true` and no
+`uid` only by `remote-user:` and `remote-group:` (chapter 6). For
 `manage_grant` the input has `grant` (a grant object as above) instead
 of `request`; for `manage_instance` it has `instance`
 (`{"server", "uid"}`); for `manage_task` it has `task`
