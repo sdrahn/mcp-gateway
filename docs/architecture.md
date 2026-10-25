@@ -4102,13 +4102,47 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       are kept compatible (D10);
     - not planned: a `form` approval strengthened with a one-time code
       (the agent's own client still sees and could answer it);
-    - tests: unit tests per stage; the VM test (also for openQA) runs a
-      call that waits with Kit's behaviour and checks the immediate
-      tool error, approves with the command line and checks the retry
-      runs, and from stage C signs in to the page with the test
-      identity provider the sign-in tests use, approves there, and
-      checks CSRF and approver rules; stage E against a local receiver
-      that checks the signature and calls back.
+    - tests, dedicated per stage, and first of all for openQA: the VM
+      test is what openQA runs from `mcp-gateway-tests`
+      (`run-tests.sh --results` for TAP and JUnit), so everything a
+      stage needs ships in that package and runs offline, without a
+      browser or a service outside the host:
+      - the tools: `mcpcall` gets a mode that behaves as Kit (no
+        progress token, no elicitation, Kit's client name); `privsrv
+        -idp`, the test identity provider of the sign-in sections, also
+        answers the authorization code flow with PKCE (signing in a
+        test user without a form) and the device flow; `privsrv
+        -webhook` is a receiver that checks signatures, records what it
+        got and calls back with a decision;
+      - one section per stage in `run-tests.sh`, each with check names
+        that say what failed, and skipped with a reason (not passed)
+        where the system lacks what it needs (no HTTPS listener
+        configured, no identity provider): "Approvals told to the agent"
+        (A: the Kit-like call gets the tool error at once with the id
+        and the command; the retry after a command-line approval runs;
+        a deny makes the retry fail; audit says `ask`, then the
+        decision; the doctor's new warning on a gateway without mail);
+        "Approvals from the command line" (B: list, show, approve with
+        each scope, deny, watch sees a new approval, grants list and
+        revoke; another user is refused per the approver rules; root
+        always; `via: cli` in the audit); "The gateway's approval page"
+        (C: sign-in through the test identity provider with curl and a
+        cookie jar, the inbox, approve, a decision without the CSRF
+        token or from another origin refused, an approver the rules do
+        not allow refused, an agent's token not accepted as a page
+        session, the page in a frame refused); "Approvals from another
+        host" (D: device-flow sign-in, approve over HTTPS, the token
+        file only the user can read, an expired token refused);
+        "Approval webhooks" (E: the post signed and without arguments,
+        a callback deciding, an unsigned or replayed callback and one
+        naming a non-approver refused, `via: webhook` in the audit);
+      - each section also checks that no SELinux denials appear for the
+        new paths (the page, the callbacks, the command line), as the
+        suite does at its end;
+      - unit tests per stage beside them (the decision paths, CSRF and
+        session handling, signature checks, the device flow), and the
+        compatibility test (D10) unchanged: 1.8's configuration still
+        works, with Cockpit as before.
 
 ## 12. Open items
 
