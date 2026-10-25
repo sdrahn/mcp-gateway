@@ -49,6 +49,7 @@ func PageChanges(cur, p config.ApprovalPage) []Change {
 	var out []Change
 	for _, kv := range []struct{ key, old, v string }{
 		{"client_id", cur.ClientID, p.ClientID}, {"client_secret_file", cur.ClientSecretFile, p.ClientSecretFile},
+		{"device_client_id", cur.DeviceClientID, p.DeviceClientID},
 	} {
 		if kv.v != "" && kv.v != kv.old {
 			out = append(out, Change{"approvals.page." + kv.key, kv.old, kv.v})
@@ -59,7 +60,8 @@ func PageChanges(cur, p config.ApprovalPage) []Change {
 
 // PageNode is the YAML value of key (approvals.page.client_id, …) in p.
 func PageNode(p config.ApprovalPage, key string) *yaml.Node {
-	v := map[string]string{"approvals.page.client_id": p.ClientID, "approvals.page.client_secret_file": p.ClientSecretFile}
+	v := map[string]string{"approvals.page.client_id": p.ClientID, "approvals.page.client_secret_file": p.ClientSecretFile,
+		"approvals.page.device_client_id": p.DeviceClientID}
 	if s, ok := v[key]; ok {
 		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: s}
 	}

@@ -11,6 +11,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -31,6 +32,21 @@ type codeFlow struct {
 	mu          sync.Mutex
 	user        string
 	codes       map[string][2]string // code: challenge, nonce
+	// The device flow (stage D) for the client approvals-cli: confirmed
+	// says whether the code was confirmed, as deviceUser.
+	confirmed  bool
+	deviceUser string
+}
+
+// idToken is an ID token for aud.
+func (cf *codeFlow) idToken(sub, aud string, extra jwt.MapClaims) (string, error) {
+	c := jwt.MapClaims{"iss": cf.i.srv.URL, "aud": aud, "sub": sub, "iat": time.Now().Unix(), "exp": time.Now().Add(5 * time.Minute).Unix()}
+	for k, v := range extra {
+		c[k] = v
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, c)
+	tok.Header["kid"] = "k1"
+	return tok.SignedString(cf.i.key)
 }
 
 func newCodeFlowIdP(t *testing.T) (*idp, *codeFlow) {
@@ -41,7 +57,17 @@ func newCodeFlowIdP(t *testing.T) (*idp, *codeFlow) {
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"issuer": i.srv.URL, "jwks_uri": i.srv.URL + "/jwks",
 			"authorization_endpoint": i.srv.URL + "/authorize", "token_endpoint": i.srv.URL + "/token",
+			"device_authorization_endpoint":    i.srv.URL + "/device",
 			"code_challenge_methods_supported": []string{"S256"}})
+	})
+	mux.HandleFunc("POST /device", func(w http.ResponseWriter, r *http.Request) {
+		if r.PostFormValue("client_id") != "approvals-cli" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"device_code": "dc-1", "user_code": "WXYZ-1234",
+			"verification_uri": i.srv.URL + "/device", "expires_in": 60, "interval": 1})
 	})
 	mux.Handle("/jwks", i.srv.Config.Handler)
 	mux.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +83,23 @@ func newCodeFlowIdP(t *testing.T) (*idp, *codeFlow) {
 		http.Redirect(w, r, cf.redirectURI+"?"+url.Values{"code": {code}, "state": {q.Get("state")}}.Encode(), http.StatusFound)
 	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		if r.PostFormValue("grant_type") == "urn:ietf:params:oauth:grant-type:device_code" {
+			cf.mu.Lock()
+			ok, user := cf.confirmed, cf.deviceUser
+			cf.mu.Unlock()
+			if !ok || r.PostFormValue("device_code") != "dc-1" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
+				return
+			}
+			s, err := cf.idToken(user, "approvals-cli", nil)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"token_type": "Bearer", "access_token": "x", "id_token": s})
+			return
+		}
 		cf.mu.Lock()
 		c, ok := cf.codes[r.PostFormValue("code")]
 		delete(cf.codes, r.PostFormValue("code"))
@@ -217,6 +260,134 @@ approvals:
 	for _, want := range []string{`"event":"mcp-approver-sign-in"`, `"principal":"u-approver"`, `"event":"mcp-approval"`, `"via":"page"`, `"by":"u-approver"`} {
 		if !strings.Contains(logs, want) {
 			t.Errorf("audit lacks %s", want)
+		}
+	}
+}
+
+// TestApprovalsFromAnotherHost (stage D): mcp-gateway-admin approvals
+// --gateway, as on a laptop: signed in with the device flow, it lists and
+// approves a remote agent's call on the gateway's approval API, under the
+// same approver rules; an agent's token and another client's are not a
+// sign-in there.
+func TestApprovalsFromAnotherHost(t *testing.T) {
+	home, err := os.MkdirTemp("", "mcpgw-remote-cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	provider, flow := newCodeFlowIdP(t)
+	certFile, keyFile, pool := selfSigned(t, home)
+	port := freePort(t)
+	origin := fmt.Sprintf("https://127.0.0.1:%d", port)
+	audience := origin + "/mcp"
+	flow.redirectURI = origin + "/approvals/callback"
+	rbac := fmt.Sprintf(`{
+	  "roles": {"writer": {"permissions": [
+	    {"server": "fs", "tool": "write_file", "require_approval": true, "approval_channel": "url",
+	     "approval_scopes": ["once"], "args": {"path": %q}}
+	  ]}},
+	  "bindings": {"groups": {}, "users": {"u-agent": ["writer"]}},
+	  "approvers": {"fs": ["remote-user:u-approver"]}
+	}`, "^"+regexp.QuoteMeta(home)+"/")
+	e := setup(t, rbac, map[string]string{"fs": home}, fmt.Sprintf(`http:
+  listen: 127.0.0.1:%d
+  cert_file: %s
+  key_file: %s
+  issuer: %s
+  audience: %s
+approvals:
+  page:
+    client_id: approvals
+    device_client_id: approvals-cli
+`, port, certFile, keyFile, provider.srv.URL, audience))
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		resp, err := client.Get(audience)
+		if err == nil {
+			_ = resp.Body.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("gateway HTTPS not up: %v\n%s", err, e.gwLogs.String())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	admin := build(t, filepath.Join(e.tmp, "bin"), "./cmd/mcp-gateway-admin")
+	cli := func(args ...string) (int, string) {
+		cmd := exec.Command(admin, args...)
+		cmd.Env = append(os.Environ(), "SSL_CERT_FILE="+certFile, "XDG_CONFIG_HOME="+filepath.Join(home, "config"))
+		out, err := cmd.CombinedOutput()
+		rc := 0
+		if ee, ok := err.(*exec.ExitError); ok {
+			rc = ee.ExitCode()
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		return rc, string(out)
+	}
+
+	// Sign in: the code is confirmed while the command waits.
+	flow.mu.Lock()
+	flow.deviceUser = "u-approver"
+	flow.mu.Unlock()
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		flow.mu.Lock()
+		flow.confirmed = true
+		flow.mu.Unlock()
+	}()
+	rc, out := cli("approvals", "login", "--gateway", origin)
+	if rc != 0 || !strings.Contains(out, "confirm the code WXYZ-1234") || !strings.Contains(out, "signed in to "+origin+" as u-approver") {
+		t.Fatalf("login: %d %s\n%s", rc, out, e.gwLogs.String())
+	}
+
+	agent := &remote{t: t, client: client, url: audience + "/fs", token: provider.token(t, "u-agent", audience)}
+	agent.call(1, "initialize", map[string]any{"protocolVersion": "2025-06-18",
+		"capabilities": map[string]any{"elicitation": map[string]any{"url": map[string]any{}}},
+		"clientInfo":   map[string]any{"name": "cli-e2e"}})
+	_ = agent.post(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"}, false).Body.Close()
+	target := filepath.Join(home, "from-afar.txt")
+	resp := agent.post(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{
+		"name": "write_file", "arguments": map[string]any{"path": target, "content": "approved from afar"}}}, true)
+	events := sse(t, resp)
+	el := nextEvent(t, events)
+	_ = agent.post(map[string]any{"jsonrpc": "2.0", "id": el.ID, "result": map[string]any{"action": "accept"}}, false).Body.Close()
+
+	rc, out = cli("approvals", "--gateway", origin)
+	if rc != 0 || !strings.Contains(out, "fs/write_file") {
+		t.Fatalf("list: %d %s", rc, out)
+	}
+	rc, out = cli("approvals", "approve", "a-", "--yes", "--gateway", origin)
+	if rc != 0 || !strings.Contains(out, "approved a-") {
+		t.Fatalf("approve: %d %s", rc, out)
+	}
+	var result msg
+	for result.ID == nil || string(result.ID) != "2" {
+		result = nextEvent(t, events)
+	}
+	if text, isErr := toolResult(t, result); isErr || !strings.HasPrefix(text, "wrote") {
+		t.Fatalf("the call: %q %v", text, isErr)
+	}
+	if logs := e.gwLogs.String(); !strings.Contains(logs, `"via":"remote-cli"`) || !strings.Contains(logs, `"by":"u-approver"`) {
+		t.Errorf("audit lacks via=remote-cli by=u-approver")
+	}
+
+	// Bearer tokens that are not a device-flow sign-in.
+	page, _ := flow.idToken("u-approver", "approvals", nil)
+	for name, tok := range map[string]string{
+		"an agent's token":        provider.token(t, "u-approver", audience),
+		"the page client's token": page,
+	} {
+		req, _ := http.NewRequest("GET", origin+"/approvals/api/v1/approvals", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		r, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = r.Body.Close()
+		if r.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s: %d", name, r.StatusCode)
 		}
 	}
 }

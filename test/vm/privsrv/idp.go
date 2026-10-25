@@ -40,6 +40,13 @@ import (
 // answers at every path ending in /.well-known/openid-configuration,
 // always naming https://idp.vmtest: an http.issuer with a path is an
 // issuer that does not match.
+//
+// A client given as ID=device is a public client of the device flow
+// (RFC 8628), for mcp-gateway-admin approvals login --gateway: POST
+// /device/code hands out a code, GET /device?user_code=CODE confirms it
+// for the user /login signed in (without, a sign-in form), and POST
+// /oauth/token answers authorization_pending until then, then with an ID
+// token (5 minutes) and a refresh token, which renews it.
 func serveIdP(addr, certFile string, clientArgs []string) error {
 	cert, err := selfSigned("idp.vmtest", certFile)
 	if err != nil {
@@ -65,6 +72,9 @@ func serveIdP(addr, certFile string, clientArgs []string) error {
 	}
 	var mu sync.Mutex
 	codes := map[string]idpCode{}
+	devices := map[string]*idpCode{} // by device code; user set when confirmed
+	userCodes := map[string]string{} // user code → device code
+	refreshes := map[string]idpCode{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{path...}", func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/.well-known/openid-configuration") {
@@ -73,10 +83,19 @@ func serveIdP(addr, certFile string, clientArgs []string) error {
 		}
 		writeJSON(w, map[string]any{"issuer": issuer, "jwks_uri": issuer + "/jwks",
 			"authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/oauth/token",
+			"device_authorization_endpoint":                  issuer + "/device/code",
 			"code_challenge_methods_supported":               []string{"S256"},
 			"authorization_response_iss_parameter_supported": true,
 		})
 	})
+	who := func(r *http.Request) map[string]string {
+		var u map[string]string
+		if ck, err := r.Cookie("idp_user"); err == nil {
+			raw, _ := base64.RawURLEncoding.DecodeString(ck.Value)
+			_ = json.Unmarshal(raw, &u)
+		}
+		return u
+	}
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
 		v, _ := json.Marshal(map[string]string{"user": r.URL.Query().Get("user"), "groups": r.URL.Query().Get("groups")})
 		http.SetCookie(w, &http.Cookie{Name: "idp_user", Value: b64(v), Path: "/", Secure: true, HttpOnly: true})
@@ -96,13 +115,8 @@ func serveIdP(addr, certFile string, clientArgs []string) error {
 			http.Error(w, "authorization code with PKCE S256 only", http.StatusBadRequest)
 			return
 		}
-		ck, err := r.Cookie("idp_user")
-		var who map[string]string
-		if err == nil {
-			raw, _ := base64.RawURLEncoding.DecodeString(ck.Value)
-			_ = json.Unmarshal(raw, &who)
-		}
-		if who["user"] == "" {
+		u := who(r)
+		if u["user"] == "" {
 			// As a provider's sign-in form: the request itself is fine.
 			_, _ = fmt.Fprint(w, "<form>sign in at the identity provider (GET /login?user=...)</form>\n")
 			return
@@ -110,16 +124,104 @@ func serveIdP(addr, certFile string, clientArgs []string) error {
 		code := b64(randomBytes(16))
 		mu.Lock()
 		codes[code] = idpCode{client: q.Get("client_id"), challenge: q.Get("code_challenge"), nonce: q.Get("nonce"),
-			user: who["user"], groups: who["groups"], expires: time.Now().Add(time.Minute)}
+			user: u["user"], groups: u["groups"], expires: time.Now().Add(time.Minute)}
 		mu.Unlock()
 		back := url.Values{"code": {code}, "state": {q.Get("state")}, "iss": {issuer}}
 		http.Redirect(w, r, c.redirectURI+"?"+back.Encode(), http.StatusFound)
+	})
+	idToken := func(cd idpCode, aud string) (string, error) {
+		now := time.Now()
+		claims := map[string]any{"iss": issuer, "sub": cd.user, "aud": aud, "preferred_username": cd.user,
+			"iat": now.Unix(), "exp": now.Add(5 * time.Minute).Unix()}
+		if cd.nonce != "" {
+			claims["nonce"] = cd.nonce
+		}
+		if cd.groups != "" {
+			claims["groups"] = strings.Split(cd.groups, ",")
+		}
+		return signES256(key, "k1", claims)
+	}
+	mux.HandleFunc("POST /device/code", func(w http.ResponseWriter, r *http.Request) {
+		c, ok := clients[r.PostFormValue("client_id")]
+		switch {
+		case !ok:
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]string{"error": "invalid_client", "error_description": "unknown client " + r.PostFormValue("client_id")})
+			return
+		case c.redirectURI != "device":
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]string{"error": "unauthorized_client", "error_description": "the device grant is not enabled for " + r.PostFormValue("client_id")})
+			return
+		}
+		dc, uc := b64(randomBytes(16)), strings.ToUpper(fmt.Sprintf("%x", randomBytes(4)))
+		mu.Lock()
+		devices[dc] = &idpCode{client: r.PostFormValue("client_id"), expires: time.Now().Add(5 * time.Minute)}
+		userCodes[uc] = dc
+		mu.Unlock()
+		writeJSON(w, map[string]any{"device_code": dc, "user_code": uc, "verification_uri": issuer + "/device",
+			"verification_uri_complete": issuer + "/device?user_code=" + uc, "expires_in": 300, "interval": 1})
+	})
+	mux.HandleFunc("GET /device", func(w http.ResponseWriter, r *http.Request) {
+		u := who(r)
+		if u["user"] == "" {
+			_, _ = fmt.Fprint(w, "<form>sign in at the identity provider (GET /login?user=...), then confirm the code</form>\n")
+			return
+		}
+		mu.Lock()
+		d := devices[userCodes[r.URL.Query().Get("user_code")]]
+		if d != nil {
+			d.user, d.groups = u["user"], u["groups"]
+		}
+		mu.Unlock()
+		if d == nil {
+			http.Error(w, "unknown code", http.StatusNotFound)
+			return
+		}
+		_, _ = fmt.Fprintf(w, "confirmed for %s\n", u["user"])
 	})
 	mux.HandleFunc("POST /oauth/token", func(w http.ResponseWriter, r *http.Request) {
 		fail := func(status int, code string) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(status)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": code})
+		}
+		switch r.PostFormValue("grant_type") {
+		case "urn:ietf:params:oauth:grant-type:device_code", "refresh_token":
+			id := r.PostFormValue("client_id")
+			mu.Lock()
+			var cd idpCode
+			ok := false
+			if r.PostFormValue("grant_type") == "refresh_token" {
+				cd, ok = refreshes[r.PostFormValue("refresh_token")]
+			} else if d := devices[r.PostFormValue("device_code")]; d != nil {
+				if d.user == "" {
+					mu.Unlock()
+					fail(http.StatusBadRequest, "authorization_pending")
+					return
+				}
+				cd, ok = *d, true
+				delete(devices, r.PostFormValue("device_code"))
+			}
+			mu.Unlock()
+			if !ok || cd.client != id || time.Now().After(cd.expires) && r.PostFormValue("grant_type") != "refresh_token" {
+				fail(http.StatusBadRequest, "invalid_grant")
+				return
+			}
+			tok, err := idToken(cd, id)
+			if err != nil {
+				fail(http.StatusInternalServerError, "server_error")
+				return
+			}
+			rt := r.PostFormValue("refresh_token")
+			if rt == "" {
+				rt = b64(randomBytes(16))
+				mu.Lock()
+				refreshes[rt] = cd
+				mu.Unlock()
+			}
+			writeJSON(w, map[string]any{"access_token": b64(randomBytes(16)), "token_type": "Bearer", "expires_in": 300,
+				"id_token": tok, "refresh_token": rt})
+			return
 		}
 		id, secret, basic := r.BasicAuth()
 		if basic {
@@ -143,13 +245,7 @@ func serveIdP(addr, certFile string, clientArgs []string) error {
 			fail(http.StatusBadRequest, "invalid_grant")
 			return
 		}
-		now := time.Now()
-		claims := map[string]any{"iss": issuer, "sub": cd.user, "aud": id, "nonce": cd.nonce,
-			"preferred_username": cd.user, "iat": now.Unix(), "exp": now.Add(5 * time.Minute).Unix()}
-		if cd.groups != "" {
-			claims["groups"] = strings.Split(cd.groups, ",")
-		}
-		tok, err := signES256(key, "k1", claims)
+		tok, err := idToken(cd, id)
 		if err != nil {
 			fail(http.StatusInternalServerError, "server_error")
 			return

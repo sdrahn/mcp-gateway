@@ -381,7 +381,10 @@ func confirm(stderr io.Writer, question string) bool {
 // controlClient talks to the gateway's control API as the user who runs
 // the command: the kernel names the caller to the gateway.
 type controlClient struct {
-	sock string
+	// base is where the API's paths start: the socket's, or with remote
+	// (--gateway, remote.go) a gateway's approval API.
+	base, remote string
+	sock         string
 	// group is socket_group of gateway.yaml, for the message when the
 	// socket cannot be looked at.
 	group string
@@ -405,7 +408,7 @@ func newControlClient(sock string) (*controlClient, error) {
 			return nil, errors.New("the gateway's control API is off (approvals.control_socket: \"-\" in gateway.yaml)")
 		}
 	}
-	return &controlClient{sock: sock, group: group, http: &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
+	return &controlClient{base: "http://gateway", sock: sock, group: group, http: &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			var d net.Dialer
 			return d.DialContext(ctx, "unix", sock)
@@ -420,7 +423,16 @@ func (cc *controlClient) do(method, path string, body []byte) (int, string, erro
 	if err != nil || status < 300 {
 		return status, "", err
 	}
-	return status, apiMessage(status, data), nil
+	return status, cc.message(status, data), nil
+}
+
+// message is the API's error message, or what to do when a remote
+// gateway does not take the sign-in.
+func (cc *controlClient) message(status int, data []byte) string {
+	if cc.remote != "" && status == http.StatusUnauthorized {
+		return signedOut(cc.remote)
+	}
+	return apiMessage(status, data)
 }
 
 // apiMessage is the message of the API's error answer.
@@ -435,7 +447,7 @@ func apiMessage(status int, data []byte) string {
 }
 
 func (cc *controlClient) request(method, path string, body []byte) (int, []byte, error) {
-	req, err := http.NewRequest(method, "http://gateway"+path, bytes.NewReader(body))
+	req, err := http.NewRequest(method, cc.base+path, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, err
 	}
@@ -462,7 +474,7 @@ func (cc *controlClient) list(stderr io.Writer, path string, v any) ([]byte, int
 		return nil, exitUnreachable
 	}
 	if status != http.StatusOK {
-		sayf(stderr, "mcp-gateway-admin: %s: %s", path, apiMessage(status, data))
+		sayf(stderr, "mcp-gateway-admin: %s: %s", path, cc.message(status, data))
 		return nil, exitRefused
 	}
 	if err := json.Unmarshal(data, v); err != nil {
@@ -474,6 +486,9 @@ func (cc *controlClient) list(stderr io.Writer, path string, v any) ([]byte, int
 
 // unreachable says why the gateway does not answer and what to do.
 func (cc *controlClient) unreachable(err error) error {
+	if cc.remote != "" {
+		return remoteUnreachable(cc.remote, err)
+	}
 	switch {
 	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM):
 		group := "the socket's group"

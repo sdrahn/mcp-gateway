@@ -105,6 +105,7 @@ type metadata struct {
 	TokenEndpoint         string   `json:"token_endpoint"`
 	JWKSURI               string   `json:"jwks_uri"`
 	RegistrationEndpoint  string   `json:"registration_endpoint"`
+	DeviceAuthorization   string   `json:"device_authorization_endpoint"`
 	CodeChallengeMethods  []string `json:"code_challenge_methods_supported"`
 }
 
@@ -276,7 +277,55 @@ func ApprovalPage(ctx context.Context, gw *config.Gateway, client *http.Client, 
 	if pg.ClientSecretFile == "" {
 		r.Details = append(r.Details, "a public client (no approvals.page.client_secret_file): the identity provider must allow that for "+pg.ClientID)
 	}
+	if pg.DeviceClientID != "" {
+		if d, err := deviceClient(ctx, client, md.DeviceAuthorization, pg.DeviceClientID); err != nil {
+			return fail(err.Error(),
+				"enable the device authorization grant (OAuth 2.0 Device Authorization Grant) for the public client "+pg.DeviceClientID+" there,",
+				"or set approvals.page.device_client_id to the client that has it")
+		} else {
+			r.Details = append(r.Details, d)
+		}
+	}
 	return r
+}
+
+// deviceClient checks that the identity provider starts a device
+// authorization for clientID, as mcp-gateway-admin approvals login does
+// (the code it hands out expires unused).
+func deviceClient(ctx context.Context, client *http.Client, endpoint, clientID string) (string, error) {
+	if endpoint == "" {
+		return "", fmt.Errorf("the identity provider names no device_authorization_endpoint: approvals login --gateway cannot sign in as %s", clientID)
+	}
+	form := url.Values{"client_id": {clientID}, "scope": {"openid"}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("device authorization endpoint %s: %v", endpoint, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var a struct {
+		DeviceCode       string `json:"device_code"`
+		Error            string `json:"error"`
+		ErrorDescription string `json:"error_description"`
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	_ = json.Unmarshal(body, &a)
+	if resp.StatusCode != http.StatusOK || a.DeviceCode == "" {
+		why := a.Error
+		if a.ErrorDescription != "" {
+			why += ": " + a.ErrorDescription
+		}
+		if why == "" {
+			why = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, snippet(body))
+		}
+		return "", fmt.Errorf("the identity provider refuses the device authorization for %s (%s)", clientID, why)
+	}
+	return "the command line on other hosts signs in as " + clientID + " with the device flow (approvals login --gateway)", nil
 }
 
 // snippet is the start of an error page, as text on one line.

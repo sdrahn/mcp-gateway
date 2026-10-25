@@ -79,6 +79,7 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 	var page config.ApprovalPage
 	fs.StringVar(&page.ClientID, "client-id", "", "the approval page's client at the identity provider, with <origin of -url>/approvals/callback as redirect URI (approvals.page.client_id)")
 	fs.StringVar(&page.ClientSecretFile, "client-secret-file", "", "file with that client's secret, for a confidential client (approvals.page.client_secret_file)")
+	fs.StringVar(&page.DeviceClientID, "device-client-id", "", "the public client the command line on other hosts signs in as, with the device flow (approvals.page.device_client_id)")
 	scopes := fs.String("scopes", "", "comma-separated scopes every token must carry, e.g. mcp (http.scopes; \"\" for none)")
 	tokenFile := fs.String("token", "", "file with an access token to check as the gateway takes it, - for standard input")
 	policyData := fs.String("policy-data", policydata.DefaultPath, "role data, for the ceiling of the token's scopes (empty: none)")
@@ -141,6 +142,9 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 	}
 	if page.ClientSecretFile == "" {
 		page.ClientSecretFile = curPage.ClientSecretFile
+	}
+	if page.DeviceClientID == "" {
+		page.DeviceClientID = curPage.DeviceClientID
 	}
 	rs = append(rs, c.dropInResult(cur, h, curPage, page, *write))
 	rs = append(rs, httpsetup.IdentityProvider(ctx, h, client)...)

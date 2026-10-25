@@ -137,6 +137,28 @@ func (o *OAuth) principalOf(claims jwt.MapClaims, sub string) principal.Principa
 // claims make, as for an access token (groups, local account), without
 // scopes: an ID token authorizes nothing by itself.
 func (o *OAuth) IDToken(ctx context.Context, raw, clientID, nonce string) (principal.Principal, error) {
+	if nonce == "" {
+		return principal.Principal{}, fmt.Errorf("%w: nonce does not match", ErrInvalidToken)
+	}
+	return o.idToken(ctx, raw, clientID, &nonce)
+}
+
+// ApproverToken validates an ID token that the command line, signed in
+// as the client clientID with the device flow, sends as its bearer token
+// to the approval API (docs/architecture.md, step 39 stage D): as
+// IDToken, but without a nonce, which the device flow has none of. Only
+// tokens for clientID pass: an agent's access token (for http.audience)
+// is not one.
+func (o *OAuth) ApproverToken(ctx context.Context, raw, clientID string) (principal.Principal, error) {
+	return o.idToken(ctx, raw, clientID, nil)
+}
+
+// idToken validates an ID token for clientID; with nonce, it must carry
+// that nonce.
+func (o *OAuth) idToken(ctx context.Context, raw, clientID string, nonce *string) (principal.Principal, error) {
+	if clientID == "" {
+		return principal.Principal{}, fmt.Errorf("%w: no client", ErrInvalidToken)
+	}
 	claims := jwt.MapClaims{}
 	_, err := jwt.ParseWithClaims(raw, claims,
 		func(t *jwt.Token) (any, error) { return o.key(ctx, t) },
@@ -156,9 +178,11 @@ func (o *OAuth) IDToken(ctx context.Context, raw, clientID, nonce string) (princ
 			return principal.Principal{}, fmt.Errorf("%w: azp %q is not the client %q", ErrInvalidToken, azp, clientID)
 		}
 	}
-	got, _ := claims["nonce"].(string)
-	if nonce == "" || subtle.ConstantTimeCompare([]byte(got), []byte(nonce)) != 1 {
-		return principal.Principal{}, fmt.Errorf("%w: nonce does not match", ErrInvalidToken)
+	if nonce != nil {
+		got, _ := claims["nonce"].(string)
+		if subtle.ConstantTimeCompare([]byte(got), []byte(*nonce)) != 1 {
+			return principal.Principal{}, fmt.Errorf("%w: nonce does not match", ErrInvalidToken)
+		}
 	}
 	sub, _ := claims["sub"].(string)
 	if sub == "" {

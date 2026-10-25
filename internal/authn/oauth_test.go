@@ -341,3 +341,35 @@ func TestIDToken(t *testing.T) {
 		t.Errorf("several audiences with azp: %v", err)
 	}
 }
+
+func TestApproverToken(t *testing.T) {
+	idp := newIdP(t)
+	o := idp.oauth(nil)
+	ctx := context.Background()
+	tok := func(over map[string]any) string {
+		c := map[string]any{"aud": "approvals-cli", "scope": nil}
+		for k, v := range over {
+			c[k] = v
+		}
+		return idp.rsaToken(t, c)
+	}
+	p, err := o.ApproverToken(ctx, tok(nil), "approvals-cli")
+	if err != nil || p.Sub != "u-123" || len(p.Groups) != 1 {
+		t.Fatalf("%+v %v", p, err)
+	}
+	if p.Expires.IsZero() {
+		t.Error("no expiry")
+	}
+	for name, raw := range map[string]string{
+		"an agent's access token": idp.rsaToken(t, nil), // aud: the gateway
+		"another client's":        tok(map[string]any{"aud": "approvals"}),
+		"expired":                 tok(map[string]any{"exp": time.Now().Add(-time.Hour).Unix()}),
+	} {
+		if _, err := o.ApproverToken(ctx, raw, "approvals-cli"); !errors.Is(err, ErrInvalidToken) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := o.ApproverToken(ctx, tok(nil), ""); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("no client: %v", err)
+	}
+}

@@ -294,6 +294,48 @@ $ mcp-gateway-admin approvals watch               # follow them, Ctrl-C ends
 - Decisions and revocations from the command line are audited with
   `via=cli` (Cockpit's with `via=cockpit`; chapter 11, "Audit records").
 
+## Deciding from another host
+
+With the gateway's approval page set up (above), the same commands work
+on a gateway on another host, from a laptop for example, without SSH:
+`--gateway https://host:port` names its HTTPS listener. The approver
+signs in once per gateway with the identity provider, by the device
+flow: no browser is needed where the command runs.
+
+```console
+$ mcp-gateway-admin approvals login --gateway https://gw1.example.com:9443
+To sign in to https://gw1.example.com:9443, open https://idp.example.com/device?user_code=WXYZ-1234 in a browser and confirm the code WXYZ-1234.
+signed in to https://gw1.example.com:9443 as jack (groups ops); kept in /home/jack/.config/mcp-gateway-admin/gateways/gw1.example.com_9443.json
+$ mcp-gateway-admin approvals --gateway https://gw1.example.com:9443
+$ mcp-gateway-admin approvals approve a-7f3e9c --gateway https://gw1.example.com:9443
+$ mcp-gateway-admin grants --gateway https://gw1.example.com:9443
+$ mcp-gateway-admin approvals watch --gateway https://gw1.example.com:9443
+$ mcp-gateway-admin approvals logout --gateway https://gw1.example.com:9443
+```
+
+To set it up, register a second client at the identity provider: a
+public client with the **device authorization grant** (Keycloak: *OAuth
+2.0 Device Authorization Grant* on, *Client authentication* off), e.g.
+`mcp-gateway-approvals-cli`, and tell the gateway:
+
+```console
+# mcp-gateway-admin setup http --device-client-id mcp-gateway-approvals-cli --write
+# systemctl restart mcp-gateway.service
+```
+
+- The sign-in is kept in `~/.config/mcp-gateway-admin/gateways/`, mode
+  0600 in a directory of mode 0700: its ID token, and the refresh token
+  that renews it while the identity provider allows. A file others may
+  read is refused. `approvals logout` removes it.
+- The gateway takes as the sign-in only an ID token issued to the device
+  client: an agent's access token, the page's sign-in or a cookie are
+  none. The approver rules match the principal it makes, as on the page
+  (`remote-user:`, `remote-group:` without a local account).
+- Sign-ins are audited (`mcp-approver-sign-in`), decisions and
+  revocations with `via=remote-cli`.
+- The device flow asks the user to confirm a code shown by a program:
+  confirm only codes from your own `approvals login`.
+
 ## Notifications
 
 Approvers learn about pending approvals from:

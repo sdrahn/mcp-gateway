@@ -279,6 +279,11 @@ type ApprovalPage struct {
 	ClientSecretFile string `yaml:"client_secret_file"`
 	// Scopes are asked for besides openid.
 	Scopes []string `yaml:"scopes"`
+	// DeviceClientID is the client the command line signs in as, on
+	// another host, with the device flow (mcp-gateway-admin approvals
+	// --gateway): a public client of the same identity provider with the
+	// device authorization grant. Empty: no approval API for it.
+	DeviceClientID string `yaml:"device_client_id"`
 	// SessionTTL is how long a sign-in on the page lasts.
 	SessionTTL time.Duration `yaml:"session_ttl"`
 }
@@ -892,8 +897,8 @@ func (g *Gateway) Validate() error {
 				return fmt.Errorf("approvals.page.scopes: invalid scope %q", sc)
 			}
 		}
-	} else if pg.ClientSecretFile != "" {
-		return errors.New("approvals.page.client_secret_file: needs approvals.page.client_id")
+	} else if pg.ClientSecretFile != "" || pg.DeviceClientID != "" {
+		return errors.New("approvals.page.client_secret_file and device_client_id: need approvals.page.client_id")
 	}
 	if t := g.Approvals.URLTemplate; t != "" {
 		if !strings.Contains(t, "{id}") {

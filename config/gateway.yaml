@@ -67,6 +67,9 @@ approvals:
     client_id: ""
     # The client's secret, for a confidential client; empty: public.
     client_secret_file: ""
+    # The public client (device authorization grant) the command line
+    # on other hosts signs in as: mcp-gateway-admin approvals --gateway.
+    device_client_id: ""
     session_ttl: 1h
   # Who may decide on approvals and revoke grants is policy: "approvers"
   # in /etc/mcp-gateway/policy/rbac/data.json (default: the principal
