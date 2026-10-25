@@ -2895,12 +2895,13 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 		pp_body=$(cat /root/vmtest/pp-body)
 		echo "  [$u GET ${url#"$pp_url"}] $pp_code $(sed 's/<[^>]*>/ /g' <<<"$pp_body" | tr -s ' \n' ' ' | cut -c1-200)"
 	}
-	# pp_post USER PATH FORM [CURL ARGS...]: POST FORM from the page.
+	# pp_post USER PATH FORM [CURL ARGS...]: POST FORM from the page
+	# (Origin: the page's, or $pp_origin).
 	pp_post() {
 		local u=$1 path=$2 form=$3
 		shift 3
 		pp_code=$(curl -s --noproxy '*' -b "/root/vmtest/pp-$u.jar" -c "/root/vmtest/pp-$u.jar" -o /root/vmtest/pp-body \
-			-w '%{http_code}' -H "Origin: $pp_url" "$@" --data "$form" "$pp_url$path")
+			-w '%{http_code}' -H "Origin: ${pp_origin:-$pp_url}" "$@" --data "$form" "$pp_url$path")
 		pp_body=$(cat /root/vmtest/pp-body)
 		echo "  [$u POST $path] $pp_code $(sed 's/<[^>]*>/ /g' <<<"$pp_body" | tr -s ' \n' ' ' | cut -c1-200)"
 	}
@@ -2933,7 +2934,7 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 		bash -c 'grep -qi "^x-frame-options: DENY" <<<"$1" && grep -qi "^content-security-policy:.*frame-ancestors '"'"'none'"'"'" <<<"$1"' _ "$pp_hdr"
 	pp_post jack "/approvals/$ac_id" "decision=approve&scope=once"
 	check "page: a decision without the CSRF token is refused" test "$pp_code" = 403
-	pp_post jack "/approvals/$ac_id" "decision=approve&scope=once&csrf=$pp_jack_csrf" -H 'Origin: https://evil.vmtest'
+	pp_origin=https://evil.vmtest pp_post jack "/approvals/$ac_id" "decision=approve&scope=once&csrf=$pp_jack_csrf"
 	check "page: a decision from another origin is refused" test "$pp_code" = 403
 	check "... and ivy's call still waits" kill -0 "$ac_pid"
 	pp_post jack "/approvals/$ac_id" "decision=approve&scope=once&csrf=$pp_jack_csrf"
@@ -2971,9 +2972,12 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	pp_post jack "/approvals/$ac_id" "decision=approve&scope=1h&csrf=$pp_jack_csrf"
 	wait "$ac_pid"
 	check "page: jack approves the second call for 1h; it runs" grep -q '"isError":false' /root/vmtest/ac-call.out
+	# jack manages every fs grant, earlier sections' too: ivy's is the one
+	# for read_file.
+	ac_admin jack grants --json
+	pp_grant=$(jq -r '.[] | select(.sub == "ivy" and .tool == "read_file") | .id' <<<"$out" 2>/dev/null | head -1)
 	pp_get jack "$pp_url/approvals/"
-	pp_grant=$(sed -n 's#.*/approvals/grants/\([^/]*\)/revoke.*#\1#p' <<<"$pp_body" | head -1)
-	check "page: the inbox lists the 1h grant" test -n "$pp_grant"
+	check "page: the inbox lists ivy's 1h grant, to revoke" bash -c '[ -n "$1" ] && grep -qF "/approvals/grants/$1/revoke" <<<"$2"' _ "$pp_grant" "$pp_body"
 	pp_post jack "/approvals/grants/${pp_grant:-x}/revoke" "csrf=$pp_jack_csrf"
 	check "page: jack revokes it" test "$pp_code" = 303
 	pp_revoked() { since=$pp_since audit_since TRUSTED_APP | grep 'op=mcp-grant-revoke' | grep -F "id=$1" | grep -q 'via=page'; }

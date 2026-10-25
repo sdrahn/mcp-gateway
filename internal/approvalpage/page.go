@@ -478,9 +478,11 @@ func (pg *Page) checkPost(w http.ResponseWriter, r *http.Request) *session {
 		pg.page(w, http.StatusForbidden, "Signed out", "Your sign-in on the approval page ended. Open the page again to sign in; nothing was decided.", nil)
 		return nil
 	}
-	if o := r.Header.Get("Origin"); o != "" && o != pg.Origin {
-		pg.page(w, http.StatusForbidden, "Refused", "This request came from another site ("+o+"); nothing was decided.", nil)
-		return nil
+	for _, o := range r.Header.Values("Origin") {
+		if o != pg.Origin {
+			pg.page(w, http.StatusForbidden, "Refused", "This request came from another site ("+o+"); nothing was decided.", nil)
+			return nil
+		}
 	}
 	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
 		pg.page(w, http.StatusForbidden, "Refused", "This request came from another site; nothing was decided.", nil)

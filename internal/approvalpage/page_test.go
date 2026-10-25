@@ -354,6 +354,17 @@ func TestSignInAndDecide(t *testing.T) {
 			t.Errorf("%s: %d, want 403", name, code)
 		}
 	}
+	// Two Origin headers, the page's first: refused too.
+	req, _ := http.NewRequest(http.MethodPost, f.srv.URL+"/approvals/a-1",
+		strings.NewReader(url.Values{"decision": {"approve"}, "scope": {"once"}, "csrf": {csrf}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Origin", f.srv.URL)
+	req.Header.Add("Origin", "https://evil.example")
+	if resp, err := c.Do(req); err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Errorf("two origins: %v %v", resp, err)
+	} else {
+		_ = resp.Body.Close()
+	}
 	if len(f.broker.resolved) != 0 {
 		t.Fatalf("decided: %v", f.broker.resolved)
 	}
