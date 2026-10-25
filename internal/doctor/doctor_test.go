@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/landlock"
@@ -574,5 +575,36 @@ func TestLandlockSuspects(t *testing.T) {
 	}
 	if rs := LandlockSuspects(backends, []string{"web"}, nil, false); len(rs) != 1 || !strings.Contains(rs[0].Summary, "if SELinux denied") {
 		t.Errorf("denials unknown: %+v", rs)
+	}
+}
+
+// Out-of-band approvals that reach nobody by themselves warn; any of
+// mail, the approval page or desktop notifications is enough; without the
+// control API there are none.
+func TestApprovalReach(t *testing.T) {
+	gw := &config.Gateway{ApprovalTimeout: 2 * time.Minute}
+	gw.Approvals.ControlSocket = "/run/mcp-gateway/control.sock"
+	gw.Approvals.NoWait = []string{"kit"}
+	r := ApprovalReach(gw, false)
+	if r.Status != Warn || !strings.Contains(r.Summary, "reach no approver by themselves") ||
+		!strings.Contains(strings.Join(r.Details, " "), "approvals.no_wait (kit) are told to ask for one, others wait up to approval_timeout (2m0s)") {
+		t.Errorf("nothing: %+v", r)
+	}
+	if r := ApprovalReach(gw, true); r.Status != OK || !strings.Contains(r.Summary, "desktop notifications") {
+		t.Errorf("notify agent: %+v", r)
+	}
+	gw.Notifications.Email.SMTP = "localhost:25"
+	gw.Approvals.URLTemplate = "https://gw/a/{id}"
+	if r := ApprovalReach(gw, false); r.Status != OK || r.Summary != "out-of-band approvals reach approvers through mail, a link to the approval page" {
+		t.Errorf("mail and page: %+v", r)
+	}
+	gw.Approvals.ControlSocket = "-"
+	if r := ApprovalReach(gw, false); r.Status != Skip {
+		t.Errorf("control API off: %+v", r)
+	}
+	rs := []Result{r}
+	Identify(rs)
+	if rs[0].ID != "approval-reach" {
+		t.Errorf("id %q", rs[0].ID)
 	}
 }

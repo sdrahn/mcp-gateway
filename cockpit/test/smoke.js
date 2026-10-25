@@ -42,6 +42,7 @@ function site() {
     await page.click("#approval-a1 button:has-text('Only this call')");
     await page.waitForTimeout(200);
     check((await page.evaluate(() => __calls)).some(c => c[0] === "POST" && c[1] === "/v1/approvals/a1" && c[2].includes('"approve"')), "approve posts decision");
+    check((await page.evaluate(() => __calls)).some(c => c[0] === "POST" && c[1] === "/v1/approvals/a1" && c[2].includes('"via":"cockpit"')), "the decision says it came from Cockpit");
 
     await page.click("#tabs button[data-tab=servers]");
     await page.waitForSelector("#servers .instance");

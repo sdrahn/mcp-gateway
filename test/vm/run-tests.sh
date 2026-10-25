@@ -2653,6 +2653,213 @@ else
 	skip "e-mail approvals (postfix not installable)"
 fi
 
+section "Approvals from the command line"
+# Roadmap step 39 stage B (D21): mcp-gateway-admin approvals and grants,
+# over the control socket as the user who runs them, with the approver
+# rules, scopes and audit of Cockpit. ivy's calls of fs/read_file need an
+# approval from jack (user: approver; ivy herself is none); kim may
+# connect but approves nothing.
+useradd -m ivy && useradd -m jack && useradd -m kim
+for u in ivy jack kim; do usermod -aG mcp-users "$u"; done
+runuser -u ivy -- sh -c 'echo "ivy notes" >/home/ivy/notes.txt'
+cp /etc/mcp-gateway/policy/rbac/data.yaml /root/ac-data-before.yaml
+jq '.roles.cliapproved = {"permissions": [{"server": "fs", "tool": "read_file", "require_approval": true,
+		"approval_channel": "oob", "approval_scopes": ["once", "1h"]}]}
+	| .bindings.users.ivy = ["cliapproved"] | .approvers.fs = ["user:jack"]' \
+	/root/ac-data-before.yaml >/root/ac-data.yaml && cat /root/ac-data.yaml >/etc/mcp-gateway/policy/rbac/data.yaml
+# ac_admin <user> <args...>: mcp-gateway-admin as <user>; sets $out, $rc.
+ac_admin() {
+	local u=$1
+	shift
+	out=$(runuser -u "$u" -- mcp-gateway-admin "$@" 2>&1)
+	rc=$?
+	echo "  [$u mcp-gateway-admin $*] rc=$rc ${out:0:400}"
+}
+# ac_call: ivy's read_file in the background, its result in
+# /root/vmtest/ac-call.out; ac_pid is the call.
+ac_call() {
+	runuser -u ivy -- /usr/local/bin/mcpcall --server fs --method tools/call \
+		--params '{"name":"read_file","arguments":{"path":"/home/ivy/notes.txt"}}' >/root/vmtest/ac-call.out 2>&1 &
+	ac_pid=$!
+}
+# ac_pending: the id of ivy's pending read_file, as jack lists it.
+ac_pending() {
+	ac_id=$(runuser -u jack -- mcp-gateway-admin approvals --json 2>/dev/null |
+		jq -r '.[] | select(.name == "read_file" and .principal.sub == "ivy") | .id' 2>/dev/null | head -1)
+	[ -n "$ac_id" ]
+}
+ac_policy() {
+	curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/bindings/users/ivy |
+		jq -e '.result | index("cliapproved")' >/dev/null
+}
+check "the role data with ivy's approval is in force" eventually 20 ac_policy
+ac_since=$(date +%s)
+
+# Approve, once.
+ac_call
+check "ivy's read_file waits for an approval" eventually 30 ac_pending
+ac_admin jack approvals
+check "approvals: jack's list shows ivy's call" bash -c 'grep -q "ivy  *fs/read_file" <<<"$1" && grep -qF "${2:0:8}" <<<"$1"' _ "$out" "$ac_id"
+ac_admin jack approvals show "$ac_id"
+check "approvals show: the call, its scopes and its arguments" \
+	bash -c 'grep -qF "fs/read_file" <<<"$1" && grep -qF "once, 1h" <<<"$1" && grep -qF "/home/ivy/notes.txt" <<<"$1"' _ "$out"
+ac_admin kim approvals
+check "approvals: kim, no approver, does not see it" bash -c '! grep -qF "${2:0:8}" <<<"$1"' _ "$out" "$ac_id"
+ac_admin kim approvals approve "$ac_id" --yes
+check "approvals approve: kim may not, and is told as for an unknown id" test "$rc" = 1 -a -n "$(grep -F 'no such approval' <<<"$out")"
+ac_admin ivy approvals approve "$ac_id" --yes
+check "approvals approve: ivy may not approve her own call (approvers: user:jack)" test "$rc" = 1
+ac_admin root approvals
+check "approvals: root sees every approval" bash -c 'grep -qF "${2:0:8}" <<<"$1"' _ "$out" "$ac_id"
+ac_admin jack approvals approve "${ac_id:0:10}" --yes
+check "approvals approve: jack approves by a prefix of the id, scope once" bash -c '[ "$2" = 0 ] && grep -qF "scope once" <<<"$1"' _ "$out" "$rc"
+wait "$ac_pid"
+check "... and ivy's call runs" grep -q '"isError":false' /root/vmtest/ac-call.out
+ac_audit() { audit_since TRUSTED_APP | grep 'op=mcp-approval' | grep -F "id=$1" | grep -F 'by=jack' | grep -q 'via=cli'; }
+check "... audited as decided by jack on the command line (via=cli)" eventually 10 ac_audit "$ac_id"
+
+# Deny.
+ac_call
+check "a second read_file waits" eventually 30 ac_pending
+ac_admin jack approvals deny "$ac_id"
+check "approvals deny: jack denies it" bash -c '[ "$2" = 0 ] && grep -qF "denied" <<<"$1"' _ "$out" "$rc"
+wait "$ac_pid"
+check "... and ivy's call is refused" bash -c '! grep -q "\"isError\":false" /root/vmtest/ac-call.out'
+ac_denied() { audit_since TRUSTED_APP | grep 'op=mcp-approval' | grep -F "id=$1" | grep 'via=cli' | grep -q 'res=failed'; }
+check "... audited as denied on the command line" eventually 10 ac_denied "$ac_id"
+
+# A scope that is not offered, then 1h: a grant, listed and revoked.
+ac_call
+check "a third read_file waits" eventually 30 ac_pending
+ac_admin jack approvals approve "$ac_id" --scope session --yes
+check "approvals approve --scope session: refused, not offered" bash -c '[ "$2" = 1 ] && grep -qF "offers the scopes once, 1h" <<<"$1"' _ "$out" "$rc"
+ac_admin jack approvals approve "$ac_id" --scope 1h --yes
+check "approvals approve --scope 1h" test "$rc" = 0
+wait "$ac_pid"
+check "... ivy's call runs" grep -q '"isError":false' /root/vmtest/ac-call.out
+ac_admin jack grants --json
+ac_grant=$(jq -r '.[] | select(.sub == "ivy" and .tool == "read_file") | .id' <<<"$out" 2>/dev/null | head -1)
+check "grants: jack sees the 1h grant" test -n "$ac_grant"
+runuser -u ivy -- /usr/local/bin/mcpcall --server fs --method tools/call \
+	--params '{"name":"read_file","arguments":{"path":"/home/ivy/notes.txt"}}' >/root/vmtest/ac-call.out 2>&1
+check "... under it, ivy's next call runs without asking" grep -q '"isError":false' /root/vmtest/ac-call.out
+ac_admin kim grants revoke "${ac_grant:-x}" --yes
+check "grants revoke: kim may not" test "$rc" = 1
+ac_admin jack grants revoke "${ac_grant:-x}" --yes
+check "grants revoke: jack revokes it" test "$rc" = 0
+ac_revoked() { audit_since TRUSTED_APP | grep 'op=mcp-grant-revoke' | grep -F "id=$1" | grep -q 'via=cli'; }
+check "... audited as revoked on the command line" eventually 10 ac_revoked "${ac_grant:-x}"
+ac_call
+check "... and ivy's next call asks again" eventually 30 ac_pending
+
+# watch: the pending approval, then its decision.
+runuser -u jack -- timeout 20 mcp-gateway-admin approvals watch >/root/vmtest/ac-watch.out 2>&1 &
+ac_watch=$!
+ac_watched() { grep -qF "pending $ac_id" /root/vmtest/ac-watch.out; }
+check "approvals watch: shows the pending approval" eventually 10 ac_watched
+ac_admin jack approvals deny "$ac_id"
+wait "$ac_pid"
+ac_gone() { grep -qF "gone    $ac_id" /root/vmtest/ac-watch.out; }
+check "approvals watch: shows it decided" eventually 10 ac_gone
+kill "$ac_watch" 2>/dev/null
+wait "$ac_watch" 2>/dev/null
+sed 's/^/  | /' /root/vmtest/ac-watch.out
+
+section "Approvals told to the agent"
+# Roadmap step 39 stage A (D21): Kit shows nothing while a call waits, so
+# for the clients approvals.no_wait names (kit by default) an out-of-band
+# approval is not waited for. The call is answered at once with a tool
+# error naming the approval and the command that decides it; the agent's
+# next attempt finds the decision. mcpcall --client kit gives Kit's name.
+# ivy's read_file still needs jack's approval (section above).
+# nw_call: ivy's read_file as Kit, in the foreground; sets $out, $nw_secs.
+nw_call() {
+	local t0=$SECONDS
+	out=$(runuser -u ivy -- timeout 30 /usr/local/bin/mcpcall --client kit --server fs --method tools/call \
+		--params '{"name":"read_file","arguments":{"path":"/home/ivy/notes.txt"}}' 2>&1)
+	nw_secs=$((SECONDS - t0))
+	echo "  [ivy as kit, ${nw_secs}s] ${out:0:400}"
+}
+# nw_id: the approval id the last answer names.
+nw_id() { grep -oE 'mcp-gateway-admin approvals approve a-[0-9a-f]+' <<<"$out" | head -1 | awk '{print $4}'; }
+nw_since=$(date +%s)
+check "approvals.no_wait: kit by default" sh -c 'mcp-gateway-admin config get approvals.no_wait | grep -qF "approvals.no_wait: [kit]"'
+nw_call
+nw_first=$(nw_id)
+check "no_wait: ivy's call as Kit is answered at once (${nw_secs}s), not after the approval timeout" test "$nw_secs" -lt 10
+check "... with a tool error: approval needed, naming fs/read_file" \
+	bash -c 'grep -q "\"isError\":true" <<<"$1" && grep -qF "approval needed: fs/read_file waits for an approver" <<<"$1"' _ "$out"
+check "... naming the approval, the command and this host" \
+	bash -c '[ -n "$2" ] && grep -qF "on $(hostname)" <<<"$1" && grep -qF "call the tool again with the same arguments" <<<"$1"' _ "$out" "$nw_first"
+ac_admin jack approvals --json
+check "... the approval is pending for jack, with no call waiting" \
+	bash -c 'jq -e --arg id "$2" "any(.[]; .id == \$id and .waiting == false and .principal.sub == \"ivy\")" <<<"$1" >/dev/null' _ "$out" "$nw_first"
+nw_ask() { journalctl -u mcp-gateway.service -o cat --since "@$nw_since" | grep -F '"sub":"ivy"' | grep -F '"name":"read_file"' | grep -qF '"effect":"ask"'; }
+check "... the decision is logged as ask" eventually 10 nw_ask
+nw_call
+check "no_wait: a retry before the decision names the same approval" test "$(nw_id)" = "$nw_first"
+ac_admin jack approvals approve "$nw_first" --yes
+check "approvals approve: jack approves it, scope once" bash -c '[ "$2" = 0 ] && grep -qF "scope once" <<<"$1"' _ "$out" "$rc"
+nw_call
+check "no_wait: the retry after the approval runs" grep -q '"isError":false' <<<"$out"
+check "... and reads ivy's file" grep -qF 'ivy notes' <<<"$out"
+# since=: only this section's records.
+nw_approved() { since=$nw_since audit_since TRUSTED_APP | grep 'op=mcp-approval' | grep -F "id=$1" | grep -F 'by=jack' | grep 'via=cli' | grep -q 'res=success'; }
+check "... the approval is audited (by=jack via=cli)" eventually 10 nw_approved "$nw_first"
+nw_call
+nw_second=$(nw_id)
+check "no_wait: the next call asks again, with a new approval" bash -c '[ -n "$1" ] && [ "$1" != "$2" ]' _ "$nw_second" "$nw_first"
+ac_admin jack approvals deny "$nw_second"
+check "approvals deny: jack denies it" test "$rc" = 0
+nw_call
+check "no_wait: the retry after the denial is refused: declined by an approver" \
+	bash -c '! grep -q "\"isError\":false" <<<"$1" && grep -qF "declined by an approver" <<<"$1"' _ "$out"
+nw_declined() { journalctl -u mcp-gateway.service -o cat --since "@$nw_since" | grep -F '"sub":"ivy"' | grep -F '"effect":"deny"' | grep -qF '"reason":"declined by an approver"'; }
+check "... logged as a denial with that reason" eventually 10 nw_declined
+nw_denied() { since=$nw_since audit_since TRUSTED_APP | grep 'op=mcp-decision' | grep 'principal=ivy' | grep -q 'res=failed'; }
+check "... and audited by the kernel (mcp-decision res=failed)" eventually 10 nw_denied
+nw_call
+nw_third=$(nw_id)
+check "no_wait: the denial answers one attempt only; the next asks again" \
+	bash -c '[ -n "$1" ] && [ "$1" != "$2" ]' _ "$nw_third" "$nw_second"
+ac_admin jack approvals deny "$nw_third"
+nw_call
+check "... denied again, the retry is declined again" grep -qF 'declined by an approver' <<<"$out"
+# A client that is not named still waits: mcpcall's own name.
+ac_call
+check "no_wait: a client not named (mcpcall) still waits for the approval" eventually 30 ac_pending
+check "... its call has not been answered" kill -0 "$ac_pid"
+ac_admin jack approvals deny "$ac_id"
+wait "$ac_pid"
+
+# The doctor: whether anything reaches an approver by itself. This
+# gateway has no mail and no approval page; desktop notifications only
+# with mcp-gateway-desktop.
+mcp-gateway-admin doctor --no-start >/root/vmtest/nw-doctor.txt 2>&1
+grep -E 'approval reach' /root/vmtest/nw-doctor.txt | sed 's/^/  /'
+if [ -x /usr/bin/mcp-gateway-notify ]; then
+	check "doctor approval reach: OK through desktop notifications" \
+		grep -qE '^OK +approval reach: .*desktop notifications' /root/vmtest/nw-doctor.txt
+else
+	check "doctor approval reach: warns that nothing reaches an approver" \
+		grep -qE '^WARN +approval reach: out-of-band approvals reach no approver by themselves' /root/vmtest/nw-doctor.txt
+	check "... naming mcp-gateway-admin approvals and no_wait (kit)" \
+		bash -c 'grep -qF "mcp-gateway-admin approvals (watch)" "$1" && grep -qF "approvals.no_wait (kit)" "$1"' _ /root/vmtest/nw-doctor.txt
+	mcp-gateway-admin config set approvals.url_template 'https://approvals.example/{id}' >/dev/null
+	check "doctor approval reach: OK once there is an approval page" \
+		sh -c 'mcp-gateway-admin doctor --no-start 2>&1 | grep -qE "^OK +approval reach: .*a link to the approval page"'
+	nw_call
+	check "no_wait: the tool error then names the approval page too" grep -qF 'or decides at https://approvals.example/' <<<"$out"
+	ac_admin jack approvals deny "$(nw_id)"
+	mcp-gateway-admin config unset approvals.url_template >/dev/null
+fi
+check "doctor --json: the check's id is approval-reach" \
+	sh -c 'mcp-gateway-admin doctor --no-start --json 2>/dev/null | jq -e "any(.[]?; .id == \"approval-reach\")" >/dev/null'
+
+cat /root/ac-data-before.yaml >/etc/mcp-gateway/policy/rbac/data.yaml
+# Out of mcp-users again: without roles, the self-check would name them.
+for u in ivy jack kim; do gpasswd -d "$u" mcp-users >/dev/null; done
+
 section "Self-check"
 # carol may connect (mcp-users) but holds no role: the doctor names her.
 useradd -m carol && usermod -aG mcp-users carol

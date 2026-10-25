@@ -254,7 +254,18 @@ type Approvals struct {
 	// for an approval or a sign-in before it is answered to retry again
 	// (below the clients' request timeouts).
 	RetryWait time.Duration `yaml:"retry_wait"`
+	// NoWait names clients (clientInfo.name, case-insensitive; "*" for
+	// all) whose out-of-band approvals are not waited for: the call is
+	// answered at once with a tool error naming the approval and how to
+	// decide it, and the agent's next attempt finds the decision. For
+	// agents that show nothing while a call waits. Unset,
+	// DefaultNoWait applies; [] names none.
+	NoWait []string `yaml:"no_wait"`
 }
+
+// DefaultNoWait is Approvals.NoWait's default: Kit, which shows nothing
+// while a call waits.
+func DefaultNoWait() []string { return []string{"kit"} }
 
 // Supervisor configures backend instance launching.
 type Supervisor struct {
@@ -699,6 +710,9 @@ func (g *Gateway) setDefaults() {
 	if g.Approvals.RetryWait == 0 {
 		g.Approvals.RetryWait = DefaultRetryWait
 	}
+	if g.Approvals.NoWait == nil {
+		g.Approvals.NoWait = DefaultNoWait()
+	}
 	if g.Agents.MaxVersion == nil {
 		g.Agents.MaxVersion = DefaultMaxVersion()
 	}
@@ -801,6 +815,11 @@ func (g *Gateway) Validate() error {
 	for _, name := range g.Agents.NoRequestTimeout {
 		if strings.TrimSpace(name) == "" {
 			return errors.New("agents.no_request_timeout: empty client name")
+		}
+	}
+	for _, name := range g.Approvals.NoWait {
+		if strings.TrimSpace(name) == "" {
+			return errors.New("approvals.no_wait: empty client name")
 		}
 	}
 	if g.Approvals.ControlSocket != "-" && !filepath.IsAbs(g.Approvals.ControlSocket) {

@@ -70,6 +70,7 @@ var checkIDs = map[string]string{
 	"SELinux transitions": "selinux-transitions",
 	"TLS":                 "tls",
 	"firewall":            "firewall",
+	"approval reach":      "approval-reach",
 	// mcp-gateway-admin setup http
 	"http block":        "http-block",
 	"identity provider": "identity-provider",
@@ -818,6 +819,51 @@ func describeRules(r *landlock.Rules) string {
 		return "the base only"
 	}
 	return strings.Join(parts, "; ")
+}
+
+// NotifyAgent is the desktop notification agent (package
+// mcp-gateway-desktop), which tells approvers in a graphical session.
+const NotifyAgent = "/usr/bin/mcp-gateway-notify"
+
+// ApprovalReach checks that out-of-band approvals reach an approver by
+// themselves: by mail (notifications.email), a link to the approval page
+// (approvals.url_template, which notifications and agents hand on), or
+// desktop notifications (notifyInstalled: NotifyAgent is there). Without
+// any, approvers find them only by looking (Cockpit, mcp-gateway-admin
+// approvals), and an agent that shows nothing while it waits seems stuck
+// unless approvals.no_wait names it (roadmap step 39 stage A). Skipped
+// without the control API, which out-of-band approvals need.
+func ApprovalReach(gw *config.Gateway, notifyInstalled bool) Result {
+	r := Result{Check: "approval reach"}
+	if gw.Approvals.ControlSocket == "-" {
+		r.Status, r.Summary = Skip, "the control API is off (approvals.control_socket: \"-\"): no out-of-band approvals"
+		return r
+	}
+	var ways []string
+	if gw.Notifications.Email.SMTP != "" {
+		ways = append(ways, "mail")
+	}
+	if gw.Approvals.URLTemplate != "" {
+		ways = append(ways, "a link to the approval page")
+	}
+	if notifyInstalled {
+		ways = append(ways, "desktop notifications")
+	}
+	if len(ways) > 0 {
+		r.Status, r.Summary = OK, "out-of-band approvals reach approvers through "+strings.Join(ways, ", ")
+		return r
+	}
+	noWait := "none"
+	if len(gw.Approvals.NoWait) > 0 {
+		noWait = strings.Join(gw.Approvals.NoWait, ", ")
+	}
+	r.Status = Warn
+	r.Summary = "out-of-band approvals reach no approver by themselves: no mail (notifications.email), no approval page (approvals.url_template), no desktop notifications (mcp-gateway-desktop)"
+	r.Details = []string{
+		"approvers see them only in Cockpit's Approvals tab or with mcp-gateway-admin approvals (watch);",
+		fmt.Sprintf("agents named in approvals.no_wait (%s) are told to ask for one, others wait up to approval_timeout (%s);", noWait, gw.ApprovalTimeout),
+		"set up mail or the approval page, or install mcp-gateway-desktop (user guide, chapter 7)"}
+	return r
 }
 
 // SnapperConfigsDir holds snapper's configs (KEY="value" lines).

@@ -314,6 +314,10 @@ func (s *Session) decideModern(ctx context.Context, t *callTarget, decisionID st
 		return dec, "", in, s.inputRequired(r, agentState{Approval: id}, map[string]inputRequest{
 			"approval": {Method: "elicitation/create", Params: s.r.Broker.URLParams(in, ask, id)}})
 	default:
+		if s.noWait() {
+			// Answered at once (approvals.no_wait; nowait.go).
+			return s.askedElsewhere(ctx, t, in, ask), "", in, nil
+		}
 		// Nothing to show the agent first: this round waits already.
 		id := s.r.Broker.Park(in, ask, c)
 		s.r.Broker.NotifyOOB(requestElicitor{s, requestOf(ctx)}, in, id)

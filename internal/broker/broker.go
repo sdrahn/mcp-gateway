@@ -31,6 +31,11 @@ const (
 	// while no call was waiting stays usable: the agent's next attempt
 	// takes it.
 	OrphanOnceTTL = 15 * time.Minute
+	// NoWaitTTL is how long an approval stays pending that its call did
+	// not wait for (approvals.no_wait): long enough for the agent's user
+	// to find an approver, who decides it for the agent's next attempt.
+	// A denial of it is kept as long, for that attempt (TakeDenial).
+	NoWaitTTL = 15 * time.Minute
 )
 
 // Errors.
@@ -130,6 +135,15 @@ type Broker struct {
 	mu      sync.Mutex
 	pending map[string]*Pending
 	subs    map[chan Event]struct{}
+	// declined are approvals denied while no call waited for them, for
+	// the next attempt of the same request (TakeDenial); not persisted.
+	declined []declinedRequest
+}
+
+// declinedRequest is a request denied while no call waited.
+type declinedRequest struct {
+	p     Pending // the request (principal, action, target, arguments)
+	until time.Time
 }
 
 // Event is a change of the pending approvals, for subscribers (the control
@@ -426,7 +440,7 @@ func (b *Broker) viaForm(ctx context.Context, el Elicitor, in pep.Input, ask pep
 // grant, nil if declined.
 func (b *Broker) formAnswer(in pep.Input, ask pep.AskSpec, res ElicitResult) (*pep.Grant, error) {
 	if res.Action != "accept" {
-		b.auditApproval("", false, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, "", pep.ChannelForm)
+		b.auditApproval("", false, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, "", pep.ChannelForm, "")
 		return nil, nil
 	}
 	scope, _ := res.Content["scope"].(string)
@@ -434,7 +448,7 @@ func (b *Broker) formAnswer(in pep.Input, ask pep.AskSpec, res ElicitResult) (*p
 	// recorded as the principal's own.
 	g, err := b.grant(in.Principal, in.Resource.Server, in.Resource.Name, scope, ask.Scopes, in.Principal.Sub, pep.ChannelForm)
 	if err == nil {
-		b.auditApproval(g.ID, true, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, scope, pep.ChannelForm)
+		b.auditApproval(g.ID, true, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, scope, pep.ChannelForm, "")
 	}
 	return g, err
 }
@@ -490,7 +504,7 @@ func (b *Broker) approvalURL(id string) string {
 }
 
 func (b *Broker) viaURL(ctx context.Context, el Elicitor, in pep.Input, ask pep.AskSpec) (g *pep.Grant, err error) {
-	p := b.addPending(in, ask, pep.ChannelURL, true)
+	p := b.addPending(in, ask, pep.ChannelURL, true, 0)
 	defer func() {
 		b.endWait(p, err)
 		if errors.Is(err, errDeclinedToOpen) {
@@ -527,7 +541,7 @@ func (b *Broker) viaURL(ctx context.Context, el Elicitor, in pep.Input, ask pep.
 }
 
 func (b *Broker) viaOOB(ctx context.Context, el Elicitor, in pep.Input, ask pep.AskSpec) (g *pep.Grant, err error) {
-	p := b.addPending(in, ask, pep.ChannelOOB, true)
+	p := b.addPending(in, ask, pep.ChannelOOB, true, 0)
 	defer func() { b.endWait(p, err) }()
 	b.notifyOOB(el, in, p.ID)
 	select {
@@ -562,12 +576,15 @@ func (b *Broker) notifyOOB(el Elicitor, in pep.Input, id string) {
 }
 
 // addPending registers a pending approval for in, with a waiting call
-// if waiting. An approval of the same request left without a waiting
-// call (by an earlier attempt, possibly before a restart) is taken over
-// instead, keeping its id, so an approval page opened for it stays
-// valid.
-func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel, waiting bool) *Pending {
+// if waiting, expiring after ttl (0: approval_timeout). An approval of
+// the same request left without a waiting call (by an earlier attempt,
+// possibly before a restart) is taken over instead, keeping its id, so an
+// approval page opened for it stays valid.
+func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel, waiting bool, ttl time.Duration) *Pending {
 	now := b.now()
+	if ttl <= 0 {
+		ttl = b.timeout()
+	}
 	var result chan *pep.Grant
 	if waiting {
 		result = make(chan *pep.Grant, 1)
@@ -577,7 +594,7 @@ func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel, waitin
 	for _, p := range b.pending {
 		if p.result == nil && sameRequest(p, in) {
 			p.Principal, p.Scopes, p.Channel, p.Prompt = in.Principal, ask.Scopes, c, ask.Prompt
-			p.Expires = now.Add(b.timeout())
+			p.Expires = now.Add(ttl)
 			p.result = result
 			p.Waiting = waiting
 			b.persistPending()
@@ -599,7 +616,7 @@ func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel, waitin
 		Prompt:    ask.Prompt,
 		Scopes:    ask.Scopes,
 		Created:   now,
-		Expires:   now.Add(b.timeout()),
+		Expires:   now.Add(ttl),
 		Waiting:   waiting,
 		result:    result,
 	}
@@ -884,6 +901,13 @@ func (b *Broker) GetPending(ctx context.Context, a Approver, id string) (Pending
 // Resolve records a's decision on approval id. On approval it returns the
 // grant for scope, which must be one the policy offered.
 func (b *Broker) Resolve(ctx context.Context, a Approver, id string, approve bool, scope string) (*pep.Grant, error) {
+	return b.ResolveVia(ctx, a, id, approve, scope, "")
+}
+
+// ResolveVia is Resolve, recording in the audit how the decision came
+// (via: "cockpit", "cli"; "" leaves it out). The caller names it
+// itself: it tells the ways apart, it authorizes nothing.
+func (b *Broker) ResolveVia(ctx context.Context, a Approver, id string, approve bool, scope, via string) (*pep.Grant, error) {
 	b.mu.Lock()
 	b.pruneExpired()
 	p, ok := b.pending[id]
@@ -910,6 +934,9 @@ func (b *Broker) Resolve(ctx context.Context, a Approver, id string, approve boo
 	delete(b.pending, id)
 	b.persistPending()
 	b.publish(Event{Type: "resolved", ID: id})
+	if !approve && c.result == nil {
+		b.declined = append(b.declined, declinedRequest{p: c, until: b.now().Add(NoWaitTTL)})
+	}
 	b.mu.Unlock()
 
 	var g *pep.Grant
@@ -932,8 +959,8 @@ func (b *Broker) Resolve(ctx context.Context, a Approver, id string, approve boo
 		decision = "approve"
 	}
 	metrics.ApprovalsDecided.Inc(decision)
-	b.log.Info("approval resolved", "id", id, "approved", approve, "by", a.Name, "scope", scope, "waiting", c.result != nil)
-	b.auditApproval(id, approve, c.Principal, c.Server, c.Name, a.Name, scope, c.Channel)
+	b.log.Info("approval resolved", "id", id, "approved", approve, "by", a.Name, "scope", scope, "waiting", c.result != nil, "via", via)
+	b.auditApproval(id, approve, c.Principal, c.Server, c.Name, a.Name, scope, c.Channel, via)
 	if c.result != nil {
 		c.result <- g
 	}
@@ -1015,27 +1042,41 @@ func (b *Broker) ListGrants(ctx context.Context, a Approver) []pep.Grant {
 
 // RevokeGrant removes a grant a may manage.
 func (b *Broker) RevokeGrant(ctx context.Context, a Approver, id string) error {
+	return b.RevokeGrantVia(ctx, a, id, "")
+}
+
+// RevokeGrantVia is RevokeGrant, recording via in the audit as
+// ResolveVia does.
+func (b *Broker) RevokeGrantVia(ctx context.Context, a Approver, id, via string) error {
 	g, ok := b.store.Get(id)
 	if !ok || !b.mayManage(ctx, a, g) {
 		return ErrNotFound
 	}
-	b.log.Info("grant revoked", "id", id, "by", a.Name)
-	b.opts.Audit.Event("mcp-grant-revoke", true, map[string]string{
+	b.log.Info("grant revoked", "id", id, "by", a.Name, "via", via)
+	fields := map[string]string{
 		"id": id, "by": a.Name, "principal": g.Sub, "server": g.Server, "target": g.Tool,
-	})
+	}
+	if via != "" {
+		fields["via"] = via
+	}
+	b.opts.Audit.Event("mcp-grant-revoke", true, fields)
 	return b.store.Revoke(id)
 }
 
 // auditApproval records an approval decision; declines are recorded as
 // failed.
-func (b *Broker) auditApproval(id string, approved bool, p principal.Principal, server, name, by, scope string, c pep.Channel) {
+func (b *Broker) auditApproval(id string, approved bool, p principal.Principal, server, name, by, scope string, c pep.Channel, via string) {
 	if !approved {
 		scope = ""
 	}
-	b.opts.Audit.Event("mcp-approval", approved, map[string]string{
+	fields := map[string]string{
 		"id": id, "principal": p.Sub, "server": server, "target": name,
 		"by": by, "scope": scope, "channel": string(c),
-	})
+	}
+	if via != "" {
+		fields["via"] = via
+	}
+	b.opts.Audit.Event("mcp-approval", approved, fields)
 }
 
 func randomHex(n int) string {

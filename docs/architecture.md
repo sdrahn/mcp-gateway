@@ -4034,7 +4034,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       OPA watches as given, to make it look again (found by the VM test).
 
 39. **Approvals without Cockpit** (1.9.0, a release not marked as the
-    latest; 2.0 once tested and fixed, as a major feature; D21; planned):
+    latest; 2.0 once tested and fixed, as a major feature; D21; stages A
+    and B done):
     - the problem: every out-of-band approval ends on the Cockpit page.
       Notifications and mail only link there, the control API is the
       local socket, and an agent like Kit shows nothing while a call
@@ -4043,19 +4044,27 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       with 1.8.0). The intended distributed setup is one gateway per
       host, so approvers deal with many gateways, mostly over SSH, and
       enterprises there have an OIDC identity provider;
-    - stage A, the agent says what it waits for: for agents that
-      show nothing while a call waits (`agents.no_request_timeout`, Kit
-      as shipped) or with `approvals.wait: false`, an `oob` approval no
-      longer blocks the call. It is answered at once with a tool error
-      the model passes on: the call, the approval id, and where to
-      decide ("`mcp-gateway-admin approvals approve a-…` on *host*, or
-      the approval page"); a retry of the same call finds the decision
-      (the take-over and the one-time grant of a call that went away
-      exist). The tool error is not a refusal: the policy and audit
-      say `ask`, the decision is still the approver's. The doctor warns
-      when `oob` approvals are possible but nothing reaches an approver
-      (no mail, no `url_template`, the desktop package not installed);
-    - stage B, approvals from the command line:
+    - stage A (done), the agent says what it waits for: for the
+      clients `approvals.no_wait` names (by client name; `[kit]` as
+      shipped, `"*"` for all), an `oob` approval no longer blocks the
+      call, in either era. It is answered at once with a tool error the
+      model passes on: the call, the approval id, until when it is open,
+      and where to decide ("`mcp-gateway-admin approvals approve a-…`
+      on *host*, or decides at" the approval page when `url_template`
+      is set); the approval stays pending for `NoWaitTTL` (15 minutes),
+      and a retry of the same call finds it: the same id while pending,
+      the call runs once approved (the one-time grant of a call that
+      went away), and a denial answers the next attempt with "declined
+      by an approver" (once; the attempt after asks again). The tool
+      error is not a refusal: the decision is logged as `ask`, the
+      decision is still the approver's. As built, the key is a client
+      list, not the planned `approvals.wait: false`: Kit is capped at
+      2025-11-25 and so not covered by `agents.no_request_timeout`,
+      which only applies to 2026-07-28 rounds. The doctor's `approval
+      reach` check warns when `oob` approvals are possible but nothing
+      reaches an approver (no mail, no `url_template`, the desktop
+      package not installed);
+    - stage B (done), approvals from the command line:
       `mcp-gateway-admin approvals list | show ID | approve ID
       [--scope S] | deny ID | watch` and `grants list | revoke ID`,
       over the control socket. The approver is the socket peer's
@@ -4076,7 +4085,18 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       (server, tool, arguments unless policy hides them, the agent's
       self-reported client), protects decisions against CSRF, frames
       nothing, and gives no access beyond deciding and revoking one's
-      own grants;
+      own grants. With it, the doctor gets an `identity provider` check
+      (also the gateway-admin server's `doctor` tool, which stays
+      read-only): the discovery document and the key set reachable, its
+      issuer the one `http.issuer` names, the keys usable, the clock
+      skew against the provider, and the gateway's own client (stages C
+      and D: authorization code with PKCE, device flow, a redirect URI
+      that matches the listener). It names the causes of a bare `401
+      invalid token`. Setting up OIDC stays with root
+      (`mcp-gateway-admin setup http`, extended by the client id and
+      secret), not a tool an agent can call, and tokens are never shown
+      to a model (no token-explaining tool; `setup http --token FILE`
+      explains one on the command line);
     - stage D, the command line against a remote gateway:
       `mcp-gateway-admin approvals --gateway https://host:port …`
       signs in with the OAuth device flow (no browser on the host
@@ -4130,7 +4150,10 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
         cookie jar, the inbox, approve, a decision without the CSRF
         token or from another origin refused, an approver the rules do
         not allow refused, an agent's token not accepted as a page
-        session, the page in a frame refused); "Approvals from another
+        session, the page in a frame refused; the doctor's `identity
+        provider` check OK against the test identity provider, and
+        failing with the cause for a wrong issuer, an unreachable key
+        set and an unregistered redirect URI); "Approvals from another
         host" (D: device-flow sign-in, approve over HTTPS, the token
         file only the user can read, an expired token refused);
         "Approval webhooks" (E: the post signed and without arguments,

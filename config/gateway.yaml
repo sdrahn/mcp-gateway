@@ -53,6 +53,11 @@ approvals:
   # or a sign-in before it is answered to retry again (keep it below the
   # agents' request timeouts).
   retry_wait: 25s
+  # Clients, by name ("*" for all), whose calls do not wait for an oob
+  # approval: answered at once with a tool error that names the approval
+  # and how to decide it; the agent's next attempt finds the decision.
+  # For agents that show nothing while a call waits ([] names none).
+  no_wait: [kit]
   # Who may decide on approvals and revoke grants is policy: "approvers"
   # in /etc/mcp-gateway/policy/rbac/data.json (default: the principal
   # themself and the admin role).
