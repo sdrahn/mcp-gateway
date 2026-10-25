@@ -131,7 +131,7 @@ within `policy.watch_interval` (10 s).
 
 | Keys | After a change |
 |---|---|
-| `approval_timeout`, `approvals.url_template`, `approvals.progress_interval`, `approvals.retry_wait` | apply to approvals asked from then on (`retry_wait`: to the next retry) |
+| `approval_timeout`, `approvals.url_template`, `approvals.progress_interval`, `approvals.retry_wait`, `approvals.no_wait` | apply to approvals asked from then on (`retry_wait`: to the next retry) |
 | `notifications.email` (all keys) | apply to the next mail; the password file is read again |
 | `limits` | apply to the next session, instance, request or task |
 | `tasks.retention`, `tasks.max_result_bytes` | apply to tasks that end from then on |
@@ -233,6 +233,7 @@ approvals:
   url_template: ""
   progress_interval: 15s
   retry_wait: 25s
+  no_wait: [kit]
 ```
 
 | Key | Default | Meaning |
@@ -242,6 +243,7 @@ approvals:
 | `approvals.url_template` | empty | the approval page sent to agents in URL-mode approvals, with `{id}` for the approval id, e.g. `https://gw.example.com:9090/mcp-gateway#/approvals/{id}`; empty disables the `url` channel (policy falls back to `oob`) |
 | `approvals.progress_interval` | `15s` | how often a call waiting for approval reports progress (`notifications/progress`) to an agent that asked for progress; at least `1s` (chapter 7) |
 | `approvals.retry_wait` | `25s` | how long a retry of an agent of MCP 2026-07-28 waits for an approval or a sign-in before it is answered to retry again; keep it below the agents' request timeouts; at least `1s` (chapter 7) |
+| `approvals.no_wait` | `[kit]` | clients, by name (case-insensitive; `"*"` for all), whose calls do not wait for an `oob` approval: they are answered at once with a tool error naming the approval and how to decide it, and the agent's next attempt finds the decision (chapter 7, "Agents told at once"). For agents that show nothing while a call waits. Setting the key replaces the default; `[]` names none |
 
 Who may decide on approvals is policy (chapter 6), not configuration.
 

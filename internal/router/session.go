@@ -1300,6 +1300,13 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 		// outlast its session.
 		ask.Scopes = slices.DeleteFunc(slices.Clone(ask.Scopes), func(sc string) bool { return sc == "session" })
 	}
+	if s.noWait() {
+		// Answered at once, if the approval goes out of band
+		// (approvals.no_wait; nowait.go).
+		if c, err := s.r.Broker.Channel(requestElicitor{s, requestOf(ctx)}, ask); err == nil && c == pep.ChannelOOB {
+			return s.askedElsewhere(ctx, t, in, ask), "", in
+		}
+	}
 	stop := s.reportWaiting(t)
 	g, err := s.r.Broker.Approve(ctx, requestElicitor{s, requestOf(ctx)}, in, ask)
 	stop()

@@ -104,3 +104,69 @@ func TestFormAnswer(t *testing.T) {
 		t.Errorf("channel without form: %v %v", c, err)
 	}
 }
+
+// An approval no call waits for (approvals.no_wait) stays pending for
+// NoWaitTTL, a retry takes it over, and a denial of it answers the next
+// attempt once.
+func TestParkForAndTakeDenial(t *testing.T) {
+	b := newBroker(t, nil)
+	ask := pep.AskSpec{Channel: pep.ChannelOOB, Scopes: []string{"once", "1h"}}
+	id, expires := b.ParkFor(input(), ask, pep.ChannelOOB, NoWaitTTL)
+	if left := time.Until(expires); left < NoWaitTTL-time.Minute || left > NoWaitTTL {
+		t.Errorf("expires in %v, want about %v (not the timeout of 2s)", left, NoWaitTTL)
+	}
+	ps := b.ListPending(context.Background(), admin)
+	if len(ps) != 1 || ps[0].ID != id || ps[0].Waiting {
+		t.Fatalf("pending %+v", ps)
+	}
+	if again, _ := b.ParkFor(input(), ask, pep.ChannelOOB, NoWaitTTL); again != id {
+		t.Errorf("retry parked %s, not %s", again, id)
+	}
+	// Another request is a pending approval of its own.
+	other := input()
+	other.Args = map[string]any{"path": "/home/alice/y"}
+	if oid, _ := b.ParkFor(other, ask, pep.ChannelOOB, NoWaitTTL); oid == id {
+		t.Error("another request took the approval over")
+	}
+	if b.TakeDenial(input()) {
+		t.Error("a denial before any was made")
+	}
+	if _, err := b.Resolve(context.Background(), admin, id, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if b.TakeDenial(other) {
+		t.Error("the denial answered another request")
+	}
+	if !b.TakeDenial(input()) {
+		t.Error("the denial does not answer the next attempt")
+	}
+	if b.TakeDenial(input()) {
+		t.Error("the denial was not used up")
+	}
+	// Approved with "once": the next attempt's grant.
+	id, _ = b.ParkFor(input(), ask, pep.ChannelOOB, NoWaitTTL)
+	if _, err := b.Resolve(context.Background(), admin, id, true, "once"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.TakeOnce(alice, "fs", "write_file"); !ok {
+		t.Error("no once grant for the next attempt")
+	}
+	if b.TakeDenial(input()) {
+		t.Error("an approval read as a denial")
+	}
+}
+
+// A denial is kept NoWaitTTL only.
+func TestTakeDenialExpires(t *testing.T) {
+	b := newBroker(t, nil)
+	clock := time.Now()
+	b.now = func() time.Time { return clock }
+	id, _ := b.ParkFor(input(), pep.AskSpec{Channel: pep.ChannelOOB, Scopes: []string{"once"}}, pep.ChannelOOB, NoWaitTTL)
+	if _, err := b.Resolve(context.Background(), admin, id, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(NoWaitTTL + time.Second)
+	if b.TakeDenial(input()) {
+		t.Error("an expired denial answered")
+	}
+}

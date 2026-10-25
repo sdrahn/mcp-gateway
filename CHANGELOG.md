@@ -9,6 +9,18 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- Agents told at once about an out-of-band approval: for the clients
+  `approvals.no_wait` names (`[kit]` by default; `"*"` for all), such an
+  approval is not waited for. The call is answered at once with a tool
+  error ("approval needed: …") naming the approval, until when it is
+  open and how to decide it (`mcp-gateway-admin approvals approve ID` on
+  the host, or the approval page); the agent's next attempt runs once
+  approved, or is refused with "declined by an approver" (user guide,
+  chapter 7, "Agents told at once"; roadmap step 39 stage A). Kit, which
+  shows nothing while a call waits, no longer seems stuck. The doctor's
+  new check `approval reach` warns when out-of-band approvals reach no
+  approver by themselves (no mail, no approval page, no desktop
+  notifications).
 - `mcp-gateway-admin approvals` (list, `show`, `approve`, `deny`,
   `watch`) and `grants` (list, `revoke`): approvals decided and grants
   revoked on the command line, also over SSH, without Cockpit, as the

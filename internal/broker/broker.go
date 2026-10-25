@@ -31,6 +31,11 @@ const (
 	// while no call was waiting stays usable: the agent's next attempt
 	// takes it.
 	OrphanOnceTTL = 15 * time.Minute
+	// NoWaitTTL is how long an approval stays pending that its call did
+	// not wait for (approvals.no_wait): long enough for the agent's user
+	// to find an approver, who decides it for the agent's next attempt.
+	// A denial of it is kept as long, for that attempt (TakeDenial).
+	NoWaitTTL = 15 * time.Minute
 )
 
 // Errors.
@@ -130,6 +135,15 @@ type Broker struct {
 	mu      sync.Mutex
 	pending map[string]*Pending
 	subs    map[chan Event]struct{}
+	// declined are approvals denied while no call waited for them, for
+	// the next attempt of the same request (TakeDenial); not persisted.
+	declined []declinedRequest
+}
+
+// declinedRequest is a request denied while no call waited.
+type declinedRequest struct {
+	p     Pending // the request (principal, action, target, arguments)
+	until time.Time
 }
 
 // Event is a change of the pending approvals, for subscribers (the control
@@ -490,7 +504,7 @@ func (b *Broker) approvalURL(id string) string {
 }
 
 func (b *Broker) viaURL(ctx context.Context, el Elicitor, in pep.Input, ask pep.AskSpec) (g *pep.Grant, err error) {
-	p := b.addPending(in, ask, pep.ChannelURL, true)
+	p := b.addPending(in, ask, pep.ChannelURL, true, 0)
 	defer func() {
 		b.endWait(p, err)
 		if errors.Is(err, errDeclinedToOpen) {
@@ -527,7 +541,7 @@ func (b *Broker) viaURL(ctx context.Context, el Elicitor, in pep.Input, ask pep.
 }
 
 func (b *Broker) viaOOB(ctx context.Context, el Elicitor, in pep.Input, ask pep.AskSpec) (g *pep.Grant, err error) {
-	p := b.addPending(in, ask, pep.ChannelOOB, true)
+	p := b.addPending(in, ask, pep.ChannelOOB, true, 0)
 	defer func() { b.endWait(p, err) }()
 	b.notifyOOB(el, in, p.ID)
 	select {
@@ -562,12 +576,15 @@ func (b *Broker) notifyOOB(el Elicitor, in pep.Input, id string) {
 }
 
 // addPending registers a pending approval for in, with a waiting call
-// if waiting. An approval of the same request left without a waiting
-// call (by an earlier attempt, possibly before a restart) is taken over
-// instead, keeping its id, so an approval page opened for it stays
-// valid.
-func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel, waiting bool) *Pending {
+// if waiting, expiring after ttl (0: approval_timeout). An approval of
+// the same request left without a waiting call (by an earlier attempt,
+// possibly before a restart) is taken over instead, keeping its id, so an
+// approval page opened for it stays valid.
+func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel, waiting bool, ttl time.Duration) *Pending {
 	now := b.now()
+	if ttl <= 0 {
+		ttl = b.timeout()
+	}
 	var result chan *pep.Grant
 	if waiting {
 		result = make(chan *pep.Grant, 1)
@@ -577,7 +594,7 @@ func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel, waitin
 	for _, p := range b.pending {
 		if p.result == nil && sameRequest(p, in) {
 			p.Principal, p.Scopes, p.Channel, p.Prompt = in.Principal, ask.Scopes, c, ask.Prompt
-			p.Expires = now.Add(b.timeout())
+			p.Expires = now.Add(ttl)
 			p.result = result
 			p.Waiting = waiting
 			b.persistPending()
@@ -599,7 +616,7 @@ func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel, waitin
 		Prompt:    ask.Prompt,
 		Scopes:    ask.Scopes,
 		Created:   now,
-		Expires:   now.Add(b.timeout()),
+		Expires:   now.Add(ttl),
 		Waiting:   waiting,
 		result:    result,
 	}
@@ -917,6 +934,9 @@ func (b *Broker) ResolveVia(ctx context.Context, a Approver, id string, approve 
 	delete(b.pending, id)
 	b.persistPending()
 	b.publish(Event{Type: "resolved", ID: id})
+	if !approve && c.result == nil {
+		b.declined = append(b.declined, declinedRequest{p: c, until: b.now().Add(NoWaitTTL)})
+	}
 	b.mu.Unlock()
 
 	var g *pep.Grant

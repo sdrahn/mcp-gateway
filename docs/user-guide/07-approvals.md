@@ -30,7 +30,7 @@ the agent let progress extend the timeout. An agent that sends no
 |---|---|---|---|
 | `form` | a dialog of the **agent's own client** (MCP form elicitation) | low: the agent's client answers, it may be configured to accept automatically | the client supports elicitation |
 | `url` (default) | the **approval page** (Cockpit), which the client offers to open (MCP URL elicitation) | high: the approver authenticates to Cockpit; the agent cannot see or influence the page | `approvals.url_template` set, the client supports URL elicitation, the control socket enabled |
-| `oob` | the approval page, the **desktop notification** or the **mail** leads there, or the **command line** (`mcp-gateway-admin approvals`, below); the agent only gets a log message ("Waiting for approval of fs/write_file at … (id a-…)") | high | the control socket enabled |
+| `oob` | the approval page, the **desktop notification** or the **mail** leads there, or the **command line** (`mcp-gateway-admin approvals`, below); the agent only gets a log message ("Waiting for approval of fs/write_file at … (id a-…)"), or, for the agents `approvals.no_wait` names (Kit), a tool error at once that says how to get it decided (below) | high | the control socket enabled |
 
 The policy names a channel per permission (`approval_channel`); the
 shipped policy uses `oob` as fallback. So if the agent cannot do URL
@@ -161,6 +161,39 @@ restart of the gateway invalidates it; the agent gets "requestState is
 not valid for this request" and calls again, which takes over the
 pending approval.
 
+## Agents told at once
+
+Some agents show nothing while a call waits (Kit): their user sees an
+agent that seems stuck, and the approver may never hear of it. For the
+clients `approvals.no_wait` names (`[kit]` as shipped; chapter 3), an
+`oob` approval is not waited for. The call is answered at once with a
+tool error the model passes on:
+
+```text
+approval needed: fs/write_file waits for an approver's decision (approval a-7f3e9c…, open until 14:05 UTC).
+Tell the user: an approver runs "mcp-gateway-admin approvals approve a-7f3e9c…" on gw1, or decides at
+https://gw1.example.com:9090/mcp-gateway#/approvals/a-7f3e9c…. Then call the tool again with the same
+arguments; it runs once approved.
+```
+
+(the link only with `approvals.url_template` set). The approval stays
+pending for 15 minutes, listed with WAITING `no`, and is announced as
+usual (notifications, mail). The agent's next attempt with the same
+arguments:
+
+| The approval | The attempt |
+|---|---|
+| still pending | gets the same tool error, the same id |
+| approved | runs (with scope `once`, this attempt only; with a longer scope, the grant's calls) |
+| denied | is refused: "declined by an approver"; the attempt after asks again |
+| expired | asks again, with a new id |
+
+The tool error is no refusal: the decision is logged as `ask` and
+stays the approver's. An agent the key does not name waits as before.
+`approvals.no_wait: ["*"]` tells every agent at once, `[]` none. An
+agent that waits gains nothing from it: one that shows progress
+(Claude Code) or asks its user (`url`, `form`) is better left waiting.
+
 ## Deciding from the command line
 
 Where Cockpit is not running or not reachable, decide in a terminal on
@@ -199,6 +232,8 @@ Approvers learn about pending approvals from:
 
 - the **Cockpit** Approvals tab, live;
 - the **command line**: `mcp-gateway-admin approvals watch`;
+- the **agent's user**, for the agents `approvals.no_wait` names ("Agents
+  told at once", above): the tool error says what to ask an approver for;
 - **desktop notifications** (`mcp-gateway-desktop`);
 - **e-mail** (configured in the gateway).
 

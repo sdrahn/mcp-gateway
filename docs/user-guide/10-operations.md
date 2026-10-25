@@ -267,6 +267,7 @@ account, a path) that stay the same across releases (chapter 11).
 | snapper *server* | that a snapper config's `ALLOW_USERS` (or `ALLOW_GROUPS`) names the account mcp-server-snapper runs as; without, it can only list the configs. Warns when there is no config at all |
 | polkit *account* | servers running as a system account (`run_as` naming one; not `principal`, `root` or `dynamic`) that no polkit rule names: warns for servers that act through polkit (the systemd and firewalld setups' domains), which are refused without one; for other servers a note. For a systemd server it also warns when the rule does not allow `com.suse.gatekeeper.readlog`, which systemd-mcp before 0.3.5 checks every read with (by the version the server reported when the doctor started it; without that, as if before 0.3.5). When polkit does not know that action (its action file `/usr/share/polkit-1/actions/com.suse.gatekeeper.policy` is missing), it warns for a server that reported 0.3.4, whose reads then all fail, and notes it for one that reported no version |
 | principals | members of `socket_group` bound to no role, by name or group (users whose primary group it is, and remote principals, are not checked) |
+| approval reach | how out-of-band approvals reach an approver by themselves: mail (`notifications.email`), a link to the approval page (`approvals.url_template`), desktop notifications (`mcp-gateway-desktop` installed). Warns when none does: approvers then see them only in Cockpit or with `mcp-gateway-admin approvals (watch)`; the warning names the agents told at once (`approvals.no_wait`) and how long the others wait (`approval_timeout`). Skipped with the control socket off |
 | approver group *group* | with approval mail on: that mail finds members in each `group:` approver, as it does (chapter 7); warns about a group that does not exist or in which it finds nobody |
 
 Starting the servers runs them like the gateway would, once each; use
@@ -488,6 +489,8 @@ for tool calls) says why; the audit record has the same reason.
 | `invalid policy decision` / `invalid obligations` | custom policy produced something the gateway cannot use; see the gateway log |
 | `approval via url required but not available` | neither the channel nor the fallback is usable: set `approvals.url_template`, keep the control socket enabled, or use a client with URL elicitation |
 | `declined by user` | the approver denied, or the user declined to open the approval page |
+| `approval needed: fs/write_file waits for an approver's decision (approval a-…, open until …). Tell the user: …` | an `oob` approval for an agent `approvals.no_wait` names (Kit): not a refusal. An approver decides (`mcp-gateway-admin approvals approve a-…` on the host, Cockpit, or the page the text names); then the agent calls again (chapter 7, "Agents told at once") |
+| `declined by an approver` | the approver denied that approval while no call waited; the agent's next attempt asks again |
 | `approval failed` | the approval timed out (`approval_timeout`) or the agent's client failed the elicitation |
 | `policy did not accept the approval` | a grant was created but policy still asks (custom policy) |
 | `rate limit exceeded` | a `rate_limit` obligation; wait |

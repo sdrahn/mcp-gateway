@@ -31,7 +31,39 @@ func (b *Broker) FormAnswer(in pep.Input, ask pep.AskSpec, res ElicitResult) (*p
 // that no call waits for, and returns its id; the approval of the same
 // request already pending without a waiting call is taken over.
 func (b *Broker) Park(in pep.Input, ask pep.AskSpec, c pep.Channel) string {
-	return b.addPending(in, withScopes(ask), c, false).ID
+	return b.addPending(in, withScopes(ask), c, false, 0).ID
+}
+
+// ParkFor is Park for a call that does not wait at all (approvals.no_wait):
+// the approval stays pending for ttl, for the agent's next attempt. It
+// returns the approval's id and when it expires.
+func (b *Broker) ParkFor(in pep.Input, ask pep.AskSpec, c pep.Channel, ttl time.Duration) (string, time.Time) {
+	p := b.addPending(in, withScopes(ask), c, false, ttl)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return p.ID, p.Expires
+}
+
+// TakeDenial reports whether the request in was denied while no call
+// waited for it, in the last NoWaitTTL; the denial is used up, so the
+// attempt after it asks again.
+func (b *Broker) TakeDenial(in pep.Input) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := b.now()
+	found := false
+	kept := b.declined[:0]
+	for _, d := range b.declined {
+		switch {
+		case !d.until.After(now):
+		case !found && sameRequest(&d.p, in):
+			found = true
+		default:
+			kept = append(kept, d)
+		}
+	}
+	b.declined = kept
+	return found
 }
 
 // URLParams returns the URL elicitation that offers the client the page

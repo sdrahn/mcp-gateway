@@ -207,6 +207,8 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 	add(doctor.Snapper(d.selected(), doctor.SnapperConfigsDir, userGroups)...)
 	if d.only == "" {
 		add(d.principals())
+		_, notifyErr := os.Stat(doctor.NotifyAgent)
+		add(doctor.ApprovalReach(d.gw, notifyErr == nil))
 		add(d.approverGroups()...)
 	}
 	return rs

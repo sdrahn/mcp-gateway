@@ -74,6 +74,10 @@ type Router struct {
 	// NoRequestTimeout names clients whose approval and sign-in rounds
 	// wait until decided (agents.no_request_timeout; mrtr.go).
 	NoRequestTimeout []string
+	// NoWait names clients ("*": all) whose out-of-band approvals are
+	// answered at once instead of waited for (approvals.no_wait;
+	// nowait.go).
+	NoWait []string
 	// MaxTasksPerPrincipal, TaskRetention and TaskMaxResultBytes bound
 	// the tasks the gateway offers agents (tasks.go; 0: the default).
 	MaxTasksPerPrincipal int
@@ -287,7 +291,7 @@ func (r *Router) init() {
 			MaxSessionsPerPrincipal: r.MaxSessionsPerPrincipal, MaxInstancesPerPrincipal: r.MaxInstancesPerPrincipal,
 			MaxInstances: r.MaxInstances, ListTTL: r.ListTTL, RetryWait: r.RetryWait,
 			MaxRequestsPerPrincipal: r.MaxRequestsPerPrincipal, MaxStreamsPerPrincipal: r.MaxStreamsPerPrincipal, VaultIdle: r.VaultIdle,
-			MaxVersion: r.MaxVersion, NoRequestTimeout: r.NoRequestTimeout,
+			MaxVersion: r.MaxVersion, NoRequestTimeout: r.NoRequestTimeout, NoWait: r.NoWait,
 			MaxTasksPerPrincipal: r.MaxTasksPerPrincipal, TaskRetention: r.TaskRetention, TaskMaxResultBytes: r.TaskMaxResultBytes})
 		r.pool.onListChanged = r.listChanged
 		r.pool.current = func(server string) *config.Backend { return (*r.registry.Load())[server] }
@@ -313,6 +317,7 @@ type Settings struct {
 	VaultIdle                                                       time.Duration
 	MaxVersion                                                      map[string]string
 	NoRequestTimeout                                                []string
+	NoWait                                                          []string
 	MaxTasksPerPrincipal                                            int
 	TaskRetention                                                   time.Duration
 	TaskMaxResultBytes                                              int
@@ -361,6 +366,7 @@ func (r *Router) applySettings(s Settings) {
 	}
 	s.MaxVersion = lowerKeys(s.MaxVersion)
 	s.NoRequestTimeout = lowerNames(s.NoRequestTimeout)
+	s.NoWait = lowerNames(s.NoWait)
 	r.live.Store(&s)
 	perPrincipal := s.MaxInstancesPerPrincipal
 	if perPrincipal <= 0 {

@@ -322,6 +322,59 @@ agents:
 					}
 				})
 
+				// A client named in approvals.no_wait (Kit, by default) is
+				// answered at once with what it waits for; its next attempt
+				// finds the decision: a denial once, then a new approval,
+				// approved, whose "once" grant the attempt after it uses
+				// (leaving nothing behind for the subtests that follow).
+				t.Run("no wait", func(t *testing.T) {
+					env := append(envFor("fs"), "MCPGW_CLIENT_NAME=kit")
+					idOf := func(r map[string]any) string {
+						t.Helper()
+						text := fmt.Sprint(r["text"])
+						if r["isError"] != true || !strings.Contains(text, "approval needed: fs/write_file waits for an approver's decision") ||
+							!strings.Contains(text, "Then call the tool again with the same arguments") {
+							t.Fatalf("not answered at once: %v", r)
+						}
+						m := regexp.MustCompile(`mcp-gateway-admin approvals approve (a-[0-9a-f]+)`).FindStringSubmatch(text)
+						if m == nil {
+							t.Fatalf("no approval id in %q", text)
+						}
+						return m[1]
+					}
+					start := time.Now()
+					first := idOf(runClient(t, c, "approval", env, nil))
+					if d := time.Since(start); d > 20*time.Second {
+						t.Errorf("answered after %v, not at once", d)
+					}
+					var list []map[string]any
+					controlDo(t, ctl, "GET", "/v1/approvals", "", &list)
+					found := false
+					for _, p := range list {
+						found = found || (p["id"] == first && p["waiting"] == false)
+					}
+					if !found {
+						t.Fatalf("%s not pending without a waiting call: %v", first, list)
+					}
+					// A retry takes the same approval over.
+					if again := idOf(runClient(t, c, "approval", env, nil)); again != first {
+						t.Errorf("retry got %s, not %s", again, first)
+					}
+					controlDo(t, ctl, "POST", "/v1/approvals/"+first, `{"decision":"deny","via":"cli"}`, nil)
+					r := runClient(t, c, "approval", env, nil)
+					if r["isError"] != true || !strings.Contains(fmt.Sprint(r["text"]), "declined by an approver") {
+						t.Fatalf("after the denial: %v", r)
+					}
+					second := idOf(runClient(t, c, "approval", env, nil))
+					if second == first {
+						t.Errorf("the denial was not used up: %s again", second)
+					}
+					controlDo(t, ctl, "POST", "/v1/approvals/"+second, `{"decision":"approve","scope":"once","via":"cli"}`, nil)
+					if r := runClient(t, c, "approval", env, nil); r["isError"] == true || !strings.HasPrefix(fmt.Sprint(r["text"]), "wrote") {
+						t.Fatalf("after the approval: %v", r)
+					}
+				})
+
 				// A client capped by agents.max_version (as Kit is by
 				// default) falls back to the handshake, and an approval
 				// out of band is one call again, however long it takes.

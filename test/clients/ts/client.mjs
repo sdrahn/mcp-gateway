@@ -37,7 +37,7 @@ function transport() {
 }
 
 async function connect(capabilities = {}) {
-    const client = new Client({ name: "compat-ts", version: "1" }, { capabilities });
+    const client = new Client({ name: env.MCPGW_CLIENT_NAME || "compat-ts", version: "1" }, { capabilities });
     const logs = [];
     client.setNotificationHandler(LoggingMessageNotificationSchema, (n) => {
         logs.push(typeof n.params.data === "string" ? n.params.data : JSON.stringify(n.params.data));

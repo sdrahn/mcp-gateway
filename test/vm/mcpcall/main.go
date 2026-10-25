@@ -4,6 +4,10 @@
 //
 //	mcpcall --server fs --method tools/call --params '{"name":"read_file","arguments":{"path":"/home/alice/a.txt"}}'
 //
+// --client NAME gives NAME as clientInfo.name ("kit": as Kit, which
+// approvals.no_wait names by default); it declares no elicitation and asks
+// for no progress either way.
+//
 // --then PARAMS (repeatable) sends further requests of the same method in
 // the same session, after the first, each printed on its own line: what a
 // session keeps between requests (pseudonyms) can be tested.
@@ -46,11 +50,12 @@ func main() {
 	method := flag.String("method", "tools/list", "request method")
 	params := flag.String("params", "{}", "request params (JSON)")
 	timeout := flag.Duration("timeout", 90*time.Second, "overall timeout")
+	client := flag.String("client", "mcpcall", `clientInfo.name to give ("kit": as Kit)`)
 	var then paramsList
 	flag.Var(&then, "then", "params of a further request in the same session (JSON; repeatable)")
 	flag.Parse()
 
-	code, err := run(*socket, *server, *method, append(paramsList{json.RawMessage(*params)}, then...), *timeout)
+	code, err := run(*socket, *server, *method, append(paramsList{json.RawMessage(*params)}, then...), *timeout, *client)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "mcpcall:", err)
 	}
@@ -67,7 +72,7 @@ func (l *paramsList) Set(s string) error {
 	return nil
 }
 
-func run(socket, server, method string, requests paramsList, timeout time.Duration) (int, error) {
+func run(socket, server, method string, requests paramsList, timeout time.Duration, client string) (int, error) {
 	for _, params := range requests {
 		if !json.Valid(params) {
 			return 1, fmt.Errorf("params %s are not valid JSON", params)
@@ -124,7 +129,7 @@ func run(socket, server, method string, requests paramsList, timeout time.Durati
 	send := func(m map[string]any) error { m["jsonrpc"] = "2.0"; return w.Encode(m) }
 	if err := send(map[string]any{"id": 1, "method": "initialize", "params": map[string]any{
 		"protocolVersion": "2025-06-18", "capabilities": map[string]any{},
-		"clientInfo": map[string]any{"name": "mcpcall", "version": "1"},
+		"clientInfo": map[string]any{"name": client, "version": "1"},
 	}}); err != nil {
 		return 1, err
 	}

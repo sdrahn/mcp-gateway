@@ -332,6 +332,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		TaskMaxResultBytes:       gw.Tasks.MaxResultBytes,
 		MaxVersion:               gw.Agents.MaxVersion,
 		NoRequestTimeout:         gw.Agents.NoRequestTimeout,
+		NoWait:                   gw.Approvals.NoWait,
 		ModernAgents:             true,
 	}
 	if signIns != nil {

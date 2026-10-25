@@ -181,6 +181,7 @@ the same across releases; the texts may change.
 | `snapper` | server name | snapper *name* |
 | `polkit` | account | polkit *account* |
 | `principals` | | principals |
+| `approval-reach` | | approval reach |
 | `approver-group` | group name | approver group *group* |
 
 ### mcp-gateway-admin clients

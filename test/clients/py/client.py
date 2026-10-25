@@ -45,8 +45,13 @@ def ready():
     print(json.dumps({"ready": True}), flush=True)
 
 
+def info():
+    """The client's clientInfo: MCPGW_CLIENT_NAME, if set, names it (as Kit, for approvals.no_wait)."""
+    return types.Implementation(name=env.get("MCPGW_CLIENT_NAME", "compat-py"), version="1")
+
+
 async def basic():
-    async with Client(server(), client_info=types.Implementation(name=env.get("MCPGW_CLIENT_NAME", "compat-py"), version="1")) as client:
+    async with Client(server(), client_info=info()) as client:
         out = {
             "server": client.server_info.name if client.server_info else None,
             "protocolVersion": client.session.protocol_version,
@@ -76,7 +81,7 @@ async def approval():
         progress.append(value)
 
     # On MCP 2026-07-28 log messages come only to requests that ask for them.
-    async with Client(server(), logging_callback=on_log, log_level="info") as client:
+    async with Client(server(), logging_callback=on_log, log_level="info", client_info=info()) as client:
         r = await client.call_tool(
             "write_file",
             {"path": os.path.join(home, "approved.txt"), "content": "ok"},
@@ -93,7 +98,7 @@ async def elicit():
         scope = (getattr(params, "requested_schema", None) or {}).get("properties", {}).get("scope", {})
         return types.ElicitResult(action="accept", content={"scope": scope.get("default") or (scope.get("enum") or ["once"])[0]})
 
-    async with Client(server(), elicitation_callback=on_elicit) as client:
+    async with Client(server(), elicitation_callback=on_elicit, client_info=info()) as client:
         r = await client.call_tool("write_file", {"path": os.path.join(home, "elicited.txt"), "content": "ok"})
         return {"isError": bool(r.is_error), "text": text(r), "asked": asked}
 
@@ -105,7 +110,7 @@ async def listchanged():
         if isinstance(message, types.ToolListChangedNotification):
             changed.set()
 
-    async with Client(server(), message_handler=on_message) as client:
+    async with Client(server(), message_handler=on_message, client_info=info()) as client:
         if client.session.protocol_version in MODERN_PROTOCOL_VERSIONS:
             # MCP 2026-07-28: changes come on a stream the client opens.
             async with client.listen(tools_list_changed=True) as sub:
@@ -128,7 +133,7 @@ async def listchanged():
 
 
 async def cancel():
-    async with Client(server()) as client:
+    async with Client(server(), client_info=info()) as client:
         error = None
         try:
             await asyncio.wait_for(

@@ -74,6 +74,28 @@ func TestAgentsNoRequestTimeout(t *testing.T) {
 	}
 }
 
+// approvals.no_wait names Kit unless set; [] names none; an empty name is
+// an error.
+func TestApprovalsNoWait(t *testing.T) {
+	for content, want := range map[string][]string{
+		"{}\n":                             {"kit"},
+		"approvals:\n  no_wait: []\n":      {},
+		"approvals:\n  no_wait: [\"*\"]\n": {"*"},
+	} {
+		g, err := LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", content))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(g.Approvals.NoWait, want) {
+			t.Errorf("%q: no_wait = %v, want %v", content, g.Approvals.NoWait, want)
+		}
+	}
+	if _, err := LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", "approvals:\n  no_wait: [\" \"]\n")); err == nil ||
+		!strings.Contains(err.Error(), "approvals.no_wait: empty client name") {
+		t.Errorf("empty name: %v", err)
+	}
+}
+
 func TestLoadGatewayShippedExample(t *testing.T) {
 	g, err := LoadGateway("../../config/gateway.yaml")
 	if err != nil {
