@@ -67,7 +67,7 @@ approvals:
     client_id: ""
     # The client's secret, for a confidential client; empty: public.
     client_secret_file: ""
-    session_ttl: 8h
+    session_ttl: 1h
   # Who may decide on approvals and revoke grants is policy: "approvers"
   # in /etc/mcp-gateway/policy/rbac/data.json (default: the principal
   # themself and the admin role).

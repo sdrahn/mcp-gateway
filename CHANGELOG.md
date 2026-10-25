@@ -16,13 +16,18 @@ minor release (with a warning) and removed in the next.
   approver rules give them, and revoke grants, without Cockpit.
   `approvals.url_template` defaults to it, so URL elicitations, mail and
   desktop notifications lead there. A sign-in is a session cookie of the
-  page (`approvals.page.session_ttl`), never an agent's token; decisions
-  need the page's CSRF token and origin; the page is never framed.
+  page (`approvals.page.session_ttl`, 1 h), never an agent's token; the
+  sign-in in progress is a sealed cookie, so the page keeps nothing for
+  requests without a sign-in; decisions need the page's CSRF token and
+  origin; the page is never framed.
   Sign-ins are audited (`mcp-approver-sign-in`), decisions with
   `via=page`. `mcp-gateway-admin setup http --client-id` sets it up and
   checks the client (user guide, chapter 7, "The gateway's approval
   page"; roadmap step 39 stage C). A remote approver is never root, and
-  approver rules see `remote` and `issuer` (chapter 12).
+  approver rules see `remote` and `issuer` (chapter 12). Without a local
+  account it matches only the new approver rules `remote-user:<sub>`
+  and `remote-group:<group>`, never `user:`, `group:` or `role:` (chapter
+  6).
 - Doctor checks `identity provider` (discovery, issuer, key set, clock
   skew; also run by `doctor` now, not only `setup http`) and `approval
   page` (the identity provider takes the page's client and redirect

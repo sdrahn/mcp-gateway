@@ -86,7 +86,9 @@ func newCodeFlowIdP(t *testing.T) (*idp, *codeFlow) {
 // channel) gets the gateway's own page as the approval URL, as
 // url_template defaults to it; an approver the approver rules name
 // signs in there with the identity provider and approves; the call runs.
-// Another remote user signs in too but sees and decides nothing.
+// Another remote user signs in too but sees and decides nothing: the
+// rule "user:u-other" names a local account u-other, which a remote
+// sign-in without a local account never is.
 func TestApprovalPage(t *testing.T) {
 	home, err := os.MkdirTemp("", "mcpgw-page")
 	if err != nil {
@@ -106,7 +108,7 @@ func TestApprovalPage(t *testing.T) {
 	     "approval_scopes": ["once"], "args": {"path": %q}}
 	  ]}},
 	  "bindings": {"groups": {}, "users": {"u-agent": ["writer"]}},
-	  "approvers": {"fs": ["user:u-approver"]}
+	  "approvers": {"fs": ["remote-user:u-approver", "user:u-other"]}
 	}`, "^"+regexp.QuoteMeta(home)+"/")
 	e := setup(t, rbac, map[string]string{"fs": home}, fmt.Sprintf(`http:
   listen: 127.0.0.1:%d
@@ -171,7 +173,8 @@ approvals:
 	ack := agent.post(map[string]any{"jsonrpc": "2.0", "id": el.ID, "result": map[string]any{"action": "accept"}}, false)
 	_ = ack.Body.Close()
 
-	// Another remote user, no approver: signed in, sees nothing.
+	// u-other, remote without a local account: "user:u-other" is not
+	// theirs; signed in, they see nothing.
 	other := browser("u-other")
 	if code, body := get(other, params.URL); code != http.StatusNotFound || !strings.Contains(body, "not yours to decide") {
 		t.Fatalf("u-other opens it: %d %s", code, body)

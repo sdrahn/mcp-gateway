@@ -528,3 +528,100 @@ func TestSessionExpires(t *testing.T) {
 		t.Errorf("after session_ttl: %d, signed in again: %v", code, f.idp.tokenCalls == calls+1)
 	}
 }
+
+// Requests without a sign-in leave nothing on the gateway: however many
+// start a sign-in, a browser's own still completes.
+func TestSignInsInProgressCostNothing(t *testing.T) {
+	f := newFixture(t)
+	nr := f.noRedirects()
+	for i := 0; i < 1500; i++ { // above the 1000 sign-ins in progress the page used to keep
+		resp, err := nr.Get(f.srv.URL + "/approvals/")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusFound {
+			t.Fatalf("request %d: %d", i, resp.StatusCode)
+		}
+	}
+	f.page.mu.Lock()
+	n := len(f.page.sessions)
+	f.page.mu.Unlock()
+	if n != 0 {
+		t.Errorf("%d sessions kept for requests without a sign-in", n)
+	}
+	if code, body, _ := get(t, f.browser(t), f.srv.URL+"/approvals/"); code != http.StatusOK || !strings.Contains(body, "Signed in as") {
+		t.Errorf("sign-in after the flood: %d", code)
+	}
+}
+
+func TestLoginCookie(t *testing.T) {
+	f := newFixture(t)
+	nr := f.noRedirects()
+	start := func() (*http.Cookie, string) {
+		resp, err := nr.Get(f.srv.URL + "/approvals/")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		u, _ := url.Parse(resp.Header.Get("Location"))
+		for _, c := range resp.Cookies() {
+			if c.Name == loginCookie {
+				return c, u.Query().Get("state")
+			}
+		}
+		t.Fatal("no login cookie")
+		return nil, ""
+	}
+	callback := func(c *http.Cookie, state string) (int, string) {
+		req, _ := http.NewRequest(http.MethodGet, f.srv.URL+"/approvals/callback?code=x&state="+url.QueryEscape(state), nil)
+		req.AddCookie(c)
+		resp, err := nr.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	mine, _ := start()
+	_, theirs := start()
+	// Another sign-in's answer (an attacker's, sent to this browser):
+	// refused before the code is used.
+	if code, body := callback(mine, theirs); code != http.StatusBadRequest || !strings.Contains(body, "for another sign-in") {
+		t.Errorf("another sign-in's state: %d %s", code, body)
+	}
+	// A login cookie the page did not seal.
+	forged := *mine
+	forged.Value = mine.Value[:len(mine.Value)-4] + "AAAA"
+	if code, body := callback(&forged, theirs); code != http.StatusBadRequest || !strings.Contains(body, "unknown, used or expired") {
+		t.Errorf("forged cookie: %d %s", code, body)
+	}
+	// Expired.
+	old, state := start()
+	f.now = f.now.Add(loginTTL + time.Minute)
+	if code, _ := callback(old, state); code != http.StatusBadRequest {
+		t.Errorf("expired sign-in: %d", code)
+	}
+	if f.idp.tokenCalls != 0 {
+		t.Errorf("%d code exchanges", f.idp.tokenCalls)
+	}
+}
+
+// The inbox shows what the last decision did once, from the session:
+// a link cannot make it show a decision.
+func TestDoneIsNotFromTheURL(t *testing.T) {
+	f := newFixture(t)
+	c := f.browser(t)
+	_, body, _ := get(t, c, f.srv.URL+"/approvals/?done=approved+everything")
+	if strings.Contains(body, "approved everything") || strings.Contains(body, "Done:") {
+		t.Errorf("done from the URL: %s", body)
+	}
+	_, body, _ = get(t, c, f.srv.URL+"/approvals/a-1")
+	if code, body := post(t, c, f.srv.URL+"/approvals/a-1", url.Values{"decision": {"deny"}, "csrf": {csrfOf(t, body)}}, nil); code != http.StatusOK || !strings.Contains(body, "Done: denied a-1") {
+		t.Errorf("deny: %d %s", code, body)
+	}
+	if _, body, _ = get(t, c, f.srv.URL+"/approvals/"); strings.Contains(body, "Done:") {
+		t.Error("done shown twice")
+	}
+}
