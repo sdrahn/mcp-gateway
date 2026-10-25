@@ -220,6 +220,12 @@ func ApprovalPage(ctx context.Context, gw *config.Gateway, client *http.Client, 
 		r.Status, r.Summary, r.Details = doctor.Fail, summary, details
 		return r
 	}
+	if pg.ClientSecretFile != "" {
+		if mode, err := config.ExposedSecret(pg.ClientSecretFile); err == nil && mode != "" {
+			return fail(fmt.Sprintf("approvals.page.client_secret_file: %s may be read by others (mode %s)", pg.ClientSecretFile, mode),
+				"chmod 0640 "+pg.ClientSecretFile+" (group mcp-gateway), and have the identity provider make a new secret for the client")
+		}
+	}
 	if pg.ClientSecretFile != "" && root {
 		if b, err := os.ReadFile(pg.ClientSecretFile); err != nil {
 			return fail("approvals.page.client_secret_file: "+err.Error(), "the gateway does not start without it")

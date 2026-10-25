@@ -589,6 +589,7 @@ func newApprovalPage(log *slog.Logger, gw *config.Gateway, b *broker.Broker, aud
 	}
 	secret := ""
 	if pc.ClientSecretFile != "" {
+		warnExposed(log, "approvals.page.client_secret_file", pc.ClientSecretFile)
 		data, err := os.ReadFile(pc.ClientSecretFile)
 		if err != nil {
 			return nil, fmt.Errorf("approvals.page.client_secret_file: %w", err)
@@ -630,6 +631,7 @@ func newWebhooks(log *slog.Logger, gw *config.Gateway, b *broker.Broker, auditLo
 		h.Gateway = host
 	}
 	for i, w := range gw.Approvals.Webhooks {
+		warnExposed(log, fmt.Sprintf("approvals.webhooks[%d].secret_file", i), w.SecretFile)
 		data, err := os.ReadFile(w.SecretFile)
 		if err != nil {
 			return nil, fmt.Errorf("approvals.webhooks[%d].secret_file: %w", i, err)
@@ -647,6 +649,14 @@ func newWebhooks(log *slog.Logger, gw *config.Gateway, b *broker.Broker, auditLo
 		log.Info("approval webhook", "name", w.Name, "url", w.URL, "callback", cb, "include_args", w.IncludeArgs)
 	}
 	return h, nil
+}
+
+// warnExposed warns when others may read a secret file (the doctor fails
+// then); the gateway starts all the same.
+func warnExposed(log *slog.Logger, key, path string) {
+	if mode, err := config.ExposedSecret(path); err == nil && mode != "" {
+		log.Warn(key+": others may read the secret (mode "+mode+"); chmod 0640 and make a new secret", "file", path)
+	}
 }
 
 // startExe is the program file the gateway was started from (nil if

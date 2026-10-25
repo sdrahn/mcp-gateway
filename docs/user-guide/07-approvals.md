@@ -364,11 +364,18 @@ approvals:
 
 **Signatures.** Every post, and every callback, carries
 `X-MCP-Gateway-Signature: t=<unix time>,v1=<hex>`, where `<hex>` is the
-HMAC-SHA256 of `<unix time>.<body>` with the webhook's secret (at least
-32 characters, shared with the receiver). The receiver checks it before
-trusting a post; the gateway takes a callback only with a valid
+HMAC-SHA256 with the webhook's secret (at least 32 characters, shared
+with the receiver) of `<unix time>.<body>` for a post, and of
+`callback.<unix time>.<body>` for a callback: what one side signed is
+never taken as the other's. The receiver checks a post's signature
+before trusting it; the gateway takes a callback only with a valid
 signature at most five minutes old, and only once (the same callback
 again is refused with 409).
+
+The secret file must be readable by the gateway (group `mcp-gateway`)
+and nobody else: whoever reads it can decide approvals as any approver
+the rules allow. The gateway warns at start, and the doctor fails, when
+others may read it.
 
 **Posts.** `X-MCP-Gateway-Event` says what a post is: `pending` (a new
 approval), `resolved` (one the webhook got was decided, expired or
@@ -386,12 +393,13 @@ withdrawn), `ping` (the doctor's check). A `pending` post:
 
 The call's arguments are left out: they leave the host. `include_args:
 true` sends them (`call.args`). `servers: [fs, zypp]` limits a webhook to
-those servers' approvals. `url` is the approval page, where it is set up
+those servers' approvals: it is posted only those, and its callbacks may
+decide only those (another's approval is a 404, even with its id). `url` is the approval page, where it is set up
 (above): a receiver can just link there instead of deciding
 itself.
 
-**Callbacks.** To decide, the receiver posts to `callback`, signed the
-same way:
+**Callbacks.** To decide, the receiver posts to `callback`, signed over
+`callback.<unix time>.<body>`:
 
 ```json
 {"id": "a-7f3e9c…", "decision": "approve", "scope": "once", "approver": "remote-user:jack@example.com", "groups": ["ops"]}
@@ -408,9 +416,10 @@ same way:
   does for a sign-in: let only a receiver that authenticated the person
   call back, and keep the secret to it.
 - Answers: 200 with the grant (approved), 204 (denied), 401 (unsigned,
-  wrongly signed, or older than five minutes), 409 (a replay), 404 (no
-  such approval, or not one that approver may decide), 400 (a scope not
-  offered, or a body the gateway does not take).
+  wrongly signed, signed as a post, or older than five minutes), 409 (a
+  replay), 404 (no such approval, not one of the webhook's `servers`, or
+  not one that approver may decide), 400 (a scope not offered, or a body
+  the gateway does not take).
 - Callbacks come to the HTTPS listener (`http.listen`); without it a
   webhook only posts, and the doctor warns that decisions cannot come
   back.
@@ -420,7 +429,8 @@ same way:
   Callbacks without a valid signature are only answered (401), not
   audited: anyone who reaches the listener could send them.
 
-A receiver checks a post in a few lines, e.g. in Python:
+A receiver checks a post, and signs a callback, in a few lines, e.g. in
+Python:
 
 ```python
 import hashlib, hmac, time
@@ -431,11 +441,18 @@ def verified(secret: bytes, body: bytes, header: str) -> bool:
         return False
     mac = hmac.new(secret, parts["t"].encode() + b"." + body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(mac, parts["v1"])
+
+def callback_signature(secret: bytes, body: bytes) -> str:
+    t = str(int(time.time()))
+    mac = hmac.new(secret, b"callback." + t.encode() + b"." + body, hashlib.sha256).hexdigest()
+    return f"t={t},v1={mac}"
 ```
 
 Under SELinux the gateway reaches HTTP ports (80, 443, 8080, 8443 and
 the like) only; a receiver elsewhere needs its port labeled `http_port_t`.
-Receivers are reached directly, not through a proxy.
+Receivers are reached directly, not through a proxy, and redirects are
+not followed (a post would take its signature, and with `include_args`
+the arguments, elsewhere): `url` names the receiver itself.
 
 ## Notifications
 

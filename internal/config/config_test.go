@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -754,5 +755,24 @@ func TestWebhooks(t *testing.T) {
 	next.Approvals.Webhooks = nil
 	if got := RestartNeeded(g, &next); len(got) != 1 || got[0] != "approvals.webhooks" {
 		t.Errorf("restart needed %v", got)
+	}
+}
+
+func TestExposedSecret(t *testing.T) {
+	dir := t.TempDir()
+	for mode, want := range map[os.FileMode]string{0o600: "", 0o640: "", 0o644: "0644", 0o602: "0602", 0o666: "0666"} {
+		p := filepath.Join(dir, fmt.Sprintf("s%o", mode))
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(p, mode); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := ExposedSecret(p); err != nil || got != want {
+			t.Errorf("%o: %q %v, want %q", mode, got, err, want)
+		}
+	}
+	if _, err := ExposedSecret(filepath.Join(dir, "none")); err == nil {
+		t.Error("a missing file")
 	}
 }

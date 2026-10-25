@@ -11,6 +11,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -372,6 +374,14 @@ func TestApprovalPage(t *testing.T) {
 	gw.Approvals.Page.ClientSecretFile = t.TempDir() + "/missing"
 	if r = ApprovalPage(ctx, gw, srv.Client(), true); r.Status != doctor.Fail || !strings.Contains(r.Summary, "client_secret_file") {
 		t.Errorf("missing secret: %+v", r)
+	}
+	exposed := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(exposed, []byte("s3cret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gw.Approvals.Page.ClientSecretFile = exposed
+	if r = ApprovalPage(ctx, gw, srv.Client(), false); r.Status != doctor.Fail || !strings.Contains(r.Summary, "may be read by others (mode 0644)") {
+		t.Errorf("secret others may read: %+v", r)
 	}
 }
 

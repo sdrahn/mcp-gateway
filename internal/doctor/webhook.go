@@ -21,6 +21,12 @@ func Webhooks(ctx context.Context, gw *config.Gateway, client *http.Client, root
 	hooks := &webhook.Hooks{Client: client, Gateway: "doctor"}
 	for _, w := range gw.Approvals.Webhooks {
 		r := Result{Check: "webhook " + w.Name}
+		if mode, err := config.ExposedSecret(w.SecretFile); err == nil && mode != "" {
+			r.Status, r.Summary = Fail, fmt.Sprintf("secret_file: %s may be read by others (mode %s): whoever reads it can decide approvals as any approver the rules allow", w.SecretFile, mode)
+			r.Details = []string{"chmod 0640 " + w.SecretFile + " (group mcp-gateway), and make a new secret for the receiver: openssl rand -hex 32"}
+			rs = append(rs, r)
+			continue
+		}
 		if !root {
 			r.Status, r.Summary = Skip, "reading "+w.SecretFile+" needs root: run mcp-gateway-admin doctor as root"
 			rs = append(rs, r)

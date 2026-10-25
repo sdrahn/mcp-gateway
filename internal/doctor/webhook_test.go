@@ -43,6 +43,11 @@ func TestWebhooks(t *testing.T) {
 		{Name: "short", URL: srv.URL, SecretFile: write("short", "abc")},
 		{Name: "missing", URL: srv.URL, SecretFile: filepath.Join(dir, "none")},
 		{Name: "down", URL: "https://127.0.0.1:1/", SecretFile: write("down", secret)},
+		{Name: "exposed", URL: srv.URL, SecretFile: write("exposed", secret)},
+	}
+	exposed := gw.Approvals.Webhooks[5]
+	if err := os.Chmod(exposed.SecretFile, 0o644); err != nil {
+		t.Fatal(err)
 	}
 	rs := Webhooks(context.Background(), gw, srv.Client(), true)
 	Identify(rs)
@@ -55,6 +60,7 @@ func TestWebhooks(t *testing.T) {
 		"webhook short":   {Fail, "holds 3 characters, fewer than 32"},
 		"webhook missing": {Fail, "no such file"},
 		"webhook down":    {Fail, "does not take a signed post"},
+		"webhook exposed": {Fail, "may be read by others (mode 0644)"},
 	}
 	if len(rs) != len(want) {
 		t.Fatalf("results %+v", rs)
@@ -73,6 +79,10 @@ func TestWebhooks(t *testing.T) {
 	gw.Approvals.Webhooks = gw.Approvals.Webhooks[:1]
 	if rs := Webhooks(context.Background(), gw, srv.Client(), true); rs[0].Status != Warn || !strings.Contains(rs[0].Summary, "decisions cannot come back") {
 		t.Errorf("no listener: %+v", rs[0])
+	}
+	// Not root: the mode is checked all the same.
+	if rs := Webhooks(context.Background(), &config.Gateway{Approvals: config.Approvals{Webhooks: []config.Webhook{exposed}}}, srv.Client(), false); rs[0].Status != Fail {
+		t.Errorf("exposed, not root: %+v", rs[0])
 	}
 	// Not root: the secret is not readable.
 	if rs := Webhooks(context.Background(), gw, srv.Client(), false); rs[0].Status != Skip || !strings.Contains(rs[0].Summary, "needs root") {

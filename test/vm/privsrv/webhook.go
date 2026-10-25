@@ -30,9 +30,13 @@ import (
 //	                     got, with the form fields id, decision, scope,
 //	                     approver and mode: "signed" (default),
 //	                     "unsigned", "stale" (signed ten minutes ago),
-//	                     "wrong-secret", or "replay" (the last signed
-//	                     callback sent again, byte for byte); answers
+//	                     "wrong-secret", "as-post" (signed as a post is,
+//	                     which is no callback's signature), or "replay"
+//	                     (the last signed callback sent again, byte for
+//	                     byte); with hook, to that webhook's callback (as
+//	                     its receiver, sharing the secret); answers
 //	                     {"status", "body"}: the gateway's answer
+//	POST /redirect       answers 307 to http://hooks.vmtest/stolen
 func serveWebhook(addr, certFile, secretFile string) error {
 	cert, err := selfSigned("hooks.vmtest", certFile)
 	if err != nil {
@@ -43,9 +47,14 @@ func serveWebhook(addr, certFile, secretFile string) error {
 		return err
 	}
 	secret := []byte(strings.TrimSpace(string(raw)))
-	sign := func(key, body []byte, t time.Time) string {
+	// sign signs a callback: the HMAC covers "callback.<t>.<body>" (a
+	// post's covers "<t>.<body>"), or as a post with asPost.
+	sign := func(key, body []byte, t time.Time, asPost bool) string {
 		ts := strconv.FormatInt(t.Unix(), 10)
 		m := hmac.New(sha256.New, key)
+		if !asPost {
+			m.Write([]byte("callback."))
+		}
 		m.Write([]byte(ts + "."))
 		m.Write(body)
 		return "t=" + ts + ",v1=" + hex.EncodeToString(m.Sum(nil))
@@ -88,6 +97,11 @@ func serveWebhook(addr, certFile, secretFile string) error {
 	// gateway is reached directly.
 	client := &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{Proxy: nil}}
 	mux := http.NewServeMux()
+	// A receiver URL that redirects: the gateway must not follow it.
+	mux.HandleFunc("POST /redirect", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(os.Stderr, "webhook: post to /redirect, sent on to http://hooks.vmtest/stolen\n")
+		http.Redirect(w, r, "http://hooks.vmtest/stolen", http.StatusTemporaryRedirect)
+	})
 	mux.HandleFunc("POST /hook", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		ok := verify(body, r.Header.Get("X-MCP-Gateway-Signature"))
@@ -117,6 +131,10 @@ func serveWebhook(addr, certFile, secretFile string) error {
 		target := callbacks[id]
 		replay := last
 		mu.Unlock()
+		if hook := r.FormValue("hook"); hook != "" && target != "" {
+			// As another webhook's receiver, sharing the secret.
+			target = target[:strings.LastIndex(target, "/")+1] + hook
+		}
 		var body []byte
 		var sig string
 		switch mode {
@@ -138,14 +156,16 @@ func serveWebhook(addr, certFile, secretFile string) error {
 			body, _ = json.Marshal(d)
 			switch mode {
 			case "", "signed":
-				sig = sign(secret, body, time.Now())
+				sig = sign(secret, body, time.Now(), false)
 				mu.Lock()
 				last.url, last.sig, last.body = target, sig, body
 				mu.Unlock()
 			case "stale":
-				sig = sign(secret, body, time.Now().Add(-10*time.Minute))
+				sig = sign(secret, body, time.Now().Add(-10*time.Minute), false)
 			case "wrong-secret":
-				sig = sign([]byte("not the webhook's secret, but long"), body, time.Now())
+				sig = sign([]byte("not the webhook's secret, but long"), body, time.Now(), false)
+			case "as-post":
+				sig = sign(secret, body, time.Now(), true)
 			case "unsigned":
 			default:
 				http.Error(w, "unknown mode "+mode, http.StatusBadRequest)

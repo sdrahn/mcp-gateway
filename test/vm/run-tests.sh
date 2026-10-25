@@ -3197,8 +3197,13 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	install -m 0644 /root/vmtest-hooks.pem /etc/pki/trust/anchors/mcp-vmtest-hooks.pem
 	update-ca-certificates
 	wh_dropin=/etc/mcp-gateway/gateway.d/60-vmtest-webhook.yaml
+	# tickets: another webhook (the same receiver and secret here), for
+	# zypp's approvals only; it may name jack too, so that only its servers
+	# keep it from deciding ivy's fs approval.
 	printf '%s\n' 'approvals:' '  webhooks:' '    - name: chat' '      url: https://hooks.vmtest/hook' \
-		'      secret_file: /etc/mcp-gateway/webhook-chat.secret' '      local_accounts: true' >"$wh_dropin"
+		'      secret_file: /etc/mcp-gateway/webhook-chat.secret' '      local_accounts: true' \
+		'    - name: tickets' '      url: https://hooks.vmtest/hook' '      secret_file: /etc/mcp-gateway/webhook-chat.secret' \
+		'      servers: [zypp]' '      local_accounts: true' >"$wh_dropin"
 	restorecon "$wh_dropin" /etc/mcp-gateway/webhook-chat.secret
 	check "the configuration with the webhook is valid" /usr/bin/mcp-gateway --check --policy-data=
 	systemctl restart mcp-gateway.service
@@ -3210,17 +3215,19 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	grep -E 'webhook|approval reach' <<<"$wh_doctor" | sed 's/^/  /'
 	check "doctor: the receiver takes the webhook's signed posts" \
 		bash -c 'grep -qE "^OK +webhook chat: the receiver takes signed posts; decisions come back to $2/approvals/webhook/chat" <<<"$1"' _ "$wh_doctor" "$pp_url"
-	check "doctor: approvals reach approvers through the webhook" bash -c 'grep -qE "^OK +approval reach: .*webhooks \(1\)" <<<"$1"' _ "$wh_doctor"
+	check "doctor: approvals reach approvers through the webhook" bash -c 'grep -qE "^OK +approval reach: .*webhooks \(2\)" <<<"$1"' _ "$wh_doctor"
 
 	# wh_posts: what the receiver got. wh_got EVENT ID: a verified post.
 	wh_posts() { curl -s --noproxy '*' https://hooks.vmtest/posts; }
 	wh_got() { wh_posts | jq -e --arg e "$1" --arg id "$2" 'any(.[]; .event == $e and .verified and .body.id == $id)' >/dev/null; }
 	# wh_decide MODE APPROVER [DECISION]: the receiver calls back for
-	# $ac_id; sets wh_status, the gateway's answer.
+	# $ac_id (to webhook $wh_hook's callback, else chat's); sets
+	# wh_status, the gateway's answer.
 	wh_decide() {
 		local o
 		o=$(curl -s --noproxy '*' --data-urlencode "id=$ac_id" --data-urlencode "mode=$1" --data-urlencode "approver=$2" \
-			--data-urlencode "decision=${3:-approve}" --data-urlencode scope=once https://hooks.vmtest/decide)
+			--data-urlencode "decision=${3:-approve}" --data-urlencode scope=once --data-urlencode "hook=${wh_hook:-}" \
+			https://hooks.vmtest/decide)
 		wh_status=$(jq -r .status <<<"$o" 2>/dev/null)
 		echo "  [callback $1, $2] $o"
 	}
@@ -3239,6 +3246,10 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	check "callback: one signed ten minutes ago is refused (401)" test "$wh_status" = 401
 	wh_decide wrong-secret user:jack
 	check "callback: one signed with another secret is refused (401)" test "$wh_status" = 401
+	wh_decide as-post user:jack
+	check "callback: one signed as a post is, not as a callback, is refused (401)" test "$wh_status" = 401
+	wh_hook=tickets wh_decide signed user:jack
+	check "callback: to the webhook tickets, for zypp's approvals only, it is refused (404)" test "$wh_status" = 404
 	wh_decide signed user:kim
 	check "callback: one naming kim, whom the rules do not allow, is refused (404)" test "$wh_status" = 404
 	wh_decide signed remote-user:jack
@@ -3265,6 +3276,17 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	check "doctor: a secret the receiver does not share fails, with its answer" \
 		bash -c 'grep -qE "^FAIL +webhook chat: the receiver does not take a signed post: .*401 Unauthorized" <<<"$1"' _ "$wh_doctor"
 	cat /root/vmtest/wh-secret-saved >/etc/mcp-gateway/webhook-chat.secret
+	chmod 0644 /etc/mcp-gateway/webhook-chat.secret
+	wh_doctor=$(mcp-gateway-admin doctor --no-start 2>&1)
+	grep -E '^[A-Z]+ +webhook chat' <<<"$wh_doctor" | sed 's/^/  /'
+	check "doctor: a secret others may read fails" \
+		bash -c 'grep -qE "^FAIL +webhook chat: secret_file: /etc/mcp-gateway/webhook-chat.secret may be read by others \(mode 0644\)" <<<"$1"' _ "$wh_doctor"
+	chmod 0640 /etc/mcp-gateway/webhook-chat.secret
+	sed -i 's#url: https://hooks.vmtest/hook$#url: https://hooks.vmtest/redirect#' "$wh_dropin"
+	wh_doctor=$(mcp-gateway-admin doctor --no-start 2>&1)
+	grep -E '^[A-Z]+ +webhook' <<<"$wh_doctor" | sed 's/^/  /'
+	check "doctor: a receiver that redirects fails: the post is not sent on" \
+		bash -c 'grep -qE "^FAIL +webhook chat: .*307 Temporary Redirect to http://hooks.vmtest/stolen: redirects are not followed" <<<"$1"' _ "$wh_doctor"
 	wh_no_denials() {
 		! since=$wh_since audit_since AVC | grep -E 'scontext=[^ ]*:mcpgw_t:' | grep -vE "$expected_denial" | grep -q .
 	}
