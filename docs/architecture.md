@@ -4034,8 +4034,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       OPA watches as given, to make it look again (found by the VM test).
 
 39. **Approvals without Cockpit** (1.9.0, a release not marked as the
-    latest; 2.0 once tested and fixed, as a major feature; D21; stages A
-    to D done):
+    latest; 1.10 once tested and fixed, the supported release with these
+    features; D21; stages A to D done):
     - the problem: every out-of-band approval ends on the Cockpit page.
       Notifications and mail only link there, the control API is the
       local socket, and an agent like Kit shows nothing while a call
@@ -4136,9 +4136,9 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       inbox: they all post to one place;
     - releases: all five stages go into 1.9.0, published as a release
       that is not marked as the latest on GitHub (1.8 stays the latest);
-      after testing and fixes they become 2.0. Until then they may still
-      change, configuration keys and commands included: 2.0 is where they
-      are kept compatible (D10);
+      after testing and fixes they become 1.10, the supported release with
+      them. Until then they may still change, configuration keys and
+      commands included: 1.10 is where they are kept compatible (D10);
     - not planned: a `form` approval strengthened with a one-time code
       (the agent's own client still sees and could answer it);
     - tests, dedicated per stage, and first of all for openQA: the VM
