@@ -5,7 +5,16 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.9.1 — 2026-10-25
+
+A fix to the policy: a principal holding two permissions that ask for
+approval of one tool through different channels (a member of `wheel`
+also bound to a server setup's operator role, for example) was offered
+no tools at all. Like 1.9.0, 1.9.1 is published but not marked as the
+latest release; 1.8.0 stays the one recommended for use. Upgrading from
+1.9.0 needs no changes, and the SELinux modules do not change. After the
+update, restart the gateway (`systemctl restart mcp-gateway.service`);
+the package does not.
 
 ### Fixed
 
