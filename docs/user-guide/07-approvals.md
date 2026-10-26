@@ -73,11 +73,14 @@ there once it is set up, unless `approvals.url_template` names another
 page (Cockpit).
 
 1. Register a client for the page at the identity provider, with the
-   redirect URI `https://<host:port of http.audience>/approvals/callback`
-   and the authorization code flow. With **Keycloak**: in the realm of
+   redirect URI `https://<host:port of http.audience>/approvals/callback`,
+   the post-logout redirect URI
+   `https://<host:port of http.audience>/approvals/signed-out` and the
+   authorization code flow. With **Keycloak**: in the realm of
    `http.issuer`, *Clients → Create client*, client ID
    `mcp-gateway-approvals`, *Standard flow* on, *Valid redirect URIs*
-   the URI above; *Client authentication* off for a public client, or on
+   the first URI, *Valid post logout redirect URIs* the second;
+   *Client authentication* off for a public client, or on
    for a confidential one (then copy its secret from *Credentials*).
 2. Tell the gateway, which checks the client at the provider:
 
@@ -113,10 +116,19 @@ approvers:
 ```
 
 The page keeps the sign-in as a session cookie of its own for
-`approvals.page.session_ttl` (1 h; *Sign out* ends it), with the groups
+`approvals.page.session_ttl` (1 h), with the groups
 the ID token had: a user disabled or a group removed at the identity
 provider keeps the page until then (changed approver rules apply at
-once). It never takes
+once). *Sign out* ends it, and the sign-in at the identity provider
+too, where the provider offers that (`end_session_endpoint` in its
+discovery, OpenID Connect RP-Initiated Logout, as Keycloak does): the
+browser goes to the provider's sign-out, with the sign-in's ID token as
+`id_token_hint`, and comes back to `/approvals/signed-out`. Else the
+provider's own sign-in would live on, and signing in again would not
+ask for the password. Either way, that browser's next sign-in asks the
+provider to ask for the password again (`prompt=login`). A provider
+that refuses the sign-out ("invalid redirect uri") has the post-logout
+redirect URI missing from the client. It never takes
 an agent's token (a request with `Authorization: Bearer` is sent to
 sign in), and keeps nothing for a browser that has not signed in (the
 sign-in in progress is in an encrypted cookie). Decisions need the page's own form: without its CSRF token,

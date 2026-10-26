@@ -1,8 +1,8 @@
 /* Approves a pending approval on the gateway's approval page in a headless
  * browser, as an approver would: the page sends it to the identity
- * provider and back, then the Approve button is pressed. Prints what the
- * browser sent with the form (its Origin header) and the page that came
- * back. Needs playwright-core (or playwright) and Chromium:
+ * provider and back, then the Approve button is pressed, then Sign out.
+ * Prints what the browser sent with the form (its Origin header) and the
+ * pages that came back. Needs playwright-core (or playwright) and Chromium:
  *
  *   CHROME=/usr/bin/google-chrome node test/browser/approval-page.js URL
  *
@@ -34,6 +34,15 @@ try {
         await page.click('button[name="decision"][value="approve"]');
         await page.waitForLoadState("load");
         console.log("page: " + (await page.innerText("body")).replace(/\s+/g, " "));
+        // Signing out goes through the identity provider's sign-out and
+        // back; the page then asks to sign in again.
+        await Promise.all([
+            page.waitForURL(u => new URL(u).pathname === "/approvals/signed-out"),
+            page.click('form[action="/approvals/logout"] button'),
+        ]);
+        console.log("signed out: " + (await page.innerText("body")).replace(/\s+/g, " "));
+        await page.goto(new URL("/approvals/", url).href);
+        console.log("again: " + (await page.innerText("body")).replace(/\s+/g, " "));
     } finally {
         await browser.close();
     }

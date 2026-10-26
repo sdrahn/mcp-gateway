@@ -5,6 +5,20 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Fixed
+
+- Signing out of the approval page left the sign-in at the identity
+  provider in place: signing in again signed the approver in without
+  asking for the password. *Sign out* now ends the sign-in at the
+  provider too, where it offers that (`end_session_endpoint`, OpenID
+  Connect RP-Initiated Logout, as Keycloak does), and comes back to
+  `/approvals/signed-out`, which the page's client must have as its post
+  logout redirect URI (Keycloak: *Valid post logout redirect URIs*).
+  Either way, the browser's next sign-in asks for the password again
+  (`prompt=login`).
+
 ## v1.9.2 — 2026-10-26
 
 A fix to the gateway's approval page: in a browser it took no decision

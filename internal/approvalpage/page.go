@@ -71,6 +71,12 @@ const (
 	// set them.
 	sessionCookie = "__Host-mcpgw-approvals"
 	loginCookie   = "__Host-mcpgw-approvals-login"
+	// signedOutCookie marks a browser signed out of the page: its next
+	// sign-in asks the identity provider to ask for the password again
+	// (prompt=login), also where the provider's own sign-in lives on
+	// (no end_session_endpoint, or its sign-out failed).
+	signedOutCookie = "__Host-mcpgw-approvals-signed-out"
+	signedOutTTL    = 24 * time.Hour
 	// loginTTL bounds a sign-in in progress; maxSessions bounds the
 	// sign-ins the page keeps (made only after the identity provider
 	// signed someone in).
@@ -128,6 +134,9 @@ type session struct {
 	Approver broker.Approver
 	CSRF     string
 	expires  time.Time
+	// idToken is the sign-in's ID token, the id_token_hint of the
+	// sign-out at the identity provider.
+	idToken string
 	// done is what the last decision did, shown once on the inbox.
 	done string
 }
@@ -168,10 +177,18 @@ type metadata struct {
 	TokenEndpoint         string   `json:"token_endpoint"`
 	CodeChallengeMethods  []string `json:"code_challenge_methods_supported"`
 	IssParameter          bool     `json:"authorization_response_iss_parameter_supported"`
+	// EndSessionEndpoint is where signing out of the page ends the
+	// sign-in at the identity provider too (OpenID Connect RP-Initiated
+	// Logout); empty if it offers none (or not over https).
+	EndSessionEndpoint string `json:"end_session_endpoint"`
 }
 
 // RedirectURI is where the identity provider sends approvers back.
 func (pg *Page) RedirectURI() string { return pg.Origin + "/approvals/callback" }
+
+// PostLogoutRedirectURI is where the identity provider sends approvers
+// after signing them out.
+func (pg *Page) PostLogoutRedirectURI() string { return pg.Origin + "/approvals/signed-out" }
 
 // Handler serves /approvals/.
 func (pg *Page) Handler() http.Handler {
@@ -201,6 +218,7 @@ func (pg *Page) Handler() http.Handler {
 	mux.HandleFunc("GET /approvals/{$}", pg.inbox)
 	mux.HandleFunc("GET /approvals/callback", pg.callback)
 	mux.HandleFunc("POST /approvals/logout", pg.logout)
+	mux.HandleFunc("GET /approvals/signed-out", pg.signedOut)
 	mux.HandleFunc("GET /approvals/{id}", pg.show)
 	mux.HandleFunc("POST /approvals/{id}", pg.decide)
 	mux.HandleFunc("POST /approvals/grants/{id}/revoke", pg.revoke)
@@ -208,18 +226,29 @@ func (pg *Page) Handler() http.Handler {
 	mux.HandleFunc("/approvals/", func(w http.ResponseWriter, r *http.Request) {
 		pg.page(w, http.StatusNotFound, "Not found", "There is no such page.", nil)
 	})
-	return headers(mux)
+	return pg.headers(mux)
 }
 
 // headers sets what every answer of the page carries: nothing of it is
 // framed (clickjacking), cached or sent on as a referrer to another site,
-// and it loads nothing but its own inline style. The referrer policy is
+// and it loads nothing but its own inline style. Its forms go to the page
+// itself, and Sign out on to the identity provider's end_session_endpoint
+// (form-action covers the redirect after a form). The referrer policy is
 // same-origin, not no-referrer: under no-referrer browsers send its forms
 // with "Origin: null", which checkPost refuses as another site's.
-func headers(h http.Handler) http.Handler {
+func (pg *Page) headers(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hd := w.Header()
-		hd.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+		formAction := "'self'"
+		pg.mu.Lock()
+		md := pg.meta
+		pg.mu.Unlock()
+		if md != nil && md.EndSessionEndpoint != "" {
+			if u, err := url.Parse(md.EndSessionEndpoint); err == nil && u.Host != "" {
+				formAction += " " + u.Scheme + "://" + u.Host
+			}
+		}
+		hd.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action "+formAction+"; frame-ancestors 'none'; base-uri 'none'")
 		hd.Set("X-Frame-Options", "DENY")
 		hd.Set("X-Content-Type-Options", "nosniff")
 		hd.Set("Referrer-Policy", "same-origin")
@@ -284,6 +313,9 @@ func (pg *Page) startLogin(w http.ResponseWriter, r *http.Request, next string) 
 		"nonce":                 {l.Nonce},
 		"code_challenge":        {oauth.Challenge(l.Verifier)},
 		"code_challenge_method": {"S256"},
+	}
+	if _, err := r.Cookie(signedOutCookie); err == nil {
+		q.Set("prompt", "login")
 	}
 	target := md.AuthorizationEndpoint
 	if strings.Contains(target, "?") {
@@ -364,7 +396,7 @@ func (pg *Page) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	a := approverOf(p)
 	value := randomToken()
-	s := &session{Approver: a, CSRF: randomToken(), expires: pg.now().Add(pg.SessionTTL)}
+	s := &session{Approver: a, CSRF: randomToken(), expires: pg.now().Add(pg.SessionTTL), idToken: idToken}
 	pg.mu.Lock()
 	if pg.sessions == nil {
 		pg.sessions = map[string]*session{}
@@ -388,6 +420,7 @@ func (pg *Page) callback(w http.ResponseWriter, r *http.Request) {
 	pg.Log.Info("approval page: signed in", "sub", a.Name, "local", !a.NoUID)
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: value, Path: "/", MaxAge: int(pg.SessionTTL / time.Second),
 		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	http.SetCookie(w, &http.Cookie{Name: signedOutCookie, Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	http.Redirect(w, r, l.Next, http.StatusSeeOther)
 }
 
@@ -517,6 +550,9 @@ func (pg *Page) metadata(ctx context.Context) (*metadata, error) {
 	case len(md.CodeChallengeMethods) > 0 && !slices.Contains(md.CodeChallengeMethods, "S256"):
 		return nil, errors.New("discovery: PKCE with S256 is not supported")
 	}
+	if md.EndSessionEndpoint != "" && oauth.CheckURL(md.EndSessionEndpoint) != nil {
+		md.EndSessionEndpoint = ""
+	}
 	pg.mu.Lock()
 	pg.meta, pg.metaAt = md, pg.now()
 	pg.mu.Unlock()
@@ -636,8 +672,14 @@ func (pg *Page) flash(s *session, done string) {
 	pg.mu.Unlock()
 }
 
+// logout ends the page's session and, where the identity provider offers
+// it (end_session_endpoint), the sign-in there: else signing in again
+// would sign the approver in without asking (the provider's own session
+// lives on). Either way the browser's next sign-in asks for the password
+// again (prompt=login).
 func (pg *Page) logout(w http.ResponseWriter, r *http.Request) {
-	if pg.checkPost(w, r) == nil {
+	s := pg.checkPost(w, r)
+	if s == nil {
 		return
 	}
 	if c, err := r.Cookie(sessionCookie); err == nil {
@@ -646,7 +688,32 @@ func (pg *Page) logout(w http.ResponseWriter, r *http.Request) {
 		pg.mu.Unlock()
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
-	pg.page(w, http.StatusOK, "Signed out", "You are signed out of the approval page.", nil)
+	http.SetCookie(w, &http.Cookie{Name: signedOutCookie, Value: "1", Path: "/", MaxAge: int(signedOutTTL / time.Second),
+		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	pg.Log.Info("approval page: signed out", "sub", s.Approver.Name)
+	md, err := pg.metadata(r.Context())
+	if err != nil || md.EndSessionEndpoint == "" {
+		pg.page(w, http.StatusOK, "Signed out", "You are signed out of the approval page. "+
+			"The identity provider offers no sign-out to the page: its own sign-in may live on, but signing in here again asks for your password.", nil)
+		return
+	}
+	q := url.Values{"client_id": {pg.ClientID}, "post_logout_redirect_uri": {pg.PostLogoutRedirectURI()}}
+	if s.idToken != "" {
+		q.Set("id_token_hint", s.idToken)
+	}
+	target := md.EndSessionEndpoint
+	if strings.Contains(target, "?") {
+		target += "&" + q.Encode()
+	} else {
+		target += "?" + q.Encode()
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+// signedOut is where the identity provider sends the browser after
+// signing it out.
+func (pg *Page) signedOut(w http.ResponseWriter, _ *http.Request) {
+	pg.page(w, http.StatusOK, "Signed out", "You are signed out of the approval page and of the identity provider.", nil)
 }
 
 func randomToken() string {

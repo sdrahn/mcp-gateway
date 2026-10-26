@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -46,6 +47,11 @@ type fakeIdP struct {
 	lastBasic    bool
 	announceIss  bool
 	omitIssParam bool
+	// endSession offers an end_session_endpoint, which records the
+	// sign-outs; prompts records the prompt of each authorization.
+	endSession bool
+	signOuts   []url.Values
+	prompts    []string
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -57,12 +63,23 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 	f := &fakeIdP{key: key, clientID: "approvals", user: "jack", groups: []string{"ops"}, codes: map[string]map[string]string{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		md := map[string]any{
 			"issuer": f.srv.URL, "jwks_uri": f.srv.URL + "/jwks",
 			"authorization_endpoint": f.srv.URL + "/authorize", "token_endpoint": f.srv.URL + "/token",
 			"code_challenge_methods_supported":               []string{"S256"},
 			"authorization_response_iss_parameter_supported": f.announceIss,
-		})
+		}
+		if f.endSession {
+			md["end_session_endpoint"] = f.srv.URL + "/logout"
+		}
+		_ = json.NewEncoder(w).Encode(md)
+	})
+	mux.HandleFunc("GET /logout", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		f.mu.Lock()
+		f.signOuts = append(f.signOuts, q)
+		f.mu.Unlock()
+		http.Redirect(w, r, q.Get("post_logout_redirect_uri"), http.StatusFound)
 	})
 	mux.HandleFunc("GET /jwks", func(w http.ResponseWriter, _ *http.Request) {
 		enc := base64.RawURLEncoding.EncodeToString
@@ -82,6 +99,7 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 		}
 		code := randomToken()
 		f.mu.Lock()
+		f.prompts = append(f.prompts, q.Get("prompt"))
 		f.codes[code] = map[string]string{"challenge": q.Get("code_challenge"), "nonce": q.Get("nonce"), "user": f.user}
 		f.mu.Unlock()
 		v := url.Values{"code": {code}, "state": {q.Get("state")}}
@@ -653,5 +671,47 @@ func TestDoneIsNotFromTheURL(t *testing.T) {
 	}
 	if _, body, _ = get(t, c, f.srv.URL+"/approvals/"); strings.Contains(body, "Done:") {
 		t.Error("done shown twice")
+	}
+}
+
+// Signing out ends the sign-in at the identity provider too (its
+// end_session_endpoint, with the ID token as hint), and the next sign-in
+// asks for the password again (prompt=login): else signing in again
+// signed the approver in without asking. Without an end_session_endpoint
+// the next sign-in still asks.
+func TestSignOut(t *testing.T) {
+	for _, endSession := range []bool{true, false} {
+		f := newFixture(t)
+		f.idp.endSession = endSession
+		c := f.browser(t)
+		_, body, _ := get(t, c, f.srv.URL+"/approvals/")
+		csrf := csrfOf(t, body)
+		code, body := post(t, c, f.srv.URL+"/approvals/logout", url.Values{"csrf": {csrf}}, nil)
+		if endSession {
+			if code != http.StatusOK || !strings.Contains(body, "signed out of the approval page and of the identity provider") {
+				t.Errorf("signed out: %d %s", code, body)
+			}
+			if len(f.idp.signOuts) != 1 {
+				t.Fatalf("sign-outs at the provider: %v", f.idp.signOuts)
+			}
+			q := f.idp.signOuts[0]
+			if q.Get("client_id") != "approvals" || q.Get("post_logout_redirect_uri") != f.srv.URL+"/approvals/signed-out" ||
+				strings.Count(q.Get("id_token_hint"), ".") != 2 {
+				t.Errorf("sign-out request %v", q)
+			}
+		} else if code != http.StatusOK || !strings.Contains(body, "offers no sign-out") || len(f.idp.signOuts) != 0 {
+			t.Errorf("signed out without end_session_endpoint: %d %s", code, body)
+		}
+		// The next sign-in asks again; the one after it does not.
+		_, body, _ = get(t, c, f.srv.URL+"/approvals/")
+		if !strings.Contains(body, "Signed in as") {
+			t.Fatalf("signing in again: %s", body)
+		}
+		post(t, c, f.srv.URL+"/approvals/logout", url.Values{"csrf": {csrfOf(t, body)}}, nil)
+		c2 := f.browser(t)
+		get(t, c2, f.srv.URL+"/approvals/")
+		if want := []string{"", "login", ""}; !slices.Equal(f.idp.prompts, want) {
+			t.Errorf("end session %v: prompts %q, want %q", endSession, f.idp.prompts, want)
+		}
 	}
 }

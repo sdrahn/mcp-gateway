@@ -77,7 +77,7 @@ func runSetupHTTP(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&a.GroupsClaim, "groups-claim", "", "token claim with the principal's groups (http.groups_claim; default groups)")
 	fs.StringVar(&a.LocalUserClaim, "local-user-claim", "", "token claim naming a local account to act as, e.g. preferred_username (http.local_user_claim)")
 	var page config.ApprovalPage
-	fs.StringVar(&page.ClientID, "client-id", "", "the approval page's client at the identity provider, with <origin of -url>/approvals/callback as redirect URI (approvals.page.client_id)")
+	fs.StringVar(&page.ClientID, "client-id", "", "the approval page's client at the identity provider, with <origin of -url>/approvals/callback as redirect URI and /approvals/signed-out as post-logout redirect URI (approvals.page.client_id)")
 	fs.StringVar(&page.ClientSecretFile, "client-secret-file", "", "file with that client's secret, for a confidential client (approvals.page.client_secret_file)")
 	fs.StringVar(&page.DeviceClientID, "device-client-id", "", "the public client the command line on other hosts signs in as, with the device flow (approvals.page.device_client_id)")
 	scopes := fs.String("scopes", "", "comma-separated scopes every token must carry, e.g. mcp (http.scopes; \"\" for none)")

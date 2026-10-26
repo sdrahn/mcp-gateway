@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +18,8 @@ import (
 // TestApprovalPageBrowser approves on the gateway's approval page in a
 // real browser (test/browser/approval-page.js, headless Chromium through
 // Playwright): signed in through the identity provider, the Approve button
-// pressed, the call runs. The other page tests post the form themselves,
+// pressed, the call runs; signing out signs out at the identity provider
+// too, and the next sign-in asks for the password again. The other page tests post the form themselves,
 // with the Origin they choose; a browser chooses its own, by the page's
 // referrer policy (1.9.0's no-referrer made it send "Origin: null", and
 // the page refused every decision as from another site).
@@ -110,6 +112,16 @@ approvals:
 	}
 	if !strings.Contains(string(out), "Done: approved") {
 		t.Fatalf("the page did not take the decision\n%s", e.gwLogs.String())
+	}
+	if !strings.Contains(string(out), "signed out: ") || !strings.Contains(string(out), "signed out of the approval page and of the identity provider") {
+		t.Errorf("signing out did not go through the identity provider")
+	}
+	flow.mu.Lock()
+	prompts, signOuts := flow.prompts, flow.signOuts
+	flow.mu.Unlock()
+	// The sign-in after signing out asks for the password again.
+	if signOuts != 1 || !slices.Equal(prompts, []string{"", "login"}) {
+		t.Errorf("sign-outs %d, prompts %q", signOuts, prompts)
 	}
 	var result msg
 	for result.ID == nil || string(result.ID) != "2" {
