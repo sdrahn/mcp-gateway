@@ -5,7 +5,19 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.9.3 — 2026-10-26
+
+A fix to the gateway's approval page: signing out left the sign-in at
+the identity provider in place, so signing in again did not ask for the
+password. Like 1.9.0 to 1.9.2, 1.9.3 is published but not marked as the
+latest release; 1.8.0 stays the one recommended for use. Upgrading from
+1.9.2 needs no changes to the gateway's configuration, and the SELinux
+modules do not change; for the sign-out at the identity provider, add
+`https://<host:port of http.audience>/approvals/signed-out` to the
+page's client as post logout redirect URI (Keycloak: *Clients →* the
+client *→ Settings → Access settings → Valid post logout redirect
+URIs*). After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not.
 
 ### Fixed
 
