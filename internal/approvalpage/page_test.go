@@ -352,6 +352,12 @@ func TestSignInAndDecide(t *testing.T) {
 		hdr.Get("Cache-Control") != "no-store" {
 		t.Errorf("headers %v", hdr)
 	}
+	// same-origin, not no-referrer: under no-referrer browsers send the
+	// page's forms with "Origin: null", which the page refuses (1.9.0;
+	// e2e's TestApprovalPageBrowser decides in a browser).
+	if p := hdr.Get("Referrer-Policy"); p != "same-origin" {
+		t.Errorf("Referrer-Policy %q", p)
+	}
 	if f.idp.lastBasic {
 		t.Error("a public client authenticated with basic auth")
 	}

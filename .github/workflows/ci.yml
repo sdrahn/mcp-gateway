@@ -64,6 +64,13 @@ jobs:
         env:
           MCPGW_CLIENTS: ts,ts2,py,go
           GOTOOLCHAIN: auto
+      # The gateway's approval page decided in a browser (headless Chrome
+      # through Playwright; e2e/browser_test.go).
+      - run: npm install --no-save --no-package-lock playwright-core@1
+      - run: go test -count=1 -v -run TestApprovalPageBrowser ./e2e/
+        env:
+          MCPGW_BROWSER: "1"
+          CHROME: /usr/bin/google-chrome
 
   # Servers of MCP 2026-07-28 built with the official SDKs (Go, Python,
   # TypeScript), over stdio and HTTP, behind the gateway (roadmap step 24).
