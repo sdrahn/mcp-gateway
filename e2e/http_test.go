@@ -235,7 +235,7 @@ func TestRemoteHTTP(t *testing.T) {
 	    {"server": "fs", "tool": "write_file", "require_approval": true,
 	     "approval_channel": "form", "args": {"path": %q}}
 	  ]}},
-	  "bindings": {"groups": {}, "users": {"u-remote": ["developer"]}},
+	  "bindings": {"groups": {"remote-devs": ["developer"]}, "users": {"u-remote": ["developer"]}},
 	  "scopes": {
 	    "mcp:read": {"permissions": [{"server": "*", "tool": "read_*"}]},
 	    "mcp:write": {"roles": ["developer"]}
@@ -422,6 +422,43 @@ func TestRemoteHTTP(t *testing.T) {
 		}
 		if !strings.Contains(e.gwLogs.String(), `"outside_scopes":true`) {
 			t.Error("no audit record of the outside-scope denial")
+		}
+	})
+
+	// A session follows the tokens of its requests, not the one that
+	// opened it: narrower scopes and groups the identity provider took
+	// away apply from the next request on.
+	t.Run("the session follows its tokens", func(t *testing.T) {
+		full := provider.token(t, "u-remote", audience)
+		r := &remote{t: t, client: client, url: audience + "/fs", token: full}
+		r.call(1, "initialize", init["params"])
+		if got := listNames(t, r.call(2, "tools/list", map[string]any{}), "tools", "name"); !strings.Contains(got, "write_file") {
+			t.Fatalf("tools = %s", got)
+		}
+		r.token = provider.tokenWith(t, "u-remote", audience, map[string]any{"scope": "mcp mcp:read"})
+		if got := listNames(t, r.call(3, "tools/list", map[string]any{}), "tools", "name"); strings.Contains(got, "write_file") {
+			t.Fatalf("narrower token, tools = %s", got)
+		}
+		resp := r.post(map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{
+			"name": "write_file", "arguments": map[string]any{"path": filepath.Join(home, "followed.txt"), "content": "no"},
+		}}, false)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("write with the narrower token: %d", resp.StatusCode)
+		}
+		r.token = full
+		if got := listNames(t, r.call(5, "tools/list", map[string]any{}), "tools", "name"); !strings.Contains(got, "write_file") {
+			t.Fatalf("full token again, tools = %s", got)
+		}
+
+		g := &remote{t: t, client: client, url: audience + "/fs", token: provider.tokenWith(t, "u-group", audience, map[string]any{"groups": []string{"remote-devs"}})}
+		g.call(1, "initialize", init["params"])
+		if text, isErr := toolResult(t, g.call(2, "tools/call", map[string]any{"name": "read_file", "arguments": map[string]any{"path": "hello.txt"}})); isErr || text != "hello remote" {
+			t.Fatalf("read as a member of remote-devs: %q %v", text, isErr)
+		}
+		g.token = provider.token(t, "u-group", audience)
+		if text, isErr := toolResult(t, g.call(3, "tools/call", map[string]any{"name": "read_file", "arguments": map[string]any{"path": "hello.txt"}})); !isErr || strings.Contains(text, "hello remote") {
+			t.Fatalf("read after the group was taken away: %q %v", text, isErr)
 		}
 	})
 

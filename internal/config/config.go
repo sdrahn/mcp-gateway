@@ -422,7 +422,9 @@ type HTTP struct {
 	GroupsClaim string `yaml:"groups_claim"`
 	// LocalUserClaim, if set, names a claim whose value is looked up as a
 	// local account; if it exists, the principal runs as that account
-	// (decision D1). Otherwise backends run as a dynamic user.
+	// (decision D1). Otherwise backends run as a dynamic user. A token
+	// naming root or a system account (outside UID_MIN..UID_MAX of
+	// login.defs) is refused.
 	LocalUserClaim string `yaml:"local_user_claim"`
 	// Scopes that every token must carry (space-separated "scope" claim).
 	Scopes []string `yaml:"scopes"`

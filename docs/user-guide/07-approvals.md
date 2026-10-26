@@ -30,7 +30,7 @@ the agent let progress extend the timeout. An agent that sends no
 |---|---|---|---|
 | `form` | a dialog of the **agent's own client** (MCP form elicitation) | low: the agent's client answers, it may be configured to accept automatically | the client supports elicitation |
 | `url` (default) | the **approval page** (Cockpit, or the gateway's own page), which the client offers to open (MCP URL elicitation) | high: the approver authenticates to Cockpit, or signs in with the identity provider; the agent cannot see or influence the page | `approvals.url_template` set, or the gateway's page set up; the client supports URL elicitation, the control socket enabled |
-| `oob` | the approval page, the **desktop notification** or the **mail** leads there, or the **command line** (`mcp-gateway-admin approvals`, below), or a **webhook**'s receiver (a chat, a ticket system; below); the agent only gets a log message ("Waiting for approval of fs/write_file at … (id a-…)"), or, for the agents `approvals.no_wait` names (Kit), a tool error at once that says how to get it decided (below) | high | the control socket enabled |
+| `oob` | the approval page, the **desktop notification** or the **mail** leads there, or the **command line** (`mcp-gateway-admin approvals`, below), or a **webhook**'s receiver (a chat, a ticket system; below); the agent only gets a log message ("Waiting for approval of fs/write_file at … (id a-…)"), or, for the agents `approvals.no_wait` names (Kit), a tool error at once that says how to get it decided (below) | high, unless the agent runs commands as the requesting user and `self` may decide (below) | the control socket enabled |
 
 The policy names a channel per permission (`approval_channel`); the
 shipped policy uses `oob` as fallback. So if the agent cannot do URL
@@ -191,6 +191,33 @@ Approver rules in the policy data decide who may see and decide on a
 request (chapter 6). By default: the requesting user themself (`self`)
 and users with the `admin` role. `root` may always decide. Someone else's
 approval is reported as not found.
+
+### `self` and agents that run commands
+
+The command line and Cockpit identify the approver by the account they
+run as. So does the control socket for every process: it cannot tell the
+user from an agent the user runs. An agent with a shell tool (Claude
+Code, and most coding agents) that runs as the requesting user can
+therefore run `mcp-gateway-admin approvals approve` itself and decide
+that user's own approvals, wherever `self` may decide them. The
+approval page, the command line against another host and webhooks are
+not affected: they authenticate the approver at the identity provider
+or by signature.
+
+For servers whose approvals such an agent must not make itself, remove
+`self` from their approver rules, so that someone else decides (an
+administrator, a group):
+
+```yaml
+# /etc/mcp-gateway/policy/rbac/data.yaml
+approvers:
+  default: [self, 'role:admin']
+  zypp: ['role:admin']        # nobody decides their own installations
+```
+
+From 1.11, a decision that only `self` allows and that comes over the
+control socket asks for the user's password (polkit), so that an agent
+without the password cannot make it.
 
 ## Pending approvals across disconnects and restarts
 

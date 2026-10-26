@@ -24,13 +24,16 @@ import (
 // briefToken is how long the token "alice-brief" is accepted.
 const briefToken = 300 * time.Millisecond
 
-// fakeAuth accepts "alice", "alice-brief", "bob" and "noscope" as tokens.
+// fakeAuth accepts "alice", "alice-brief", "alice-narrow", "bob" and
+// "noscope" as tokens.
 type fakeAuth struct{}
 
 func (fakeAuth) Authenticate(_ context.Context, token string, _ *x509.Certificate) (principal.Principal, error) {
 	switch token {
 	case "alice", "bob":
 		return principal.Principal{Sub: token, Issuer: "https://idp", Transport: principal.TransportHTTP, Scopes: []string{"openid", "mcp"}}, nil
+	case "alice-narrow": // alice, with fewer scopes and a group
+		return principal.Principal{Sub: "alice", Issuer: "https://idp", Transport: principal.TransportHTTP, Scopes: []string{"mcp"}, Groups: []string{"g"}}, nil
 	case "alice-brief": // alice, with a token about to expire
 		return principal.Principal{Sub: "alice", Issuer: "https://idp", Transport: principal.TransportHTTP,
 			Expires: time.Now().Add(briefToken)}, nil
@@ -106,6 +109,10 @@ func echoServe(_ context.Context, c jsonrpc.MessageConn, p principal.Principal, 
 			_ = jsonrpc.WriteRelated(c, n, m.ID)
 			r, _ := jsonrpc.NewResult(m.ID, map[string]any{"isError": true})
 			r.ScopeChallenge = "mcp:git"
+			_ = c.Write(r)
+		case m.Method == "whoami": // the principal of this request
+			q := c.(PrincipalConn).Principal()
+			r, _ := jsonrpc.NewResult(m.ID, map[string]any{"sub": q.Sub, "scopes": q.Scopes, "groups": q.Groups, "session": q.SessionID})
 			_ = c.Write(r)
 		case m.Method == "end": // the gateway ends the session (an administrator ended it)
 			_ = c.Close()
@@ -316,6 +323,23 @@ func TestJSONRoundTrip(t *testing.T) {
 	resp = do(t, srv, req{token: "bob", session: sid, body: `{"jsonrpc":"2.0","id":3,"method":"later"}`})
 	if _ = readBody(t, resp); resp.StatusCode != 404 {
 		t.Fatalf("hijack: %d", resp.StatusCode)
+	}
+}
+
+// Each message comes with the principal of the request that carried it,
+// not the session's first.
+func TestSessionFollowsTokens(t *testing.T) {
+	srv, _ := newTestServer(t, nil)
+	sid := initialize(t, srv, "/mcp/fs", "alice")
+	for _, c := range []struct{ token, want string }{
+		{"alice", `"groups":null,"scopes":["openid","mcp"],"session":"` + sid + `"`},
+		{"alice-narrow", `"groups":["g"],"scopes":["mcp"],"session":"` + sid + `"`},
+		{"alice", `"groups":null,"scopes":["openid","mcp"]`},
+	} {
+		body := readBody(t, do(t, srv, req{token: c.token, session: sid, body: `{"jsonrpc":"2.0","id":2,"method":"whoami"}`}))
+		if !strings.Contains(body, c.want) {
+			t.Errorf("%s: %s", c.token, body)
+		}
 	}
 }
 

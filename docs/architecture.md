@@ -1935,7 +1935,7 @@ either says about itself (client info, tool annotations).
 | Threat | Mitigation | Residual risk |
 |---|---|---|
 | Agent calls tools it shouldn't | RBAC + OPA per call; discovery filtering; default deny | the policy's quality |
-| Agent auto-approves its own elicitation | URL / OOB approvals authenticated outside the agent; `form` only for low-risk | `form` approvals are answered by the agent's client |
+| Agent auto-approves its own elicitation | URL / OOB approvals authenticated outside the agent; `form` only for low-risk | `form` approvals are answered by the agent's client; an agent that runs commands as the requesting user decides that user's `self` approvals over the control socket (D21, until step 40) |
 | Prompt-injected agent exfiltrates via allowed tool | argument constraints, rate limits, output limits, approvals on destructive/egress tools, pseudonymization, audit | what an allowed tool returns reaches the model |
 | Parser differential: policy decides on parameters the server reads differently | requests whose objects repeat a key or have keys differing only in case, and keys differing only in case from one the gateway reads or from an argument the tool or prompt declares, are refused (`invalid params`); found and checked by fuzzing (step 14) | a server with its own notion of argument names (e.g. aliases) |
 | Path arguments leaving an allowed tree through symbolic links | path constraints are on the string (D13); servers confine their own file access (`os.Root`, `openat2` `RESOLVE_BENEATH`; the file server does), and account, sandbox and SELinux domain bound what any path reaches; with `landlock` (D19), the kernel bounds the instance to its trees, following the real hierarchy | servers that follow links without confining themselves, within what their account, domain and (with `landlock`) ruleset may access |
@@ -2558,6 +2558,14 @@ gateway cannot judge on delivery); introspecting the token at the
 identity provider on every message (a round trip per message and a
 dependence on the provider's availability; `exp` and the delivery check
 bound the window instead).
+*Amended 2026-10-26 (security review):* a session follows the tokens of
+its requests: each request's principal (its groups, scopes, mapped
+account and expiry) is the one policy decides on, not the principal of
+the token that opened the session. Before, a session kept the groups
+and scopes of its first token until it went idle, so that a group the
+identity provider took away, or a narrower token, applied only to
+sessions opened afterwards; the delivery check covered revocation in
+the role data, not at the identity provider.
 
 **D21 — Approvals are decided wherever the approver is, never by the agent.**
 *Decision (proposed 2026-10-25, roadmap step 39):* the gateway offers
@@ -2587,6 +2595,17 @@ forwarded, anyone can click); a `form` approval with a one-time code
 gateways (another component to run and secure; webhooks give one inbox
 without it); approvals in the agent's own terminal (the agent's user is
 often the requester, and the agent could answer).
+*Amended 2026-10-26 (security review):* the command line and Cockpit
+identify the approver by the account they run as, and so does the
+control socket for any process; an agent that runs commands as the
+requesting user (a shell tool) can therefore decide that user's own
+approvals wherever the approver rules let the user decide them
+(`self`, the shipped default). That holds for every process of the
+user, not only the command line: the control socket cannot tell the
+user from the user's agent. Until roadmap step 40 makes such decisions
+ask for the user's password (polkit), the documentation says so (user
+guide, chapters 7 and 9) and recommends approver rules without `self`
+for what agents with a shell tool must not approve themselves.
 
 ## 10. Repository layout
 
@@ -4229,6 +4248,41 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
         session handling, signature checks, the device flow), and the
         compatibility test (D10) unchanged: 1.8's configuration still
         works, with Cockpit as before.
+
+40. **Self-approvals the agent cannot make** (1.11, D21; planned): a
+    decision the approver rules allow only through `self` (the user
+    deciding their own request) and that comes over the control socket
+    (the command line, Cockpit, any process of the user) needs the
+    user's interactive authentication, so that an agent running
+    commands as the user cannot make it:
+    - the gateway asks polkit (`CheckAuthorization`, interaction allowed)
+      for the action `io.github.sdrahn.mcp-gateway.decide-own` on the
+      peer process (its pidfd, `SO_PEERPIDFD`, else pid and start time),
+      shipped as `auth_self` without keeping the authorization: every
+      decision asks again; a decision by `role:`, `group:` or `user:`
+      rules, or by root, does not ask (the approver is someone else);
+    - the command line runs a polkit text agent for itself
+      (`pkttyagent`, as `systemctl` does), so that the password prompt
+      appears in its terminal; without a terminal (an agent's shell
+      tool) there is no one to answer and the decision is refused, with
+      a message saying why and where else to decide;
+    - Cockpit answers through its own polkit agent: to be verified in
+      the VM test (Leap 16, Tumbleweed) before the design is accepted,
+      and the Approvals tab says when a decision waits for the password;
+    - the approval page, the remote command line and webhooks are not
+      affected (they authenticate the approver at the identity provider
+      or by signature);
+    - administrators who accept the risk keep 1.10's behaviour with
+      `approvals.self_needs_password: false`; the doctor warns about it;
+    - SELinux: the gateway's domain talks to polkitd over the system
+      bus; the doctor checks that polkit and the action are installed;
+    - tests: unit tests of the decision paths (self with and without
+      authentication, others' rules not asking, root); in the VM test
+      (the openQA suite) a decision from a shell without a terminal
+      refused, one through `pkttyagent` with the test user's password
+      accepted, a wrong password refused, `via` and the polkit result
+      in the audit, and Cockpit's Approvals tab with its password
+      prompt.
 
 ## 12. Open items
 
