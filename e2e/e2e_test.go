@@ -297,6 +297,11 @@ func setupWith(t *testing.T, rbac string, roots map[string]string, extra string,
 			urlTemplate = ""
 		}
 	}
+	// An approval_timeout in extra replaces the short one below.
+	approvalTimeout := "approval_timeout: 5s\n"
+	if strings.HasPrefix(extra, "approval_timeout:") || strings.Contains(extra, "\napproval_timeout:") {
+		approvalTimeout = ""
+	}
 	writeFile(t, filepath.Join(tmp, "gateway.yaml"), fmt.Sprintf(`
 socket: %s
 servers_dir: %s
@@ -305,14 +310,13 @@ policy:
   opa_socket: %s
   timeout: 2s
   watch_interval: 1s
-approval_timeout: 5s
-supervisor:
+%ssupervisor:
   mode: exec
   idle_timeout: 1h
 approvals:
   control_socket: %s
 %s  progress_interval: 1s
-%s%s`, gwSock, filepath.Join(tmp, "servers.d"), filepath.Join(tmp, "state"), opaSock, filepath.Join(tmp, "control.sock"),
+%s%s`, gwSock, filepath.Join(tmp, "servers.d"), filepath.Join(tmp, "state"), opaSock, approvalTimeout, filepath.Join(tmp, "control.sock"),
 		urlTemplate, approvalsExtra, extra))
 	gwCmd, gwLogs := start(t, gateway, "--config", filepath.Join(tmp, "gateway.yaml"))
 	waitFor(t, gwSock)
