@@ -5,7 +5,58 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.10.0 — 2026-10-26
+
+Approvals without Cockpit, supported. What 1.9.0 brought ahead of this
+release is now part of one recommended for use, and its configuration
+keys, commands and webhook format are kept compatible from here on: an
+out-of-band approval is decided wherever the approver is, on the command
+line over the control socket (also over SSH), on the gateway's own
+approval page on its HTTPS listener (signed in with the identity
+provider), from another host (`mcp-gateway-admin approvals --gateway`,
+the device flow) or by a webhook's receiver on a signed callback, each
+identifying the approver on its own, under the same approver rules, and
+audited with `via`. Agents that show nothing while a call waits, such as
+Kit, are told at once what it waits for.
+
+Testing the 1.9.x releases brought fixes (two approvable permissions
+with different channels failed every listing, 1.9.1; the approval page
+decided nothing in a browser, 1.9.2; its *Sign out* left the identity
+provider's sign-in in place, 1.9.3) and hardening: a listing the policy
+cannot decide hides only what fails, not every tool of every server; the
+doctor's new check `policy listing` finds such role data before a client
+does; and the approval page looks like the gateway's Cockpit page, with
+the system's logo, name and host name.
+
+Upgrading from 1.9.3 needs no changes. Upgrading from 1.8.x (or an
+earlier 1.9.x) needs no changes to `gateway.yaml`, server definitions,
+role data or custom policies. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not. The
+SELinux modules do not change. Things to know:
+
+- **From 1.8.x**, the things to know of 1.9.0 (below): Kit is told at
+  once (`approvals.no_wait` defaults to `[kit]`; `[]` keeps its calls
+  waiting); the doctor's check `approval reach` warns where out-of-band
+  approvals reach no approver by themselves; the approval page, the
+  approval API and webhooks are off until configured; approvers without
+  a local account (`remote-user:`, `remote-group:`) and what a custom
+  approvals policy sees of them; the control API's optional `via`.
+- **The approval page's *Sign out*** ends the sign-in at the identity
+  provider too. The page's client there needs
+  `https://<host:port of http.audience>/approvals/signed-out` as post
+  logout redirect URI (Keycloak: *Clients →* the client *→ Settings →
+  Access settings → Valid post logout redirect URIs*); without it the
+  provider refuses the sign-out. The page's own sign-in ends either way,
+  and the next sign-in asks for the password.
+- **"filtering failed; hiding everything"** in the journal now means OPA
+  did not answer (or failed for every server); a listing the policy
+  cannot decide for some tools logs "filtering failed; hiding what the
+  policy cannot decide" with the server, the tools and OPA's error.
+  Alerts on the first should match both.
+- **Run `mcp-gateway-admin doctor`** after the update: `policy listing`
+  (id `policy-listing`) fails, naming the principal, the servers and
+  tools and OPA's error, for role data the policy cannot decide for a
+  principal it binds.
 
 ### Added
 
@@ -13,7 +64,6 @@ minor release (with a warning) and removed in the next.
   light or dark as the browser prefers, cards, tables and buttons) and,
   as Cockpit's login page does, shows the system's logo from Cockpit's
   branding and, to the signed-in, the system's name and host name.
-
 - The doctor's check `policy listing` decides a listing for each
   principal the role data binds (the members of `socket_group` and the
   users bound by name, with their groups, and a member of each bound
