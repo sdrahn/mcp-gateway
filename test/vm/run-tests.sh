@@ -3093,9 +3093,25 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	pp_post jack "/approvals/$ac_id" "decision=deny&csrf=$pp_jack_csrf"
 	wait "$ac_pid"
 	check "page: jack denies the next call; it is refused" bash -c '[ "$1" = 303 ] && ! grep -q "\"isError\":false" /root/vmtest/ac-call.out' _ "$pp_code"
-	pp_post jack /approvals/logout "csrf=$pp_jack_csrf"
+	# Signing out ends the sign-in at the identity provider too (its
+	# end_session_endpoint, with the ID token as hint), else signing in
+	# again would not ask; the page's next sign-in asks for the password
+	# again (prompt=login) all the same.
+	pp_post jack /approvals/logout "csrf=$pp_jack_csrf" -D /root/vmtest/pp-logout-hdr
+	pp_logout_to=$(sed -n 's/^[Ll]ocation: *//p' /root/vmtest/pp-logout-hdr | tr -d '\r')
+	check "page: signing out sends the browser to the identity provider's sign-out" bash -c \
+		'[ "$1" = 303 ] && [[ $2 == https://idp.vmtest/logout\?* ]] && grep -qF "id_token_hint=" <<<"$2" &&
+			grep -qF "post_logout_redirect_uri=$(jq -rn --arg u "$3/approvals/signed-out" "\$u|@uri")" <<<"$2"' _ "$pp_code" "$pp_logout_to" "$pp_url"
+	check "page: the sign-out allows the identity provider as form target" \
+		grep -qiE "^content-security-policy:.*form-action 'self' https://idp.vmtest;" /root/vmtest/pp-logout-hdr
+	pp_get jack "$pp_logout_to"
+	check "... which signs jack out there and sends him back to the page" bash -c \
+		'[ "$1" = 200 ] && grep -qF "signed out of the approval page and of the identity provider" <<<"$2"' _ "$pp_code" "$pp_body"
 	pp_post jack "/approvals/$ac_id" "decision=deny&csrf=$pp_jack_csrf"
 	check "page: after signing out, the page decides nothing (403)" test "$pp_code" = 403
+	pp_get jack "$pp_url/approvals/" -D /root/vmtest/pp-again-hdr
+	check "page: signing in again asks for the password (prompt=login, the provider's sign-in form)" bash -c \
+		'grep -qiE "^location: https://idp.vmtest/authorize\?.*prompt=login" "$1" && grep -qF "sign in at the identity provider" <<<"$2"' _ /root/vmtest/pp-again-hdr "$pp_body"
 	pp_no_denials() {
 		! since=$pp_since audit_since AVC | grep -E 'scontext=[^ ]*:mcpgw_t:' | grep -vE "$expected_denial" | grep -q .
 	}
