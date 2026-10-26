@@ -4168,6 +4168,17 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       after testing and fixes they become 1.10, the supported release with
       them. Until then they may still change, configuration keys and
       commands included: 1.10 is where they are kept compatible (D10);
+    - hardening for 1.10, after issue #298 (two approvable permissions
+      with different channels failed the decision, and with it every
+      listing: 1.9.1 lets the strictest channel decide): the doctor's
+      check `policy listing` decides a listing for each principal the
+      role data binds (the members of `socket_group`, the users bound
+      by name, a member of each bound group) over the servers' tools,
+      and fails naming the principal, the servers and OPA's error,
+      where the `policy` check, deciding for an unknown principal, saw
+      nothing; and a listing the policy cannot decide is decided again
+      server by server, then tool by tool, so that only what fails is
+      hidden (still failing closed), each logged with the error;
     - not planned: a `form` approval strengthened with a one-time code
       (the agent's own client still sees and could answer it);
     - tests, dedicated per stage, and first of all for openQA: the VM

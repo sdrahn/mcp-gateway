@@ -7,6 +7,17 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- The doctor's check `policy listing` decides a listing for each
+  principal the role data binds (the members of `socket_group` and the
+  users bound by name, with their groups, and a member of each bound
+  group) over the servers' tools, as the gateway does, and fails naming
+  the principals whose listing the policy cannot decide, the servers
+  and OPA's error. Issue #298's role data failed every listing of its
+  principal while the `policy` check, which decides for an unknown
+  principal, reported OK.
+
 ## v1.9.1 — 2026-10-25
 
 A fix to the policy: a principal holding two permissions that ask for

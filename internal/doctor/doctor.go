@@ -58,6 +58,7 @@ var checkIDs = map[string]string{
 	"role data for OPA":   "role-data-rendering",
 	"policy data in JSON": "json-policy-data",
 	"policy":              "policy",
+	"policy listing":      "policy-listing",
 	"state files":         "state-files",
 	"gateway status":      "gateway-status",
 	"servers":             "servers",

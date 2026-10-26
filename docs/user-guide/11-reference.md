@@ -167,6 +167,7 @@ the same across releases; the texts may change.
 | `firewall` | | firewall |
 | `gateway-status` | | gateway status |
 | `policy` | | policy |
+| `policy-listing` | | policy listing |
 | `servers` | | servers |
 | `server` | server name | server *name* |
 | `roles` | server name | roles *name* |
