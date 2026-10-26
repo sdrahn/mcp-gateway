@@ -21,11 +21,8 @@ Target distributions: SLES 16 and openSUSE Leap 16 (openSUSE Tumbleweed
 for development), packaged with the Open Build Service; see
 [packaging/suse](packaging/suse/README.md).
 
-Status: released (1.8.0) for SLES 16 and Leap 16, ready to be used
+Status: released (1.10.0) for SLES 16 and Leap 16, ready to be used
 (roadmap in [docs/architecture.md](docs/architecture.md), section 11).
-1.9.3, published but not marked as the latest release, brings approvals
-without Cockpit (the command line, the gateway's own approval page,
-another host, webhooks) ahead of 1.10, the release that supports them.
 Releases marked as pre-releases on GitHub (tags such as
 v1.0.0-rc1) bring new features ahead of the next release recommended for
 use.
