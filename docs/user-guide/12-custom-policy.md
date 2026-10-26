@@ -88,7 +88,13 @@ input as self-reported.
 **Failing closed.** A query that fails, times out (`policy.timeout`,
 250 ms) or is **undefined** counts as the most restrictive answer: an
 undefined or invalid `decision` denies ("policy evaluation failed",
-"invalid policy decision"), an undefined `visible` hides everything, an
+"invalid policy decision"), an undefined `visible` hides everything, a
+`visible` that fails (OPA answers with an error, an
+`eval_conflict_error` for example) hides what fails: the gateway decides
+the listing again server by server, and for a server that fails tool by
+tool, and logs "filtering failed; hiding what the policy cannot decide"
+with the server, the hidden tools and the error (when every server
+fails it hides everything, "filtering failed; hiding everything"), an
 undefined `allow`, `manage_grant` or `manage_instance` refuses (an
 undefined `manage_task` or `manage_session` falls back to
 `manage_instance`; one that fails refuses). Give

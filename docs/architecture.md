@@ -4176,9 +4176,13 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       by name, a member of each bound group) over the servers' tools,
       and fails naming the principal, the servers and OPA's error,
       where the `policy` check, deciding for an unknown principal, saw
-      nothing; and a listing the policy cannot decide is decided again
-      server by server, then tool by tool, so that only what fails is
-      hidden (still failing closed), each logged with the error;
+      nothing; and a listing the policy cannot decide (OPA answers with
+      an error) is decided again server by server, then tool by tool for
+      the servers that fail, so that only what fails is hidden (still
+      failing closed), logged per server with the tools and the error
+      ("filtering failed; hiding what the policy cannot decide"); when
+      every server fails, or OPA does not answer, everything stays
+      hidden, as before, without deciding tool by tool;
     - not planned: a `form` approval strengthened with a one-time code
       (the agent's own client still sees and could answer it);
     - tests, dedicated per stage, and first of all for openQA: the VM

@@ -54,7 +54,10 @@ func TestApprovalPageBrowser(t *testing.T) {
 	  "bindings": {"groups": {}, "users": {"u-agent": ["writer"]}},
 	  "approvers": {"fs": ["remote-user:u-approver"]}
 	}`, "^"+regexp.QuoteMeta(home)+"/")
-	e := setup(t, rbac, map[string]string{"fs": home}, fmt.Sprintf(`http:
+	// The approval waits for the browser to start and sign in: longer
+	// than the other tests' 5s on a busy runner.
+	e := setup(t, rbac, map[string]string{"fs": home}, fmt.Sprintf(`approval_timeout: 2m
+http:
   listen: 127.0.0.1:%d
   cert_file: %s
   key_file: %s

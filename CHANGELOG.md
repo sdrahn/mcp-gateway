@@ -18,6 +18,18 @@ minor release (with a warning) and removed in the next.
   principal while the `policy` check, which decides for an unknown
   principal, reported OK.
 
+### Changed
+
+- A listing the policy cannot decide (OPA answers with an error, such
+  as issue #298's `eval_conflict_error`) no longer hides every tool of
+  every server: the gateway decides it again server by server, and for
+  each server that fails tool by tool, and hides only what fails (still
+  failing closed), logging "filtering failed; hiding what the policy
+  cannot decide" with the server, the hidden tools and OPA's error.
+  When every server fails, or OPA does not answer, it hides everything
+  as before. The doctor's `policy listing` check reports the servers
+  and tools it hides.
+
 ## v1.9.2 — 2026-10-26
 
 A fix to the gateway's approval page: in a browser it took no decision
