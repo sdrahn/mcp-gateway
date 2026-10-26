@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sdrahn/mcp-gateway/internal/authn"
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/doctor"
 	"github.com/sdrahn/mcp-gateway/internal/httpsetup"
@@ -33,6 +34,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/profile"
 	"github.com/sdrahn/mcp-gateway/internal/statedir"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
+	"github.com/sdrahn/mcp-gateway/internal/transport"
 	"golang.org/x/sys/unix"
 )
 
@@ -144,8 +146,10 @@ type doctorRun struct {
 	// rbacBroken: the role data in force does not parse; the roles of
 	// the servers are not checked against it.
 	rbacBroken bool
-	// versions are what the servers that started reported, by name.
+	// versions are what the servers that started reported, by name;
+	// tools their tools and prompts, for the policy listing check.
 	versions map[string]string
+	tools    map[string][]pep.Resource
 	// failed are the servers that did not start; denials the SELinux
 	// denials of the window, if read (denialsRead): for LandlockSuspects.
 	failed      []string
@@ -209,6 +213,9 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 	add(doctor.Snapper(d.selected(), doctor.SnapperConfigsDir, userGroups)...)
 	if d.only == "" {
 		add(d.principals())
+		if !d.isolated {
+			add(d.listings())
+		}
 		_, notifyErr := os.Stat(doctor.NotifyAgent)
 		add(doctor.ApprovalReach(d.gw, notifyErr == nil))
 		add(d.approverGroups()...)
@@ -596,6 +603,15 @@ func (d *doctorRun) servers() []doctor.Result {
 			d.versions = map[string]string{}
 		}
 		d.versions[name] = res.Server.Version
+		if d.tools == nil {
+			d.tools = map[string][]pep.Resource{}
+		}
+		for _, t := range res.Tools {
+			d.tools[name] = append(d.tools[name], pep.Resource{Server: name, Kind: "tool", Name: t.Name, Privileged: b.Elevated()})
+		}
+		for _, it := range res.Prompts {
+			d.tools[name] = append(d.tools[name], pep.Resource{Server: name, Kind: "prompt", Name: it.Name, Privileged: b.Elevated()})
+		}
 		r.Status = doctor.OK
 		r.Summary = fmt.Sprintf("starts: %s %s, %d tools, %d prompts, %d resource templates",
 			orDash(res.Server.Name), res.Server.Version, len(res.Tools), len(res.Prompts), len(res.ResourceTemplates))
@@ -848,6 +864,76 @@ func (d *doctorRun) principals() doctor.Result {
 	}
 	r.Status, r.Summary = doctor.OK, fmt.Sprintf("all %d members of %s hold a role (remote principals are not checked)", len(members), group)
 	return r
+}
+
+// maxListingPrincipals bounds the principals the policy listing check
+// decides for (a socket group from a directory may be large).
+const maxListingPrincipals = 500
+
+// listings decides a listing for each principal the role data binds a
+// role to: the members of socket_group and the users bound by name, with
+// their groups (as the gateway sees them), and a member of each bound
+// group. The servers' tools are those of the servers that started; for
+// the others, a probe tool exercises the wildcard permissions.
+func (d *doctorRun) listings() doctor.Result {
+	r := doctor.Result{Check: "policy listing"}
+	if d.rbac == nil || d.rbacBroken {
+		r.Status, r.Summary = doctor.Skip, "no role data, or role data that does not parse"
+		return r
+	}
+	if !d.root {
+		r.Status, r.Summary = doctor.Skip, "OPA's socket needs root"
+		return r
+	}
+	var data struct {
+		Bindings doctor.Bindings `json:"bindings"`
+	}
+	_ = json.Unmarshal(d.rbac, &data)
+	var names []string
+	if d.gw.SocketGroup != "" {
+		names, _ = groupMembers(d.gw.SocketGroup)
+	}
+	names = append(names, slices.Sorted(maps.Keys(data.Bindings.Users))...)
+	var ps []doctor.ListingPrincipal
+	seen := map[string]bool{}
+	for _, n := range names {
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		p := principal.Principal{Sub: n, Transport: principal.TransportUnix}
+		if u, err := user.Lookup(n); err == nil {
+			if uid, err := strconv.ParseUint(u.Uid, 10, 32); err == nil {
+				if lp, err := authn.Local(transport.PeerCred{UID: uint32(uid)}); err == nil {
+					p = lp
+				}
+			}
+		}
+		label := n
+		if len(p.Groups) > 0 {
+			label += " (groups " + strings.Join(p.Groups, ", ") + ")"
+		}
+		ps = append(ps, doctor.ListingPrincipal{Label: label, Principal: p})
+	}
+	for _, g := range slices.Sorted(maps.Keys(data.Bindings.Groups)) {
+		ps = append(ps, doctor.ListingPrincipal{Label: "a member of " + g,
+			Principal: principal.Principal{Sub: "mcp-doctor", Groups: []string{g}, Transport: principal.TransportUnix}})
+	}
+	if len(ps) > maxListingPrincipals {
+		ps = ps[:maxListingPrincipals]
+	}
+	var rs []pep.Resource
+	for _, name := range slices.Sorted(maps.Keys(d.backends)) {
+		if t, ok := d.tools[name]; ok && len(t) > 0 {
+			rs = append(rs, t...)
+			continue
+		}
+		rs = append(rs, pep.Resource{Server: name, Kind: "tool", Name: doctor.ListingProbe, Privileged: d.backends[name].Elevated()})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	opa := pep.NewOPA(d.gw.Policy.OPASocket, 5*time.Second)
+	return doctor.Listings(ctx, ps, rs, opa.Visible)
 }
 
 // groupMembers lists a group's members through NSS (getent; users whose

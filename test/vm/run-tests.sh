@@ -2082,6 +2082,44 @@ cl_metrics=$(curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/me
 check "metrics time the listings' filtering" \
 	grep -qE '^mcp_gateway_opa_query_duration_seconds_count\{query="mcp/filter/visible"\} [1-9]' <<<"$cl_metrics"
 
+# The doctor's policy listing check decides each bound principal's
+# listing, as the gateway does: a rule giving alice two values fails
+# her listing (as issue #298's two channels did), and the doctor names
+# her; the policy check, which decides for an unknown principal, does
+# not see it.
+pl_rego=/etc/mcp-gateway/policy/vmtest_conflict.rego
+cat >"$pl_rego" <<'REGO'
+package mcp.authz
+
+import rego.v1
+
+vmtest_conflict := 1 if input.principal.sub == "alice"
+
+vmtest_conflict := 2 if input.principal.sub == "alice"
+
+denied if {
+	vmtest_conflict == 3
+	input.resource.server == "fs"
+}
+REGO
+restorecon "$pl_rego"
+pl_hidden() { call alice --method tools/list --params '{}' && ! grep -qF '"read_file"' <<<"$out"; }
+check "a rule failing alice's decisions hides every tool from her" eventually 20 pl_hidden
+pl_doctor=$(mcp-gateway-admin doctor --no-start 2>&1)
+grep -A3 -E '^[A-Z]+ +(policy|policy listing):' <<<"$pl_doctor" | sed 's/^/  /'
+check "doctor: the policy check still says OPA decides" bash -c 'grep -qE "^OK +policy: OPA decides" <<<"$1"' _ "$pl_doctor"
+check "doctor: the policy listing check fails, naming alice and OPA's error" \
+	bash -c 'grep -qE "^FAIL +policy listing: the policy fails the listing of [0-9]+ of [0-9]+ principals" <<<"$1" &&
+		grep -qE "^ +alice( \(groups [^)]*\))?: at .*eval_conflict_error: complete rules must not produce multiple outputs \(vmtest_conflict.rego:" <<<"$1"' _ "$pl_doctor"
+pl_json=$(mcp-gateway-admin doctor --no-start --json 2>/dev/null)
+check "doctor --json: its id is policy-listing" \
+	bash -c 'jq -e "any(.[]?; .id == \"policy-listing\" and .status == \"fail\")" >/dev/null <<<"$1"' _ "$pl_json"
+rm -f "$pl_rego"
+pl_listed() { call alice --method tools/list --params '{}' && grep -qF '"read_file"' <<<"$out"; }
+check "without the rule alice's tools are listed again" eventually 20 pl_listed
+check "doctor: the policy listing check passes again" \
+	bash -c 'mcp-gateway-admin doctor --no-start 2>&1 | grep -qE "^OK +policy listing: the policy decides the listings of [0-9]+ principals"'
+
 # Two permissions asking approval of one tool through different channels
 # (issue #298: a member of wheel with admin, which asks on privileged
 # servers through url, and a setup's operator role asking oob): the
