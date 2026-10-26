@@ -7,6 +7,16 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v1.10.1 — 2026-10-26
+
+A fix to `mcp-gateway-admin setup http`: its SELinux port check reported
+FAIL for a listener port the policy labels `http_port_t`, such as 8443,
+after it was relabeled `mcp_port_t` with semanage as the check suggests,
+while the gateway listened on it. Upgrading from 1.10.0 needs no
+changes, and the SELinux modules do not change. After the update,
+restart the gateway (`systemctl restart mcp-gateway.service`); the
+package does not.
+
 ### Fixed
 
 - `mcp-gateway-admin setup http` reported FAIL for a listener port the
