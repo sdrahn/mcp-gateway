@@ -212,15 +212,17 @@ func (pg *Page) Handler() http.Handler {
 }
 
 // headers sets what every answer of the page carries: nothing of it is
-// framed (clickjacking), cached or sent on as a referrer, and it loads
-// nothing but its own inline style.
+// framed (clickjacking), cached or sent on as a referrer to another site,
+// and it loads nothing but its own inline style. The referrer policy is
+// same-origin, not no-referrer: under no-referrer browsers send its forms
+// with "Origin: null", which checkPost refuses as another site's.
 func headers(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hd := w.Header()
 		hd.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		hd.Set("X-Frame-Options", "DENY")
 		hd.Set("X-Content-Type-Options", "nosniff")
-		hd.Set("Referrer-Policy", "no-referrer")
+		hd.Set("Referrer-Policy", "same-origin")
 		hd.Set("Cache-Control", "no-store")
 		h.ServeHTTP(w, r)
 	})

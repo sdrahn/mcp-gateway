@@ -3010,6 +3010,10 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	pp_hdr=$(curl -s --noproxy '*' -b /root/vmtest/pp-jack.jar -D - -o /dev/null "$pp_url/approvals/" | tr -d '\r')
 	check "page: refuses to be framed (X-Frame-Options, frame-ancestors)" \
 		bash -c 'grep -qi "^x-frame-options: DENY" <<<"$1" && grep -qi "^content-security-policy:.*frame-ancestors '"'"'none'"'"'" <<<"$1"' _ "$pp_hdr"
+	# no-referrer (1.9.0) made browsers send its forms with "Origin: null",
+	# refused as another site's: same-origin sends the page's own origin.
+	check "page: its referrer policy is same-origin (browsers send its origin with its forms)" \
+		bash -c 'grep -qi "^referrer-policy: same-origin" <<<"$1"' _ "$pp_hdr"
 	pp_post jack "/approvals/$ac_id" "decision=approve&scope=once"
 	check "page: a decision without the CSRF token is refused" test "$pp_code" = 403
 	pp_origin=https://evil.vmtest pp_post jack "/approvals/$ac_id" "decision=approve&scope=once&csrf=$pp_jack_csrf"

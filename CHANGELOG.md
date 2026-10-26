@@ -18,6 +18,17 @@ minor release (with a warning) and removed in the next.
   principal while the `policy` check, which decides for an unknown
   principal, reported OK.
 
+### Fixed
+
+- The approval page decided nothing in a browser: every Approve or Deny
+  was refused with "This request came from another site (null); nothing
+  was decided." The page's referrer policy, `no-referrer`, makes
+  browsers send its forms with `Origin: null`, which its check against
+  requests from other sites refuses. It is `same-origin` now: browsers
+  send the page's own origin, and still no referrer to other sites.
+  The page's tests posted the form with an `Origin` they chose; a new
+  e2e test decides in a headless browser (Chrome, through Playwright).
+
 ## v1.9.1 — 2026-10-25
 
 A fix to the policy: a principal holding two permissions that ask for
