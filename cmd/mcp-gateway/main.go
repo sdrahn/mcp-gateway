@@ -606,7 +606,10 @@ func newApprovalPage(log *slog.Logger, gw *config.Gateway, b *broker.Broker, aud
 		// key set.
 		Client: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: nil}},
 	}
-	log.Info("approval page", "url", pg.Origin+"/approvals/", "client_id", pc.ClientID, "redirect_uri", pg.RedirectURI())
+	// The system's logo and name, as Cockpit's login page shows them.
+	pg.Branding = approvalpage.LoadBranding(approvalpage.CockpitBranding, approvalpage.OSRelease)
+	log.Info("approval page", "url", pg.Origin+"/approvals/", "client_id", pc.ClientID, "redirect_uri", pg.RedirectURI(),
+		"os", pg.Branding.OSName, "logo", pg.Branding.Logo != nil)
 	return pg, nil
 }
 

@@ -9,6 +9,11 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- The approval page looks like the gateway's Cockpit page (its colors,
+  light or dark as the browser prefers, cards, tables and buttons) and,
+  as Cockpit's login page does, shows the system's logo from Cockpit's
+  branding and, to the signed-in, the system's name and host name.
+
 - The doctor's check `policy listing` decides a listing for each
   principal the role data binds (the members of `socket_group` and the
   users bound by name, with their groups, and a member of each bound
