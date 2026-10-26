@@ -30,6 +30,32 @@ minor release (with a warning) and removed in the next.
   as before. The doctor's `policy listing` check reports the servers
   and tools it hides.
 
+## v1.9.3 — 2026-10-26
+
+A fix to the gateway's approval page: signing out left the sign-in at
+the identity provider in place, so signing in again did not ask for the
+password. Like 1.9.0 to 1.9.2, 1.9.3 is published but not marked as the
+latest release; 1.8.0 stays the one recommended for use. Upgrading from
+1.9.2 needs no changes to the gateway's configuration, and the SELinux
+modules do not change; for the sign-out at the identity provider, add
+`https://<host:port of http.audience>/approvals/signed-out` to the
+page's client as post logout redirect URI (Keycloak: *Clients →* the
+client *→ Settings → Access settings → Valid post logout redirect
+URIs*). After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not.
+
+### Fixed
+
+- Signing out of the approval page left the sign-in at the identity
+  provider in place: signing in again signed the approver in without
+  asking for the password. *Sign out* now ends the sign-in at the
+  provider too, where it offers that (`end_session_endpoint`, OpenID
+  Connect RP-Initiated Logout, as Keycloak does), and comes back to
+  `/approvals/signed-out`, which the page's client must have as its post
+  logout redirect URI (Keycloak: *Valid post logout redirect URIs*).
+  Either way, the browser's next sign-in asks for the password again
+  (`prompt=login`).
+
 ## v1.9.2 — 2026-10-26
 
 A fix to the gateway's approval page: in a browser it took no decision
@@ -2031,7 +2057,6 @@ to know:
   Secrets for its headers come from `credentials` (user guide, chapter
   4, "Servers that speak HTTP").
 
-
 ### Added
 
 - MCP servers that speak Streamable HTTP: a definition gives `url`
@@ -2740,7 +2765,6 @@ the package does not. Things to know:
   calls that ask for a task run synchronously.
 - Calls waiting for approval report progress to agents that asked for
   it (`approvals.progress_interval`).
-
 
 ### Added
 

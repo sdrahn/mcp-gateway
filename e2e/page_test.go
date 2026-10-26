@@ -36,6 +36,10 @@ type codeFlow struct {
 	// says whether the code was confirmed, as deviceUser.
 	confirmed  bool
 	deviceUser string
+	// prompts records the prompt of each authorization, signOuts the
+	// sign-outs at its end_session_endpoint.
+	prompts  []string
+	signOuts int
 }
 
 // idToken is an ID token for aud.
@@ -58,6 +62,7 @@ func newCodeFlowIdP(t *testing.T) (*idp, *codeFlow) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"issuer": i.srv.URL, "jwks_uri": i.srv.URL + "/jwks",
 			"authorization_endpoint": i.srv.URL + "/authorize", "token_endpoint": i.srv.URL + "/token",
 			"device_authorization_endpoint":    i.srv.URL + "/device",
+			"end_session_endpoint":             i.srv.URL + "/logout",
 			"code_challenge_methods_supported": []string{"S256"}})
 	})
 	mux.HandleFunc("POST /device", func(w http.ResponseWriter, r *http.Request) {
@@ -70,6 +75,18 @@ func newCodeFlowIdP(t *testing.T) (*idp, *codeFlow) {
 			"verification_uri": i.srv.URL + "/device", "expires_in": 60, "interval": 1})
 	})
 	mux.Handle("/jwks", i.srv.Config.Handler)
+	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		after := strings.TrimSuffix(cf.redirectURI, "/callback") + "/signed-out"
+		if q.Get("client_id") != cf.clientID || q.Get("post_logout_redirect_uri") != after || q.Get("id_token_hint") == "" {
+			http.Error(w, "bad sign-out request", http.StatusBadRequest)
+			return
+		}
+		cf.mu.Lock()
+		cf.signOuts++
+		cf.mu.Unlock()
+		http.Redirect(w, r, after, http.StatusFound)
+	})
 	mux.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		if q.Get("client_id") != cf.clientID || q.Get("redirect_uri") != cf.redirectURI || q.Get("code_challenge_method") != "S256" {
@@ -78,6 +95,7 @@ func newCodeFlowIdP(t *testing.T) (*idp, *codeFlow) {
 		}
 		code := fmt.Sprintf("c%d", time.Now().UnixNano())
 		cf.mu.Lock()
+		cf.prompts = append(cf.prompts, q.Get("prompt"))
 		cf.codes[code] = [2]string{q.Get("code_challenge"), q.Get("nonce")}
 		cf.mu.Unlock()
 		http.Redirect(w, r, cf.redirectURI+"?"+url.Values{"code": {code}, "state": {q.Get("state")}}.Encode(), http.StatusFound)

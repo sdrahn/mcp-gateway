@@ -36,7 +36,11 @@ import (
 // with a code, and POST /oauth/token trades it for an ID token (sub and
 // preferred_username U, the groups, the nonce). /authorize refuses an
 // unknown client or redirect URI with 400, as providers do, and shows a
-// sign-in form (200) to a browser no one signed in with. Discovery
+// sign-in form (200) to a browser no one signed in with, or when the
+// client asks for the password again (prompt=login). GET /logout (the
+// end_session_endpoint) ends the provider's sign-in and sends the browser
+// to the client's post_logout_redirect_uri, which must be its redirect
+// URI with /signed-out for /callback, and needs an id_token_hint. Discovery
 // answers at every path ending in /.well-known/openid-configuration,
 // always naming https://idp.vmtest: an http.issuer with a path is an
 // issuer that does not match.
@@ -84,6 +88,7 @@ func serveIdP(addr, certFile string, clientArgs []string) error {
 		writeJSON(w, map[string]any{"issuer": issuer, "jwks_uri": issuer + "/jwks",
 			"authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/oauth/token",
 			"device_authorization_endpoint":                  issuer + "/device/code",
+			"end_session_endpoint":                           issuer + "/logout",
 			"code_challenge_methods_supported":               []string{"S256"},
 			"authorization_response_iss_parameter_supported": true,
 		})
@@ -116,7 +121,7 @@ func serveIdP(addr, certFile string, clientArgs []string) error {
 			return
 		}
 		u := who(r)
-		if u["user"] == "" {
+		if u["user"] == "" || q.Get("prompt") == "login" {
 			// As a provider's sign-in form: the request itself is fine.
 			_, _ = fmt.Fprint(w, "<form>sign in at the identity provider (GET /login?user=...)</form>\n")
 			return
@@ -128,6 +133,17 @@ func serveIdP(addr, certFile string, clientArgs []string) error {
 		mu.Unlock()
 		back := url.Values{"code": {code}, "state": {q.Get("state")}, "iss": {issuer}}
 		http.Redirect(w, r, c.redirectURI+"?"+back.Encode(), http.StatusFound)
+	})
+	mux.HandleFunc("GET /logout", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		c, ok := clients[q.Get("client_id")]
+		after := strings.TrimSuffix(c.redirectURI, "/callback") + "/signed-out"
+		if !ok || q.Get("post_logout_redirect_uri") != after || q.Get("id_token_hint") == "" {
+			http.Error(w, "unknown client, post_logout_redirect_uri or no id_token_hint", http.StatusBadRequest)
+			return
+		}
+		http.SetCookie(w, &http.Cookie{Name: "idp_user", Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true})
+		http.Redirect(w, r, after, http.StatusFound)
 	})
 	idToken := func(cd idpCode, aud string) (string, error) {
 		now := time.Now()
