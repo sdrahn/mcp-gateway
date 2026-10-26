@@ -55,19 +55,46 @@ unreserved_port_t              tcp      1024-32767, 32768-60999
 `
 
 func TestSELinuxPorts(t *testing.T) {
-	rs := SELinuxPorts(config.HTTP{Listen: ":9443", Issuer: "https://idp:8080/realms/mcp"}, semanageOut)
+	rs := SELinuxPorts(config.HTTP{Listen: ":9443", Issuer: "https://idp:8080/realms/mcp"}, semanageOut, "")
 	if len(rs) != 2 || rs[0].Status != doctor.OK || rs[1].Status != doctor.OK {
 		t.Errorf("labeled: %+v", rs)
 	}
-	rs = SELinuxPorts(config.HTTP{Listen: ":8443", Issuer: "https://idp:5556"}, semanageOut)
+	rs = SELinuxPorts(config.HTTP{Listen: ":8443", Issuer: "https://idp:5556"}, semanageOut, "")
 	if rs[0].Status != doctor.Fail || !strings.Contains(rs[0].Summary, "labeled http_port_t") || !strings.Contains(rs[0].Details[0], "semanage port -a -t mcp_port_t -p tcp 8443") {
 		t.Errorf("listen: %+v", rs[0])
 	}
 	if rs[1].Status != doctor.Fail || !strings.Contains(rs[1].Summary, "unreserved_port_t") {
 		t.Errorf("idp: %+v", rs[1])
 	}
-	if rs := SELinuxPorts(config.HTTP{Listen: "gw:443", Issuer: "https://idp"}, semanageOut); rs[1].Status != doctor.OK {
+	if rs := SELinuxPorts(config.HTTP{Listen: "gw:443", Issuer: "https://idp"}, semanageOut, ""); rs[1].Status != doctor.OK {
 		t.Errorf("default https port: %+v", rs)
+	}
+}
+
+// Issue #307: "semanage port -m -t mcp_port_t -p tcp 8443" relabels 8443,
+// which the policy labels http_port_t; "semanage port -l" lists 8443 under
+// both, "-l -C" under mcp_port_t only. The label added with semanage wins.
+func TestSELinuxPortsLocalWins(t *testing.T) {
+	const all = `http_port_t                    tcp      80, 81, 443, 488, 8008, 8009, 8443, 9000
+mcp_port_t                     tcp      8443
+`
+	const local = "mcp_port_t                     tcp      8443\n"
+	rs := SELinuxPorts(config.HTTP{Listen: ":8443", Issuer: "https://idp"}, all, local)
+	if rs[0].Status != doctor.OK || rs[0].Summary != "the gateway may listen on port 8443 (mcp_port_t)" {
+		t.Errorf("listen: %+v", rs[0])
+	}
+	if rs[1].Status != doctor.OK {
+		t.Errorf("idp on 443: %+v", rs[1])
+	}
+	// The identity provider on the port relabeled mcp_port_t: the gateway
+	// may no longer connect to it.
+	rs = SELinuxPorts(config.HTTP{Listen: ":9443", Issuer: "https://idp:8443"}, all, local)
+	if rs[1].Status != doctor.Fail || !strings.Contains(rs[1].Summary, "port 8443 is labeled mcp_port_t") {
+		t.Errorf("idp on 8443: %+v", rs[1])
+	}
+	// Without local labels (semanage -C failed): the policy's, as before.
+	if rs := SELinuxPorts(config.HTTP{Listen: ":8443", Issuer: "https://idp"}, semanageOut, ""); rs[0].Status != doctor.Fail {
+		t.Errorf("no local: %+v", rs[0])
 	}
 }
 
