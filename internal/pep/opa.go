@@ -349,7 +349,7 @@ func (o *OPA) queryWithin(ctx context.Context, timeout time.Duration, path strin
 		return fmt.Errorf("opa: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("opa: %s: %s", resp.Status, bytes.TrimSpace(data))
+		return &PolicyError{Status: resp.Status, Body: bytes.TrimSpace(data)}
 	}
 	var envelope struct {
 		Result json.RawMessage `json:"result"`

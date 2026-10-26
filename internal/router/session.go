@@ -725,9 +725,17 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	}
 	showCapabilities := false
 	if len(query) > 0 {
-		vs, err := s.r.PDP.Visible(ctx, s.snapshotPrincipal(), query)
+		vs, undecided, err := pep.VisibleContained(ctx, s.r.PDP, s.snapshotPrincipal(), query)
 		if err != nil {
 			s.log.Warn("filtering failed; hiding everything", "method", m.Method, "err", err)
+		}
+		for _, u := range undecided {
+			names := make([]string, len(u.Resources))
+			for i, r := range u.Resources {
+				names[i] = r.Name
+			}
+			s.log.Warn("filtering failed; hiding what the policy cannot decide", "method", m.Method,
+				"server", u.Server, "hidden", strings.Join(names, ","), "err", u.Err)
 		}
 		for _, r := range vs {
 			if r.Builtin {

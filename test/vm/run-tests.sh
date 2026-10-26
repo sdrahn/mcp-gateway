@@ -2082,35 +2082,44 @@ cl_metrics=$(curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/me
 check "metrics time the listings' filtering" \
 	grep -qE '^mcp_gateway_opa_query_duration_seconds_count\{query="mcp/filter/visible"\} [1-9]' <<<"$cl_metrics"
 
-# The doctor's policy listing check decides each bound principal's
-# listing, as the gateway does: a rule giving alice two values fails
-# her listing (as issue #298's two channels did), and the doctor names
-# her; the policy check, which decides for an unknown principal, does
-# not see it.
+# A rule the policy cannot decide (two values, as issue #298's two
+# channels gave) for alice's fs tools but list_allowed_directories hides
+# those tools alone: the gateway decides the listing again server by
+# server and tool by tool, and names them in its journal. The doctor's
+# policy listing check decides each bound principal's listing, as the
+# gateway does, and names her; the policy check, which decides for an
+# unknown principal, does not see it.
 pl_rego=/etc/mcp-gateway/policy/vmtest_conflict.rego
+pl_since=$(date +%s)
 cat >"$pl_rego" <<'REGO'
 package mcp.authz
 
 import rego.v1
 
-vmtest_conflict := 1 if input.principal.sub == "alice"
+vmtest_conflict := 1 if vmtest_failing
 
-vmtest_conflict := 2 if input.principal.sub == "alice"
+vmtest_conflict := 2 if vmtest_failing
 
-denied if {
-	vmtest_conflict == 3
+vmtest_failing if {
+	input.principal.sub == "alice"
 	input.resource.server == "fs"
+	input.resource.name != "list_allowed_directories"
 }
+
+denied if vmtest_conflict == 3
 REGO
 restorecon "$pl_rego"
 pl_hidden() { call alice --method tools/list --params '{}' && ! grep -qF '"read_file"' <<<"$out"; }
-check "a rule failing alice's decisions hides every tool from her" eventually 20 pl_hidden
+check "a rule failing alice's decisions of fs tools hides them from her" eventually 20 pl_hidden
+check "... and her other tools stay listed" grep -qF list_allowed_directories <<<"$out"
+pl_journal() { journalctl -u mcp-gateway.service -o cat --since "@$pl_since" | grep -F 'hiding what the policy cannot decide' | grep -F 'server=fs' | grep -qE 'hidden=[^ ]*read_file'; }
+check "the journal names the hidden tools" eventually 10 pl_journal
 pl_doctor=$(mcp-gateway-admin doctor --no-start 2>&1)
 grep -A3 -E '^[A-Z]+ +(policy|policy listing):' <<<"$pl_doctor" | sed 's/^/  /'
 check "doctor: the policy check still says OPA decides" bash -c 'grep -qE "^OK +policy: OPA decides" <<<"$1"' _ "$pl_doctor"
-check "doctor: the policy listing check fails, naming alice and OPA's error" \
-	bash -c 'grep -qE "^FAIL +policy listing: the policy fails the listing of [0-9]+ of [0-9]+ principals" <<<"$1" &&
-		grep -qE "^ +alice( \(groups [^)]*\))?: at .*eval_conflict_error: complete rules must not produce multiple outputs \(vmtest_conflict.rego:" <<<"$1"' _ "$pl_doctor"
+check "doctor: the policy listing check fails, naming alice, fs and OPA's error" \
+	bash -c 'grep -qE "^FAIL +policy listing: the policy cannot decide tools for [0-9]+ of [0-9]+ principals" <<<"$1" &&
+		grep -qE "^ +alice( \(groups [^)]*\))?: (server fs|fs [^:]*): eval_conflict_error: complete rules must not produce multiple outputs \(vmtest_conflict.rego:" <<<"$1"' _ "$pl_doctor"
 pl_json=$(mcp-gateway-admin doctor --no-start --json 2>/dev/null)
 check "doctor --json: its id is policy-listing" \
 	bash -c 'jq -e "any(.[]?; .id == \"policy-listing\" and .status == \"fail\")" >/dev/null <<<"$1"' _ "$pl_json"
