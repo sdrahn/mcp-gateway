@@ -1611,6 +1611,16 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	wait_socket
 	hl_listening() { curl -s --noproxy '*' -o /dev/null "https://gw.vmtest:9443/.well-known/oauth-protected-resource/mcp"; }
 	check "the gateway listens on 9443" eventually 30 hl_listening
+	# Issue #307: 8443 is http_port_t in the policy; relabeled mcp_port_t
+	# with semanage, "semanage port -l" lists it under both, and the label
+	# added wins. setup http (without -write) says the gateway may listen.
+	semanage port -a -t mcp_port_t -p tcp 8443 2>/dev/null || semanage port -m -t mcp_port_t -p tcp 8443
+	mcp-gateway-admin setup http -url https://gw.vmtest:8443/mcp -issuer https://idp.vmtest -cert /etc/mcp-gateway/tls/cert.pem \
+		-key /etc/mcp-gateway/tls/key.pem >/root/hl-setup-8443.txt 2>&1
+	grep -E 'SELinux port' /root/hl-setup-8443.txt | sed 's/^/  /'
+	check "setup http: 8443 relabeled mcp_port_t, the gateway may listen on it" \
+		grep -qE '^OK +SELinux port: the gateway may listen on port 8443 \(mcp_port_t\)' /root/hl-setup-8443.txt
+	semanage port -d -t mcp_port_t -p tcp 8443
 
 	# hl_tok QUERY: a token from the identity provider (privsrv -idp).
 	hl_tok() { curl -sf --noproxy '*' "https://idp.vmtest/token?$1"; }

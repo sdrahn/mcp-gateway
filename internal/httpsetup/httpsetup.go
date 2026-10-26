@@ -404,11 +404,20 @@ var (
 
 // SELinuxPorts checks the SELinux labels of the listener's port and the
 // identity provider's port against what the gateway's domain may use.
-// labels is "semanage port -l" (type, protocol, ports per line). The
-// gateway does not start with a port it may not bind; it refuses every
-// token when it may not reach the identity provider for its keys.
-func SELinuxPorts(h config.HTTP, labels string) []doctor.Result {
-	label := portLabels(labels)
+// labels is "semanage port -l" (type, protocol, ports per line), local
+// "semanage port -l -C", the labels added with semanage, which win over
+// the policy's (issue #307: 8443 is http_port_t in the policy and stays
+// listed so after "semanage port -m -t mcp_port_t"). The gateway does not
+// start with a port it may not bind; it refuses every token when it may
+// not reach the identity provider for its keys.
+func SELinuxPorts(h config.HTTP, labels, local string) []doctor.Result {
+	policy, added := portLabels(labels), portLabels(local)
+	label := func(port string) string {
+		if t := added(port); t != "" {
+			return t
+		}
+		return policy(port)
+	}
 	var rs []doctor.Result
 	if _, port, err := net.SplitHostPort(h.Listen); err == nil && port != "" {
 		r := doctor.Result{Check: "SELinux port", Status: doctor.OK}

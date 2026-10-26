@@ -361,7 +361,9 @@ func setupPorts(h config.HTTP, root bool) []doctor.Result {
 	if err != nil {
 		return []doctor.Result{{Check: "SELinux port", Status: doctor.Skip, Summary: "semanage port -l: " + err.Error()}}
 	}
-	return httpsetup.SELinuxPorts(h, string(out))
+	// The labels added with semanage, which win over the policy's.
+	local, _ := exec.Command(semanage, "port", "-l", "-C", "-n").Output()
+	return httpsetup.SELinuxPorts(h, string(out), string(local))
 }
 
 // setupFirewall checks that firewalld lets the port in (doctor.Firewall).
