@@ -1674,7 +1674,8 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	done
 	hl_post "$(hl_tok "aud=$hl_url&sub=alice&preferred_username=alice&scope=openid")" /mcp/fs "$hl_init"
 	check "a token without the scope every token needs: 403 insufficient_scope" hl_status 403 'error="insufficient_scope"'
-	for u in root bin; do
+	# root, and the gateway's own system account (bin is gone on Tumbleweed)
+	for u in root mcp-gateway; do
 		hl_post "$(hl_tok "aud=$hl_url&sub=$u&preferred_username=$u&scope=mcp")" /mcp/fs "$hl_init"
 		check "a token naming the local account $u: 401 invalid_token, no account of a person" hl_status 401 'error="invalid_token"'
 	done
