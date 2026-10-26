@@ -460,7 +460,7 @@ http:
 | `http.audience` | — (required) | the gateway's public MCP URL; tokens must carry it as `aud` (RFC 8707). Its path is the aggregated endpoint (`/mcp`), `<path>/<server>` the per-server endpoints. |
 | `http.jwks_url` | discovered | the issuer's key set; default from `<issuer>/.well-known/openid-configuration` |
 | `http.groups_claim` | `groups` | token claim holding the user's groups |
-| `http.local_user_claim` | empty | token claim naming a local account (e.g. `preferred_username`); if the account exists, the remote user **is** that local user (uid, home, groups). Otherwise MCP servers run as a throwaway dynamic user. |
+| `http.local_user_claim` | empty | token claim naming a local account (e.g. `preferred_username`); if the account exists, the remote user **is** that local user (uid, home, groups). Otherwise MCP servers run as a throwaway dynamic user. A token naming root or a system account (outside `UID_MIN`–`UID_MAX` of `/etc/login.defs`) is refused. |
 | `http.scopes` | `[]` | scopes every token must carry |
 | `http.allowed_origins` | `[]` | `Origin` values accepted from browser clients; requests with another `Origin` are refused, requests without are accepted |
 | `http.session_idle_timeout` | `30m` | close MCP sessions without traffic |

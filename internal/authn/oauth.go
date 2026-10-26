@@ -103,14 +103,19 @@ func (o *OAuth) Authenticate(ctx context.Context, token string, cert *x509.Certi
 		}
 	}
 
-	p := o.principalOf(claims, sub)
+	p, err := o.principalOf(claims, sub)
+	if err != nil {
+		return principal.Principal{}, err
+	}
 	p.Scopes = scopes
 	return p, nil
 }
 
 // principalOf is the principal claims (validated, with subject sub) make:
-// the token's groups, and the local account local_user_claim names.
-func (o *OAuth) principalOf(claims jwt.MapClaims, sub string) principal.Principal {
+// the token's groups, and the local account local_user_claim names. A
+// token naming root or a system account is refused: whoever may choose
+// their name at the identity provider would otherwise run as it.
+func (o *OAuth) principalOf(claims jwt.MapClaims, sub string) (principal.Principal, error) {
 	p := principal.Principal{
 		Sub:       sub,
 		Issuer:    o.cfg.Issuer,
@@ -124,10 +129,12 @@ func (o *OAuth) principalOf(claims jwt.MapClaims, sub string) principal.Principa
 	}
 	if o.cfg.LocalUserClaim != "" {
 		if name, _ := claims[o.cfg.LocalUserClaim].(string); name != "" {
-			mapLocalUser(&p, name)
+			if err := mapLocalUser(&p, name); err != nil {
+				return principal.Principal{}, err
+			}
 		}
 	}
-	return p
+	return p, nil
 }
 
 // IDToken validates an ID token the approval page got for its client
@@ -188,7 +195,7 @@ func (o *OAuth) idToken(ctx context.Context, raw, clientID string, nonce *string
 	if sub == "" {
 		return principal.Principal{}, fmt.Errorf("%w: no subject", ErrInvalidToken)
 	}
-	return o.principalOf(claims, sub), nil
+	return o.principalOf(claims, sub)
 }
 
 // checkBinding enforces certificate-bound tokens (RFC 8705): a token
@@ -215,16 +222,22 @@ func (o *OAuth) checkBinding(claims jwt.MapClaims, cert *x509.Certificate) error
 
 // mapLocalUser makes p run as the local account name, if it exists
 // (decision D1): subject, uid and home of the account, plus its groups.
-func mapLocalUser(p *principal.Principal, name string) {
+// An account outside UID_MIN..UID_MAX of login.defs (root, system
+// accounts, nobody) is an error.
+func mapLocalUser(p *principal.Principal, name string) error {
 	u, err := user.Lookup(name)
 	if err != nil {
-		return
+		return nil
 	}
 	uid64, err := strconv.ParseUint(u.Uid, 10, 32)
 	if err != nil {
-		return
+		return nil
 	}
 	uid := uint32(uid64)
+	if lo, hi := peopleUIDs(); uid < lo || uid > hi {
+		return fmt.Errorf("%w: local_user_claim names account %s (uid %d), not an account of a person (UID_MIN %d to UID_MAX %d of login.defs)",
+			ErrInvalidToken, u.Username, uid, lo, hi)
+	}
 	p.Sub, p.UID, p.Home = u.Username, &uid, u.HomeDir
 	if gids, err := u.GroupIds(); err == nil {
 		for _, gid := range gids {
@@ -233,6 +246,7 @@ func mapLocalUser(p *principal.Principal, name string) {
 			}
 		}
 	}
+	return nil
 }
 
 // claimStrings reads a claim that is a list of strings or a

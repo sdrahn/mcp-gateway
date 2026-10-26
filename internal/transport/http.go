@@ -54,6 +54,17 @@ type ReplayWriter interface {
 // the endpoint. It returns when the session ends.
 type SessionFunc func(ctx context.Context, conn jsonrpc.MessageConn, p principal.Principal, first *jsonrpc.Message)
 
+// PrincipalConn is a connection whose messages each come with a
+// principal: an HTTP session's, whose requests each carry a token of
+// their own. Principal is the principal of the message Read returned
+// last (the session's ID set), so that a session follows its tokens:
+// groups removed at the identity provider and narrower scopes apply
+// from the next request on, not only to sessions opened afterwards.
+type PrincipalConn interface {
+	jsonrpc.MessageConn
+	Principal() principal.Principal
+}
+
 // HTTPConfig configures the Streamable HTTP transport.
 type HTTPConfig struct {
 	// Resource is the gateway's public MCP URL (the token audience). Its
@@ -361,7 +372,7 @@ func (h *HTTPHandler) post(w http.ResponseWriter, r *http.Request, p principal.P
 	}
 
 	if !m.IsRequest() {
-		if err := s.push(r.Context(), m); err != nil {
+		if err := s.push(r.Context(), m, p); err != nil {
 			http.Error(w, "session ended", http.StatusNotFound)
 			return
 		}
@@ -394,7 +405,8 @@ func (h *HTTPHandler) newSession(p principal.Principal, server string) (*httpSes
 		h:          h,
 		id:         p.SessionID,
 		p:          p,
-		in:         make(chan *jsonrpc.Message, streamBuffer),
+		last:       p,
+		in:         make(chan inbound, streamBuffer),
 		closed:     make(chan struct{}),
 		streams:    map[int]*stream{},
 		pending:    map[string]*stream{},
@@ -479,8 +491,8 @@ func writeJSONError(w http.ResponseWriter, status, code int, msg string) {
 type httpSession struct {
 	h         *HTTPHandler
 	id        string
-	p         principal.Principal
-	in        chan *jsonrpc.Message
+	p         principal.Principal // the principal that opened the session
+	in        chan inbound
 	closed    chan struct{}
 	closeOnce sync.Once
 
@@ -494,6 +506,15 @@ type httpSession struct {
 	order      []*stream // attached SSE request streams, oldest first
 	queue      []*jsonrpc.Message
 	lastActive time.Time
+	// last is the principal of the message Read returned last.
+	last principal.Principal
+}
+
+// inbound is a client message and the principal of the request that
+// carried it.
+type inbound struct {
+	m *jsonrpc.Message
+	p principal.Principal
 }
 
 // stream is a logical stream of server messages; HTTP connections attach
@@ -632,11 +653,21 @@ func (s *httpSession) expireStreams(now time.Time) {
 // Read implements jsonrpc.MessageConn.
 func (s *httpSession) Read() (*jsonrpc.Message, error) {
 	select {
-	case m := <-s.in:
-		return m, nil
+	case in := <-s.in:
+		s.mu.Lock()
+		s.last = in.p
+		s.mu.Unlock()
+		return in.m, nil
 	case <-s.closed:
 		return nil, io.EOF
 	}
+}
+
+// Principal implements PrincipalConn.
+func (s *httpSession) Principal() principal.Principal {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.last
 }
 
 // Write implements jsonrpc.MessageConn.
@@ -737,14 +768,15 @@ func (s *httpSession) Close() error {
 	return nil
 }
 
-func (s *httpSession) push(ctx context.Context, m *jsonrpc.Message) error {
+func (s *httpSession) push(ctx context.Context, m *jsonrpc.Message, p principal.Principal) error {
+	p.SessionID = s.id
 	s.mu.Lock()
 	s.lastActive = time.Now()
 	s.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, pushTimeout)
 	defer cancel()
 	select {
-	case s.in <- m:
+	case s.in <- inbound{m, p}:
 		return nil
 	case <-s.closed:
 		return io.ErrClosedPipe
@@ -815,7 +847,7 @@ func (s *httpSession) handleRequest(w http.ResponseWriter, r *http.Request, p pr
 	conn, wake := s.attach(st)
 	s.mu.Unlock()
 
-	if err := s.push(r.Context(), m); err != nil {
+	if err := s.push(r.Context(), m, p); err != nil {
 		s.mu.Lock()
 		if s.pending[key] == st {
 			delete(s.pending, key)

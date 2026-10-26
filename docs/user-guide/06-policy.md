@@ -490,7 +490,9 @@ the clients** using it (`data.mcp.approvals.manage_session`: the rules of
 every server of the client's endpoint), who may **see and end sign-ins**
 to a server with `sign_in` (`data.mcp.approvals.manage_sign_in`,
 chapter 4), and whom approval **e-mail** goes to (chapter 7). Approvers are identified by the kernel on the
-control socket, never by an agent.
+control socket, never by what an agent says; an agent that runs commands
+as the requesting user is that user to the kernel, though, and may
+decide where `self` may (chapter 7).
 
 Examples:
 
@@ -504,8 +506,8 @@ approvers:
 (Keys are server names, not globs: `prod-*` above would only match a
 server literally named so. List servers individually.)
 
-For high-risk servers, leave out `self`: then the requesting user cannot
-approve their own agent's calls.
+For high-risk servers, leave out `self`: then neither the requesting
+user nor their agent can approve the agent's calls.
 
 ## Changing the policy
 

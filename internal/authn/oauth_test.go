@@ -14,7 +14,11 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/user"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -232,6 +236,9 @@ func TestOAuthLocalUserMapping(t *testing.T) {
 	if err != nil {
 		t.Skip(err)
 	}
+	uid, _ := strconv.ParseUint(me.Uid, 10, 32)
+	defer func(f func() (uint32, uint32)) { peopleUIDs = f }(peopleUIDs)
+	peopleUIDs = func() (uint32, uint32) { return uint32(uid), uint32(uid) }
 	idp := newIdP(t)
 	o := idp.oauth(func(c *config.HTTP) { c.LocalUserClaim = "preferred_username" })
 	p, err := o.Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"preferred_username": me.Username}), nil)
@@ -244,6 +251,41 @@ func TestOAuthLocalUserMapping(t *testing.T) {
 	p, err = o.Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"preferred_username": "no-such-user-xyz"}), nil)
 	if err != nil || p.Sub != "u-123" || p.UID != nil {
 		t.Fatalf("unmapped principal %+v %v", p, err)
+	}
+
+	// Root and system accounts: the token is refused, also as an ID token
+	// of the approval page.
+	peopleUIDs = func() (uint32, uint32) { return 1000, 60000 }
+	for _, name := range []string{"root", "bin", "nobody"} {
+		if _, err := user.Lookup(name); err != nil {
+			continue
+		}
+		_, err := o.Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"preferred_username": name}), nil)
+		if !errors.Is(err, ErrInvalidToken) || !strings.Contains(err.Error(), "not an account of a person") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestLoginDefsRange(t *testing.T) {
+	dir := t.TempDir()
+	etc, usr := filepath.Join(dir, "etc"), filepath.Join(dir, "usr")
+	if err := os.WriteFile(usr, []byte("UID_MIN 500\nUID_MAX 30000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if lo, hi := loginDefsRange([]string{etc, usr}); lo != 500 || hi != 30000 {
+		t.Errorf("/usr/etc: %d..%d", lo, hi)
+	}
+	// The first file that exists wins, keys it lacks keep their defaults;
+	// UID_MIN 0 still excludes root.
+	if err := os.WriteFile(etc, []byte("# comment\nUID_MIN\t0\nSYS_UID_MAX 499\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if lo, hi := loginDefsRange([]string{etc, usr}); lo != 1 || hi != defaultUIDMax {
+		t.Errorf("/etc: %d..%d", lo, hi)
+	}
+	if lo, hi := loginDefsRange(nil); lo != defaultUIDMin || hi != defaultUIDMax {
+		t.Errorf("none: %d..%d", lo, hi)
 	}
 }
 

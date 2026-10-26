@@ -161,8 +161,31 @@ func (s *Session) Run(ctx context.Context, first *jsonrpc.Message) error {
 			}
 			return err
 		}
+		s.follow()
 		s.dispatch(m)
 	}
+}
+
+// follow takes the principal of the client's last message where the
+// connection has one per message (an HTTP session, whose requests each
+// carry a token): the token's groups, scopes, account and expiry apply
+// from that message on, so that what the identity provider took away
+// does not live on in the session (D20). The session's ID and client
+// stay. Requests still running may see the newer token's principal: the
+// client holds both, valid for the same subject.
+func (s *Session) follow() {
+	pc, ok := s.client.(transport.PrincipalConn)
+	if !ok {
+		return
+	}
+	p := pc.Principal()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p.Sub != s.principal.Sub || p.Issuer != s.principal.Issuer || p.Transport != s.principal.Transport {
+		return // the transport checks this; never another principal's
+	}
+	p.SessionID, p.Client = s.principal.SessionID, s.principal.Client
+	s.principal = p
 }
 
 // release lets go of the session's instances.
