@@ -5,6 +5,17 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Fixed
+
+- `mcp-gateway-admin setup http` reported FAIL for a listener port the
+  policy labels `http_port_t` (8443, 443, 9000, …) after it was relabeled
+  `mcp_port_t` with `semanage port -m`, as the check suggests: `semanage
+  port -l` lists the port under both types, and the check took the
+  policy's. The labels added with semanage (`semanage port -l -C`) now
+  win, as in SELinux (#307).
+
 ## v1.10.0 — 2026-10-26
 
 Approvals without Cockpit, supported. What 1.9.0 brought ahead of this
