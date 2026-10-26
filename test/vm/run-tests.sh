@@ -3023,6 +3023,19 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	# refused as another site's: same-origin sends the page's own origin.
 	check "page: its referrer policy is same-origin (browsers send its origin with its forms)" \
 		bash -c 'grep -qi "^referrer-policy: same-origin" <<<"$1"' _ "$pp_hdr"
+	# Themed as Cockpit: the system's name and host name for the signed-in,
+	# and the logo from Cockpit's branding when it has one (else none).
+	pp_os=$(. /etc/os-release && echo "${PRETTY_NAME:-}")
+	check "page: shows the system's name and host name, as Cockpit's login page does" \
+		bash -c 'grep -qF "$1 · $(hostname)" <<<"$2"' _ "$pp_os" "$pp_body"
+	pp_logo=$(curl -s --noproxy '*' -o /root/vmtest/pp-logo -w '%{http_code} %{content_type}' "$pp_url/approvals/static/logo.png")
+	if compgen -G '/usr/share/cockpit/branding/*/logo.png' >/dev/null || compgen -G '/usr/share/cockpit/branding/*/apple-touch-icon.png' >/dev/null; then
+		check "page: serves Cockpit's branding logo (PNG)" \
+			bash -c '[ "$1" = "200 image/png" ] && head -c 4 /root/vmtest/pp-logo | grep -q PNG && grep -qF "/approvals/static/logo.png" <<<"$2"' _ "$pp_logo" "$pp_body"
+	else
+		check "page: without Cockpit's branding, no logo (404)" bash -c '[[ $1 == 404* ]] && ! grep -qF "<img" <<<"$2"' _ "$pp_logo" "$pp_body"
+	fi
+	check "page: images only from itself (img-src 'self')" bash -c 'grep -qi "^content-security-policy:.*img-src '"'"'self'"'"'" <<<"$1"' _ "$pp_hdr"
 	pp_post jack "/approvals/$ac_id" "decision=approve&scope=once"
 	check "page: a decision without the CSRF token is refused" test "$pp_code" = 403
 	pp_origin=https://evil.vmtest pp_post jack "/approvals/$ac_id" "decision=approve&scope=once&csrf=$pp_jack_csrf"

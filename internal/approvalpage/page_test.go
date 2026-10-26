@@ -280,7 +280,7 @@ type fixture struct {
 	now    time.Time
 }
 
-func newFixture(t *testing.T) *fixture {
+func newFixture(t *testing.T, opts ...func(*Page)) *fixture {
 	t.Helper()
 	f := &fixture{idp: newFakeIdP(t), broker: &fakeBroker{pending: map[string]broker.Pending{
 		"a-1": {ID: "a-1", Server: "fs", Name: "write_file", Action: "tools/call", Scopes: []string{"once", "1h"},
@@ -291,6 +291,9 @@ func newFixture(t *testing.T) *fixture {
 		Tokens: authn.NewOAuth(config.HTTP{Issuer: f.idp.srv.URL, GroupsClaim: "groups"}, f.idp.srv.Client()),
 		Client: f.idp.srv.Client(), Audit: f.audit, Scopes: []string{"profile"}}
 	f.page.now = func() time.Time { return f.now }
+	for _, o := range opts {
+		o(f.page)
+	}
 	f.srv = httptest.NewTLSServer(f.page.Handler())
 	t.Cleanup(f.srv.Close)
 	f.page.Origin = f.srv.URL

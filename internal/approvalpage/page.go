@@ -108,6 +108,9 @@ type Page struct {
 	Client *http.Client
 	Audit  Auditor
 	Log    *slog.Logger
+	// Branding is the system's logo, name and host name, shown as
+	// Cockpit's login page does (LoadBranding).
+	Branding Branding
 
 	now func() time.Time
 
@@ -219,6 +222,8 @@ func (pg *Page) Handler() http.Handler {
 	mux.HandleFunc("GET /approvals/callback", pg.callback)
 	mux.HandleFunc("POST /approvals/logout", pg.logout)
 	mux.HandleFunc("GET /approvals/signed-out", pg.signedOut)
+	mux.HandleFunc("GET /approvals/static/logo.png", image(pg.Branding.Logo, "image/png"))
+	mux.HandleFunc("GET /approvals/static/favicon.ico", image(pg.Branding.Icon, "image/x-icon"))
 	mux.HandleFunc("GET /approvals/{id}", pg.show)
 	mux.HandleFunc("POST /approvals/{id}", pg.decide)
 	mux.HandleFunc("POST /approvals/grants/{id}/revoke", pg.revoke)
@@ -231,7 +236,8 @@ func (pg *Page) Handler() http.Handler {
 
 // headers sets what every answer of the page carries: nothing of it is
 // framed (clickjacking), cached or sent on as a referrer to another site,
-// and it loads nothing but its own inline style. Its forms go to the page
+// and it loads nothing but its own inline style and the branding images
+// it serves itself. Its forms go to the page
 // itself, and Sign out on to the identity provider's end_session_endpoint
 // (form-action covers the redirect after a form). The referrer policy is
 // same-origin, not no-referrer: under no-referrer browsers send its forms
@@ -248,7 +254,7 @@ func (pg *Page) headers(h http.Handler) http.Handler {
 				formAction += " " + u.Scheme + "://" + u.Host
 			}
 		}
-		hd.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action "+formAction+"; frame-ancestors 'none'; base-uri 'none'")
+		hd.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action "+formAction+"; frame-ancestors 'none'; base-uri 'none'")
 		hd.Set("X-Frame-Options", "DENY")
 		hd.Set("X-Content-Type-Options", "nosniff")
 		hd.Set("Referrer-Policy", "same-origin")

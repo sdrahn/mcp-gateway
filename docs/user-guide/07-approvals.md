@@ -98,6 +98,15 @@ page (Cockpit).
 3. `mcp-gateway-admin doctor` checks it from then on (`approval page`,
    chapter 10).
 
+The page looks like the gateway's Cockpit page: the same colors, light
+or dark as the browser prefers, cards, tables and buttons. As
+Cockpit's login page does, it shows the system's logo from Cockpit's
+branding (`/usr/share/cockpit/branding`, the directory of the
+os-release `ID`, `ID-VARIANT_ID`, an `ID_LIKE` or `default`, read at
+start; none without Cockpit) and, to the signed-in, the system's name
+(os-release `PRETTY_NAME`) and host name, so that an approver sees which
+system the decision is for.
+
 Who may decide is as for every approval: the approver rules (chapter 6)
 match the principal the sign-in makes. With `http.local_user_claim`
 that is the local account the ID token names: the rules match it as
