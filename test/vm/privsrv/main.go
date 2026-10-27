@@ -20,7 +20,8 @@
 // server, for auth.vmtest; with -idp ADDR CERTFILE an OpenID provider for
 // the gateway's own HTTP listener, for idp.vmtest (idp.go); with -webhook
 // ADDR CERTFILE SECRETFILE an approval webhook receiver, for hooks.vmtest
-// (webhook.go).
+// (webhook.go); with -pty PASSWORD COMMAND... it runs the command in a
+// terminal of its own and types PASSWORD at its password prompt (pty.go).
 package main
 
 import (
@@ -125,8 +126,10 @@ func main() {
 			err = serveIdP(os.Args[2], os.Args[3], os.Args[4:])
 		case len(os.Args) == 5 && os.Args[1] == "-webhook":
 			err = serveWebhook(os.Args[2], os.Args[3], os.Args[4])
+		case len(os.Args) >= 4 && os.Args[1] == "-pty":
+			err = runPTY(os.Args[2], os.Args[3:])
 		default:
-			err = fmt.Errorf("usage: %s [-http ADDR | -https ADDR CERTFILE | -proxy ADDR | -oauth ADDR CERTFILE | -idp ADDR CERTFILE [ID[:SECRET]=REDIRECT_URI...] | -webhook ADDR CERTFILE SECRETFILE]", os.Args[0])
+			err = fmt.Errorf("usage: %s [-http ADDR | -https ADDR CERTFILE | -proxy ADDR | -oauth ADDR CERTFILE | -idp ADDR CERTFILE [ID[:SECRET]=REDIRECT_URI...] | -webhook ADDR CERTFILE SECRETFILE | -pty PASSWORD COMMAND...]", os.Args[0])
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)

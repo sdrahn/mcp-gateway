@@ -145,6 +145,12 @@ type Server struct {
 	Metrics *metrics.Registry
 	// SignIns serves /v1/sign-ins; optional.
 	SignIns SignIns
+	// OwnPassword, if set, authenticates the user behind peer before an
+	// approval of their own request that only the approver rule "self"
+	// allows (approvals.self_needs_password, roadmap step 40): the
+	// control socket identifies an account, and the account's agent runs
+	// as it too. It returns nil when the user gave their password.
+	OwnPassword func(ctx context.Context, peer transport.PeerCred, p broker.Pending) error
 
 	stopping <-chan struct{} // closed when Serve's context ends
 }
@@ -301,6 +307,8 @@ func via(v string) string {
 // errorResponse is the body of every error.
 type errorResponse struct {
 	Error string `json:"error"`
+	// Code names a refusal a client handles (PasswordRequired).
+	Code string `json:"code,omitempty"`
 }
 
 // metrics writes the metrics, to root only: they count every
@@ -840,6 +848,11 @@ func (s *Server) resolve(w http.ResponseWriter, r *http.Request, a broker.Approv
 		writeError(w, http.StatusBadRequest, `decision must be "approve" or "deny"`)
 		return
 	}
+	if body.Decision == "approve" && s.OwnPassword != nil {
+		if !s.ownAuthenticated(w, r, a) {
+			return
+		}
+	}
 	g, err := s.Broker.ResolveVia(r.Context(), a, r.PathValue("id"), body.Decision == "approve", body.Scope, via(body.Via))
 	switch {
 	case errors.Is(err, broker.ErrNotFound), errors.Is(err, broker.ErrForbidden):
@@ -853,6 +866,48 @@ func (s *Server) resolve(w http.ResponseWriter, r *http.Request, a broker.Approv
 	default:
 		writeJSON(w, http.StatusOK, g)
 	}
+}
+
+// PasswordRequired is the code of a refusal for want of the user's
+// password (403): the approval is the caller's own, only "self" lets
+// them decide it, and polkit did not authenticate them.
+const PasswordRequired = "password_required"
+
+// ownAuthenticated asks for the user's password before an approval of
+// their own request that no other rule allows, and answers the request
+// when it is not given; it reports whether the decision may go on.
+// Denying needs no password: it costs the agent only its own call.
+func (s *Server) ownAuthenticated(w http.ResponseWriter, r *http.Request, a broker.Approver) bool {
+	id := r.PathValue("id")
+	own, err := s.Broker.OwnOnly(r.Context(), a, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no such approval")
+		return false
+	}
+	if !own {
+		return true
+	}
+	p, err := s.Broker.GetPending(r.Context(), a, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no such approval")
+		return false
+	}
+	peer, _ := r.Context().Value(peerKey{}).(transport.PeerCred)
+	if err := s.OwnPassword(r.Context(), peer, p); err != nil {
+		s.log().Warn("approval of one's own request refused: no password", "id", id, "approver", a.Name, "err", err)
+		writeJSON(w, http.StatusForbidden, errorResponse{Code: PasswordRequired, Error: "approving your own request needs your password (approvals.self_needs_password): " + err.Error() +
+			"; run mcp-gateway-admin approvals approve " + id + " in a terminal, decide on the approval page, or ask an approver"})
+		return false
+	}
+	s.log().Info("approval of one's own request: password given", "id", id, "approver", a.Name)
+	return true
+}
+
+func (s *Server) log() *slog.Logger {
+	if s.Log != nil {
+		return s.Log
+	}
+	return slog.New(slog.DiscardHandler)
 }
 
 // with identifies the caller and passes them to h.

@@ -58,6 +58,10 @@ approvals:
   # and how to decide it; the agent's next attempt finds the decision.
   # For agents that show nothing while a call waits ([] names none).
   no_wait: [kit]
+  # Approving one's own request over the control socket (command line,
+  # Cockpit), where only the approver rule "self" allows it, asks for the
+  # user's password (polkit): the user's agent runs as the user too.
+  # self_needs_password: true
   # The gateway's own approval page on its HTTPS listener (http block):
   # approvers sign in with the identity provider of http.issuer, as the
   # client named here, registered there with the redirect URI

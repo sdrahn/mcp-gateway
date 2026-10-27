@@ -109,6 +109,12 @@
                             : [];
                         return Promise.resolve(JSON.stringify({ changes, principals: 3, resources: 12, unchecked: { db: "per-user discovery" } }));
                     }
+                    // a2 is the user's own request that only "self" allows: the
+                    // gateway asks for the password (roadmap step 40).
+                    if (path === "/v1/approvals/a2" && body.includes('"approve"')) {
+                        return Promise.reject({ status: 403, message: JSON.stringify({ code: "password_required",
+                            error: "approving your own request needs your password" }) });
+                    }
                     const cancel = path.match(/^\/v1\/tasks\/([^/]+)\/cancel$/);
                     if (cancel) {
                         tasks = tasks.map(t => t.id === cancel[1]
@@ -136,7 +142,8 @@
             };
         },
         spawn(args, opts) {
-            log.push(["spawn", args.join(" "), opts.superuser]);
+            log.push(["spawn", args.join(" "), opts.superuser, opts.pty]);
+            if (args[0] === "mcp-gateway-admin" && args[1] === "approvals") return ttyApprove();
             if (args[0] === "systemctl") {
                 return query.has("reload")
                     ? Promise.reject(new Error("Job for mcp-gateway.service failed because the control process exited with error code."))
@@ -185,6 +192,27 @@
     let origin = query.has("default") ? "default" : query.has("yaml") ? "yaml" : "json";
     let yamlText = origin === "yaml" ? "# who may do what: ticket 7\n" + rbac + "\n" : null;
     let ignored = [];
+    // ttyApprove is "mcp-gateway-admin approvals approve" in a pty: polkit's
+    // text agent prompts, "secret" is the password, another one prompts
+    // again (the page then closes the process).
+    function ttyApprove() {
+        let streamer = () => {};
+        let settle;
+        const done = new Promise((resolve, reject) => { settle = { resolve, reject }; });
+        const p = {
+            stream(f) { streamer = f; setTimeout(() => f("==== AUTHENTICATING FOR io.github.sdrahn.mcp-gateway.decide-own ====\nPassword: "), 10); return p; },
+            input(x) {
+                log.push(["pty-input", x === "secret\n" ? "right" : "wrong"]);
+                if (x === "secret\n") setTimeout(() => { streamer("\n==== AUTHENTICATION COMPLETE ====\napproved a2\n"); settle.resolve(""); }, 10);
+                else setTimeout(() => streamer("\nSorry, try again.\nPassword: "), 10);
+                return p;
+            },
+            close(problem) { log.push(["pty-close", problem]); settle.reject(new Error(problem)); },
+            then(ok, fail) { return done.then(ok, fail); },
+            catch(fail) { return done.catch(fail); },
+        };
+        return p;
+    }
     // proc is a cockpit.spawn process: input(), then(ok, fail(ex, stdout)).
     function proc(run) {
         let input = "";

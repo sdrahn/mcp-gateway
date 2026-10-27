@@ -247,6 +247,12 @@ type Approvals struct {
 	// id, sent to clients in URL-mode elicitations. Empty disables the url
 	// channel.
 	URLTemplate string `yaml:"url_template"`
+	// SelfNeedsPassword makes a decision over the control socket that
+	// only the approver rule "self" allows ask for the user's password
+	// (polkit): every process of the user, the user's agent too, may use
+	// the socket (roadmap step 40). Default true; false decides as 1.10
+	// did.
+	SelfNeedsPassword *bool `yaml:"self_needs_password"`
 	// ProgressInterval is how often a call waiting for approval reports
 	// progress to the client, when the client asked for progress (MCP
 	// clients may give up on requests that report nothing; the TypeScript
@@ -1665,4 +1671,10 @@ func SecretName(k string) bool {
 		return false
 	}
 	return secretWords.MatchString(k) || secretSuffix.MatchString(k)
+}
+
+// OwnApprovalsNeedPassword reports approvals.self_needs_password (true
+// unless set to false).
+func (g *Gateway) OwnApprovalsNeedPassword() bool {
+	return g.Approvals.SelfNeedsPassword == nil || *g.Approvals.SelfNeedsPassword
 }

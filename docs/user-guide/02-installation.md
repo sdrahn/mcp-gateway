@@ -218,7 +218,10 @@ D-Bus. The package's polkit rule
 (`/usr/share/polkit-1/rules.d/50-mcp-gateway.rules`) lets the
 `mcp-gateway` user start and stop units named as its instances,
 `mcp-<server>-<id>.service` (`<id>`: 16 hex digits), and nothing else,
-not its own `mcp-gateway.service` or `mcp-opa.service`.
+not its own `mcp-gateway.service` or `mcp-opa.service`. Its polkit action
+(`/usr/share/polkit-1/actions/io.github.sdrahn.mcp-gateway.policy`)
+asks users for their password when they approve their own requests on
+the command line or in Cockpit (chapter 7).
 
 ## Development mode
 

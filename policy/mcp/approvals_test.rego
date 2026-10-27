@@ -27,6 +27,18 @@ test_shipped_data_admins if {
 	not approvals.allow with input as {"approver": bob, "request": alice_req}
 }
 
+test_allow_without_self if {
+	# shipped data: default [self, role:admin], wheel → admin
+	approvals.allow with input as {"approver": alice, "request": alice_req}
+	not approvals.allow_without_self with input as {"approver": alice, "request": alice_req}
+	approvals.allow_without_self with input as {"approver": carol, "request": alice_req}
+
+	# alice is also named by another rule: no password needed
+	rbac := {"approvers": {"default": ["self", "user:alice"]}, "bindings": {}}
+	approvals.allow_without_self with input as {"approver": alice, "request": alice_req} with data.mcp.rbac as rbac
+	not approvals.allow_without_self with input as {"approver": alice, "request": alice_req} with data.mcp.rbac as {}
+}
+
 test_remote_principal_only_by_role if {
 	approvals.allow with input as {"approver": carol, "request": remote_req}
 

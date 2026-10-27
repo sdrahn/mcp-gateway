@@ -9,6 +9,17 @@ minor release (with a warning) and removed in the next.
 
 ### Security
 
+- Approving your own request over the control socket (`mcp-gateway-admin
+  approvals approve`, Cockpit's Approvals tab), where only the approver
+  rule `self` lets you, asks for your password (polkit, every time): an
+  agent that runs commands as you, such as one with a shell tool, could
+  otherwise approve its own calls (D21, roadmap step 40). The command
+  line asks in its terminal; without one the approval is refused and
+  stays pending. Cockpit asks on the page. Denying, other approver rules
+  (`role:`, `group:`, `user:`), root and the approval page need no
+  password. `approvals.self_needs_password: false` approves without it,
+  with a warning of the doctor's new `own approvals` check.
+
 - The sign-in helper reaches the hosts a server's metadata names (its
   authorization server, registration and token endpoints) at public
   addresses only, so that a server cannot send it to addresses of the

@@ -24,6 +24,7 @@ UNITDIR     ?= $(PREFIX)/lib/systemd/system
 SYSUSERSDIR ?= $(PREFIX)/lib/sysusers.d
 TMPFILESDIR ?= $(PREFIX)/lib/tmpfiles.d
 POLKITDIR   ?= $(DATADIR)/polkit-1/rules.d
+POLKITACTIONSDIR ?= $(DATADIR)/polkit-1/actions
 COCKPITDIR  ?= $(DATADIR)/cockpit/mcp-gateway
 SELINUXDIR  ?= $(DATADIR)/selinux/packages/$(SELINUXTYPE)
 # mcp_gateway.if, for modules of dedicated backend domains.
@@ -135,6 +136,7 @@ install-gateway:
 	install -Dm0644 packaging/sysusers.d/mcp-gateway.conf $(DESTDIR)$(SYSUSERSDIR)/mcp-gateway.conf
 	install -Dm0644 packaging/tmpfiles.d/mcp-gateway.conf $(DESTDIR)$(TMPFILESDIR)/mcp-gateway.conf
 	install -Dm0644 packaging/polkit/50-mcp-gateway.rules $(DESTDIR)$(POLKITDIR)/50-mcp-gateway.rules
+	install -Dm0644 packaging/polkit/io.github.sdrahn.mcp-gateway.policy $(DESTDIR)$(POLKITACTIONSDIR)/io.github.sdrahn.mcp-gateway.policy
 	# The documentation, for the gateway-docs server: not as %doc, which
 	# installations without documentation (rpm excludedocs) leave out.
 	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/docs/user-guide

@@ -10,7 +10,7 @@ hardening checklist at the end.
 |---|---|---|
 | the **agent** (LLM, its client) | no | may be manipulated by prompt injection; sees only permitted tools; cannot answer high-trust approvals; its self-reported name is informational only |
 | **MCP servers** | no | may be buggy or malicious; run confined, cannot reach the gateway, OPA, other users' instances or secrets they were not given |
-| **the user** | as far as their account goes | decides on their own approvals unless policy says otherwise; so does any process running as the user, an agent's shell tool included (chapter 7, "`self` and agents that run commands") |
+| **the user** | as far as their account goes | decides on their own approvals unless policy says otherwise; over the control socket, with their password (polkit), which an agent running as the user does not have (chapter 7, "Approving your own request: your password") |
 | **administrators** | yes | maintain policy, server definitions and keys |
 
 Layers, from outside in:
@@ -338,8 +338,8 @@ personal data under the GDPR.
 - [ ] Role bindings reviewed; the shipped `dev`/`wheel` bindings adapted.
 - [ ] Destructive tools denied or approval-gated; approvals on `url` or
       `oob`, not `form`; `self` removed from approver rules of high-risk
-      servers, and from all of them where agents with a shell tool run
-      as the requesting user (chapter 7).
+      servers; `approvals.self_needs_password` not set to `false` (the
+      doctor's `own approvals` is OK).
 - [ ] Each server with its own `selinux_type`, `network: false` unless
       needed, `protect_home: read-only` or `yes` unless needed,
       `run_as: dynamic` where it need not act as the user; `landlock`

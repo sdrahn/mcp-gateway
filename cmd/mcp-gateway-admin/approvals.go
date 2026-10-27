@@ -43,7 +43,10 @@ it that names one approval.
 the scope --scope names: one the approval offers ("once", "session", or
 a duration such as "1h"); without --scope, "once" if offered, else the
 only one offered. The waiting call then runs; one that went away finds
-the decision when its agent tries again. "approvals deny ID" denies.
+the decision when its agent tries again. Approving your own request
+where only the approver rule "self" lets you asks for your password
+(polkit) in this terminal: without a terminal, as an agent's shell tool
+runs it, the approval is refused. "approvals deny ID" denies.
 Decisions are audited as made on the command line.
 
 "approvals watch" prints the pending approvals, then each new one and
@@ -61,7 +64,7 @@ host.
 
 Exit status: 0; 1 when the approval is not yours to decide or there is
 none with that id (the two read alike), the scope is not offered, the
-question was answered no, or (--gateway) you are not signed in there or
+question was answered no, your password was not given, or (--gateway) you are not signed in there or
 the sign-in is not accepted; 2 for wrong usage; 3 when the gateway does
 not answer (or, for watch, stops answering).
 
@@ -203,9 +206,25 @@ func pickScope(offered []string, asked string) (string, bool) {
 	return "", false
 }
 
+// ownPasswordTimeout bounds an approval that waits for the user to type
+// their password (polkit, roadmap step 40).
+const ownPasswordTimeout = 5 * time.Minute
+
 // decide posts the decision on p.
 func (cc *controlClient) decide(stdout, stderr io.Writer, p broker.Pending, short, decision, scope string) int {
 	body, _ := json.Marshal(map[string]string{"decision": decision, "scope": scope, "via": "cli"})
+	if decision == "approve" && cc.remote == "" {
+		// The gateway may ask polkit for the user's password (an approval
+		// of their own request): in this terminal, for as long as typing
+		// it takes.
+		stop := startTTYAgent()
+		defer stop()
+		slow := *cc
+		client := *cc.http
+		client.Timeout = ownPasswordTimeout
+		slow.http = &client
+		cc = &slow
+	}
 	status, msg, err := cc.do(http.MethodPost, "/v1/approvals/"+url.PathEscape(p.ID), body)
 	switch {
 	case err != nil:

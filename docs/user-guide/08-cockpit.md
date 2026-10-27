@@ -45,6 +45,10 @@ shows the principal, the call with its arguments, the channel it was
 asked through and the time left, with a note if the agent is no longer
 waiting (chapter 7). Buttons approve for one of the scopes the policy
 offered ("Only this call", "For this session", "For 1h", …) or deny.
+Approving your own request, where only the approver rule `self` lets
+you, asks for your password first (chapter 7): the page then approves
+through `mcp-gateway-admin approvals approve` in a terminal of its own,
+and types the password at polkit's prompt, once.
 
 Only approve what you expect: check the arguments, not just the tool
 name. The agent cannot see or influence this page.

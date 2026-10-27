@@ -1935,7 +1935,7 @@ either says about itself (client info, tool annotations).
 | Threat | Mitigation | Residual risk |
 |---|---|---|
 | Agent calls tools it shouldn't | RBAC + OPA per call; discovery filtering; default deny | the policy's quality |
-| Agent auto-approves its own elicitation | URL / OOB approvals authenticated outside the agent; `form` only for low-risk | `form` approvals are answered by the agent's client; an agent that runs commands as the requesting user decides that user's `self` approvals over the control socket (D21, until step 40) |
+| Agent auto-approves its own elicitation | URL / OOB approvals authenticated outside the agent; `form` only for low-risk | `form` approvals are answered by the agent's client; an agent that knows its user's password (or `approvals.self_needs_password: false`) approves that user's `self` approvals over the control socket (D21, step 40) |
 | Prompt-injected agent exfiltrates via allowed tool | argument constraints, rate limits, output limits, approvals on destructive/egress tools, pseudonymization, audit | what an allowed tool returns reaches the model |
 | Parser differential: policy decides on parameters the server reads differently | requests whose objects repeat a key or have keys differing only in case, and keys differing only in case from one the gateway reads or from an argument the tool or prompt declares, are refused (`invalid params`); found and checked by fuzzing (step 14) | a server with its own notion of argument names (e.g. aliases) |
 | Path arguments leaving an allowed tree through symbolic links | path constraints are on the string (D13); servers confine their own file access (`os.Root`, `openat2` `RESOLVE_BENEATH`; the file server does), and account, sandbox and SELinux domain bound what any path reaches; with `landlock` (D19), the kernel bounds the instance to its trees, following the real hierarchy | servers that follow links without confining themselves, within what their account, domain and (with `landlock`) ruleset may access |
@@ -2603,10 +2603,13 @@ requesting user (a shell tool) can therefore decide that user's own
 approvals wherever the approver rules let the user decide them
 (`self`, the shipped default). That holds for every process of the
 user, not only the command line: the control socket cannot tell the
-user from the user's agent. Until roadmap step 40 makes such decisions
-ask for the user's password (polkit), the documentation says so (user
-guide, chapters 7 and 9) and recommends approver rules without `self`
-for what agents with a shell tool must not approve themselves.
+user from the user's agent. Since 1.11 (roadmap step 40), approving
+one's own request over the control socket where only `self` allows it
+asks for the user's password through polkit (`auth_self`, never kept),
+which an agent that runs as the user does not have; denying, other
+approver rules, root and the HTTPS ways (page, remote command line,
+webhooks) are unchanged. `approvals.self_needs_password: false` keeps
+1.10's behaviour, with a warning of the doctor.
 
 ## 10. Repository layout
 
@@ -4250,40 +4253,47 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
         compatibility test (D10) unchanged: 1.8's configuration still
         works, with Cockpit as before.
 
-40. **Self-approvals the agent cannot make** (1.11, D21; planned): a
+40. **Self-approvals the agent cannot make** (1.11, D21; done): a
     decision the approver rules allow only through `self` (the user
     deciding their own request) and that comes over the control socket
     (the command line, Cockpit, any process of the user) needs the
     user's interactive authentication, so that an agent running
     commands as the user cannot make it:
-    - the gateway asks polkit (`CheckAuthorization`, interaction allowed)
-      for the action `io.github.sdrahn.mcp-gateway.decide-own` on the
-      peer process (its pidfd, `SO_PEERPIDFD`, else pid and start time),
-      shipped as `auth_self` without keeping the authorization: every
-      decision asks again; a decision by `role:`, `group:` or `user:`
-      rules, or by root, does not ask (the approver is someone else);
-    - the command line runs a polkit text agent for itself
-      (`pkttyagent`, as `systemctl` does), so that the password prompt
-      appears in its terminal; without a terminal (an agent's shell
-      tool) there is no one to answer and the decision is refused, with
-      a message saying why and where else to decide;
-    - Cockpit answers through its own polkit agent: to be verified in
-      the VM test (Leap 16, Tumbleweed) before the design is accepted,
-      and the Approvals tab says when a decision waits for the password;
-    - the approval page, the remote command line and webhooks are not
-      affected (they authenticate the approver at the identity provider
-      or by signature);
-    - administrators who accept the risk keep 1.10's behaviour with
-      `approvals.self_needs_password: false`; the doctor warns about it;
+    - the policy says whether another rule lets the approver decide
+      (`data.mcp.approvals.allow_without_self`; undefined counts as
+      no); when none does, the gateway asks polkit (`CheckAuthorization`,
+      interaction allowed) for the action
+      `io.github.sdrahn.mcp-gateway.decide-own` on the peer process
+      (pid and start time), shipped as `auth_self` without keeping the
+      authorization: every approval asks again, and the dialog names
+      the call. Denying, other rules, root and the HTTPS ways do not
+      ask; a refusal (403, `"code": "password_required"`) names the ways
+      that work, and the approval stays pending;
+    - the command line runs polkit's text agent for itself
+      (`pkttyagent --process`, as `systemctl` does) when it has a
+      terminal, so that the prompt appears there; without one (an
+      agent's shell tool) no one can answer and the approval is
+      refused;
+    - Cockpit registers a polkit agent only while it gains
+      administrative access (its bridge's `PolkitAgent`), so it cannot
+      answer for this action: on a `password_required` refusal the
+      Approvals tab asks for the password itself and approves through
+      `mcp-gateway-admin approvals approve` in a pty
+      (`cockpit.spawn(…, {pty: true})`), typing it at the prompt once;
+    - `approvals.self_needs_password: false` keeps 1.10's behaviour;
+      the doctor's `own approvals` warns about it, and fails when the
+      polkit action is missing;
     - SELinux: the gateway's domain talks to polkitd over the system
-      bus; the doctor checks that polkit and the action are installed;
-    - tests: unit tests of the decision paths (self with and without
-      authentication, others' rules not asking, root); in the VM test
-      (the openQA suite) a decision from a shell without a terminal
-      refused, one through `pkttyagent` with the test user's password
-      accepted, a wrong password refused, `via` and the polkit result
-      in the audit, and Cockpit's Approvals tab with its password
-      prompt.
+      bus (`policykit_dbus_chat`);
+    - tests: the policy rule; the control API (asked only for an
+      approval only `self` allows, refused without the password, still
+      pending, deny without one); e2e under a user other than root
+      (refused without polkit); Cockpit's smoke test (the prompt, a
+      wrong password, the approval in a pty); in the VM test (the
+      openQA suite) against polkit itself: without a terminal refused,
+      with a wrong password refused, with the right one (typed at
+      pkttyagent's prompt in a pty) approved and the call run, deny,
+      `user:` rules and root without a password, the doctor's check.
 
 41. **Hardening from the security review** (1.11; done): the review of
     2026-10-26 found, besides what 1.10.2 fixed (tokens mapping to

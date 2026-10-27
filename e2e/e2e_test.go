@@ -302,6 +302,12 @@ func setupWith(t *testing.T, rbac string, roots map[string]string, extra string,
 	if strings.HasPrefix(extra, "approval_timeout:") || strings.Contains(extra, "\napproval_timeout:") {
 		approvalTimeout = ""
 	}
+	// The tests decide their own approvals over the control socket, with
+	// no polkit to ask for a password (roadmap step 40), unless they set
+	// self_needs_password themselves.
+	if !strings.Contains(approvalsExtra, "self_needs_password:") {
+		approvalsExtra += "  self_needs_password: false\n"
+	}
 	writeFile(t, filepath.Join(tmp, "gateway.yaml"), fmt.Sprintf(`
 socket: %s
 servers_dir: %s

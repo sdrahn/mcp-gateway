@@ -494,9 +494,10 @@ the clients** using it (`data.mcp.approvals.manage_session`: the rules of
 every server of the client's endpoint), who may **see and end sign-ins**
 to a server with `sign_in` (`data.mcp.approvals.manage_sign_in`,
 chapter 4), and whom approval **e-mail** goes to (chapter 7). Approvers are identified by the kernel on the
-control socket, never by what an agent says; an agent that runs commands
-as the requesting user is that user to the kernel, though, and may
-decide where `self` may (chapter 7).
+control socket, never by what an agent says. An agent that runs commands
+as the requesting user is that user to the kernel, though: approving
+where only `self` allows it therefore asks for the user's password
+(chapter 7).
 
 Examples:
 

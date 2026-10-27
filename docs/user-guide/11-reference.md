@@ -184,6 +184,7 @@ the same across releases; the texts may change.
 | `polkit` | account | polkit *account* |
 | `principals` | | principals |
 | `approval-reach` | | approval reach |
+| `own-approvals` | | own approvals |
 | `identity-provider` | | identity provider |
 | `approval-page` | | approval page |
 | `webhook` | webhook name | webhook *name* |
@@ -517,7 +518,7 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `GET /v1/status` | `{"version", "restart_pending", "servers_error", "config_error", "restart_needed", "config_reloads"}`: the running gateway's version; `true` when its program was updated and the gateway not yet restarted; why the last reload of the server definitions, or of `gateway.yaml`, failed (absent when it did not); the keys of `gateway.yaml` changed since the start that take effect at the next start (absent when none); how often `gateway.yaml` and its drop-ins were reloaded since the start, failed reloads too (from 1.3) |
 | `GET /v1/approvals` | pending approvals the caller may decide on (list of approvals, below) |
 | `GET /v1/approvals/{id}` | one approval; `404` if unknown or not the caller's to decide |
-| `POST /v1/approvals/{id}` | `{"decision": "approve"\|"deny", "scope": "once"\|"session"\|<duration>, "via": "cockpit"\|"cli"}`; returns the grant (`200`) or nothing (`204`, denied); `400 scope not offered`. `via` (optional) names the way the decision came, for the audit; anything else is recorded as `api` |
+| `POST /v1/approvals/{id}` | `{"decision": "approve"\|"deny", "scope": "once"\|"session"\|<duration>, "via": "cockpit"\|"cli"}`; returns the grant (`200`) or nothing (`204`, denied); `400 scope not offered`; `403` with `"code": "password_required"` when approving the caller's own request, which only the approver rule `self` allows, without their password (polkit; chapter 7). `via` (optional) names the way the decision came, for the audit; anything else is recorded as `api` |
 | `GET /v1/grants` | grants the caller may manage (list of grants, below) |
 | `DELETE /v1/grants/{id}` | revoke; `204`. `?via=cockpit\|cli` as for decisions |
 | `GET /v1/servers` | registered servers `{"name", "selinux_type", "isolation", "network", "run_as", "privileged", "capabilities", "sign_in", "landlock", "instances"}` with the instances the caller may manage `{"id", "server", "unit", "sub", "iss", "uid", "transport", "session_id", "isolation", "started", "sessions", "privileged", "busy", "definition"}`; an instance's `privileged` is also set for a server with `capabilities` (such an instance is not stopped during a call); `definition` is `current`, `previous` (started from a definition changed since) or `removed`; a server removed from the configuration whose instances still run is listed with `"removed": true` |
@@ -533,7 +534,10 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `GET /v1/metrics` | metrics in the Prometheus text format (chapter 10); `403` unless the caller is root |
 | `GET /v1/events` | server-sent events (`event: approval`) for the approvals the caller may decide on: first all pending, then changes; `data` is `{"type": "pending"\|"resolved", "id", "new", "pending", "url"}` |
 
-Errors are `{"error": "…"}` with a matching status.
+Errors are `{"error": "…"}` with a matching status, and `"code"` for
+those a client handles: `"password_required"` (403) refuses approving
+your own request without your password (chapter 7); the client asks for
+it, e.g. by running `mcp-gateway-admin approvals approve` in a terminal.
 
 The API is versioned by its path. Within `/v1`, new releases only add
 endpoints and fields; clients must ignore fields they do not know. A
@@ -636,6 +640,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/usr/lib/systemd/system/mcp-gateway.service`, `mcp-opa.service`, `mcp-policy-render.service` | units |
 | `/usr/lib/sysusers.d/mcp-gateway.conf` | accounts |
 | `/usr/share/polkit-1/rules.d/50-mcp-gateway.rules` | lets the gateway manage its instances, `mcp-<server>-<id>.service` |
+| `/usr/share/polkit-1/actions/io.github.sdrahn.mcp-gateway.policy` | the action users authenticate for (`auth_self`) to approve their own requests over the control socket |
 | `/usr/share/cockpit/mcp-gateway/` | Cockpit page |
 | `/etc/xdg/autostart/mcp-gateway-notify.desktop` | desktop agent autostart |
 | `/usr/libexec/mcp-servers/` | conventional place for MCP server programs; `mcp-server-fs`, `mcp-server-exec` |
