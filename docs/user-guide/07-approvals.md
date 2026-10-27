@@ -595,11 +595,30 @@ systemctl reload mcp-gateway.service    # or wait 10 s: notifications are reload
   and the users whose primary group it is (`getent passwd`). With SSSD
   or LDAP, which often do not enumerate users (`enumerate = true`), the
   latter are found among the local users who have used the gateway or
-  its Cockpit pages (remembered in `/var/lib/mcp-gateway/principals.json`);
-  name others as `user:` approvers. `mcp-gateway-admin doctor` warns
-  about an approver group in which it finds nobody. Each name
+  its Cockpit pages (remembered in `/var/lib/mcp-gateway/principals.json`)
+  and, with SSSD, through its InfoPipe (below); name others as `user:`
+  approvers. `mcp-gateway-admin doctor` warns about an approver group in
+  which it finds nobody, and about members only InfoPipe finds while
+  SSSD does not let the gateway ask. Each name
   becomes an address through `to`. All recipients get one mail (as
   undisclosed recipients).
+- **Directory users by primary group (SSSD):** with the package
+  `sssd-dbus`, the gateway asks SSSD's InfoPipe for the users whose
+  primary group an approver group is, which finds them in the directory
+  without enumeration. SSSD answers only the accounts it lists in
+  `allowed_uids` (root alone by default):
+
+  ```ini
+  # /etc/sssd/conf.d/50-mcp-gateway.conf (mode 0600)
+  [ifp]
+  allowed_uids = 0, mcp-gateway
+  ```
+
+  then `systemctl restart sssd`. A lookup has SSSD fetch the directory's
+  users (at most 10,000) and is kept for 10 minutes per group; the
+  doctor says how many members it found this way, and warns if the
+  search stopped at the limit. Names SSSD qualifies with the domain
+  (`use_fully_qualified_names`) are not mailed.
 - A mail goes out once per new pending approval (not for retries taking
   one over). It names the principal, the call, the self-reported client
   and the time-out, and links to the approval page (`url_template`),

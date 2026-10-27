@@ -3669,7 +3669,8 @@ section "Users from a directory"
 # dana are directory users, mcp-dir (both) and dir-approvers (dana) are
 # directory groups. The socket's group is mcp-dir (socket_group, with the
 # group added to the gateway's unit), roles are bound to mcp-dir, and
-# approvals for fs are decided by group:dir-approvers. The packages come
+# approvals for fs are decided by group:dir-approvers, whose mail reaches
+# dex (his primary group) through SSSD's InfoPipe. The packages come
 # from the distribution's repositories; without them the section is
 # skipped.
 if zypper -n in --no-recommends 389-ds sssd sssd-ldap openldap2-client >/root/vmtest/dir-install.log 2>&1; then
@@ -3702,6 +3703,8 @@ END
 		dir_entry dana 20002
 		printf 'dn: cn=mcp-dir,ou=Groups,dc=vmtest,dc=example\nobjectClass: top\nobjectClass: posixGroup\ncn: mcp-dir\ngidNumber: 20100\nmemberUid: dirk\nmemberUid: dana\n\n'
 		printf 'dn: cn=dir-approvers,ou=Groups,dc=vmtest,dc=example\nobjectClass: top\nobjectClass: posixGroup\ncn: dir-approvers\ngidNumber: 20101\nmemberUid: dana\n\n'
+		# dex: dir-approvers is his primary group, which does not list him.
+		printf 'dn: uid=dex,ou=People,dc=vmtest,dc=example\nobjectClass: top\nobjectClass: inetOrgPerson\nobjectClass: posixAccount\ncn: dex\nsn: dex\nuid: dex\nuidNumber: 20003\ngidNumber: 20101\nhomeDirectory: /home/dex\nloginShell: /bin/bash\n\n'
 	} >/root/vmtest/dir.ldif
 	check "the users and groups are in the directory" bash -c \
 		'ldapadd -x -H ldap://127.0.0.1 -D "cn=Directory Manager" -w "$1" -f /root/vmtest/dir.ldif >/root/vmtest/ldapadd.log 2>&1' _ "$dir_pw"
@@ -3782,6 +3785,80 @@ END
 	control dana POST "/v1/approvals/$dir_id" '{"decision":"approve","scope":"once"}' >/dev/null
 	wait "$dir_call"
 	check "... and approves it: the call runs" grep -q '"isError":false' /root/vmtest/dir-call.out
+
+	# Roadmap step 42: approval mail to dex, whose primary group is
+	# dir-approvers. SSSD does not enumerate and dex never used the
+	# gateway: only SSSD's InfoPipe finds him, and only once SSSD lets
+	# the gateway ask (allowed_uids).
+	if rpm -q postfix >/dev/null 2>&1 &&
+		zypper -n in --no-recommends sssd-dbus >/root/vmtest/ifp-install.log 2>&1; then
+		install -d -m 0700 -o dex -g dir-approvers /home/dex
+		sed -i 's/^services = nss$/services = nss, ifp/' /etc/sssd/sssd.conf
+		systemctl restart sssd
+		check "SSSD serves the directory again, with InfoPipe" eventually 30 dir_known
+		check "SSSD does not enumerate: dex is not in getent passwd" bash -c '! getent passwd | grep -q "^dex:"'
+		check "... but known by name, his primary group dir-approvers" test "$(id -gn dex 2>/dev/null)" = dir-approvers
+		check "... and dir-approvers does not list him" bash -c '! getent group dir-approvers | grep -qw dex'
+		mcp-gateway-admin config set notifications.email.from mcp-gateway@localhost >/dev/null
+		mcp-gateway-admin config set notifications.email.smtp localhost:25 >/dev/null
+		setsebool mcpgw_can_send_mail on
+		dm_mail() { cat "/var/spool/mail/$1" 2>/dev/null; }
+		dm_got() { dm_mail "$1" | grep -qF "$dm_id"; }
+		# dm_call: dirk's get_file_info, approved by dana once it waits;
+		# sets dm_id.
+		dm_call() {
+			runuser -u dirk -- /usr/local/bin/mcpcall --server fs --method tools/call \
+				--params '{"name":"get_file_info","arguments":{"path":"/home/dirk/notes.txt"}}' >/root/vmtest/dm-call.out 2>&1 &
+			local pid=$!
+			dm_id=
+			for _ in $(seq 30); do
+				dm_id=$(control dana GET /v1/approvals | jq -r '.[] | select(.name == "get_file_info") | .id' 2>/dev/null | head -1)
+				[ -n "$dm_id" ] && break
+				sleep 1
+			done
+			echo "  approval: ${dm_id:-none}"
+			[ -n "$dm_id" ] && control dana POST "/v1/approvals/$dm_id" '{"decision":"approve","scope":"once"}' >/dev/null
+			wait "$pid"
+			grep -q '"isError":false' /root/vmtest/dm-call.out
+		}
+		dm_doctor() { mcp-gateway-admin doctor --no-start 2>&1 | grep -E '^[A-Z]+ +approver group dir-approvers'; }
+
+		# InfoPipe answers root alone: the doctor finds dex, the gateway not.
+		dm_since=$(date +%s)
+		dm_doctor | sed 's/^/  /'
+		check "doctor: dex, whom only InfoPipe finds, missed while SSSD does not let the gateway ask" \
+			bash -c 'dm_out=$(mcp-gateway-admin doctor --no-start 2>&1); grep -qE "^WARN +approver group dir-approvers: approval mail misses 1 of 2 members" <<<"$dm_out" && grep -qF "allowed_uids" <<<"$dm_out"'
+		check "without allowed_uids: dana approves dirk's call" dm_call
+		check "... dana, a listed member of dir-approvers, got the mail" eventually 30 dm_got dana
+		check "... dex did not" bash -c '! grep -qF "$1" /var/spool/mail/dex 2>/dev/null' _ "$dm_id"
+		dm_warned() { journalctl -u mcp-gateway.service -o cat --since "@$dm_since" | grep -F "primary-group members from SSSD" | grep -qF allowed_uids; }
+		check "... and the gateway warns that InfoPipe refuses it" eventually 20 dm_warned
+
+		# With mcp-gateway in allowed_uids (chapter 7). The gateway keeps
+		# InfoPipe's refusal for 10 minutes: a restart forgets it.
+		printf '[ifp]\nallowed_uids = 0, mcp-gateway\n' >/etc/sssd/conf.d/50-mcp-gateway.conf
+		chmod 0600 /etc/sssd/conf.d/50-mcp-gateway.conf
+		systemctl restart sssd
+		check "SSSD serves the directory again, the gateway allowed on InfoPipe" eventually 30 dir_known
+		systemctl restart mcp-gateway.service
+		wait_socket
+		dm_since=$(date +%s)
+		dm_doctor | sed 's/^/  /'
+		check "doctor: approval mail reaches both, one through InfoPipe" \
+			bash -c 'mcp-gateway-admin doctor --no-start 2>&1 | grep -qE "^OK +approver group dir-approvers: approval mail reaches 2 members of dir-approvers \(1 through SSSD.s InfoPipe\)"'
+		check "with allowed_uids: dana approves dirk's call" dm_call
+		check "... dex, whose primary group dir-approvers is, got the mail" eventually 30 dm_got dex
+		check "... and dana" eventually 30 dm_got dana
+		dm_sent() { journalctl -u mcp-gateway.service -o cat --since "@$dm_since" | grep -F "approval mail sent" | grep -F "$dm_id" | grep -q 'recipients=2'; }
+		check "the gateway logs the mail, to 2 recipients" eventually 20 dm_sent
+
+		mcp-gateway-admin config unset notifications.email.smtp >/dev/null
+		mcp-gateway-admin config unset notifications.email.from >/dev/null
+		setsebool mcpgw_can_send_mail off
+	else
+		tail -3 /root/vmtest/ifp-install.log 2>/dev/null | sed 's/^/  | /'
+		skip "approval mail through SSSD's InfoPipe (no postfix, or sssd-dbus not installable)"
+	fi
 
 	# Back to mcp-users.
 	jq 'del(.approvers.fs)' /etc/mcp-gateway/policy/rbac/data.yaml >/root/dir-data.json &&

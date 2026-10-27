@@ -65,7 +65,7 @@ systemctl edit mcp-gateway.service
 | `grants.json` | standing approvals | users are asked again |
 | `pending.json` | pending approvals | pending approvals are gone; agents retry |
 | `audit.key` | key of the argument digests | new key: old digests can no longer be compared with new ones |
-| `principals.json` | local users who used the gateway or its control API (Cockpit) | approval mail finds primary-group members of approver groups only by enumeration until they come back (chapter 7) |
+| `principals.json` | local users who used the gateway or its control API (Cockpit) | approval mail finds primary-group members of approver groups only by enumeration or SSSD's InfoPipe until they come back (chapter 7) |
 
 Back up `/etc/mcp-gateway/` (configuration, definitions, role data,
 bundle keys, credentials) and `/var/lib/mcp-gateway/`. All files are

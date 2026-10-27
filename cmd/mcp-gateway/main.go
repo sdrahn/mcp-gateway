@@ -293,6 +293,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		log.Warn("known principals not read; starting with none", "err", err)
 	}
 	mail.Known = seen.Names
+	// Primary-group members in SSSD's directories, through its InfoPipe
+	// where SSSD lets the gateway ask.
+	mail.InfoPipe = &notify.InfoPipe{}
 	remember := func(name string) {
 		if err := seen.Add(name); err != nil {
 			log.Warn("principal not remembered", "name", name, "err", err)

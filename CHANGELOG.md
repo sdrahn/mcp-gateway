@@ -15,6 +15,17 @@ minor release (with a warning) and removed in the next.
   that a token is valid at one gateway only, and each gateway's
   configuration and role data.
 
+### Fixed
+
+- Approval mail reaches directory users whose primary group is an
+  approver group also when SSSD does not enumerate users and they never
+  used the gateway: the gateway asks SSSD's InfoPipe (package
+  `sssd-dbus`), where `allowed_uids` in the `[ifp]` section of
+  `sssd.conf` names `mcp-gateway`. The doctor's `approver group` check
+  counts them, and warns about members only InfoPipe finds while SSSD
+  does not let the gateway ask. The SELinux module lets the gateway talk
+  to SSSD over D-Bus.
+
 ## v1.11.0 — 2026-10-27
 
 Security hardening from a review of the whole code base (2026-10-26),
