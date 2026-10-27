@@ -7,6 +7,16 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Fixed
+
+- The tool error that tells an agent such as Kit at once that a call
+  waits for an approval (`approvals.no_wait`) also names the command for
+  other hosts, `mcp-gateway-admin approvals approve ID --gateway URL`
+  (and the sign-in for it), when the gateway's approval page serves the
+  command line on other hosts (`approvals.page.device_client_id`), and
+  asks the model to give the commands as plain text: Kit showed "Command
+  line on <host>:" and left the command out.
+
 ## v1.12.2 — 2026-10-27
 
 Cockpit asks for your password again when you approve your own request

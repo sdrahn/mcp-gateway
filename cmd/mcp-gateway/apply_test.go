@@ -122,3 +122,23 @@ func TestApplyConfig(t *testing.T) {
 		t.Fatal("certificate changed although the reload failed")
 	}
 }
+
+// The command on other hosts is offered when the gateway's page serves
+// the approval API: the HTTP listener, the page and its device client.
+func TestRemoteApprovals(t *testing.T) {
+	gw := &config.Gateway{}
+	gw.HTTP.Listen = ":8443"
+	gw.HTTP.Audience = "https://gw1.example.com:8443/mcp"
+	gw.Approvals.Page.ClientID = "approvals"
+	if got := remoteApprovals(gw); got != "" {
+		t.Errorf("without a device client: %q", got)
+	}
+	gw.Approvals.Page.DeviceClientID = "approvals-cli"
+	if got := remoteApprovals(gw); got != "https://gw1.example.com:8443" {
+		t.Errorf("with one: %q", got)
+	}
+	gw.HTTP.Listen = ""
+	if got := remoteApprovals(gw); got != "" {
+		t.Errorf("without the listener: %q", got)
+	}
+}
