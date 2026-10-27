@@ -62,33 +62,44 @@ func TestContexts(t *testing.T) {
 			t.Logf("gateway:\n%s", e.gwLogs.String())
 		}
 	}()
+	// The definitions are loaded while the gateway runs.
+	ctl := controlClient(e.ctlSock)
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var servers []struct{ Name string }
+		controlDo(t, ctl, "GET", "/v1/servers", "", &servers)
+		if slices.ContainsFunc(servers, func(s struct{ Name string }) bool { return s.Name == "fs" }) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("servers not loaded: %v", servers)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 	c := newClient(t, e.connect, e.gwSock, "fs")
 	id := 1
+	// request sends a modern request and returns its response (the
+	// notifications between are skipped).
 	request := func(method string, params map[string]any) msg {
 		t.Helper()
 		id++
 		c.request(id, method, modern(params))
-		return c.read()
+		for {
+			m := c.read()
+			if m.Method == "" && string(m.ID) == fmt.Sprint(id) {
+				return m
+			}
+		}
 	}
 	call := func(tool string, args map[string]any) msg {
 		t.Helper()
 		return request("tools/call", map[string]any{"name": tool, "arguments": args})
 	}
 
-	// The definitions are loaded while the gateway runs.
-	deadline := time.Now().Add(15 * time.Second)
-	for {
-		m := request("tools/list", nil)
-		if m.Error == nil && strings.Contains(listNames(t, m, "tools", "name"), "gateway_new_context") {
-			if !strings.Contains(string(m.Result), `"gateway_context"`) {
-				t.Fatalf("no gateway_context on the tools: %s", m.Result)
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("no context tools: %+v %s", m.Error, m.Result)
-		}
-		time.Sleep(200 * time.Millisecond)
+	m := request("tools/list", nil)
+	if m.Error != nil || !strings.Contains(listNames(t, m, "tools", "name"), "gateway_new_context") ||
+		!strings.Contains(string(m.Result), `"gateway_context"`) {
+		t.Fatalf("no context tools: %+v %s", m.Error, m.Result)
 	}
 
 	open := func() string {
@@ -114,7 +125,6 @@ func TestContexts(t *testing.T) {
 		}
 	}
 
-	ctl := controlClient(e.ctlSock)
 	instances := func() (contexts []string, isolation map[string]string) {
 		t.Helper()
 		var servers []struct {
@@ -170,12 +180,20 @@ func TestContexts(t *testing.T) {
 
 	// A role that denies every tool of the server offers no contexts.
 	lc := newClient(t, e.connect, e.gwSock, "locked")
+	lread := func(id int) msg {
+		t.Helper()
+		for {
+			if m := lc.read(); m.Method == "" && string(m.ID) == fmt.Sprint(id) {
+				return m
+			}
+		}
+	}
 	lc.request(1, "tools/list", modern(nil))
-	if m := lc.read(); m.Error != nil || strings.Contains(listNames(t, m, "tools", "name"), "gateway_new_context") {
+	if m := lread(1); m.Error != nil || strings.Contains(string(m.Result), "gateway_new_context") {
 		t.Fatalf("locked: %+v %s", m.Error, m.Result)
 	}
 	lc.request(2, "tools/call", modern(map[string]any{"name": "gateway_new_context", "arguments": map[string]any{}}))
-	if m := lc.read(); m.Error == nil && !strings.Contains(string(m.Result), `"isError":true`) {
+	if m := lread(2); m.Error == nil && !strings.Contains(string(m.Result), `"isError":true`) {
 		t.Fatalf("locked: a context opened: %s", m.Result)
 	}
 }
