@@ -26,7 +26,7 @@ func TestBodyDeadline(t *testing.T) {
 			got <- "cancelled"
 			return
 		}
-		fmt.Fprintf(w, "got %s", body)
+		_, _ = fmt.Fprintf(w, "got %s", body)
 		got <- "ok"
 	}), 100*time.Millisecond))
 	defer srv.Close()
@@ -47,7 +47,7 @@ func TestBodyDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = c.Close() }()
-	fmt.Fprintf(c, "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nh")
+	_, _ = fmt.Fprintf(c, "POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nh")
 	select {
 	case r := <-got:
 		if r != "read error" {
