@@ -19,7 +19,9 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -52,10 +54,15 @@ type Email struct {
 	// those whose primary group an approver group is are found also
 	// where NSS does not enumerate users.
 	Known func() []string
+	// InfoPipe, if set, finds the users whose primary group an approver
+	// group is in SSSD's directories, whether or not they enumerate.
+	InfoPipe *InfoPipe
 	// Send delivers a message (default: SMTP per cfg).
 	Send func(ctx context.Context, to []string, msg []byte) error
 	now  func() time.Time
 	host string
+	// logged holds the InfoPipe problems logged (logDirectory).
+	logged sync.Map
 }
 
 // emailState is the configuration in force, with the password read from
@@ -74,7 +81,9 @@ func NewEmail(cfg config.Email, policy Policy, log *slog.Logger) (*Email, error)
 		if e.Known != nil {
 			known = e.Known()
 		}
-		return getentMembers(ctx, group, known)
+		members, dir, err := getentMembers(ctx, group, known, e.InfoPipe)
+		e.logDirectory(group, dir)
+		return members, err
 	}
 	if err := e.Configure(cfg); err != nil {
 		return nil, err
@@ -316,37 +325,91 @@ func (e *Email) smtpSend(ctx context.Context, to []string, msg []byte) error {
 	return c.Quit()
 }
 
+// Directory is what SSSD's InfoPipe added to a group's members.
+type Directory struct {
+	// Names are the users it found whose primary group the group is,
+	// not found otherwise.
+	Names []string
+	// Truncated: SSSD's search stopped at the limit, some may be missing.
+	Truncated bool
+	// Err is why InfoPipe did not answer (ErrNoInfoPipe,
+	// ErrInfoPipeDenied, ...); nil if it did, or was not asked.
+	Err error
+}
+
 // getentMembers lists a group's members through NSS (also SSSD, LDAP):
 // those its entry lists, and the users whose primary group it is, as far
 // as NSS enumerates users (SSSD and LDAP often do not, without
-// enumerate = true) and among the known users, looked up by name.
-func getentMembers(ctx context.Context, group string, known []string) ([]string, error) {
+// enumerate = true), among the known users, looked up by name, and as
+// SSSD's InfoPipe finds them if ifp is set.
+func getentMembers(ctx context.Context, group string, known []string, ifp *InfoPipe) ([]string, Directory, error) {
+	var dir Directory
 	if !validName(group) {
-		return nil, fmt.Errorf("invalid group name %q", group)
+		return nil, dir, fmt.Errorf("invalid group name %q", group)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "getent", "group", group).Output()
 	if err != nil {
-		return nil, err
+		return nil, dir, err
 	}
 	gid, members := parseGroup(string(out))
 	if gid == "" {
-		return members, nil
+		return members, dir, nil
 	}
 	// An enumeration that fails leaves the listed members.
 	if passwd, err := exec.CommandContext(ctx, "getent", "passwd").Output(); err == nil {
 		members = appendNew(members, primaryMembers(string(passwd), gid)...)
 	}
-	return appendNew(members, knownMembers(ctx, gid, known)...), nil
+	members = appendNew(members, knownMembers(ctx, gid, known)...)
+	if ifp != nil {
+		if n, err := strconv.ParseUint(gid, 10, 32); err == nil {
+			// The directory search has its own time: SSSD may fetch
+			// thousands of users.
+			ictx, icancel := context.WithTimeout(context.WithoutCancel(ctx), ifpTimeout)
+			defer icancel()
+			var names []string
+			names, dir.Truncated, dir.Err = ifp.PrimaryMembers(ictx, uint32(n))
+			for _, name := range names {
+				if !slices.Contains(members, name) {
+					dir.Names = append(dir.Names, name)
+					members = append(members, name)
+				}
+			}
+		}
+	}
+	return members, dir, nil
+}
+
+// ifpTimeout bounds one InfoPipe lookup.
+const ifpTimeout = 60 * time.Second
+
+// logDirectory logs, once per group and outcome, what InfoPipe did not
+// do: a refusal an administrator can fix as a warning, its absence (the
+// usual case without SSSD) not at all.
+func (e *Email) logDirectory(group string, dir Directory) {
+	var msg string
+	switch {
+	case dir.Err == nil && !dir.Truncated:
+		return
+	case errors.Is(dir.Err, ErrNoInfoPipe):
+		return
+	case dir.Err != nil:
+		msg = dir.Err.Error()
+	default:
+		msg = fmt.Sprintf("SSSD's search stopped at %d users: some whose primary group it is may be missing", MaxInfoPipeUsers)
+	}
+	if _, logged := e.logged.LoadOrStore(group+"\x00"+msg, true); !logged {
+		e.Log.Warn("approval mail: primary-group members from SSSD's directories not found", "group", group, "reason", msg)
+	}
 }
 
 // GroupMembers lists a group's members as approval mail finds them: the
 // members its entry lists, and the users whose primary group it is, as
-// far as NSS enumerates users and among known (the users the gateway has
-// seen, Seen).
-func GroupMembers(ctx context.Context, group string, known []string) ([]string, error) {
-	return getentMembers(ctx, group, known)
+// far as NSS enumerates users, among known (the users the gateway has
+// seen, Seen) and as SSSD's InfoPipe finds them if ifp is set (dir).
+func GroupMembers(ctx context.Context, group string, known []string, ifp *InfoPipe) ([]string, Directory, error) {
+	return getentMembers(ctx, group, known, ifp)
 }
 
 // knownMembers returns the users of known whose primary group is gid,

@@ -222,10 +222,10 @@ func TestSeen(t *testing.T) {
 }
 
 func TestGetentMembers(t *testing.T) {
-	if _, err := getentMembers(context.Background(), "bad name", nil); err == nil {
+	if _, _, err := getentMembers(context.Background(), "bad name", nil, nil); err == nil {
 		t.Fatal("invalid group name accepted")
 	}
-	members, err := getentMembers(context.Background(), "root", nil)
+	members, _, err := getentMembers(context.Background(), "root", nil, nil)
 	if err != nil {
 		t.Skipf("getent: %v", err)
 	}

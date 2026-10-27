@@ -96,6 +96,8 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 		allBoots:    *previousBoots,
 		timeout:     *timeout,
 		log:         slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelError})),
+		infoPipe:    &notify.InfoPipe{},
+		sssdConf:    "/etc/sssd",
 	}
 	rs := d.run(*configPath)
 	doctor.Identify(rs)
@@ -155,6 +157,11 @@ type doctorRun struct {
 	failed      []string
 	denials     []profile.Denial
 	denialsRead bool
+	// infoPipe, if set, is SSSD's InfoPipe, asked for approver groups as
+	// the approval mail asks it; sssdConf is SSSD's configuration
+	// directory (/etc/sssd), read for whether it lets the gateway ask.
+	infoPipe *notify.InfoPipe
+	sssdConf string
 }
 
 func (d *doctorRun) run(configPath string) []doctor.Result {
@@ -790,8 +797,9 @@ func bootTime() time.Time {
 // approverGroups checks, when approval mail is on, that the doctor finds
 // members in each approver group (group: rules) as the mail does: those
 // the group lists, and the users whose primary group it is as far as NSS
-// enumerates users or the gateway has seen them (principals.json in the
-// state directory).
+// enumerates users, the gateway has seen them (principals.json in the
+// state directory) or SSSD's InfoPipe finds them; it warns about members
+// only InfoPipe finds while SSSD does not let the gateway ask it.
 func (d *doctorRun) approverGroups() []doctor.Result {
 	if d.gw.Notifications.Email.SMTP == "" || d.rbac == nil {
 		return nil
@@ -822,22 +830,102 @@ func (d *doctorRun) approverGroups() []doctor.Result {
 	known := seen.Names()
 	var out []doctor.Result
 	for _, g := range groups {
-		r := doctor.Result{Check: "approver group " + g}
-		members, err := notify.GroupMembers(context.Background(), g, known)
-		switch {
-		case err != nil:
-			r.Status, r.Summary = doctor.Warn, "group "+g+" not found: approval mail reaches nobody through it"
-			r.Details = []string{"fix the group: rule in the approvers of the role data, or create the group"}
-		case len(members) == 0:
-			r.Status, r.Summary = doctor.Warn, "approval mail finds nobody in "+g
-			r.Details = []string{"users whose primary group it is are found only if NSS enumerates users (SSSD, LDAP: enumerate = true)",
-				"or once they used the gateway; name them as user: approvers instead"}
-		default:
-			r.Status, r.Summary = doctor.OK, fmt.Sprintf("approval mail reaches %d members of %s", len(members), g)
-		}
-		out = append(out, r)
+		members, dir, err := notify.GroupMembers(context.Background(), g, known, d.infoPipe)
+		// (sssd.conf is read only if the gateway's leave to ask matters.)
+		allowed := len(dir.Names) == 0 || d.sssdAllowsGateway()
+		out = append(out, approverGroupResult(g, members, dir, err, allowed, d.sssdConf))
 	}
 	return out
+}
+
+// approverGroupResult is the check of one approver group: its members as
+// the doctor found them (dir: those SSSD's InfoPipe added), and whether
+// SSSD lets the gateway ask InfoPipe too (sssdConf: its configuration).
+func approverGroupResult(g string, members []string, dir notify.Directory, err error, allowed bool, sssdConf string) doctor.Result {
+	r := doctor.Result{Check: "approver group " + g}
+	switch {
+	case err != nil:
+		r.Status, r.Summary = doctor.Warn, "group "+g+" not found: approval mail reaches nobody through it"
+		r.Details = []string{"fix the group: rule in the approvers of the role data, or create the group"}
+	case len(dir.Names) > 0 && !allowed:
+		// Found by the doctor (root), not by the gateway.
+		r.Status = doctor.Warn
+		r.Summary = fmt.Sprintf("approval mail misses %d of %d members of %s: SSSD's InfoPipe does not let %s ask for them",
+			len(dir.Names), len(members), g, statedir.User)
+		r.Details = []string{"users whose primary group it is, from SSSD's directories: " + strings.Join(dir.Names, ", "),
+			"add " + statedir.User + " to allowed_uids in the [ifp] section of " + sssdConf + "/sssd.conf (with 0 for root), and restart sssd"}
+	case len(members) == 0:
+		r.Status, r.Summary = doctor.Warn, "approval mail finds nobody in "+g
+		r.Details = []string{"users whose primary group it is are found only if NSS enumerates users (SSSD, LDAP: enumerate = true),",
+			"through SSSD's InfoPipe (sssd-dbus, with " + statedir.User + " in allowed_uids of [ifp] in sssd.conf),",
+			"or once they used the gateway; name them as user: approvers instead"}
+		if dir.Err != nil && !errors.Is(dir.Err, notify.ErrNoInfoPipe) {
+			r.Details = append(r.Details, dir.Err.Error())
+		}
+	default:
+		r.Status, r.Summary = doctor.OK, fmt.Sprintf("approval mail reaches %d members of %s", len(members), g)
+		if len(dir.Names) > 0 {
+			r.Summary += fmt.Sprintf(" (%d through SSSD's InfoPipe)", len(dir.Names))
+		}
+	}
+	if dir.Truncated {
+		r.Details = append(r.Details, fmt.Sprintf("SSSD's search stopped at %d users: some whose primary group %s is may be missing", notify.MaxInfoPipeUsers, g))
+		if r.Status == doctor.OK {
+			r.Status = doctor.Warn
+		}
+	}
+	return r
+}
+
+// sssdAllowsGateway reports whether SSSD's configuration (sssd.conf and
+// conf.d/*.conf, the later winning) names the gateway's account, by name
+// or uid, in allowed_uids of its [ifp] section.
+func (d *doctorRun) sssdAllowsGateway() bool {
+	files := []string{filepath.Join(d.sssdConf, "sssd.conf")}
+	more, _ := filepath.Glob(filepath.Join(d.sssdConf, "conf.d", "*.conf"))
+	slices.Sort(more)
+	allowed := "0"
+	for _, f := range append(files, more...) {
+		if v, ok := iniValue(f, "ifp", "allowed_uids"); ok {
+			allowed = v
+		}
+	}
+	uid := ""
+	if u, err := user.Lookup(statedir.User); err == nil {
+		uid = u.Uid
+	}
+	for _, a := range strings.Split(allowed, ",") {
+		a = strings.TrimSpace(a)
+		if a == statedir.User || uid != "" && a == uid {
+			return true
+		}
+	}
+	return false
+}
+
+// iniValue returns key's value in section of an INI file (sssd.conf's
+// format), and whether the file sets it.
+func iniValue(path, section, key string) (string, bool) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	var value string
+	var found bool
+	in := false
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case line == "" || line[0] == '#' || line[0] == ';':
+		case line[0] == '[':
+			in = strings.TrimSpace(strings.Trim(line, "[]")) == section
+		case in:
+			if k, v, ok := strings.Cut(line, "="); ok && strings.TrimSpace(k) == key {
+				value, found = strings.TrimSpace(v), true
+			}
+		}
+	}
+	return value, found
 }
 
 // principals finds members of the socket group without a role.

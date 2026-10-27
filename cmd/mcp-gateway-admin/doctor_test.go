@@ -18,6 +18,8 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/doctor"
 	"github.com/sdrahn/mcp-gateway/internal/inspect"
+	"github.com/sdrahn/mcp-gateway/internal/notify"
+	"github.com/sdrahn/mcp-gateway/internal/statedir"
 )
 
 func TestDoctorUsage(t *testing.T) {
@@ -284,6 +286,68 @@ func TestDoctorApproverGroups(t *testing.T) {
 	doctor.Identify(rs)
 	if rs[1].ID != "approver-group" || rs[1].Subject != "root" {
 		t.Errorf("%+v", rs[1])
+	}
+}
+
+// Members only SSSD's InfoPipe finds: OK, counted, if SSSD lets the
+// gateway ask too, a warning naming them and allowed_uids if not; a
+// search that stopped at the limit warns.
+func TestApproverGroupResult(t *testing.T) {
+	dir := notify.Directory{Names: []string{"dex"}}
+	r := approverGroupResult("dir-approvers", []string{"dana", "dex"}, dir, nil, true, "/etc/sssd")
+	if r.Status != doctor.OK || r.Summary != "approval mail reaches 2 members of dir-approvers (1 through SSSD's InfoPipe)" {
+		t.Errorf("allowed: %+v", r)
+	}
+	r = approverGroupResult("dir-approvers", []string{"dana", "dex"}, dir, nil, false, "/etc/sssd")
+	if r.Status != doctor.Warn || !strings.Contains(r.Summary, "misses 1 of 2 members") ||
+		!strings.Contains(strings.Join(r.Details, "\n"), "dex") || !strings.Contains(strings.Join(r.Details, "\n"), "allowed_uids in the [ifp] section of /etc/sssd/sssd.conf") {
+		t.Errorf("not allowed: %+v", r)
+	}
+	r = approverGroupResult("g", nil, notify.Directory{Err: notify.ErrInfoPipeDenied}, nil, true, "/etc/sssd")
+	if r.Status != doctor.Warn || !strings.Contains(strings.Join(r.Details, "\n"), "refuses this user") {
+		t.Errorf("nobody, InfoPipe refused: %+v", r)
+	}
+	r = approverGroupResult("g", nil, notify.Directory{Err: notify.ErrNoInfoPipe}, nil, true, "/etc/sssd")
+	if strings.Contains(strings.Join(r.Details, "\n"), "not available") {
+		t.Errorf("nobody, no InfoPipe: its absence is no finding: %+v", r)
+	}
+	r = approverGroupResult("g", []string{"a"}, notify.Directory{Truncated: true}, nil, true, "/etc/sssd")
+	if r.Status != doctor.Warn || !strings.Contains(strings.Join(r.Details, "\n"), "stopped at") {
+		t.Errorf("truncated: %+v", r)
+	}
+}
+
+// allowed_uids of [ifp], in sssd.conf or a later conf.d file, by the
+// gateway's account name or uid; without it only root may ask.
+func TestSSSDAllowsGateway(t *testing.T) {
+	dir := t.TempDir()
+	d := &doctorRun{sssdConf: dir}
+	if d.sssdAllowsGateway() {
+		t.Fatal("no sssd.conf: allowed")
+	}
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("sssd.conf", "[sssd]\nservices = nss, ifp\nallowed_uids = "+statedir.User+"\n[domain/x]\nid_provider = ldap\n")
+	if d.sssdAllowsGateway() {
+		t.Error("allowed_uids of another section counts")
+	}
+	write("sssd.conf", "[ifp]\n# a comment\nallowed_uids = 0, "+statedir.User+"\n")
+	if !d.sssdAllowsGateway() {
+		t.Error("named in [ifp]: not allowed")
+	}
+	write("conf.d/50-ifp.conf", "[ifp]\nallowed_uids = 0\n")
+	if d.sssdAllowsGateway() {
+		t.Error("a later conf.d file does not win")
+	}
+	if v, ok := iniValue(filepath.Join(dir, "conf.d/50-ifp.conf"), "ifp", "allowed_uids"); !ok || v != "0" {
+		t.Errorf("iniValue: %q %v", v, ok)
 	}
 }
 

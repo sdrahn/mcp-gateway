@@ -444,6 +444,11 @@ dbus_system_bus_client(mcpgw_t)
 optional_policy(`
 	policykit_dbus_chat(mcpgw_t)
 ')
+# Approval mail asks SSSD's InfoPipe for the users whose primary group an
+# approver group is (sssd-ifp, where allowed_uids lets the gateway).
+optional_policy(`
+	sssd_dbus_chat(mcpgw_t)
+')
 # systemd checks StartTransientUnit as system:start on its own context
 # (the unit has no file yet). Plain rules: init_start_system and friends
 # exist in reference policy only.

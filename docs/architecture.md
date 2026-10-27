@@ -545,7 +545,8 @@ Approvers learn about pending approvals without watching the inbox:
   Groups are expanded through NSS (`getent group`, and `getent passwd`
   for the users whose primary group it is, enumerating and by name for
   the local users the gateway has seen, `principals.json` in
-  `state_dir`), users become addresses by the `to` template
+  `state_dir`; in SSSD's directories also through SSSD's InfoPipe,
+  roadmap step 42), users become addresses by the `to` template
   (`{user}` for local delivery, `{user}@example.com` otherwise), and one
   mail goes to all of them (`To: undisclosed-recipients:;`). The mail
   names the call and links the approval page; arguments are left out
@@ -4329,6 +4330,40 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       plain-name check), and in the VM test (the openQA suite) the polkit
       rule refusing to stop the gateway's own units.
 
+42. **Approval mail to directory users by primary group** (1.12; done):
+    approval mail finds the users whose primary group an approver group
+    is in SSSD's directories also when SSSD does not enumerate and they
+    never used the gateway (§12 had it open since step 20):
+    - NSS has no lookup of the users with a given primary group short
+      of enumerating; SSSD's InfoPipe (`sssd-ifp`, package `sssd-dbus`)
+      does it on the system bus. A wildcard lookup (`Users.ListByName
+      "*"`), which SSSD runs against its directories whether or not it
+      enumerates, brings their users into its cache, and
+      `Users.ListByAttr gidNumber <gid>` lists those with the group's
+      gid; the gid of each is checked again. A search returns at most
+      10,000 users (SSSD's `wildcard_limit` may set less); one that
+      stops there is reported. Each group's answer, and a refusal, is
+      kept for 10 minutes: a lookup searches the directory for all its
+      users;
+    - InfoPipe answers only the users in `allowed_uids` of `[ifp]` in
+      `sssd.conf` (root alone by default): the administrator adds
+      `mcp-gateway`. Without InfoPipe nothing changes and nothing is
+      logged; a refusal is logged once as a warning;
+    - SELinux: the gateway's domain talks to SSSD over D-Bus
+      (`sssd_dbus_chat`);
+    - the doctor's `approver group` check asks InfoPipe as the mail does
+      (as root) and warns, naming the users and `allowed_uids`, about
+      members only InfoPipe finds while `sssd.conf` does not let the
+      gateway ask, and about a search that stopped at the limit;
+    - names SSSD qualifies (`user@domain`, `use_fully_qualified_names`)
+      are left out as before: they do not make addresses by `to`;
+    - tests: unit tests against a private D-Bus daemon with a fake
+      InfoPipe (the lookup, the gid check, the limit, the refusals, what
+      is kept and logged) and of the doctor check; in the VM test (the
+      openQA suite) a directory user of 389 Directory Server whose primary
+      group is the approvers' group gets the mail once SSSD lets the
+      gateway ask, and not before, and the doctor says which.
+
 ## 12. Open items
 
 - Per-conversation state for modern agents (D18): servers marked
@@ -4350,9 +4385,11 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
   the client travels with its call (MRTR); it remains for legacy
   sessions.
 - Approval mail finds the users whose primary group an approver group is
-  by enumerating users (`getent passwd`) and among the local users who
-  used the gateway or Cockpit's pages; with SSSD or LDAP that do not
-  enumerate, one who never did is not found until then (the doctor warns
+  by enumerating users (`getent passwd`), among the local users who
+  used the gateway or Cockpit's pages and, in SSSD's directories,
+  through SSSD's InfoPipe (step 42). With a directory NSS reaches other
+  than through SSSD (`nss_ldap`, winbind) that does not enumerate, one
+  who never used the gateway is not found until then (the doctor warns
   about a group in which it finds nobody): name such approvers as
   `user:`.
 - Exact JSON-RPC error codes for policy denials (align with any future
