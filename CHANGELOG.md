@@ -5,7 +5,47 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.11.0 — 2026-10-27
+
+Security hardening from a review of the whole code base (2026-10-26),
+whose most urgent findings 1.10.2 fixed already. Above all, an agent
+that runs commands as its user (a shell tool) can no longer approve its
+own calls: approving your own request over the control socket, where
+only the approver rule `self` lets you, asks for your password (polkit,
+every time), on the command line in its terminal and in Cockpit on the
+page. And the sign-in helper no longer follows a server's metadata into
+the gateway's network, the HTTPS listener bounds what clients without a
+token can hold, approval mail to another host needs TLS, secrets written
+into server definitions are found and masked, and the polkit rule no
+longer covers the gateway's own units.
+
+Upgrading from 1.10.x needs no changes to server definitions, role data
+or custom policies. After the update, restart the gateway (`systemctl
+restart mcp-gateway.service`); the package does not. The SELinux module
+changes (the gateway asks polkit over D-Bus): update
+`mcp-gateway-selinux` with the gateway. Things to know:
+
+- **Approving your own requests asks for your password**, on the command
+  line and in Cockpit, where only `self` lets you (the default approver
+  rules: `[self, 'role:admin']`). Denying, other rules, root and the
+  approval page ask nothing. Scripts that approved their own requests
+  without a terminal are refused now (`password_required`); accounts
+  without a password (SSH keys only) use the approval page or another
+  approver. `approvals.self_needs_password: false` keeps 1.10's
+  behaviour, with a warning of the doctor (`own approvals`). The polkit
+  action is new (`io.github.sdrahn.mcp-gateway.policy`).
+- **Approval mail to a mail server on another host needs STARTTLS** by
+  default. One that offers no TLS gets nothing until `starttls: auto` is
+  set (chapter 3); the gateway logs "approval mail not sent".
+- **Authorization servers on the local network**, named by a server's
+  metadata on another host than the server's: list them in
+  `sign_in.private_hosts`, or the sign-in fails naming the address.
+- **`${USER}` in server definitions** starts instances only for
+  principals with a plain name; a remote principal whose token subject
+  has other characters is refused for such a server.
+- **Run `mcp-gateway-admin doctor`** after the update: `own approvals`,
+  `secrets <server>` and `approval reach` (mail without TLS) are new or
+  changed.
 
 ### Security
 
@@ -19,7 +59,6 @@ minor release (with a warning) and removed in the next.
   (`role:`, `group:`, `user:`), root and the approval page need no
   password. `approvals.self_needs_password: false` approves without it,
   with a warning of the doctor's new `own approvals` check.
-
 - The sign-in helper reaches the hosts a server's metadata names (its
   authorization server, registration and token endpoints) at public
   addresses only, so that a server cannot send it to addresses of the
