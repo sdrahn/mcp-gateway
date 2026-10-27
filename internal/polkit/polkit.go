@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/godbus/dbus/v5"
@@ -64,6 +65,11 @@ func (a *Authority) Check(ctx context.Context, pid, uid uint32, action string, d
 		Details               map[string]string
 	}
 	call := conn.Object(busName, objectPath).CallWithContext(ctx, checkMethod, 0, subject, action, details, allowInteract, "")
+	if call.Err != nil && len(details) > 0 && strings.Contains(call.Err.Error(), "trusted callers") {
+		// Only the action's owner may pass details (polkit 121 and
+		// later): without the owner annotation, ask without them.
+		call = conn.Object(busName, objectPath).CallWithContext(ctx, checkMethod, 0, subject, action, map[string]string{}, allowInteract, "")
+	}
 	if call.Err != nil {
 		return false, fmt.Errorf("polkit: %w", call.Err)
 	}

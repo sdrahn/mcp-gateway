@@ -20,5 +20,8 @@
       <allow_inactive>auth_self</allow_inactive>
       <allow_active>auth_self</allow_active>
     </defaults>
+    <!-- The gateway's account checks it for the user's process, with the
+         call's name in the dialog: only an owner may pass details. -->
+    <annotate key="org.freedesktop.policykit.owner">unix-user:mcp-gateway</annotate>
   </action>
 </policyconfig>
