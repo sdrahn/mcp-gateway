@@ -1674,6 +1674,13 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	done
 	hl_post "$(hl_tok "aud=$hl_url&sub=alice&preferred_username=alice&scope=openid")" /mcp/fs "$hl_init"
 	check "a token without the scope every token needs: 403 insufficient_scope" hl_status 403 'error="insufficient_scope"'
+	# root, and the gateway's own system account (bin is gone on Tumbleweed)
+	for u in root mcp-gateway; do
+		hl_post "$(hl_tok "aud=$hl_url&sub=$u&preferred_username=$u&scope=mcp")" /mcp/fs "$hl_init"
+		check "a token naming the local account $u: 401 invalid_token, no account of a person" hl_status 401 'error="invalid_token"'
+	done
+	hl_sysacct() { journalctl -u mcp-gateway.service -o cat --since "@$hl_since" | grep -qF 'not an account of a person'; }
+	check "... and the gateway says why" hl_sysacct
 
 	hl_alice=$(hl_tok "aud=$hl_url&sub=alice&preferred_username=alice&scope=mcp")
 	hl_open "$hl_alice"
@@ -1695,6 +1702,13 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	check "a token with mcp:read reads" eventually 20 hl_reads
 	hl_call "$hl_read" write_file '{"path":"/home/alice/remote.txt","content":"remote"}'
 	check "writing is outside its scopes: 403, asking for mcp:write (step-up)" hl_status 403 'mcp:write'
+	check "... and nothing is written" test ! -e /home/alice/remote.txt
+	# A session follows the tokens of its requests: opened with alice's
+	# full token, a write with the mcp:read token on it is outside its
+	# scopes too.
+	hl_open "$hl_alice"
+	hl_call "$hl_read" write_file '{"path":"/home/alice/remote.txt","content":"remote"}'
+	check "a session opened with a full token, then a request with mcp:read: 403, its own scopes apply" hl_status 403 'mcp:write'
 	check "... and nothing is written" test ! -e /home/alice/remote.txt
 	# Decision records: "audit":true with the token's scopes.
 	hl_scopes_audited() { journalctl -u mcp-gateway.service -o cat --since "@$hl_since" | grep -F '"audit":true' | grep -qF '"scopes":"mcp mcp:read"'; }

@@ -7,6 +7,28 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Security
+
+- A token whose `http.local_user_claim` names root, a system account or
+  `nobody` is refused (401 `invalid_token`, logged with "not an account
+  of a person"), also at the approval page's sign-in: the gateway used
+  to map it, so that anyone who could choose their name at the identity
+  provider (self-registration, an editable `preferred_username`) could
+  run instances as root. Tokens map only to accounts between `UID_MIN`
+  and `UID_MAX` of `/etc/login.defs` (or `/usr/etc/login.defs`;
+  1000–60000 without one).
+- An HTTP session follows the tokens of its requests: groups, scopes,
+  account and expiry of each request's token apply to it. A session
+  used to keep the groups and scopes of the token that opened it until
+  it went idle, so that a group taken away at the identity provider, or
+  a narrower token, applied only to new sessions (D20, amended).
+- Documented: an agent that runs commands as the requesting user (a
+  shell tool) can decide that user's own approvals over the control
+  socket (`mcp-gateway-admin approvals approve`) wherever the approver
+  rules allow `self`, the shipped default. Chapter 7 says how to leave
+  `self` out where that must not happen; from 1.11 such decisions ask
+  for the user's password (roadmap step 40, D21 amended).
+
 ## v1.10.1 — 2026-10-26
 
 A fix to `mcp-gateway-admin setup http`: its SELinux port check reported

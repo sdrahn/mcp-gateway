@@ -332,7 +332,12 @@ at the endpoint URL:
 | Token | Principal |
 |---|---|
 | `local_user_claim` names an existing local account | that local user: name, uid, home and groups of the account (plus the token's groups). MCP servers run as that user, exactly as for a local connection. |
+| `local_user_claim` names root, a system account or `nobody` (uid outside `UID_MIN`–`UID_MAX` of `/etc/login.defs`) | nobody: the token is refused (401 `invalid_token`; the gateway logs "not an account of a person") |
 | otherwise | the token's `sub` (with its issuer) and the token's groups; no home directory. MCP servers with `run_as: principal` run as a throwaway dynamic user; servers that work in the user's home (their definition names `${HOME}`, as the shipped `fs` does) are not offered to it. |
+
+The principal is that of each request's token, not only of the one that
+opened the session: a group taken away at the identity provider, or a
+token with fewer scopes, applies from the next request on.
 
 Policy bindings name users by `sub` (the local account name, or the
 token subject) and groups by name. The token's scopes can narrow what
