@@ -5,7 +5,40 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.12.0 — 2026-10-27
+
+Conversations of their own, and messages, mail and policy that arrive
+where and when they should. Agents of MCP 2026-07-28, which have no
+session, can open contexts on servers that keep state per conversation
+(a browser, say), each an instance of its own, instead of sharing one per
+user. A server that speaks HTTP keeps each call's log messages and
+requests on that call's stream. Approval mail finds directory users
+whose primary group is an approver group through SSSD's InfoPipe. With
+a bundle server, OPA tells the gateway of each bundle it activates. And
+the user guide has a chapter on Keycloak for one or more gateways.
+
+Upgrading from 1.11.x needs no changes to server definitions, role data
+or custom policies. After the update, restart the gateway (`systemctl
+restart mcp-gateway.service`); the package does not. The SELinux module
+changes (the gateway may talk to SSSD over D-Bus; the new port type
+`mcp_opa_status_port_t`): update `mcp-gateway-selinux` with the gateway.
+Things to know:
+
+- **What is new is off until you turn it on**: contexts with
+  `contexts: true` on a definition with `isolation: session` (chapter
+  4), approval mail through InfoPipe with `mcp-gateway` in
+  `allowed_uids` of `[ifp]` in `sssd.conf` (chapter 7), OPA's reports
+  with `policy.status_listen` and a port labelled
+  `mcp_opa_status_port_t` (chapter 6).
+- **With `sssd-dbus` installed**, the gateway asks InfoPipe for approver
+  groups' primary members; SSSD refuses it until `allowed_uids` names
+  it, and the gateway logs that once as a warning. Run
+  `mcp-gateway-admin doctor`: its `approver group` check says which
+  members only InfoPipe finds.
+- **Custom policies** that list every resource field: tools of the
+  gateway now have `resource.context` (the context tools) besides
+  `resource.builtin` and `resource.sign_in`; the shipped policy decides
+  them in the new `mcp/contexts.rego`.
 
 ### Added
 
@@ -23,7 +56,6 @@ minor release (with a warning) and removed in the next.
   a call, and is bounded by `limits.contexts_per_principal` (8). Policy
   sees the two tools as `resource.context`; the shipped policy lets them
   follow the server's tools. Journal event `mcp-context`.
-
 - `policy.status_listen`: with a bundle server, OPA reports each bundle
   it activates to the gateway (its status plugin; the example
   configuration names the gateway), which then tells agents at once
