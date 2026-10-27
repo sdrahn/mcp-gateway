@@ -155,7 +155,10 @@ module, servers run in `mcpsrv_generic_t`.
   BSD-3-Clause`).
 - **polkit rule:** `50-mcp-gateway.rules` lets the `mcp-gateway` user
   start and stop its transient instance units,
-  `mcp-<server>-<16 hex digits>.service`. polkit rules need review
+  `mcp-<server>-<16 hex digits>.service`; the action
+  `io.github.sdrahn.mcp-gateway.decide-own` (`auth_self`, never kept)
+  asks users for their password before they approve their own requests
+  over the control socket. polkit rules and actions need review
   and whitelisting by the SUSE security team (open a bug for
   "polkit-default-privs"/security review); `mcp-gateway-rpmlintrc` filters
   the rpmlint errors only to keep devel/home builds working.

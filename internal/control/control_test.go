@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -173,6 +174,56 @@ func TestDeny(t *testing.T) {
 	}
 	if g := <-outcome; g != nil {
 		t.Fatalf("outcome %+v", g)
+	}
+}
+
+// Approving one's own request, which only "self" allows here (no
+// policy), needs the password; denying does not (roadmap step 40).
+func TestOwnApprovalNeedsPassword(t *testing.T) {
+	s, id, outcome := setup(t)
+	var asked []string
+	given := errors.New("polkit did not authenticate you")
+	s.OwnPassword = func(_ context.Context, peer transport.PeerCred, p broker.Pending) error {
+		asked = append(asked, fmt.Sprintf("%d %s %s/%s", peer.UID, p.ID, p.Server, p.Name))
+		return given
+	}
+	rec := call(t, s, 1001, "POST", "/v1/approvals/"+id, `{"decision":"approve","scope":"once"}`)
+	var e errorResponse
+	if rec.Code != 403 || json.Unmarshal(rec.Body.Bytes(), &e) != nil || e.Code != PasswordRequired ||
+		!strings.Contains(e.Error, "approving your own request needs your password") || !strings.Contains(e.Error, "polkit did not authenticate you") ||
+		!strings.Contains(e.Error, "mcp-gateway-admin approvals approve "+id) {
+		t.Fatalf("no password: %d %s", rec.Code, rec.Body)
+	}
+	if len(asked) != 1 || asked[0] != "1001 "+id+" fs/write_file" {
+		t.Errorf("asked %v", asked)
+	}
+	// Still pending: someone else, or alice with her password, decides.
+	if rec := call(t, s, 1001, "GET", "/v1/approvals/"+id, ""); rec.Code != 200 {
+		t.Fatalf("after the refusal: %d", rec.Code)
+	}
+	// Another user's attempt is not found, and asks no one.
+	if rec := call(t, s, 1002, "POST", "/v1/approvals/"+id, `{"decision":"approve","scope":"once"}`); rec.Code != 404 || len(asked) != 1 {
+		t.Fatalf("bob: %d, asked %v", rec.Code, asked)
+	}
+	given = nil
+	if rec := call(t, s, 1001, "POST", "/v1/approvals/"+id, `{"decision":"approve","scope":"once"}`); rec.Code != 200 {
+		t.Fatalf("with the password: %d %s", rec.Code, rec.Body)
+	}
+	if g := <-outcome; g == nil {
+		t.Fatal("not approved")
+	}
+
+	s, id, outcome = setup(t)
+	asked = nil
+	s.OwnPassword = func(context.Context, transport.PeerCred, broker.Pending) error {
+		asked = append(asked, "deny")
+		return errors.New("no")
+	}
+	if rec := call(t, s, 1001, "POST", "/v1/approvals/"+id, `{"decision":"deny"}`); rec.Code != 204 || len(asked) != 0 {
+		t.Fatalf("deny: %d, asked %v", rec.Code, asked)
+	}
+	if g := <-outcome; g != nil {
+		t.Fatal("approved")
 	}
 }
 

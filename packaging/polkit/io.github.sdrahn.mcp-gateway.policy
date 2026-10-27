@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<!--
+  The gateway asks for this action before a user approves a request of
+  their own agent over the control socket (mcp-gateway-admin approvals,
+  Cockpit) where only the approver rule "self" lets them: every process
+  of the user may use the socket, the agent's shell too, and only the
+  user's password tells them apart. auth_self, not auth_self_keep: polkit
+  asks for every approval (roadmap step 40).
+-->
+<policyconfig>
+  <vendor>mcp-gateway</vendor>
+  <vendor_url>https://github.com/sdrahn/mcp-gateway</vendor_url>
+  <action id="io.github.sdrahn.mcp-gateway.decide-own">
+    <description>Approve a call of your own AI agent</description>
+    <message>Approving $(call) for your AI agent (approval $(id)) needs your password</message>
+    <defaults>
+      <allow_any>auth_self</allow_any>
+      <allow_inactive>auth_self</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+    <!-- The gateway's account checks it for the user's process, with the
+         call's name in the dialog: only an owner may pass details. -->
+    <annotate key="org.freedesktop.policykit.owner">unix-user:mcp-gateway</annotate>
+  </action>
+</policyconfig>

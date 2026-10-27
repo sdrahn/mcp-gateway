@@ -17,11 +17,89 @@ async function decide(id, decision, scope, buttons) {
                        { "Content-Type": "application/json" });
         showError(null);
     } catch (ex) {
-        showError(ex && ex.status === 404
-            ? "This request is no longer pending (decided elsewhere, or timed out)."
-            : describeFailure(ex));
+        if (refusalCode(ex) === "password_required") {
+            askPassword(id, scope);
+        } else {
+            showError(ex && ex.status === 404
+                ? "This request is no longer pending (decided elsewhere, or timed out)."
+                : describeFailure(ex));
+        }
     }
     tabs.approvals.refresh();
+}
+
+/* refusalCode is the code of the gateway's refusal (its JSON body), if any. */
+function refusalCode(ex) {
+    try {
+        return ex && ex.status === 403 ? JSON.parse(ex.message).code : null;
+    } catch {
+        return null;
+    }
+}
+
+/* askPassword asks for the user's password to approve their own request:
+ * only the approver rule "self" lets them, and every process of theirs
+ * reaches the gateway as they do, their agent too, so the gateway asks
+ * polkit, which asks for the password (roadmap step 40). Cockpit has no
+ * polkit agent for it: the approval goes through mcp-gateway-admin in a
+ * terminal of its own (a pty), whose polkit text agent asks, and this
+ * form answers once. */
+function askPassword(id, scope) {
+    const form = document.getElementById("own-password");
+    const input = el("input", { type: "password", autocomplete: "current-password", "aria-label": "Your password" });
+    const status = el("div", { class: "muted" });
+    const submit = el("button", { type: "submit" }, "Approve");
+    const cancel = el("button", { type: "button", class: "secondary", onclick: () => { form.hidden = true } }, "Cancel");
+    form.replaceChildren(
+        el("h3", null, "Your password, to approve your own request"),
+        el("p", null, "Approving " + id + " (" + scopeTitle(scope) + ") for your agent needs your password: " +
+           "the agent could approve it otherwise, as it runs as you."),
+        input, el("div", { class: "actions" }, submit, cancel), status);
+    form.onsubmit = async ev => {
+        ev.preventDefault();
+        submit.disabled = true;
+        status.textContent = "Approving…";
+        try {
+            await approveWithPassword(id, scope, input.value);
+            form.hidden = true;
+            showError(null);
+        } catch (msg) {
+            status.textContent = String(msg);
+            submit.disabled = false;
+        }
+        input.value = "";
+        tabs.approvals.refresh();
+    };
+    form.hidden = false;
+    input.focus();
+}
+
+/* approveWithPassword runs the approval in a pty and types the password
+ * at polkit's prompt, once: a second prompt means it was wrong. */
+function approveWithPassword(id, scope, password) {
+    return new Promise((resolve, reject) => {
+        let out = "";
+        let prompts = 0;
+        const proc = cockpit.spawn(["mcp-gateway-admin", "approvals", "approve", id, "--scope", scope, "--yes"],
+                                   { pty: true, err: "out" });
+        proc.stream(data => {
+            out += data;
+            const n = (out.match(/Password:/g) || []).length;
+            if (n > prompts) {
+                prompts = n;
+                if (prompts === 1) {
+                    proc.input(password + "\n", true);
+                } else {
+                    proc.close("terminated");
+                }
+            }
+        });
+        proc.then(() => resolve())
+            .catch(() => reject(prompts > 1
+                ? "The password was not accepted."
+                : (out.split("\n").filter(l => l.startsWith("mcp-gateway-admin:")).pop() || "Approving failed.")
+                    .replace(/^mcp-gateway-admin: /, "")));
+    });
 }
 
 async function revoke(id, button) {

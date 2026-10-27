@@ -646,3 +646,25 @@ func TestLiteralSecrets(t *testing.T) {
 		t.Errorf("id %q", rs[0].ID)
 	}
 }
+
+func TestOwnApprovals(t *testing.T) {
+	gw := &config.Gateway{}
+	gw.Approvals.ControlSocket = "/run/mcp-gateway/control.sock"
+	if r := OwnApprovals(gw, true); r.Status != OK || !strings.Contains(r.Summary, "with their password") {
+		t.Errorf("default: %+v", r)
+	}
+	if r := OwnApprovals(gw, false); r.Status != Fail || !strings.Contains(r.Summary, PolkitAction) {
+		t.Errorf("no action: %+v", r)
+	}
+	off := false
+	gw.Approvals.SelfNeedsPassword = &off
+	if r := OwnApprovals(gw, true); r.Status != Warn || !strings.Contains(strings.Join(r.Details, " "), "approve its own calls") {
+		t.Errorf("off: %+v", r)
+	}
+	gw.Approvals.ControlSocket = "-"
+	rs := []Result{OwnApprovals(gw, true)}
+	Identify(rs)
+	if rs[0].Status != Skip || rs[0].ID != "own-approvals" {
+		t.Errorf("no control API: %+v", rs[0])
+	}
+}

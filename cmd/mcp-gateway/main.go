@@ -44,6 +44,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/notify"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/policydata"
+	"github.com/sdrahn/mcp-gateway/internal/polkit"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/router"
 	"github.com/sdrahn/mcp-gateway/internal/signin"
@@ -422,6 +423,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 			Review: opa, Catalog: r, Log: log, RestartPending: restartPending, Metrics: metrics.Default}
 		if signIns != nil {
 			cs.SignIns = signIns
+		}
+		if gw.OwnApprovalsNeedPassword() {
+			cs.OwnPassword = ownPassword(&polkit.Authority{})
 		}
 		go func() {
 			if err := cs.Serve(ctx, cl); err != nil {
@@ -850,5 +854,24 @@ func warnMissingSELinuxTypes(log *slog.Logger, backends map[string]*config.Backe
 	for _, t := range types {
 		log.Warn("selinux_type is not in the loaded SELinux policy; install its module, or instances of these servers fail to start",
 			"selinux_type", t, "servers", strings.Join(missing[t], ","))
+	}
+}
+
+// ownPassword asks polkit to authenticate the user of the process peer
+// (auth_self, never kept: polkit asks every time) before they approve
+// their own request p (roadmap step 40). The dialog names the call.
+func ownPassword(auth *polkit.Authority) func(context.Context, transport.PeerCred, broker.Pending) error {
+	return func(ctx context.Context, peer transport.PeerCred, p broker.Pending) error {
+		ok, err := auth.Check(ctx, peer.PID, peer.UID, polkit.DecideOwn, map[string]string{
+			"call": p.Server + "/" + p.Name, "id": p.ID})
+		switch {
+		case errors.Is(err, polkit.ErrNoAgent):
+			return errors.New("no one to ask for it (no terminal or desktop session for polkit to ask in)")
+		case err != nil:
+			return err
+		case !ok:
+			return errors.New("polkit did not authenticate you")
+		}
+		return nil
 	}
 }

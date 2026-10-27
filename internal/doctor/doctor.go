@@ -59,6 +59,7 @@ var checkIDs = map[string]string{
 	"role data":           "role-data",
 	"role data for OPA":   "role-data-rendering",
 	"policy data in JSON": "json-policy-data",
+	"own approvals":       "own-approvals",
 	"policy":              "policy",
 	"policy listing":      "policy-listing",
 	"state files":         "state-files",
@@ -929,6 +930,36 @@ func ApprovalReach(gw *config.Gateway, notifyInstalled bool) Result {
 		"approvers see them only in Cockpit's Approvals tab or with mcp-gateway-admin approvals (watch);",
 		fmt.Sprintf("agents named in approvals.no_wait (%s) are told to ask for one, others wait up to approval_timeout (%s);", noWait, gw.ApprovalTimeout),
 		"set up mail, the approval page or a webhook, or install mcp-gateway-desktop (user guide, chapter 7)"}
+	return r
+}
+
+// PolkitAction is the polkit action the gateway asks for before a user
+// approves their own request over the control socket (roadmap step 40).
+const PolkitAction = "/usr/share/polkit-1/actions/io.github.sdrahn.mcp-gateway.policy"
+
+// OwnApprovals checks how users approve their own requests over the
+// control socket: with their password (approvals.self_needs_password,
+// the default), which needs the polkit action installed; without it, an
+// agent running as the user approves its own calls. Skipped without the
+// control API.
+func OwnApprovals(gw *config.Gateway, actionInstalled bool) Result {
+	r := Result{Check: "own approvals"}
+	switch {
+	case gw.Approvals.ControlSocket == "-":
+		r.Status, r.Summary = Skip, "the control API is off (approvals.control_socket: \"-\")"
+	case !gw.OwnApprovalsNeedPassword():
+		r.Status = Warn
+		r.Summary = "users approve their own requests over the control socket without their password (approvals.self_needs_password: false)"
+		r.Details = []string{
+			"an agent that runs commands as its user (a shell tool) can approve its own calls with mcp-gateway-admin approvals approve, wherever the approver rule \"self\" applies;",
+			"remove approvals.self_needs_password, or leave \"self\" out of the approver rules of servers whose calls agents must not approve themselves (user guide, chapter 7)"}
+	case !actionInstalled:
+		r.Status = Fail
+		r.Summary = "approving one's own request needs the password, but polkit does not know the action: " + PolkitAction + " is missing"
+		r.Details = []string{"every approval only \"self\" allows is refused; reinstall the mcp-gateway package"}
+	default:
+		r.Status, r.Summary = OK, "users approve their own requests over the control socket with their password (polkit), the approval page without it"
+	}
 	return r
 }
 

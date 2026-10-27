@@ -78,6 +78,7 @@ input as self-reported.
 | `data.mcp.filter.visible` | every `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list` | the subset of `input.resources` to show |
 | `data.mcp.filter.hints` | every `tools/list`, for the visible tools (optional: a policy without it gives none) | a set of `{"server", "name", "approval", "args"}`: the approval channel (`""` for none) and the argument constraints (one object per permission) the gateway adds to the tool's description (chapter 4, "What agents see about their limits") |
 | `data.mcp.approvals.allow` | control API: may this approver decide on this pending approval? | `true`/`false` |
+| `data.mcp.approvals.allow_without_self` | control API, approving: may the approver decide by a rule other than "the principal themself"? If not, approving over the control socket asks for the approver's password (chapter 7). Optional: a policy without it counts as no, and asks | `true`/`false` |
 | `data.mcp.approvals.manage_grant` | control API: may this caller see and revoke this grant? | `true`/`false` |
 | `data.mcp.approvals.manage_instance` | control API: may this caller see and stop this instance? | `true`/`false` |
 | `data.mcp.approvals.manage_task` | control API: may this caller see and cancel this task? (optional: a policy without it decides by `manage_instance` for the task's server and principal) | `true`/`false` |

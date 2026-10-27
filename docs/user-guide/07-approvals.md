@@ -192,21 +192,48 @@ request (chapter 6). By default: the requesting user themself (`self`)
 and users with the `admin` role. `root` may always decide. Someone else's
 approval is reported as not found.
 
-### `self` and agents that run commands
+### Approving your own request: your password
 
 The command line and Cockpit identify the approver by the account they
 run as. So does the control socket for every process: it cannot tell the
 user from an agent the user runs. An agent with a shell tool (Claude
-Code, and most coding agents) that runs as the requesting user can
+Code, and most coding agents) that runs as the requesting user could
 therefore run `mcp-gateway-admin approvals approve` itself and decide
-that user's own approvals, wherever `self` may decide them. The
-approval page, the command line against another host and webhooks are
-not affected: they authenticate the approver at the identity provider
-or by signature.
+that user's own approvals, wherever `self` may decide them.
 
-For servers whose approvals such an agent must not make itself, remove
-`self` from their approver rules, so that someone else decides (an
-administrator, a group):
+So approving your own request over the control socket, where only the
+rule `self` lets you, asks for your password (polkit, every time):
+
+```console
+$ mcp-gateway-admin approvals approve a-7f3e9c --yes
+==== AUTHENTICATING FOR io.github.sdrahn.mcp-gateway.decide-own ====
+Approving fs/write_file for your AI agent (approval a-7f3e9c…) needs your password
+Authenticating as: Alice (alice)
+Password:
+==== AUTHENTICATION COMPLETE ====
+approved a-7f3e9c (fs/write_file for alice, scope once)
+```
+
+Cockpit asks for it on the Approvals tab (chapter 8). Without a terminal
+(an agent's shell tool runs commands without one) there is no one to
+ask, and the approval is refused: `approving your own request needs
+your password (approvals.self_needs_password): no one to ask for it …`.
+It stays pending for you, another approver, or the approval page.
+
+- **No password is asked** for denying, for an approval another rule
+  lets you make too (`role:admin`, `group:`, `user:`), for root, and on
+  the approval page, the command line against another host and webhooks
+  (they authenticate the approver at the identity provider or by
+  signature).
+- **Accounts without a password** (SSH keys only) cannot approve their
+  own requests over the control socket; they use the approval page, or
+  someone else approves.
+- `approvals.self_needs_password: false` (chapter 3) decides as 1.10
+  did, without the password; the doctor warns about it (`own
+  approvals`). The VM test sets it for its own approvals.
+
+To have someone else decide instead, leave `self` out of a server's
+approver rules (an administrator, a group):
 
 ```yaml
 # /etc/mcp-gateway/policy/rbac/data.yaml
@@ -215,9 +242,6 @@ approvers:
   zypp: ['role:admin']        # nobody decides their own installations
 ```
 
-From 1.11, a decision that only `self` allows and that comes over the
-control socket asks for the user's password (polkit), so that an agent
-without the password cannot make it.
 
 ## Pending approvals across disconnects and restarts
 
@@ -335,6 +359,8 @@ $ mcp-gateway-admin approvals watch               # follow them, Ctrl-C ends
   and with several offered, `--scope` is needed.
 - An approval that is not yours to decide reads as unknown ("no such
   approval"), as in Cockpit. Root sees and decides all.
+- Approving your own request, where only `self` lets you, asks for your
+  password in the terminal (above).
 - An approval whose call went away (WAITING `no`) can still be decided:
   the agent's next attempt finds the decision.
 - `mcp-gateway-admin grants` lists the grants approvals left, and

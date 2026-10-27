@@ -44,6 +44,24 @@ function site() {
     check((await page.evaluate(() => __calls)).some(c => c[0] === "POST" && c[1] === "/v1/approvals/a1" && c[2].includes('"approve"')), "approve posts decision");
     check((await page.evaluate(() => __calls)).some(c => c[0] === "POST" && c[1] === "/v1/approvals/a1" && c[2].includes('"via":"cockpit"')), "the decision says it came from Cockpit");
 
+    // Approving one's own request that only "self" allows asks for the
+    // password, and approves through mcp-gateway-admin in a pty (step 40).
+    await page.click("#approval-a2 button:has-text('Only this call')");
+    await page.waitForSelector("#own-password:not([hidden])");
+    check((await page.textContent("#own-password")).includes("needs your password"), "own approval asks for the password");
+    await page.fill("#own-password input[type=password]", "wrong");
+    await page.click("#own-password button[type=submit]");
+    await page.waitForFunction(() => document.querySelector("#own-password").textContent.includes("not accepted"));
+    check(await page.isVisible("#own-password"), "a wrong password is reported, the form stays");
+    await page.fill("#own-password input[type=password]", "secret");
+    await page.click("#own-password button[type=submit]");
+    await page.waitForSelector("#own-password", { state: "hidden" });
+    const calls = await page.evaluate(() => __calls);
+    check(calls.some(c => c[0] === "spawn" && c[1] === "mcp-gateway-admin approvals approve a2 --scope once --yes" && c[3] === true),
+          "the approval runs through mcp-gateway-admin in a pty");
+    check(calls.some(c => c[0] === "pty-close") && calls.filter(c => c[0] === "pty-input").map(c => c[1]).join() === "wrong,right",
+          "the password is typed once per attempt, a second prompt ends the attempt");
+
     await page.click("#tabs button[data-tab=servers]");
     await page.waitForSelector("#servers .instance");
     check(!(await page.isVisible("#tab-approvals")) && await page.isVisible("#tab-servers"), "servers tab switch");

@@ -219,6 +219,8 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 		}
 		_, notifyErr := os.Stat(doctor.NotifyAgent)
 		add(doctor.ApprovalReach(d.gw, notifyErr == nil))
+		_, actionErr := os.Stat(doctor.PolkitAction)
+		add(doctor.OwnApprovals(d.gw, actionErr == nil))
 		add(d.approverGroups()...)
 	}
 	return rs

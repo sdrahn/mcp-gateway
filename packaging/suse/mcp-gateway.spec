@@ -415,6 +415,7 @@ fi
 %{_sysusersdir}/%{name}.conf
 %{_tmpfilesdir}/%{name}.conf
 %{_datadir}/polkit-1/rules.d/50-mcp-gateway.rules
+%{_datadir}/polkit-1/actions/io.github.sdrahn.mcp-gateway.policy
 
 %files selinux
 %dir %{_datadir}/selinux/packages/%{selinuxtype}

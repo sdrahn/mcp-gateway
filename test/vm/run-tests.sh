@@ -361,6 +361,12 @@ restorecon -R /etc/mcp-gateway/exec.d
 check "mcp-server-exec --check accepts the commands" /usr/libexec/mcp-servers/mcp-server-exec --check
 
 section "Start"
+# Users approve their own requests over the control socket below, as
+# Cockpit and the command line do, without a terminal for polkit to ask
+# their password in: off here, and tested in its own section ("Approving
+# one's own request with the password", roadmap step 40).
+printf 'approvals:\n  self_needs_password: false\n' >/etc/mcp-gateway/gateway.d/10-vmtest-no-own-password.yaml
+restorecon /etc/mcp-gateway/gateway.d/10-vmtest-no-own-password.yaml
 systemctl enable --now mcp-gateway.service
 for _ in $(seq 60); do
 	[ -S /run/mcp-gateway/mcp.sock ] && break
@@ -2015,7 +2021,7 @@ ls -Z /etc/mcp-gateway/gateway.d/50-vmtest.yaml | sed 's/^/  /'
 check "a drop-in is labeled mcpgw_etc_t" sh -c 'ls -Z /etc/mcp-gateway/gateway.d/50-vmtest.yaml | grep -q ":mcpgw_etc_t:"'
 check "a drop-in is applied" eventually 40 rl_journal_has '"changed":"limits.tasks_per_principal"'
 check "the doctor lists the drop-in" \
-	sh -c 'mcp-gateway-admin doctor --no-start 2>&1 | grep -E "configuration: .*1 drop-in.*50-vmtest.yaml"'
+	sh -c 'mcp-gateway-admin doctor --no-start 2>&1 | grep -E "configuration: .*drop-in.*50-vmtest.yaml"'
 printf 'limits:\n  task_per_principal: 7\n' >/etc/mcp-gateway/gateway.d/60-vmtest-bad.yaml
 rl_dropin_error() { rl_status | grep -qF 'gateway.d/60-vmtest-bad.yaml'; }
 check "a broken drop-in is reported by its name" eventually 40 rl_dropin_error
@@ -2874,6 +2880,91 @@ check "approvals watch: shows it decided" eventually 10 ac_gone
 kill "$ac_watch" 2>/dev/null
 wait "$ac_watch" 2>/dev/null
 sed 's/^/  | /' /root/vmtest/ac-watch.out
+
+section "Approving one's own request with the password"
+# Roadmap step 40 (D21): over the control socket, which cannot tell a
+# user from the user's agent, a user approves their own request that
+# only the approver rule "self" allows with their password (polkit,
+# auth_self, asked every time); others' rules and root need none, and
+# denying needs none. The default, without the suite's drop-in.
+useradd -m oscar && usermod -aG mcp-users oscar && echo 'oscar:Own-pw-1' | chpasswd
+runuser -u oscar -- sh -c 'echo "oscar notes" >/home/oscar/notes.txt'
+cp /etc/mcp-gateway/policy/rbac/data.yaml /root/op-data-before.yaml
+jq '.roles.ownapproved = {"permissions": [{"server": "fs", "tool": "read_file", "require_approval": true,
+		"approval_channel": "oob", "approval_scopes": ["once"]}]}
+	| .bindings.users.oscar = ["ownapproved"] | .approvers.fs = ["self", "user:jack"]' \
+	/root/op-data-before.yaml >/root/op-data.yaml && cat /root/op-data.yaml >/etc/mcp-gateway/policy/rbac/data.yaml
+op_policy() {
+	curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/bindings/users/oscar |
+		jq -e '.result | index("ownapproved")' >/dev/null
+}
+check "the role data with oscar's approvals is in force" eventually 20 op_policy
+check "polkit knows the action (io.github.sdrahn.mcp-gateway.policy)" test -s /usr/share/polkit-1/actions/io.github.sdrahn.mcp-gateway.policy
+rm /etc/mcp-gateway/gateway.d/10-vmtest-no-own-password.yaml
+systemctl restart mcp-gateway.service
+wait_socket
+op_since=$(date +%s)
+mcp-gateway-admin doctor --no-start >/root/vmtest/op-doctor.txt 2>&1
+grep -E 'own approvals' /root/vmtest/op-doctor.txt | sed 's/^/  /'
+check "doctor: own approvals need the password (polkit)" grep -qE '^OK +own approvals: users approve their own requests over the control socket with their password' /root/vmtest/op-doctor.txt
+# op_call: oscar's read_file in the background; op_pending sets op_id.
+op_call() {
+	runuser -u oscar -- /usr/local/bin/mcpcall --server fs --method tools/call \
+		--params '{"name":"read_file","arguments":{"path":"/home/oscar/notes.txt"}}' >/root/vmtest/op-call.out 2>&1 &
+	op_pid=$!
+}
+op_pending() {
+	op_id=$(runuser -u oscar -- mcp-gateway-admin approvals --json 2>/dev/null |
+		jq -r '.[] | select(.name == "read_file" and .principal.sub == "oscar") | .id' 2>/dev/null | head -1)
+	[ -n "$op_id" ]
+}
+op_tty() { # op_tty <password> <args...>: mcp-gateway-admin as oscar in a terminal of its own
+	local pw=$1
+	shift
+	out=$(runuser -u oscar -- /usr/libexec/mcpgw-privtest -pty "$pw" mcp-gateway-admin "$@" 2>&1)
+	rc=$?
+	echo "  [oscar, terminal] rc=$rc $(tr -d '\r' <<<"$out" | tr '\n' ' ' | cut -c1-400)"
+}
+op_call
+check "oscar's read_file waits for an approval" eventually 30 op_pending
+ac_admin oscar approvals approve "$op_id" --yes
+check "without a terminal (an agent's shell tool): refused, with the reason" \
+	bash -c '[ "$2" = 1 ] && grep -qF "approving your own request needs your password" <<<"$1"' _ "$out" "$rc"
+check "... and still pending" op_pending
+op_tty Wrong-pw approvals approve "$op_id" --yes
+check "in a terminal with a wrong password: refused" test "$rc" != 0
+check "... and still pending" op_pending
+op_tty Own-pw-1 approvals approve "$op_id" --yes
+check "in a terminal, polkit asks for oscar's password" grep -qF "Password:" <<<"$out"
+check "... and with it oscar approves his own request" bash -c '[ "$2" = 0 ] && grep -qF "approved" <<<"$1"' _ "$out" "$rc"
+wait "$op_pid"
+check "... and the call runs" grep -q '"isError":false' /root/vmtest/op-call.out
+op_logged() { journalctl -u mcp-gateway.service -o cat --since "@$op_since" | grep -F "approval of one's own request" | grep -qF "password given"; }
+check "the gateway logs the approval with the password" op_logged
+op_refusal() { journalctl -u mcp-gateway.service -o cat --since "@$op_since" | grep -qF "approval of one's own request refused: no password"; }
+check "... and the refusals" op_refusal
+# Denying needs no password; others' rules (user:jack) and root need none.
+op_call
+check "oscar's next call asks again (scope once)" eventually 30 op_pending
+ac_admin oscar approvals deny "$op_id"
+check "oscar denies without a password" test "$rc" = 0
+wait "$op_pid"
+op_call
+check "the next one waits" eventually 30 op_pending
+ac_admin jack approvals approve "$op_id" --yes
+check "jack (user:jack) approves oscar's call without a password" test "$rc" = 0
+wait "$op_pid"
+op_call
+check "and the next" eventually 30 op_pending
+op_root=$(mcp-gateway-admin approvals approve "$op_id" --yes 2>&1)
+check "root approves without a password" grep -qF "approved" <<<"$op_root"
+wait "$op_pid"
+printf 'approvals:\n  self_needs_password: false\n' >/etc/mcp-gateway/gateway.d/10-vmtest-no-own-password.yaml
+restorecon /etc/mcp-gateway/gateway.d/10-vmtest-no-own-password.yaml
+systemctl restart mcp-gateway.service
+wait_socket
+cat /root/op-data-before.yaml >/etc/mcp-gateway/policy/rbac/data.yaml
+userdel -r oscar 2>/dev/null
 
 section "Approvals told to the agent"
 # Roadmap step 39 stage A (D21): Kit shows nothing while a call waits, so

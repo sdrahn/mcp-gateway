@@ -37,6 +37,21 @@ allow if {
 }
 
 # METADATA
+# description: >-
+#   May the approver decide on the pending request by a rule other than
+#   "self"? A decision that only "self" allows needs the user's password
+#   when it comes over the control socket, where the user's agent could
+#   make it too (roadmap step 40); undefined counts as false.
+# entrypoint: true
+default allow_without_self := false
+
+allow_without_self if {
+	some rule in rules_for(input.request.server)
+	rule != "self"
+	grants(rule, input.request.principal)
+}
+
+# METADATA
 # description: May the caller see and revoke the grant?
 # entrypoint: true
 default manage_grant := false

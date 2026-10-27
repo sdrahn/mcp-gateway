@@ -269,6 +269,7 @@ approvals:
 | `approvals.webhooks[].servers` | `[]` | post only these servers' approvals, and take callbacks only for them; empty: all |
 | `approvals.webhooks[].local_accounts` | `false` | callbacks may name local accounts (`user:<name>`), which the approver rules treat as that account (never root); off: only `remote-user:<name>` |
 | `approvals.no_wait` | `[kit]` | clients, by name (case-insensitive; `"*"` for all), whose calls do not wait for an `oob` approval: they are answered at once with a tool error naming the approval and how to decide it, and the agent's next attempt finds the decision (chapter 7, "Agents told at once"). For agents that show nothing while a call waits. Setting the key replaces the default; `[]` names none |
+| `approvals.self_needs_password` | `true` | approving your own request over the control socket (command line, Cockpit), where only the approver rule `self` lets you, asks for your password (polkit): the socket cannot tell you from your agent, which runs as you (chapter 7). `false` approves without it; the doctor warns (`own approvals`). Takes effect at the next start |
 
 Who may decide on approvals is policy (chapter 6), not configuration.
 

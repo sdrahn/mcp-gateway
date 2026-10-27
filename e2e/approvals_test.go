@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // controlClient talks to the gateway's control API as the current user.
@@ -251,5 +252,66 @@ func TestPendingApprovalSurvivesRestart(t *testing.T) {
 	write(c2, 3)
 	if note := c2.read(); note.Method != "notifications/message" || !strings.Contains(string(note.Params), "Waiting for approval") {
 		t.Fatalf("second retry: %+v", note)
+	}
+}
+
+// By default, approving one's own request over the control socket needs
+// the user's password (roadmap step 40): without polkit to ask, here,
+// the approval is refused, stays pending, and a denial still works.
+// Root decides without one, so the test needs another user.
+func TestOwnApprovalNeedsPassword(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root decides without a password")
+	}
+	me, err := user.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	home, err := os.MkdirTemp("", "mcpgw-own")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	rbac := fmt.Sprintf(`{
+	  "roles": {"developer": {"permissions": [
+	    {"server": "fs", "tool": "write_file", "require_approval": true, "approval_channel": "oob"}
+	  ]}},
+	  "bindings": {"groups": {}, "users": {%q: ["developer"]}}
+	}`, me.Username)
+	e := setup(t, rbac, map[string]string{"fs": home}, "approvals:\n  self_needs_password: true\n")
+	c := newClient(t, e.connect, e.gwSock, "fs")
+	c.initialize(map[string]any{})
+	c.request(2, "tools/call", map[string]any{"name": "write_file",
+		"arguments": map[string]any{"path": filepath.Join(home, "own.txt"), "content": "x"}})
+	if note := c.read(); note.Method != "notifications/message" {
+		t.Fatalf("notice %+v", note)
+	}
+	var ps []map[string]any
+	controlDo(t, controlClient(e.ctlSock), "GET", "/v1/approvals", "", &ps)
+	if len(ps) != 1 {
+		t.Fatalf("pending %v", ps)
+	}
+	id := ps[0]["id"].(string)
+	var refusal map[string]string
+	if code := controlDo(t, controlClient(e.ctlSock), "POST", "/v1/approvals/"+id, `{"decision":"approve","scope":"once","via":"cli"}`, &refusal); code != http.StatusForbidden ||
+		refusal["code"] != "password_required" || !strings.Contains(refusal["error"], "approving your own request needs your password") {
+		t.Fatalf("approve without a password: %d %v", code, refusal)
+	}
+	// The gateway's output comes through a pipe: wait for the line.
+	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(e.gwLogs.String(), "approval of one's own request refused: no password"); {
+		if time.Now().After(deadline) {
+			t.Errorf("not logged:\n%s", e.gwLogs.String())
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if code := controlDo(t, controlClient(e.ctlSock), "POST", "/v1/approvals/"+id, `{"decision":"deny"}`, nil); code != http.StatusNoContent {
+		t.Fatalf("deny: %d", code)
+	}
+	if text, isErr := toolResult(t, c.read()); !isErr || strings.Contains(text, "wrote") {
+		t.Fatalf("after the denial: %q %v", text, isErr)
+	}
+	if _, err := os.Stat(filepath.Join(home, "own.txt")); err == nil {
+		t.Fatal("written")
 	}
 }

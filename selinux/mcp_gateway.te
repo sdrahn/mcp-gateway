@@ -438,6 +438,12 @@ stream_connect_pattern(mcpgw_t, mcpgw_runtime_t, mcpopa_sock_t, mcpopa_t)
 # never exec'd by the gateway itself.
 init_dbus_chat(mcpgw_t)
 dbus_system_bus_client(mcpgw_t)
+# polkit authenticates users approving their own requests over the
+# control socket (CheckAuthorization, roadmap step 40); polkitd answers
+# on the bus and reads the requesting process's /proc entry itself.
+optional_policy(`
+	policykit_dbus_chat(mcpgw_t)
+')
 # systemd checks StartTransientUnit as system:start on its own context
 # (the unit has no file yet). Plain rules: init_start_system and friends
 # exist in reference policy only.

@@ -114,6 +114,7 @@ type BoolPolicy interface {
 // Policy paths for approver decisions.
 const (
 	approvePath        = "/v1/data/mcp/approvals/allow"
+	approveOthersPath  = "/v1/data/mcp/approvals/allow_without_self"
 	manageGrantPath    = "/v1/data/mcp/approvals/manage_grant"
 	manageInstancePath = "/v1/data/mcp/approvals/manage_instance"
 	manageSignInPath   = "/v1/data/mcp/approvals/manage_sign_in"
@@ -797,6 +798,30 @@ func (b *Broker) mayApprove(ctx context.Context, a Approver, p *Pending) bool {
 		return a.owns(p.Principal.UID)
 	}
 	return b.ask(ctx, a, approvePath, ApproverInput{Request: p.Target()})
+}
+
+// OwnOnly reports whether a may decide on the pending approval id only
+// as its principal ("self"): no other approver rule names a, a is a
+// local account and not root. Such a decision, made over the control
+// socket, needs the user's password (roadmap step 40): the socket
+// cannot tell the user from the user's agent. A policy without
+// allow_without_self counts as naming no one else.
+func (b *Broker) OwnOnly(ctx context.Context, a Approver, id string) (bool, error) {
+	if a.Root() || a.Remote {
+		return false, nil
+	}
+	p, err := b.GetPending(ctx, a, id)
+	if err != nil {
+		return false, err
+	}
+	if b.opts.Policy == nil {
+		return a.owns(p.Principal.UID), nil
+	}
+	ok, err := b.opts.Policy.Bool(ctx, approveOthersPath, ApproverInput{Approver: a.policyView(), Request: p.Target()})
+	if err != nil && !errors.Is(err, pep.ErrUndefined) {
+		b.log.Warn("approver policy failed", "path", approveOthersPath, "err", err)
+	}
+	return !ok, nil
 }
 
 // MayReviewPolicy reports whether a may see how a role data change would
