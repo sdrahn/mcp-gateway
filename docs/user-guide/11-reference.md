@@ -670,6 +670,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcpgw_runtime_t`, `mcpgw_sock_t`, `mcpgw_ctl_sock_t`, `mcpopa_sock_t` | `/run/mcp-gateway` and its sockets |
 | `mcp_port_t` | the HTTPS port (`semanage port -a -t mcp_port_t -p tcp 8443`, or `-m` where the policy already labels it) |
 | `mcp_metrics_port_t` | the metrics port (`semanage port -a -t mcp_metrics_port_t -p tcp 9464`) |
+| `mcp_opa_status_port_t` | the port of OPA's status reports (`policy.status_listen`; `semanage port -a -t mcp_opa_status_port_t -p tcp 9465`); OPA connects to it with `mcpopa_can_network` |
 
 | Boolean | Default | Allows |
 |---|---|---|

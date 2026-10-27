@@ -88,6 +88,12 @@ corenet_port(mcp_port_t)
 type mcp_metrics_port_t;
 corenet_port(mcp_metrics_port_t)
 
+# OPA's status reports to the gateway (policy.status_listen, loopback);
+# label its port with
+#   semanage port -a -t mcp_opa_status_port_t -p tcp 9465
+type mcp_opa_status_port_t;
+corenet_port(mcp_opa_status_port_t)
+
 # /run/mcp-gateway and the client socket in it.
 type mcpgw_runtime_t;
 mcp_gateway_runtime_file(mcpgw_runtime_t)
@@ -608,7 +614,7 @@ logging_send_audit_msgs(mcpgw_t)
 # and key set, on an HTTP port (443, 8443) or a proxy port (8080, where
 # Keycloak listens by default).
 allow mcpgw_t self:tcp_socket create_stream_socket_perms;
-allow mcpgw_t { mcp_port_t mcp_metrics_port_t }:tcp_socket name_bind;
+allow mcpgw_t { mcp_port_t mcp_metrics_port_t mcp_opa_status_port_t }:tcp_socket name_bind;
 corenet_tcp_bind_generic_node(mcpgw_t)
 corenet_tcp_connect_http_port(mcpgw_t)
 corenet_tcp_connect_http_cache_port(mcpgw_t)
@@ -650,6 +656,8 @@ allow mcpopa_t mcpopa_rbac_t:dir watch;
 tunable_policy(`mcpopa_can_network',`
 	allow mcpopa_t self:tcp_socket create_stream_socket_perms;
 	corenet_tcp_connect_http_port(mcpopa_t)
+	# Its status reports to the gateway (policy.status_listen).
+	allow mcpopa_t mcp_opa_status_port_t:tcp_socket name_connect;
 ')
 sysnet_dns_name_resolve(mcpopa_t)
 miscfiles_read_generic_certs(mcpopa_t)

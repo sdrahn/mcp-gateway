@@ -216,6 +216,7 @@ policy:
   opa_socket: /run/mcp-gateway/opa.sock
   timeout: 250ms
   watch_interval: 10s
+  status_listen: ""
 ```
 
 | Key | Default | Meaning |
@@ -223,6 +224,7 @@ policy:
 | `policy.opa_socket` | `/run/mcp-gateway/opa.sock` | OPA's socket (`mcp-opa.service`) |
 | `policy.timeout` | `250ms` | a decision not received in time is a denial |
 | `policy.watch_interval` | `10s` (minimum `1s`) | how often the gateway checks whether OPA loaded changed policy (local policy files are also watched, and checked right after a change); agents are then told to list tools, prompts and resources again. Also how often it checks configuration files in directories it cannot watch |
+| `policy.status_listen` | none | a loopback `host:port` (`127.0.0.1:9465`) where OPA's status plugin reports each bundle it activates from a bundle server: the gateway checks the policy at once (chapter 6, "From a bundle server"). Its port needs the label `mcp_opa_status_port_t`; takes effect at the next start |
 
 ### Approvals
 

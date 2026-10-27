@@ -470,6 +470,12 @@ type Policy struct {
 	// WatchInterval is how often the gateway checks whether OPA loaded a
 	// changed policy, to tell clients to list tools etc. again.
 	WatchInterval time.Duration `yaml:"watch_interval"`
+	// StatusListen, if set, is a loopback host:port where the gateway
+	// takes OPA's status reports (OPA's status plugin, POST /status):
+	// OPA sends one whenever it activates a bundle from a bundle server,
+	// and the gateway checks the policy at once instead of at the next
+	// WatchInterval (docs/architecture.md, roadmap step 45).
+	StatusListen string `yaml:"status_listen"`
 }
 
 // Backend is one MCP server definition from the registry.
@@ -1080,6 +1086,18 @@ func (g *Gateway) Validate() error {
 	}
 	if g.Tasks.MaxResultBytes < 1024 {
 		return errors.New("tasks.max_result_bytes: must be at least 1024")
+	}
+	if l := g.Policy.StatusListen; l != "" {
+		host, port, err := net.SplitHostPort(l)
+		if err != nil || port == "" {
+			return fmt.Errorf("policy.status_listen: want host:port, got %q", l)
+		}
+		if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return fmt.Errorf("policy.status_listen: %q is not a loopback address (127.0.0.1, ::1, localhost)", host)
+		}
+		if l == g.HTTP.Listen || l == g.Metrics.Listen {
+			return errors.New("policy.status_listen: must differ from http.listen and metrics.listen")
+		}
 	}
 	if l := g.Metrics.Listen; l != "" {
 		if _, port, err := net.SplitHostPort(l); err != nil || port == "" {

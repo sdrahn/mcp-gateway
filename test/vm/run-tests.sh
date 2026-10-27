@@ -2761,6 +2761,60 @@ systemctl reset-failed mcp-opa.service
 systemctl restart mcp-opa.service
 check "... it is in force: calls are decided again" eventually 30 pb_allowed
 
+# Roadmap step 45 (chapter 6, "From a bundle server"): the same signed
+# bundles from a bundle server, which OPA polls, reporting each bundle it
+# activates to the gateway (policy.status_listen, mcp_opa_status_port_t).
+# With policy.watch_interval an hour, only the report can tell the
+# gateway of a new revision in time.
+mkdir -p /root/pb-server/bundles
+cp /etc/mcp-gateway/bundle/policy.tar.gz /root/pb-server/bundles/mcp-gateway.tar.gz
+/usr/libexec/mcpgw-privtest -files 127.0.0.1:8008 /root/pb-server &
+pb_srv=$!
+pb_key=$(sed 's/^/      /' /etc/mcp-gateway/bundle/verify.pem)
+awk -v key="$pb_key" '
+	/-----BEGIN PUBLIC KEY-----/ { print key; skip = 1; next }
+	skip && /-----END PUBLIC KEY-----/ { skip = 0; next }
+	skip { next }
+	{ print }
+' /usr/share/mcp-gateway/opa/opa-config.yaml.example |
+	sed -e 's,https://bundles.example.com,http://127.0.0.1:8008,' \
+		-e 's/min_delay_seconds: 60/min_delay_seconds: 1/' -e 's/max_delay_seconds: 120/max_delay_seconds: 2/' \
+		>/etc/mcp-gateway/opa-config.yaml
+restorecon /etc/mcp-gateway/opa-config.yaml
+grep -E 'url:|service:|delay' /etc/mcp-gateway/opa-config.yaml | sed 's/^/  /'
+install -D -m0644 /usr/share/mcp-gateway/opa/bundle-server.conf /etc/systemd/system/mcp-opa.service.d/policy.conf
+setsebool mcpopa_can_network on
+semanage port -a -t mcp_opa_status_port_t -p tcp 9465 2>/dev/null || semanage port -m -t mcp_opa_status_port_t -p tcp 9465
+mcp-gateway-admin config set policy.status_listen 127.0.0.1:9465 >/dev/null
+mcp-gateway-admin config set policy.watch_interval 1h >/dev/null
+systemctl daemon-reload
+systemctl reset-failed mcp-opa.service mcp-gateway.service
+systemctl restart mcp-opa.service
+systemctl restart mcp-gateway.service
+wait_socket
+pb_revision() { curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/policy | jq -e --arg r "$1" '[.bundles[]] | index($r)' >/dev/null; }
+check "OPA fetches the signed bundle from the bundle server" eventually 40 pb_revision vmtest-3
+check "... and decides with it" eventually 20 pb_allowed
+pb_status_code=$(curl -s -o /dev/null -w '%{http_code}' -X POST --data '{}' http://127.0.0.1:9465/status)
+check "the gateway takes OPA's status reports on 127.0.0.1:9465" test "$pb_status_code" = 200
+pb_since=$(date +%s)
+mcp-policy-bundle -n -r vmtest-4 >/dev/null
+cp /etc/mcp-gateway/bundle/policy.tar.gz /root/pb-server/bundles/mcp-gateway.tar.gz
+pb_noticed() {
+	journalctl -u mcp-gateway.service -o cat --since "@$pb_since" | grep -F '"event":"mcp-policy-change"' | grep -qF vmtest-4
+}
+check "a new revision on the bundle server is noticed within seconds (watch_interval 1h)" eventually 30 pb_noticed
+journalctl -u mcp-gateway.service -o cat --since "@$pb_since" | grep -F '"event":"mcp-policy-change"' | tail -1 | cut -c1-240 | sed 's/^/  | /'
+kill "$pb_srv" 2>/dev/null
+wait "$pb_srv" 2>/dev/null
+mcp-gateway-admin config unset policy.status_listen >/dev/null
+mcp-gateway-admin config unset policy.watch_interval >/dev/null
+setsebool mcpopa_can_network off
+semanage port -d -p tcp 9465 2>/dev/null
+rm -f /etc/mcp-gateway/opa-config.yaml
+systemctl restart mcp-gateway.service
+wait_socket
+
 # Back to the policy directories.
 rm -f /etc/systemd/system/mcp-opa.service.d/policy.conf
 systemctl daemon-reload
@@ -3994,7 +4048,7 @@ section "Uninstall"
 # /var/lib/mcp-gateway stay. As the
 # chapter says, what was built on the gateway's SELinux types goes first:
 # the tests' own modules (a privileged server's, profile's) and the ports
-# given mcp_port_t and mcp_metrics_port_t; the gateway's module cannot be
+# given mcp_port_t, mcp_metrics_port_t and mcp_opa_status_port_t; the gateway's module cannot be
 # removed while they use its types.
 # un_units: the gateway's units still running or stopping.
 un_units() {
@@ -4016,7 +4070,7 @@ for m in mcp_privtest mcp_fwprof; do
 	semodule -l | awk '{print $1}' | grep -qx "$m" && semodule -r "$m" >/dev/null
 done
 # (-C: the local changes only; "mcp_port_t  tcp  9443, 8443")
-semanage port -l -C 2>/dev/null | awk '$1 ~ /^mcp_(metrics_)?port_t$/ {for (i = 3; i <= NF; i++) print $2, $i}' |
+semanage port -l -C 2>/dev/null | awk '$1 ~ /^mcp_(metrics_|opa_status_)?port_t$/ {for (i = 3; i <= NF; i++) print $2, $i}' |
 	tr -d ',' | while read -r proto port; do semanage port -d -p "$proto" "$port"; done
 # Something running: an instance of alice's.
 tool alice read_file '{"path":"/home/alice/secret.txt"}' >/dev/null

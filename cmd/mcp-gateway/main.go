@@ -450,10 +450,21 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	go reloader.watch(ctx, reloader.Interval, reloadFP, hup, fsw)
 
 	// Clients learn about policy changes through list_changed: when a
-	// local policy file is written, and every policy.watch_interval.
+	// local policy file is written, when OPA reports a bundle it
+	// activated (policy.status_listen), and every policy.watch_interval.
+	var opaStatus chan struct{}
+	if gw.Policy.StatusListen != "" {
+		opaStatus = make(chan struct{}, 1)
+		stopStatus, err := serveOPAStatus(log, gw.Policy.StatusListen, opaStatus)
+		if err != nil {
+			stop()
+			return err
+		}
+		defer stopStatus()
+	}
 	go r.WatchPolicy(ctx, reloader.Interval, opa.Fingerprint, func() {
 		auditLog.Event("mcp-policy-change", true, map[string]string{"revision": bundleRevisions(ctx, opa)})
-	}, watchPolicyFiles(ctx, log, policyData, policydata.RenderDir, shippedPolicy))
+	}, mergeSignals(ctx, watchPolicyFiles(ctx, log, policyData, policydata.RenderDir, shippedPolicy), opaStatus))
 	if revs := bundleRevisions(ctx, opa); revs != "" {
 		log.Info("policy bundles", "revisions", revs)
 	}

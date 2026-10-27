@@ -250,7 +250,7 @@ loaded otherwise.
 - Your own modules for MCP servers (`semodule -l | grep mcp_`, for
   example one made with `mcp-gateway profile`, chapter 4):
   `semodule -r mcp_git`.
-- Ports you gave `mcp_port_t` or `mcp_metrics_port_t`
+- Ports you gave `mcp_port_t`, `mcp_metrics_port_t` or `mcp_opa_status_port_t`
   (`semanage port -l | grep mcp_`): `semanage port -d -p tcp 8443`.
 
 `/etc/mcp-gateway` (your configuration) and `/var/lib/mcp-gateway`

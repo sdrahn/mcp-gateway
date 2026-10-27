@@ -532,8 +532,9 @@ JSON](#yaml-not-json)). OPA watches the policy directories and loads
 changes within seconds; the gateway notices right after OPA has loaded
 them (it watches the same directories), tells connected agents to list
 their tools again and writes a `mcp-policy-change` audit event. No
-restart is needed. Policy from a bundle server is checked every
-`policy.watch_interval` (10 s).
+restart is needed. Policy from a bundle server is noticed when OPA
+reports the bundle it activated (`policy.status_listen`, below), else
+within `policy.watch_interval` (10 s).
 
 Changes apply to calls that start afterwards; a call already forwarded to
 the server runs to its end (chapter 9).
@@ -716,6 +717,21 @@ systemctl daemon-reload && systemctl restart mcp-opa.service
 
 OPA verifies every download and keeps the active revision if a new one
 does not verify. Until the first bundle is active, everything is denied.
+
+So that agents learn of a new bundle at once, not within
+`policy.watch_interval`, let OPA report each bundle it activates to the
+gateway (the example configuration's `status` and `services.gateway`):
+
+```bash
+mcp-gateway-admin config set policy.status_listen 127.0.0.1:9465
+semanage port -a -t mcp_opa_status_port_t -p tcp 9465   # -m where the port is labelled already
+systemctl restart mcp-gateway.service mcp-opa.service
+```
+
+The gateway takes a report as a reason to look, not as news: it reads
+the policy from OPA as it would at the next interval, so a report from
+anyone else on the host changes nothing. A bundle OPA could not activate
+is logged as a warning. The listener accepts loopback addresses only.
 
 The Policy tab in Cockpit and `GET /v1/policy` on the control API show
 the mode (`directories` or `bundle`) and the active revisions.
