@@ -14,6 +14,15 @@ minor release (with a warning) and removed in the next.
   approval pages and the command line, a client scope per gateway so
   that a token is valid at one gateway only, and each gateway's
   configuration and role data.
+- Contexts for agents of MCP 2026-07-28, which have no session: a server
+  with `isolation: session` and `contexts: true` offers them the tools
+  `gateway_new_context` and `gateway_end_context` and an optional
+  argument `gateway_context` on its tools, so that each conversation can
+  have an instance, and state, of its own instead of sharing the user's.
+  A context is its user's, ends after `supervisor.idle_timeout` without
+  a call, and is bounded by `limits.contexts_per_principal` (8). Policy
+  sees the two tools as `resource.context`; the shipped policy lets them
+  follow the server's tools. Journal event `mcp-context`.
 
 ### Fixed
 

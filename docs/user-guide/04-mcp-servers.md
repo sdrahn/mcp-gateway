@@ -306,7 +306,8 @@ Server names must be unique across all files.
 | `sign_in` | none | with `url`: each user signs in to the server with their own account there (`scopes`, `client_id`, `client_secret`). See [Signing in for each user](#signing-in-for-each-user) |
 | `env` | none | extra environment variables (map); `${HOME}`, `${USER}` and `${UID}` are replaced as in `command`; a variable naming `${UID}` is left out for a principal without a local account (`XDG_RUNTIME_DIR: /run/user/${UID}`) |
 | `selinux_type` | `mcpsrv_generic_t` (`mcpsrv_http_t` with `url`) | the SELinux domain instances run in; must be `mcpsrv_<name>_t` (see [SELinux domains](#selinux-domains-for-servers)) |
-| `isolation` | `principal` | `principal`: one instance per principal, shared by that principal's sessions. `session`: a new instance per session; agents of MCP 2026-07-28 have no session and share one instance per principal, as with `principal`. |
+| `isolation` | `principal` | `principal`: one instance per principal, shared by that principal's sessions. `session`: a new instance per session; agents of MCP 2026-07-28 have no session and share one instance per principal, as with `principal`, unless `contexts` gives them their own. |
+| `contexts` | `false` | with `isolation: session`: agents of MCP 2026-07-28 may open contexts, each with an instance of its own. See [Contexts](#contexts-for-agents-without-sessions) |
 | `network` | `false` | allow network access. Without it, the instance has a private network namespace and only unix sockets. |
 | `run_as` | `principal` (`dynamic` with `url`) | whom the instance runs as: `principal` (the local user; remote users without a local account get a throwaway dynamic user), `dynamic` (always a throwaway dynamic user), or the name of a system account |
 | `discovery` | `shared` (`instance` with `sign_in`) | where tool and prompt lists come from: `shared` (one gateway-owned instance per server, cached; listing starts no per-user instances), `instance` (each principal's own instance, for servers whose tools depend on the user) |
@@ -503,13 +504,53 @@ files_search_var_lib(mcpsrv_suseconnect_t)
 In development mode (`supervisor.mode: exec`) there is no sandbox, and
 both options have no effect.
 
+### Contexts for agents without sessions
+
+Agents of MCP 2026-07-28 have no session, so `isolation: session` gives
+them one instance per user, shared by all their conversations. For a
+server that keeps state per conversation, such as a browser, set
+`contexts: true`:
+
+```yaml
+name: browser
+command: ["/usr/libexec/mcp-servers/mcp-server-browser"]
+isolation: session
+contexts: true
+```
+
+Such agents then see two more tools of the server,
+`gateway_new_context` and `gateway_end_context` (`browser__…` on the
+aggregated endpoint), and an optional argument `gateway_context` on each
+of its tools:
+
+- `gateway_new_context` returns an id (`{"context": "ctx_…"}`). A call
+  with `"gateway_context": "ctx_…"` runs in that context's own instance,
+  started on its first call; a call without it runs in the user's shared
+  instance, as before. The server never sees the argument.
+- `gateway_end_context` ends a context and stops its instance. A context
+  also ends after `supervisor.idle_timeout` (15 minutes) without a call,
+  and when the gateway restarts.
+- A context is its user's: another user's call naming it fails, as does
+  a call of another server.
+- `limits.contexts_per_principal` (8) bounds a user's open contexts; a
+  context's instance counts toward `limits.instances_per_principal` but
+  is not stopped to make room for another.
+- Policy: the two tools follow the server's tools (chapter 12,
+  `resource.context`): whoever may call some tool of the server may open
+  and end contexts; where every tool needs an approval, opening one does
+  too. Calls in a context are decided like any other call.
+- `mcp-gateway-admin instances` and Cockpit list a context's instance
+  with isolation `context` and its id. Legacy sessions are offered no
+  contexts: each has its own instance already.
+
 ### Lifecycle
 
 - An instance starts with the first call that needs it and is shared by
   the principal's sessions (`isolation: principal`) or belongs to one
   session (`isolation: session`).
 - It stops `supervisor.idle_timeout` (15 minutes) after its last session
-  ended, or at session end with `isolation: session`.
+  ended, or at session end with `isolation: session`; a context's instance
+  when its context ends (above).
 - If it crashes or fails to start, the next start of the same instance
   waits: 1 s, then doubling up to 2 minutes; meanwhile calls fail at once
   with `backend unavailable; retry in …`. A minute of stable running

@@ -8,6 +8,9 @@
 // approvals.no_wait names by default); it declares no elicitation and asks
 // for no progress either way.
 //
+// --modern speaks as an agent of MCP 2026-07-28: no initialize, each
+// request with the protocol version and capabilities in its _meta.
+//
 // --then PARAMS (repeatable) sends further requests of the same method in
 // the same session, after the first, each printed on its own line: what a
 // session keeps between requests (pseudonyms) can be tested.
@@ -51,11 +54,12 @@ func main() {
 	params := flag.String("params", "{}", "request params (JSON)")
 	timeout := flag.Duration("timeout", 90*time.Second, "overall timeout")
 	client := flag.String("client", "mcpcall", `clientInfo.name to give ("kit": as Kit)`)
+	modern := flag.Bool("modern", false, "speak as an agent of MCP 2026-07-28 (no initialize, _meta per request)")
 	var then paramsList
 	flag.Var(&then, "then", "params of a further request in the same session (JSON; repeatable)")
 	flag.Parse()
 
-	code, err := run(*socket, *server, *method, append(paramsList{json.RawMessage(*params)}, then...), *timeout, *client)
+	code, err := run(*socket, *server, *method, append(paramsList{json.RawMessage(*params)}, then...), *timeout, *client, *modern)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "mcpcall:", err)
 	}
@@ -72,7 +76,7 @@ func (l *paramsList) Set(s string) error {
 	return nil
 }
 
-func run(socket, server, method string, requests paramsList, timeout time.Duration, client string) (int, error) {
+func run(socket, server, method string, requests paramsList, timeout time.Duration, client string, modern bool) (int, error) {
 	for _, params := range requests {
 		if !json.Valid(params) {
 			return 1, fmt.Errorf("params %s are not valid JSON", params)
@@ -127,21 +131,36 @@ func run(socket, server, method string, requests paramsList, timeout time.Durati
 	}
 
 	send := func(m map[string]any) error { m["jsonrpc"] = "2.0"; return w.Encode(m) }
-	if err := send(map[string]any{"id": 1, "method": "initialize", "params": map[string]any{
+	if modern {
+		for i, params := range requests {
+			var p map[string]any
+			if err := json.Unmarshal(params, &p); err != nil || p == nil {
+				return 1, fmt.Errorf("params %s are not an object", params)
+			}
+			p["_meta"] = map[string]any{
+				"io.modelcontextprotocol/protocolVersion":    "2026-07-28",
+				"io.modelcontextprotocol/clientInfo":         map[string]any{"name": client, "version": "1"},
+				"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+			}
+			requests[i], _ = json.Marshal(p)
+		}
+	} else if err := send(map[string]any{"id": 1, "method": "initialize", "params": map[string]any{
 		"protocolVersion": "2025-06-18", "capabilities": map[string]any{},
 		"clientInfo": map[string]any{"name": client, "version": "1"},
 	}}); err != nil {
 		return 1, err
 	}
-	init, err := read("1")
-	if err != nil {
-		return 1, fmt.Errorf("initialize: %w", err)
-	}
-	if init.Error != nil {
-		return 1, fmt.Errorf("initialize: %s", init.Error.Message)
-	}
-	if err := send(map[string]any{"method": "notifications/initialized"}); err != nil {
-		return 1, err
+	if !modern {
+		init, err := read("1")
+		if err != nil {
+			return 1, fmt.Errorf("initialize: %w", err)
+		}
+		if init.Error != nil {
+			return 1, fmt.Errorf("initialize: %s", init.Error.Message)
+		}
+		if err := send(map[string]any{"method": "notifications/initialized"}); err != nil {
+			return 1, err
+		}
 	}
 	for i, params := range requests {
 		id := i + 2

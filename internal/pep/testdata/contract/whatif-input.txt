@@ -26,6 +26,7 @@ proposed
 resources
 resources[].annotations
 resources[].builtin
+resources[].context
 resources[].kind
 resources[].name
 resources[].privileged

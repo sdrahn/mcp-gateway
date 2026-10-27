@@ -363,6 +363,7 @@ limits:
   requests_per_principal: 64
   streams_per_principal: 16
   tasks_per_principal: 32
+  contexts_per_principal: 8
 ```
 
 | Key | Default | Meaning |
@@ -373,6 +374,7 @@ limits:
 | `limits.requests_per_principal` | `64` | requests of agents of MCP 2026-07-28, which have no session, one principal has in flight (subscription streams aside); more are refused ("request limit reached (64)") |
 | `limits.streams_per_principal` | `16` | subscription streams (`subscriptions/listen`) of agents of MCP 2026-07-28 one principal has open; more are refused ("subscription stream limit reached (16)") |
 | `limits.tasks_per_principal` | `32` | tasks (below) one principal has, running or done and kept; a call asking for another is refused ("task limit reached (32)") until one is dropped |
+| `limits.contexts_per_principal` | `8` | contexts (chapter 4, servers with `contexts`) one principal has open; `gateway_new_context` is refused ("context limit reached (8)") until one is ended or expires |
 
 A principal is a local user, or a remote token's issuer and subject.
 Discovery instances do not count. Clients that never end their HTTP

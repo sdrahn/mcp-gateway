@@ -83,6 +83,9 @@ type Router struct {
 	MaxTasksPerPrincipal int
 	TaskRetention        time.Duration
 	TaskMaxResultBytes   int
+	// MaxContextsPerPrincipal limits a principal's open contexts
+	// (contexts.go; 0: the default).
+	MaxContextsPerPrincipal int
 	// ModernAgents serves agents' requests of MCP 2026-07-28 (agents.go).
 	// Off, such requests are served as before (a server/discover probe
 	// is unknown, and the agent falls back to initialize).
@@ -103,6 +106,7 @@ type Router struct {
 	// tasks are the agents' tasks; tasksCtx ends their calls when the
 	// gateway stops (stopTasks).
 	tasks     taskStore
+	contexts  contextStore
 	tasksCtx  context.Context
 	warm      warmState
 	stopTasks context.CancelFunc
@@ -292,7 +296,8 @@ func (r *Router) init() {
 			MaxInstances: r.MaxInstances, ListTTL: r.ListTTL, RetryWait: r.RetryWait,
 			MaxRequestsPerPrincipal: r.MaxRequestsPerPrincipal, MaxStreamsPerPrincipal: r.MaxStreamsPerPrincipal, VaultIdle: r.VaultIdle,
 			MaxVersion: r.MaxVersion, NoRequestTimeout: r.NoRequestTimeout, NoWait: r.NoWait,
-			MaxTasksPerPrincipal: r.MaxTasksPerPrincipal, TaskRetention: r.TaskRetention, TaskMaxResultBytes: r.TaskMaxResultBytes})
+			MaxTasksPerPrincipal: r.MaxTasksPerPrincipal, TaskRetention: r.TaskRetention, TaskMaxResultBytes: r.TaskMaxResultBytes,
+			MaxContextsPerPrincipal: r.MaxContextsPerPrincipal})
 		r.pool.onListChanged = r.listChanged
 		r.pool.current = func(server string) *config.Backend { return (*r.registry.Load())[server] }
 		if r.SignIns != nil {
@@ -321,6 +326,7 @@ type Settings struct {
 	MaxTasksPerPrincipal                                            int
 	TaskRetention                                                   time.Duration
 	TaskMaxResultBytes                                              int
+	MaxContextsPerPrincipal                                         int
 }
 
 // defaultListTTL and defaultRetryWait are ListTTL and RetryWait when
@@ -363,6 +369,9 @@ func (r *Router) applySettings(s Settings) {
 	}
 	if s.TaskMaxResultBytes <= 0 {
 		s.TaskMaxResultBytes = defaultTaskResultBytes
+	}
+	if s.MaxContextsPerPrincipal <= 0 {
+		s.MaxContextsPerPrincipal = defaultContextsPerPrincipal
 	}
 	s.MaxVersion = lowerKeys(s.MaxVersion)
 	s.NoRequestTimeout = lowerNames(s.NoRequestTimeout)

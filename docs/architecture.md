@@ -18,7 +18,7 @@ install, configure and run it is the [user guide](user-guide/README.md);
 | 6 | policy model: packages, input and decision documents, role data, policy lifecycle |
 | 7 | key flows: a call needing approval, remote session setup, discovery |
 | 8 | threat model (summary) |
-| 9 | decisions D1–D19, each with its rationale |
+| 9 | decisions D1–D22, each with its rationale |
 | 10 | repository layout |
 | 11 | roadmap: the steps by release, with what each delivered |
 | 12 | open items |
@@ -1341,7 +1341,7 @@ it but without `inputRequests` for a final result.
 |---|---|
 | Pseudonym vault per session (§6.3.1) | per principal and endpoint, with the same bound and an idle expiry (`pseudonymize.vault_idle`, default 1 h). Pseudonyms stay consistent across calls, which the model needs; the vault cannot live in `requestState`, which spans the round trips of one call only. |
 | Grants `session` | not offered (above) |
-| `isolation: session` instances | one instance per principal, as `isolation: principal`, which SEP-2567 names for gateways that bridged sessions to stdio processes ("route by authenticated principal"). Legacy sessions keep their own instances. The specification asks such servers to move their state to handles in tool arguments; the doctor and the reference say that modern agents get per-principal instances. |
+| `isolation: session` instances | one instance per principal, as `isolation: principal`, which SEP-2567 names for gateways that bridged sessions to stdio processes ("route by authenticated principal"). Legacy sessions keep their own instances. The specification asks such servers to move their state to handles in tool arguments; for those that do not, `contexts: true` has the gateway make the handles (D22): an instance per context the agent opens. |
 | Sessions per principal (D14) | in-flight requests and open subscription streams per principal: `limits.requests_per_principal`, `limits.streams_per_principal`; tasks (§5.11.6, in both eras): `limits.tasks_per_principal` |
 | `logging/setLevel` | per-request `logLevel` |
 | Replay of 256 events per stream | none: a broken stream loses its request, and the client issues it again |
@@ -1506,6 +1506,10 @@ policy uses them only as a ceiling (§6.7).
 `resource.sign_in` is `true` for the tool `sign_in` the gateway offers
 in place of a server's tools until the principal signed in to it
 (§5.7.3).
+
+`resource.context` is `true` for the tools `gateway_new_context` and
+`gateway_end_context` the gateway offers modern agents for a server with
+contexts (D22).
 
 `phase` is `"delivery"` when policy decides whether a call's result goes
 to the principal (D20, roadmap step 31): the call's input, with the
@@ -2453,8 +2457,9 @@ no standard client sends it back); separate instances per `clientInfo`
 client); handles the gateway makes on a server's behalf (a
 `<server>__new_context` tool returning an id that later calls carry,
 each id an instance of its own): the only per-conversation isolation for
-modern agents, kept for later (§12), since it means the gateway changes
-servers' tool schemas.
+modern agents, kept for later since it means the gateway changes
+servers' tool schemas; done with D22 (roadmap step 43), where a
+definition chooses it with `contexts: true`.
 
 **D19 — Landlock as a second wall around instances.**
 *Decision (accepted 2026-10-08, roadmap step 30):* a server definition
@@ -2611,6 +2616,45 @@ which an agent that runs as the user does not have; denying, other
 approver rules, root and the HTTPS ways (page, remote command line,
 webhooks) are unchanged. `approvals.self_needs_password: false` keeps
 1.10's behaviour, with a warning of the doctor.
+
+**D22 — Contexts: per-conversation instances for modern agents.**
+*Decision (accepted 2026-10-27, roadmap step 43; open since D18):* a
+server definition with `isolation: session` may set `contexts: true`.
+Agents of MCP 2026-07-28, which have no session and so share one
+instance per principal (D18), then get two tools of the gateway on that
+server, `gateway_new_context` and `gateway_end_context`, and an optional
+argument `gateway_context` on each of the server's tools. A call naming
+a context runs in the context's own instance, one started for it; a
+call without one runs in the principal's, as before. The gateway removes
+the argument before policy and the server see the call. A context
+belongs to the principal and the server it was opened for (another
+principal's, or another server's, call naming it is invalid params), and
+ends with `gateway_end_context`, which stops its instance, or after
+`supervisor.idle_timeout` without a call; its instance outlasts that by
+a minute, so that a call just in time finds it, and is never stopped to
+make room at `limits.instances_per_principal` (it holds the agent's
+state). `limits.contexts_per_principal` (default 8) bounds the open
+contexts. Contexts live in memory: a gateway restart ends them, as it
+ends every instance. Legacy sessions are not offered contexts: each has
+its own instance already.
+*Policy:* the context tools are tools of the server
+(`input.resource.context`); the shipped policy lets them follow the
+server's tools as `sign_in` does: a permission naming any tool of the
+server covers them, a denial only if it names every tool (`"*"`), and an
+approval needed for every tool is needed to open a context too. Calls in
+a context are decided like any other call of the tool. Opening and
+ending are recorded in the journal (`mcp-context`).
+*Rationale:* SEP-2567 asks stateful servers to move their state to
+handles in tool arguments; the gateway makes those handles for servers
+that do not, so that two conversations of one agent (two browser tasks,
+say) need not share a browser. The handle is the gateway's, so policy,
+limits and the audit see it, and a server needs no change. An id that
+names an instance, bound to its principal, cannot reach anyone else's.
+*Considered:* an instance per `clientInfo` (self-asserted, and one client
+has many conversations); a header or cookie (no standard client sends
+one back); handles for every `isolation: session` server without
+setting (it changes servers' tool schemas, which administrators should
+choose); contexts that survive a restart (the instances do not).
 
 ## 10. Repository layout
 
@@ -4364,16 +4408,32 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       group is the approvers' group gets the mail once SSSD lets the
       gateway ask, and not before, and the doctor says which.
 
-## 12. Open items
+43. **Contexts: per-conversation instances for modern agents** (1.12,
+    D22; done): §12 had it open since D18:
+    - `contexts: true` on a definition with `isolation: session`; the
+      tools `gateway_new_context` (returns `{"context": "ctx_…"}`, also
+      as structured content) and `gateway_end_context`; the optional
+      argument `gateway_context` added to the server's tools in modern
+      agents' lists (left out where a schema has it already or is no
+      object), and removed from calls before policy and the server;
+    - the pool keys a context's instance by the context (isolation
+      `context`, listed with its `context` in the control API), lets it
+      idle for `supervisor.idle_timeout` plus a minute, and does not
+      stop it to make room; `gateway_end_context` stops it; contexts
+      expire after the idle timeout without a call; at most
+      `limits.contexts_per_principal` (8) per principal;
+    - policy: `input.resource.context`, the context tools follow the
+      server's tools (mcp/contexts.rego); the journal event `mcp-context` (`op`
+      `open`, `end`);
+    - tests: unit tests of the router (lists, schemas, an instance and
+      state per context, the argument kept from the server, ending,
+      ownership across principals and servers, the limit, expiry,
+      eviction), policy tests, contract fields; in the VM test (the
+      openQA suite) a modern agent opens two contexts of a stateful
+      server, each with its own instance and state under its own unit,
+      ends one (its unit stops), and another user cannot use it.
 
-- Per-conversation state for modern agents (D18): servers marked
-  `isolation: session` get one instance per principal from modern
-  agents. If stateful servers that do not move to handles matter in
-  practice (a browser server, for example), the gateway could make the
-  handles itself: a `<server>__new_context` tool returning an id bound to
-  the principal and expiring when idle, an optional `context` argument on
-  the server's tools, each id an instance of its own, with policy over
-  both.
+## 12. Open items
 
 - HTTP streams: a backend's request or log message while a session has
   several calls in flight on that backend cannot be told apart and goes

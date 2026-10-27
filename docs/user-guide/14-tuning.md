@@ -111,6 +111,7 @@ most use far less (`systemd-cgtop`).
 | `limits.sessions_per_principal` | `64` | open sessions of one principal; at the limit, its longest-idle HTTP session is ended first |
 | `limits.requests_per_principal`, `limits.streams_per_principal` | `64`, `16` | requests in flight and subscription streams of agents of MCP 2026-07-28 |
 | `limits.tasks_per_principal`, `tasks.retention`, `tasks.max_result_bytes` | `32`, `1h`, 4 MiB | tasks one principal has, how long a finished task is kept, its largest result |
+| `limits.contexts_per_principal` | `8` | contexts one principal has open on servers with `contexts`; each context's instance counts toward `limits.instances_per_principal` |
 
 Set `limits.instances` on any host with more users than it has memory
 for their instances: without it, a burst of users starts instances

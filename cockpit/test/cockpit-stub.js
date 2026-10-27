@@ -20,6 +20,8 @@
           started: new Date(Date.now() - 300000).toISOString(), sessions: 1 },
         { id: "i0", server: "fs", unit: "mcp-fs-i0.service", sub: "bob", uid: 1002, transport: "unix", isolation: "principal",
           started: new Date(Date.now() - 900000).toISOString(), sessions: 1, definition: "previous" },
+        { id: "i9", server: "fs", unit: "mcp-fs-i9.service", sub: "alice", uid: 1001, transport: "unix", isolation: "context",
+          context: "ctx_Q2xpZW50Q29udGV4dA", started: new Date(Date.now() - 100000).toISOString(), sessions: 0 },
     ];
     let tasks = [
         { id: "t1", server: "zypp", tool: "confirm_install", sub: "alice", uid: 1001, transport: "unix", status: "working",
