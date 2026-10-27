@@ -129,7 +129,9 @@ func ifpError(err error) error {
 		switch de.Name {
 		case "org.freedesktop.DBus.Error.ServiceUnknown", "org.freedesktop.DBus.Error.NameHasNoOwner":
 			return ErrNoInfoPipe
-		case "org.freedesktop.DBus.Error.AccessDenied":
+		case "org.freedesktop.DBus.Error.AccessDenied", "org.freedesktop.DBus.Error.AuthFailed":
+			// (SSSD answers a uid not in allowed_uids with EACCES, which
+			// it sends as AuthFailed.)
 			return ErrInfoPipeDenied
 		}
 	}

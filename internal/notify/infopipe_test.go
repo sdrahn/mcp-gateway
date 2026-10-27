@@ -57,7 +57,7 @@ func connect(t *testing.T, addr string) *dbus.Conn {
 type fakeIfp struct {
 	users  []fakeUser
 	loose  bool  // ListByAttr also returns users of other gids
-	refuse bool  // every call AccessDenied, as allowed_uids does
+	refuse bool  // every call AuthFailed, as SSSD's allowed_uids does (EACCES)
 	calls  int32 // ListByName calls
 	limit  atomic.Uint32
 }
@@ -71,7 +71,7 @@ func (f *fakeIfp) ListByName(filter string, limit uint32) ([]dbus.ObjectPath, *d
 	atomic.AddInt32(&f.calls, 1)
 	f.limit.Store(limit)
 	if f.refuse {
-		return nil, dbus.NewError("org.freedesktop.DBus.Error.AccessDenied", []any{"not allowed"})
+		return nil, dbus.NewError("org.freedesktop.DBus.Error.AuthFailed", []any{"Permission denied"})
 	}
 	var paths []dbus.ObjectPath
 	for i := range f.users {
