@@ -198,8 +198,13 @@ func TestOAuthScopes(t *testing.T) {
 	if _, err := o.Authenticate(context.Background(), idp.rsaToken(t, nil), nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := o.Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"scope": "openid"}), nil); !errors.Is(err, ErrInsufficientScope) {
+	_, err := o.Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"scope": "openid profile", "azp": "kit"}), nil)
+	if !errors.Is(err, ErrInsufficientScope) {
 		t.Fatalf("want ErrInsufficientScope, got %v", err)
+	}
+	// The error, which the gateway logs, says what to fix where.
+	if msg := err.Error(); !strings.Contains(msg, `missing scope "mcp"`) || !strings.Contains(msg, `client "kit"`) || !strings.Contains(msg, `"openid profile"`) {
+		t.Errorf("error %q", msg)
 	}
 	if _, err := o.Authenticate(context.Background(), idp.rsaToken(t, map[string]any{"scope": nil, "scp": []string{"mcp"}}), nil); err != nil {
 		t.Fatalf("scp array: %v", err)

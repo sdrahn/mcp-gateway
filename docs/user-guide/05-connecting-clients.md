@@ -465,9 +465,9 @@ http:
 | Status | Meaning |
 |---|---|
 | connection refused (no HTTP status) | nothing listens there, or the firewall rejects the port: from the host itself, `curl -k https://localhost:8443/.well-known/oauth-protected-resource/mcp` answers when the gateway listens (the journal says `msg=listening http=:8443`); if it does and remote clients are refused, open the port (`mcp-gateway-admin doctor`, `firewall`) |
-| `401 authentication required` | no token; see the `WWW-Authenticate` header |
+| `401 authentication required` | no token; see the `WWW-Authenticate` header. Each refusal in this table is in the gateway's journal, as `HTTP request refused` with its reason and the client's address (chapter 10, "Remote clients") |
 | `401 invalid token` | wrong issuer or audience, expired, bad signature, or not bound to the presented certificate; the gateway's journal says why (`token rejected`), and `mcp-gateway-admin setup http --token FILE` explains it from the token |
-| `403 insufficient scope` | the token lacks a scope from `http.scopes` |
+| `403 insufficient scope` | the token lacks a scope from `http.scopes`; the journal names it, the token's client and the scopes the token has. In Keycloak: the client scope (with *Include in token scope* on) in the agent's client's *Client scopes* (chapter 15) |
 | `403 origin not allowed` | `Origin` not in `http.allowed_origins` |
 | `404 unknown session` / `session ended` | the session expired or belongs to someone else; initialize again |
 | `400 unknown or expired Last-Event-ID` | the stream to resume is gone; send the request again |

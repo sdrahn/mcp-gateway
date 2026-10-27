@@ -1687,6 +1687,17 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	done
 	hl_post "$(hl_tok "aud=$hl_url&sub=alice&preferred_username=alice&scope=openid")" /mcp/fs "$hl_init"
 	check "a token without the scope every token needs: 403 insufficient_scope" hl_status 403 'error="insufficient_scope"'
+	hl_post "$(cat /root/hl-token)" /mcp/nope "$hl_init"
+	check "an endpoint of no server: 404" test "$hl_code" = 404
+	# Each refusal is in the journal, with why and from where (1.12.1:
+	# an agent says no more than "4xx").
+	hl_refusal() {
+		journalctl -u mcp-gateway.service -o cat --since "@$hl_since" | grep -F 'msg="HTTP request refused"' |
+			grep -F "status=$1" | grep -F 'remote=' | grep -qF -- "$2"
+	}
+	check "... the gateway logs the refusal without a token" hl_refusal 401 'reason="no bearer token"'
+	check "... the missing scope, and which the token has" hl_refusal 403 'missing scope \"mcp\"'
+	check "... and the unknown endpoint" hl_refusal 404 'path=/mcp/nope'
 	# root, and the gateway's own system account (bin is gone on Tumbleweed)
 	for u in root mcp-gateway; do
 		hl_post "$(hl_tok "aud=$hl_url&sub=$u&preferred_username=$u&scope=mcp")" /mcp/fs "$hl_init"

@@ -132,6 +132,8 @@ type HTTPHandler struct {
 
 	mu       sync.Mutex
 	sessions map[string]*httpSession
+
+	refusals refusalLimiter
 }
 
 // NewHTTPHandler returns the transport handler. Close it to end all
@@ -162,6 +164,7 @@ func NewHTTPHandler(cfg HTTPConfig, auth Authenticator, serve SessionFunc) (*HTT
 		ctx:      ctx,
 		cancel:   cancel,
 		sessions: map[string]*httpSession{},
+		refusals: refusalLimiter{now: time.Now},
 	}
 	go h.reap()
 	return h, nil
@@ -188,11 +191,12 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	server, ok := h.endpoint(r.URL.Path)
 	if !ok {
+		h.logRefusal(r, http.StatusNotFound, "no such endpoint (no server of that name, or not under "+h.basePath+")")
 		http.NotFound(w, r)
 		return
 	}
 	if o := r.Header.Get("Origin"); o != "" && !slices.Contains(h.cfg.AllowedOrigins, o) {
-		http.Error(w, "origin not allowed", http.StatusForbidden)
+		h.refuse(w, r, http.StatusForbidden, "origin not allowed", "origin not in http.allowed_origins", "origin", o)
 		return
 	}
 	p, ok := h.authenticate(w, r)
@@ -200,7 +204,7 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if v := r.Header.Get(versionHeader); v != "" && !supportedVersions[v] && r.Method != http.MethodPost {
-		http.Error(w, "unsupported MCP protocol version", http.StatusBadRequest)
+		h.refuse(w, r, http.StatusBadRequest, "unsupported MCP protocol version", "unsupported protocol version", "version", v, "sub", p.Sub)
 		return
 	}
 	switch r.Method {
@@ -214,10 +218,10 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		http.Error(w, "unknown session", http.StatusNotFound)
+		h.refuse(w, r, http.StatusNotFound, "unknown session", "unknown session", "sub", p.Sub)
 	default:
 		w.Header().Set("Allow", "GET, POST, DELETE")
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		h.refuse(w, r, http.StatusMethodNotAllowed, "method not allowed", "method not allowed", "sub", p.Sub)
 	}
 }
 
@@ -283,7 +287,9 @@ func (h *HTTPHandler) authenticate(w http.ResponseWriter, r *http.Request) (prin
 	token, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !found || token == "" {
 		w.Header().Set("WWW-Authenticate", challenge)
-		http.Error(w, "authentication required", http.StatusUnauthorized)
+		// An OAuth client's first request, before it signs in, is
+		// refused so too.
+		h.refuse(w, r, http.StatusUnauthorized, "authentication required", "no bearer token")
 		return principal.Principal{}, false
 	}
 	var cert *x509.Certificate
@@ -295,7 +301,7 @@ func (h *HTTPHandler) authenticate(w http.ResponseWriter, r *http.Request) (prin
 	switch {
 	case errors.Is(err, ErrInsufficientScope):
 		w.Header().Set("WWW-Authenticate", challenge+`, error="insufficient_scope"`)
-		http.Error(w, "insufficient scope", http.StatusForbidden)
+		h.refuse(w, r, http.StatusForbidden, "insufficient scope", "token lacks a scope of http.scopes", "err", err)
 		return principal.Principal{}, false
 	case err != nil:
 		h.log.Info("token rejected", "err", err, "remote", r.RemoteAddr)
@@ -324,25 +330,28 @@ func (h *HTTPHandler) session(r *http.Request, p principal.Principal) *httpSessi
 
 func (h *HTTPHandler) post(w http.ResponseWriter, r *http.Request, p principal.Principal, server string) {
 	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
-		http.Error(w, "content type must be application/json", http.StatusUnsupportedMediaType)
+		h.refuse(w, r, http.StatusUnsupportedMediaType, "content type must be application/json", "content type not application/json", "content_type", ct, "sub", p.Sub)
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody+1))
 	if err != nil || len(body) > maxBody {
-		http.Error(w, "request too large or unreadable", http.StatusRequestEntityTooLarge)
+		h.refuse(w, r, http.StatusRequestEntityTooLarge, "request too large or unreadable", "body too large or unreadable", "sub", p.Sub)
 		return
 	}
 	body = bytes.TrimSpace(body)
 	if len(body) > 0 && body[0] == '[' {
+		h.logRefusal(r, http.StatusBadRequest, "JSON-RPC batch", "sub", p.Sub)
 		writeJSONError(w, http.StatusBadRequest, jsonrpc.CodeInvalidRequest, "batching is not supported")
 		return
 	}
 	m := &jsonrpc.Message{}
 	if err := json.Unmarshal(body, m); err != nil {
+		h.logRefusal(r, http.StatusBadRequest, "body not JSON", "err", err, "sub", p.Sub)
 		writeJSONError(w, http.StatusBadRequest, jsonrpc.CodeParseError, "parse error")
 		return
 	}
 	if m.JSONRPC != jsonrpc.Version || (m.Method == "" && len(m.ID) == 0) {
+		h.logRefusal(r, http.StatusBadRequest, "not a JSON-RPC message", "sub", p.Sub)
 		writeJSONError(w, http.StatusBadRequest, jsonrpc.CodeInvalidRequest, "invalid request")
 		return
 	}
@@ -351,14 +360,14 @@ func (h *HTTPHandler) post(w http.ResponseWriter, r *http.Request, p principal.P
 		return
 	}
 	if v := r.Header.Get(versionHeader); v != "" && !supportedVersions[v] {
-		http.Error(w, "unsupported MCP protocol version", http.StatusBadRequest)
+		h.refuse(w, r, http.StatusBadRequest, "unsupported MCP protocol version", "unsupported protocol version", "version", v, "sub", p.Sub)
 		return
 	}
 
 	var s *httpSession
 	if r.Header.Get(sessionHeader) == "" {
 		if !m.IsRequest() || m.Method != "initialize" {
-			http.Error(w, "missing "+sessionHeader, http.StatusBadRequest)
+			h.refuse(w, r, http.StatusBadRequest, "missing "+sessionHeader, "no session (no "+sessionHeader+" and not initialize)", "sub", p.Sub, "rpc_method", m.Method)
 			return
 		}
 		s, err = h.newSession(p, server)
@@ -367,13 +376,13 @@ func (h *HTTPHandler) post(w http.ResponseWriter, r *http.Request, p principal.P
 			return
 		}
 	} else if s = h.session(r, p); s == nil {
-		http.Error(w, "unknown session", http.StatusNotFound)
+		h.refuse(w, r, http.StatusNotFound, "unknown session", "unknown session", "sub", p.Sub)
 		return
 	}
 
 	if !m.IsRequest() {
 		if err := s.push(r.Context(), m, p); err != nil {
-			http.Error(w, "session ended", http.StatusNotFound)
+			h.refuse(w, r, http.StatusNotFound, "session ended", "session ended", "sub", p.Sub)
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
@@ -384,12 +393,12 @@ func (h *HTTPHandler) post(w http.ResponseWriter, r *http.Request, p principal.P
 
 func (h *HTTPHandler) get(w http.ResponseWriter, r *http.Request, p principal.Principal) {
 	if !strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
-		http.Error(w, "GET requires Accept: text/event-stream", http.StatusMethodNotAllowed)
+		h.refuse(w, r, http.StatusMethodNotAllowed, "GET requires Accept: text/event-stream", "GET without Accept: text/event-stream", "sub", p.Sub)
 		return
 	}
 	s := h.session(r, p)
 	if s == nil {
-		http.Error(w, "unknown session", http.StatusNotFound)
+		h.refuse(w, r, http.StatusNotFound, "unknown session", "unknown session", "sub", p.Sub)
 		return
 	}
 	s.serveStream(w, r, p)

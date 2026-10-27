@@ -7,6 +7,18 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Fixed
+
+- Requests the HTTP listener refuses with a `4xx` are logged
+  (`HTTP request refused`, with the status, the reason, the path and
+  the client's address; five a minute per reason): no token, a token
+  without a scope of `http.scopes`, an `Origin` not allowed, a path that
+  is no server's endpoint, a request that is no MCP, an unknown session.
+  Only a rejected token was logged, so an agent that reported a bare
+  "4xx" left nothing to go by. The missing scope's error names the
+  token's subject, client and scopes; `mcp-gateway-admin setup http
+  --token` says where to add the scope in Keycloak.
+
 ## v1.12.0 — 2026-10-27
 
 Conversations of their own, and messages, mail and policy that arrive

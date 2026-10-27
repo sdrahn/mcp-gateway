@@ -600,7 +600,9 @@ func refusal(h config.HTTP, c jwt.MapClaims) []string {
 		have := strings.Fields(fmt.Sprint(c["scope"]))
 		for _, s := range h.Scopes {
 			if !slices.Contains(have, s) {
-				ds = append(ds, fmt.Sprintf("scope: the token lacks %q (http.scopes); the agent must request it", s))
+				client, _ := c["azp"].(string)
+				ds = append(ds, fmt.Sprintf("scope: the token lacks %q (http.scopes); the agent must request it, and its client %q must have it", s, client),
+					"in Keycloak: a client scope "+s+" with Include in token scope on, added to the client's Client scopes as Default (a client that registered itself gets the realm's default client scopes)")
 			}
 		}
 	}
@@ -690,7 +692,7 @@ func Listener(ctx context.Context, h config.HTTP, client *http.Client, token str
 		r.Details = append(r.Details, "initialize with the token: accepted")
 	default:
 		r.Status = doctor.Fail
-		r.Details = append(r.Details, fmt.Sprintf("initialize with the token: HTTP %d (see the token check; the gateway's journal says why: token rejected)", status))
+		r.Details = append(r.Details, fmt.Sprintf("initialize with the token: HTTP %d (see the token check; the gateway's journal says why: token rejected, or HTTP request refused with its reason)", status))
 	}
 	return []doctor.Result{r}
 }
