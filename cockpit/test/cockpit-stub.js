@@ -114,8 +114,8 @@
                     // a2 is the user's own request that only "self" allows: the
                     // gateway asks for the password (roadmap step 40).
                     if (path === "/v1/approvals/a2" && body.includes('"approve"')) {
-                        return Promise.reject({ status: 403, message: JSON.stringify({ code: "password_required",
-                            error: "approving your own request needs your password" }) });
+                        return httpFail(403, "Forbidden", JSON.stringify({ code: "password_required",
+                            error: "approving your own request needs your password" }));
                     }
                     const cancel = path.match(/^\/v1\/tasks\/([^/]+)\/cancel$/);
                     if (cancel) {
@@ -144,7 +144,7 @@
             };
         },
         spawn(args, opts) {
-            log.push(["spawn", args.join(" "), opts.superuser, opts.pty]);
+            log.push(["spawn", args.join(" "), opts.superuser, opts.pty, (opts.environ || []).join(" ")]);
             if (args[0] === "mcp-gateway-admin" && args[1] === "approvals") return ttyApprove();
             if (args[0] === "systemctl") {
                 return query.has("reload")
@@ -214,6 +214,16 @@
             catch(fail) { return done.catch(fail); },
         };
         return p;
+    }
+    // httpFail is a request cockpit.http fails as it does: the error's
+    // message is the reason unless the body is text/plain (the gateway's
+    // are JSON), and the body goes beside it, to fail(ex, body).
+    function httpFail(status, reason, body) {
+        return {
+            then(ok, fail) {
+                return Promise.resolve().then(() => fail({ status, reason, message: reason, problem: null }, body));
+            },
+        };
     }
     // proc is a cockpit.spawn process: input(), then(ok, fail(ex, stdout)).
     function proc(run) {
