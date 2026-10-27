@@ -2797,6 +2797,10 @@ check "OPA fetches the signed bundle from the bundle server" eventually 40 pb_re
 check "... and decides with it" eventually 20 pb_allowed
 pb_status_code=$(curl -s -o /dev/null -w '%{http_code}' -X POST --data '{}' http://127.0.0.1:9465/status)
 check "the gateway takes OPA's status reports on 127.0.0.1:9465" test "$pb_status_code" = 200
+# The new revision takes erin's search_text away again: a revision with
+# the same policy and role data is no change to tell agents of.
+jq 'del(.roles.searcher) | .bindings.users.erin -= ["searcher"]' /etc/mcp-gateway/policy/rbac/data.yaml >/root/pb-data4.json &&
+	cat /root/pb-data4.json >/etc/mcp-gateway/policy/rbac/data.yaml
 pb_since=$(date +%s)
 mcp-policy-bundle -n -r vmtest-4 >/dev/null
 cp /etc/mcp-gateway/bundle/policy.tar.gz /root/pb-server/bundles/mcp-gateway.tar.gz
@@ -2805,13 +2809,9 @@ pb_noticed() {
 }
 check "a new revision on the bundle server is noticed within seconds (watch_interval 1h)" eventually 30 pb_noticed
 journalctl -u mcp-gateway.service -o cat --since "@$pb_since" | grep -F '"event":"mcp-policy-change"' | tail -1 | cut -c1-240 | sed 's/^/  | /'
-kill "$pb_srv" 2>/dev/null
-wait "$pb_srv" 2>/dev/null
+check "... and in force: erin may not search text" eventually 20 pb_denied
 mcp-gateway-admin config unset policy.status_listen >/dev/null
 mcp-gateway-admin config unset policy.watch_interval >/dev/null
-setsebool mcpopa_can_network off
-semanage port -d -p tcp 9465 2>/dev/null
-rm -f /etc/mcp-gateway/opa-config.yaml
 systemctl restart mcp-gateway.service
 wait_socket
 
@@ -2823,6 +2823,12 @@ systemctl restart mcp-opa.service
 check "OPA back on the policy directories" eventually 30 pb_opa_up
 check "GET /v1/policy: directories mode" \
 	bash -c 'curl -s --unix-socket /run/mcp-gateway/control.sock http://gw/v1/policy | jq -e ".mode == \"directories\"" >/dev/null'
+# The bundle server's setup goes once OPA no longer uses it.
+kill "$pb_srv" 2>/dev/null
+wait "$pb_srv" 2>/dev/null
+setsebool mcpopa_can_network off
+semanage port -d -p tcp 9465 2>/dev/null
+rm -f /etc/mcp-gateway/opa-config.yaml
 
 section "E-mail approvals"
 # Chapter 7, "E-mail": notifications.email with the local postfix. hank's
