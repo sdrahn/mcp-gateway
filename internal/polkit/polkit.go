@@ -73,7 +73,8 @@ func (a *Authority) Check(ctx context.Context, pid, uid uint32, action string, d
 	if call.Err != nil {
 		return false, fmt.Errorf("polkit: %w", call.Err)
 	}
-	if err := call.Store(&result.Authorized, &result.Challenge, &result.Details); err != nil {
+	// The answer is one struct, (bba{ss}).
+	if err := call.Store(&result); err != nil {
 		return false, fmt.Errorf("polkit: %w", err)
 	}
 	if !result.Authorized && result.Details["polkit.dismissed"] == "" && result.Challenge {
