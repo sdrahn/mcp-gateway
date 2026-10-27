@@ -20,7 +20,33 @@ const SIGNING_KEY = "/etc/mcp-gateway/bundle/signing.pem";
 /* The logged-in user as the gateway sees them (set by main.js). */
 let currentUser = null;
 
-const api = cockpit.http({ unix: SOCKET });
+/* cockpit.http rejects with the response's body beside the error (a
+ * second argument, which await drops) and puts it in the error's message
+ * only when it is text/plain: the gateway's errors are JSON. The API's
+ * calls keep it as ex.body, with the gateway's error text as ex.message
+ * (password_required, say, is in the body only). */
+const http = cockpit.http({ unix: SOCKET });
+
+function keepBody(request) {
+    return new Promise((resolve, reject) => request.then(resolve, (ex, body) => {
+        if (ex && typeof body === "string" && body !== "") {
+            ex.body = body;
+            try {
+                const e = JSON.parse(body);
+                if (e && e.error) ex.message = e.error;
+            } catch {
+                // not JSON: the error as cockpit made it
+            }
+        }
+        reject(ex);
+    }));
+}
+
+const api = {
+    get: (...args) => keepBody(http.get(...args)),
+    post: (...args) => keepBody(http.post(...args)),
+    request: (...args) => keepBody(http.request(...args)),
+};
 
 /* Tabs register here: { refresh(), intervalMs } (see main.js). */
 const tabs = {};
