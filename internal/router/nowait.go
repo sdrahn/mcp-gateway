@@ -43,18 +43,28 @@ func (s *Session) askedElsewhere(ctx context.Context, t *callTarget, in pep.Inpu
 	id, expires := s.r.Broker.ParkFor(in, ask, pep.ChannelOOB, broker.NoWaitTTL)
 	s.r.Broker.NotifyOOB(requestElicitor{s, requestOf(ctx)}, in, id)
 	return pep.Decision{Effect: pep.Ask, Reason: approvalNeeded(t.resource.Server, t.resource.Name, id, expires,
-		gatewayHost(), s.r.Broker.ApprovalURL(id))}
+		gatewayHost(), s.r.settings().RemoteApprovals, s.r.Broker.ApprovalURL(id))}
 }
 
 // approvalNeeded is the tool error of a call whose approval is not
-// waited for: what waits, until when, and how the user gets it decided.
-func approvalNeeded(server, tool, id string, expires time.Time, host, url string) string {
+// waited for: what waits, until when, and how the user gets it decided:
+// the command on the gateway's host, on other hosts (remote, the URL
+// "approvals --gateway" takes, if any) and the approval page (url, if
+// any). The model is asked to pass the commands on as plain text: an
+// agent's display may drop a code block (Kit showed "Command line on
+// host:" and nothing after it).
+func approvalNeeded(server, tool, id string, expires time.Time, host, remote, url string) string {
 	where := fmt.Sprintf("an approver runs \"mcp-gateway-admin approvals approve %s\" on %s", id, host)
+	if remote != "" {
+		where += fmt.Sprintf("; on another host, \"mcp-gateway-admin approvals approve %s --gateway %s\" "+
+			"(signed in once with \"mcp-gateway-admin approvals login --gateway %s\")", id, remote, remote)
+	}
 	if url != "" {
-		where += ", or decides at " + url
+		where += "; or decides at " + url
 	}
 	return fmt.Sprintf("approval needed: %s/%s waits for an approver's decision (approval %s, open until %s). "+
-		"Tell the user: %s. Then call the tool again with the same arguments; it runs once approved.",
+		"Tell the user, giving each command in full as plain text, not in a code block: %s. "+
+		"Then call the tool again with the same arguments; it runs once approved.",
 		server, tool, id, expires.UTC().Format("15:04 UTC"), where)
 }
 

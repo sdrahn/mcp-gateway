@@ -312,12 +312,21 @@ tool error the model passes on:
 
 ```text
 approval needed: fs/write_file waits for an approver's decision (approval a-7f3e9c…, open until 14:05 UTC).
-Tell the user: an approver runs "mcp-gateway-admin approvals approve a-7f3e9c…" on gw1, or decides at
-https://gw1.example.com:9090/mcp-gateway#/approvals/a-7f3e9c…. Then call the tool again with the same
-arguments; it runs once approved.
+Tell the user, giving each command in full as plain text, not in a code block: an approver runs
+"mcp-gateway-admin approvals approve a-7f3e9c…" on gw1; on another host, "mcp-gateway-admin approvals
+approve a-7f3e9c… --gateway https://gw1.example.com:8443" (signed in once with "mcp-gateway-admin
+approvals login --gateway https://gw1.example.com:8443"); or decides at
+https://gw1.example.com:8443/approvals/a-7f3e9c…. Then call the tool again with the same arguments; it
+runs once approved.
 ```
 
-(the link only with `approvals.url_template` set). The approval stays
+The command for other hosts is there when the gateway's approval page
+serves the command line on other hosts (`approvals.page.device_client_id`;
+"Deciding from another host" below), the link when there is an approval
+page (the gateway's own or `approvals.url_template`). The model is asked
+for the commands as plain text: an agent's display may leave out a code
+block (Kit showed "Command line on gw1:" and nothing after it). The
+approval stays
 pending for 15 minutes, listed with WAITING `no`, and is announced as
 usual (notifications, mail). The agent's next attempt with the same
 arguments:

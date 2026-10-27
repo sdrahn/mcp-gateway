@@ -49,6 +49,7 @@ func applyConfig(log *slog.Logger, next, running *config.Gateway, certs *certSto
 		MaxVersion:               next.Agents.MaxVersion,
 		NoRequestTimeout:         next.Agents.NoRequestTimeout,
 		NoWait:                   next.Approvals.NoWait,
+		RemoteApprovals:          remoteApprovals(running),
 	})
 	if running.Approvals.ControlSocket == "-" && approvalURLTemplate(running, next) != "" {
 		log.Warn("approvals.url_template is set but the control socket is disabled; url approvals cannot be decided")
@@ -97,4 +98,15 @@ func reloadDirs(explicit string) []string {
 		return nil
 	}
 	return []string{config.DefaultDropInDir}
+}
+
+// remoteApprovals is the URL "mcp-gateway-admin approvals --gateway"
+// takes for gw on other hosts: the origin of its approval page, when the
+// page serves the approval API (a device client) on the HTTP listener;
+// "" otherwise. Like the page, it is set up at the start.
+func remoteApprovals(gw *config.Gateway) string {
+	if gw.HTTP.Listen == "" || !gw.PageEnabled() || gw.Approvals.Page.DeviceClientID == "" {
+		return ""
+	}
+	return gw.PageOrigin()
 }
