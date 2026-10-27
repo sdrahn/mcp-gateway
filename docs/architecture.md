@@ -969,10 +969,11 @@ Types:
 | `mcpsrv_admin_t` | `gateway-admin` (`mcp-gateway-admin serve`, entered on `mcpsrv_admin_exec_t`): root without capabilities, reads configuration, state, journal, audit log and labels; under the same `neverallow`s as every backend |
 | `mcp_port_t` | gateway HTTPS port |
 | `mcp_metrics_port_t` | gateway metrics port (`metrics.listen`) |
+| `mcp_opa_status_port_t` | OPA's status reports to the gateway (`policy.status_listen`, loopback) |
 
 Key rules (sketch):
 
-- `mcpgw_t` may: bind `mcp_port_t` and `mcp_metrics_port_t`, create/listen on `mcpgw_sock_t`,
+- `mcpgw_t` may: bind `mcp_port_t`, `mcp_metrics_port_t` and `mcp_opa_status_port_t`, create/listen on `mcpgw_sock_t`,
   `connectto` `mcpopa_t` via `mcpopa_sock_t`, talk to systemd over D-Bus,
   read `mcpgw_etc_t`, manage `mcpgw_var_lib_t`. It may **not** read user
   home directories or exec backends directly (systemd does).
@@ -986,7 +987,8 @@ Key rules (sketch):
 - Per-backend extras via interfaces, e.g.
   `mcp_backend_home_rw(mcpsrv_fs_t)`, `mcp_backend_net(mcpsrv_git_t, http_port_t)`.
 - `mcpopa_t`: read its bundles, listen on its socket; no network unless a
-  remote bundle server is configured (boolean `mcpopa_can_network`).
+  remote bundle server is configured (boolean `mcpopa_can_network`, which
+  also lets it report to the gateway's `mcp_opa_status_port_t`).
 
 **MCS isolation per session** (sVirt-style): the supervisor allocates a
 unique category pair per instance from `supervisor.mcs_range` (default
@@ -4452,6 +4454,30 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       legacy agent over HTTPS with two calls in flight on an HTTP server
       gets each call's log message on that call's stream.
 
+45. **Bundles noticed when OPA activates them** (1.12; done): policy from
+    a bundle server was noticed up to `policy.watch_interval` late (§12):
+    - OPA has no change notification over its REST API, and its REST
+      client reaches services over TCP only: with `policy.status_listen`
+      (a loopback `host:port`), the gateway takes OPA's status reports
+      (the status plugin, `POST /status`), which OPA sends whenever it
+      activates a bundle or fails to; each one has the gateway check the
+      policy at once (as after a local policy file changed), and a failed
+      bundle is logged. A report is a reason to look, not news: the
+      gateway reads the policy from OPA, so a report from anyone else on
+      the host changes nothing;
+    - SELinux: port type `mcp_opa_status_port_t`, which the gateway binds
+      and OPA connects to with `mcpopa_can_network` (which a bundle
+      server needs anyway); the shipped `opa-config.yaml.example` names
+      the gateway as OPA's status service;
+    - tests: unit tests of the handler (a report has the policy checked,
+      other methods and paths refused, a failed bundle logged, large
+      reports refused), of the configuration (loopback only, distinct
+      from the other listeners), and an e2e test: OPA polling a bundle
+      server with the shipped drop-in and example configuration, the
+      gateway with `policy.watch_interval` of an hour, a new bundle
+      revision noticed within seconds (`mcp-policy-change` with the new
+      revision).
+
 ## 12. Open items
 
 - HTTP streams: a request or log message of a stdio server while a
@@ -4477,9 +4503,10 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
 - Exact JSON-RPC error codes for policy denials (align with any future
   MCP-spec guidance).
 - Policy changes are noticed by polling (up to `policy.watch_interval`
-  late); OPA has no change notification over its REST API. Local policy
-  is watched with inotify from step 21; bundles from a bundle server
-  stay polled.
+  late) where nothing tells the gateway: OPA has no change notification
+  over its REST API. Local policy is watched with inotify from step 21;
+  bundles from a bundle server are reported by OPA's status plugin with
+  `policy.status_listen` (step 45), else polled.
 - The kernel audit subsystem is optional (`audit.kernel: auto`); in
   containers without `CAP_AUDIT_WRITE` only the journal records remain.
 - Servers with `sign_in` (§5.7.3): from step 22 a running instance gets

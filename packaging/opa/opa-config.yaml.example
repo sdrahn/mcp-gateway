@@ -3,6 +3,10 @@
 services:
   policy:
     url: https://bundles.example.com
+  # The gateway's policy.status_listen: OPA reports each bundle it
+  # activates (status, below), and the gateway tells agents at once.
+  gateway:
+    url: http://127.0.0.1:9465
     # Authentication towards the bundle server, e.g.:
     # credentials:
     #   bearer:
@@ -27,6 +31,10 @@ keys:
       -----BEGIN PUBLIC KEY-----
       ...
       -----END PUBLIC KEY-----
+
+# A report to the gateway whenever a bundle is activated (or fails).
+status:
+  service: gateway
 
 # Decisions to the journal; policy/mcp/log.rego (part of the bundle)
 # masks the arguments.

@@ -24,6 +24,12 @@ minor release (with a warning) and removed in the next.
   sees the two tools as `resource.context`; the shipped policy lets them
   follow the server's tools. Journal event `mcp-context`.
 
+- `policy.status_listen`: with a bundle server, OPA reports each bundle
+  it activates to the gateway (its status plugin; the example
+  configuration names the gateway), which then tells agents at once
+  instead of within `policy.watch_interval`. SELinux port type
+  `mcp_opa_status_port_t`, which OPA reaches with `mcpopa_can_network`.
+
 ### Fixed
 
 - A log message or request of a server that speaks HTTP, while an agent

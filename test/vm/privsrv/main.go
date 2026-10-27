@@ -28,6 +28,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -126,10 +127,13 @@ func main() {
 			err = serveIdP(os.Args[2], os.Args[3], os.Args[4:])
 		case len(os.Args) == 5 && os.Args[1] == "-webhook":
 			err = serveWebhook(os.Args[2], os.Args[3], os.Args[4])
+		case len(os.Args) == 4 && os.Args[1] == "-files":
+			// A bundle server for OPA: the files of a directory.
+			err = http.ListenAndServe(os.Args[2], http.FileServer(http.Dir(os.Args[3])))
 		case len(os.Args) >= 4 && os.Args[1] == "-pty":
 			err = runPTY(os.Args[2], os.Args[3:])
 		default:
-			err = fmt.Errorf("usage: %s [-http ADDR | -https ADDR CERTFILE | -proxy ADDR | -oauth ADDR CERTFILE | -idp ADDR CERTFILE [ID[:SECRET]=REDIRECT_URI...] | -webhook ADDR CERTFILE SECRETFILE | -pty PASSWORD COMMAND...]", os.Args[0])
+			err = fmt.Errorf("usage: %s [-http ADDR | -https ADDR CERTFILE | -proxy ADDR | -oauth ADDR CERTFILE | -idp ADDR CERTFILE [ID[:SECRET]=REDIRECT_URI...] | -webhook ADDR CERTFILE SECRETFILE | -files ADDR DIR | -pty PASSWORD COMMAND...]", os.Args[0])
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)

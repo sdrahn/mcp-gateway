@@ -513,6 +513,26 @@ func TestMetricsListen(t *testing.T) {
 	}
 }
 
+// policy.status_listen: a loopback host:port, not the metrics listener's.
+func TestPolicyStatusListen(t *testing.T) {
+	dir := t.TempDir()
+	for _, ok := range []string{"127.0.0.1:9465", "[::1]:9465", "localhost:9465"} {
+		g, err := LoadGateway(writeFile(t, dir, "ok.yaml", "policy:\n  status_listen: \""+ok+"\"\n"))
+		if err != nil || g.Policy.StatusListen != ok {
+			t.Errorf("%q: %v, %+v", ok, err, g.Policy)
+		}
+	}
+	for _, bad := range []string{"9465", "0.0.0.0:9465", "192.168.1.5:9465", "gateway.example.com:9465", "127.0.0.1:"} {
+		if _, err := LoadGateway(writeFile(t, dir, "bad.yaml", "policy:\n  status_listen: \""+bad+"\"\n")); err == nil || !strings.Contains(err.Error(), "policy.status_listen") {
+			t.Errorf("%q: error %v", bad, err)
+		}
+	}
+	same := "metrics:\n  listen: 127.0.0.1:9465\npolicy:\n  status_listen: 127.0.0.1:9465\n"
+	if _, err := LoadGateway(writeFile(t, dir, "same.yaml", same)); err == nil || !strings.Contains(err.Error(), "must differ") {
+		t.Errorf("the metrics listener's: %v", err)
+	}
+}
+
 func TestLoadBackendsDuplicateName(t *testing.T) {
 	vendor, admin := t.TempDir(), t.TempDir()
 	write := func(dir, file string) {
