@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // controlClient talks to the gateway's control API as the current user.
@@ -296,8 +297,13 @@ func TestOwnApprovalNeedsPassword(t *testing.T) {
 		refusal["code"] != "password_required" || !strings.Contains(refusal["error"], "approving your own request needs your password") {
 		t.Fatalf("approve without a password: %d %v", code, refusal)
 	}
-	if !strings.Contains(e.gwLogs.String(), "approval of one's own request refused: no password") {
-		t.Errorf("not logged:\n%s", e.gwLogs.String())
+	// The gateway's output comes through a pipe: wait for the line.
+	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(e.gwLogs.String(), "approval of one's own request refused: no password"); {
+		if time.Now().After(deadline) {
+			t.Errorf("not logged:\n%s", e.gwLogs.String())
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	if code := controlDo(t, controlClient(e.ctlSock), "POST", "/v1/approvals/"+id, `{"decision":"deny"}`, nil); code != http.StatusNoContent {
 		t.Fatalf("deny: %d", code)
