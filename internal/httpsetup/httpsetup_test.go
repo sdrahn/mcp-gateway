@@ -223,8 +223,9 @@ func TestToken(t *testing.T) {
 	}
 
 	h.Scopes = []string{"mcp"}
-	tok = p.token(t, jwt.MapClaims{"iss": p.issuer, "aud": h.Audience, "sub": "u", "exp": exp, "scope": "openid"})
-	if rs = Token(ctx, h, p.srv.Client(), tok, nil); rs[0].Status != doctor.Fail || !strings.Contains(strings.Join(rs[0].Details, " "), `lacks "mcp"`) {
+	tok = p.token(t, jwt.MapClaims{"iss": p.issuer, "aud": h.Audience, "sub": "u", "exp": exp, "scope": "openid", "azp": "kit"})
+	if rs = Token(ctx, h, p.srv.Client(), tok, nil); rs[0].Status != doctor.Fail || !strings.Contains(strings.Join(rs[0].Details, " "), `lacks "mcp"`) ||
+		!strings.Contains(rs[0].Summary, `client "kit"`) || !strings.Contains(strings.Join(rs[0].Details, " "), "Include in token scope on") {
 		t.Errorf("scope: %+v", rs[0])
 	}
 	if rs = Token(ctx, h, p.srv.Client(), "opaque", nil); rs[0].Status != doctor.Fail || !strings.Contains(rs[0].Summary, "not a JWT") {
