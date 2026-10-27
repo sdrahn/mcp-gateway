@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
 )
 
 // fakeServer is a Streamable HTTP MCP server for the tests.
@@ -166,9 +168,10 @@ func TestConnector(t *testing.T) {
 	}
 	send(t, in, `{"jsonrpc":"2.0","method":"notifications/initialized"}`)
 
-	// A request answered on an event stream: the progress, then the answer.
+	// A request answered on an event stream: the progress, named as the
+	// request's (jsonrpc.RelatedMeta), then the answer.
 	send(t, in, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{}}`)
-	if l := next(t, out); l != `{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"p","progress":1}}` {
+	if l := next(t, out); l != `{"jsonrpc":"2.0","method":"notifications/progress","params":{"_meta":{"`+jsonrpc.RelatedMeta+`":2},"progress":1,"progressToken":"p"}}` {
 		t.Fatalf("progress: %s", l)
 	}
 	if l := next(t, out); l != `{"jsonrpc":"2.0","id":2,"result":{"content":[]}}` {

@@ -1,6 +1,7 @@
 package router
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -504,6 +505,7 @@ func (u *upstream) notification(m *jsonrpc.Message) {
 	if u.modern {
 		m = stripSubscriptionMeta(m)
 	}
+	owner, ownerReq := u.related(m)
 	switch m.Method {
 	case "notifications/progress":
 		var p map[string]json.RawMessage
@@ -536,10 +538,18 @@ func (u *upstream) notification(m *jsonrpc.Message) {
 			s.upstreamNotification(u, m, nil)
 		}
 	case "notifications/message":
-		// A log message during a call belongs to it, as far as one can
+		// A log message during a call belongs to it: the call whose
+		// stream it came on (an HTTP server's), else as far as one can
 		// tell (relatedRequest).
 		for _, s := range u.attached() {
-			s.upstreamNotification(u, m, u.relatedRequest(s))
+			req := u.relatedRequest(s)
+			if owner != nil {
+				req = nil
+				if s == owner {
+					req = ownerReq
+				}
+			}
+			s.upstreamNotification(u, m, req)
 		}
 	case "notifications/resources/updated":
 		for _, s := range u.attached() {
@@ -561,12 +571,43 @@ func (u *upstream) backendRequest(m *jsonrpc.Message) {
 		_ = u.conn.Write(u.answerToken(m))
 		return
 	}
+	if s, req := u.related(m); s != nil {
+		// The request came on the stream of a call (an HTTP server's):
+		// it goes to the client request that call serves.
+		_ = u.conn.Write(s.relayBackendRequest(s.ctx, u, m, req))
+		return
+	}
 	s := u.activeSession()
 	if s == nil {
 		_ = u.conn.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeForbidden, "no client request in progress"))
 		return
 	}
 	_ = u.conn.Write(s.relayBackendRequest(s.ctx, u, m, u.relatedRequest(s)))
+}
+
+// related removes the id mcp-http-connector puts on a message of an HTTP
+// server that came on the stream of one of the gateway's requests
+// (jsonrpc.RelatedMeta), and returns the session and client request that
+// request serves; nil if there is none, the request has ended, or the
+// server is no HTTP server (over stdio nothing tells, and a server could
+// name any request).
+func (u *upstream) related(m *jsonrpc.Message) (*Session, json.RawMessage) {
+	id := jsonrpc.TakeRelated(m)
+	if id == nil || u.backend == nil || u.backend.URL == "" {
+		return nil, nil
+	}
+	var key bytes.Buffer
+	if json.Compact(&key, id) != nil {
+		return nil, nil
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	for s, calls := range u.calls {
+		if req, ok := calls[key.String()]; ok {
+			return s, req
+		}
+	}
+	return nil, nil
 }
 
 // TokenMethod is the request an instance of a server with sign_in (its
