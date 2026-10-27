@@ -7,6 +7,15 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v1.12.2 — 2026-10-27
+
+Cockpit asks for your password again when you approve your own request
+(where only the approver rule `self` lets you); since 1.11.0 it said
+"Talking to mcp-gateway failed: Forbidden". The fix is in
+`mcp-gateway-cockpit`; upgrading from 1.12.1 needs no changes, the
+gateway and the SELinux modules do not change, and the gateway needs no
+restart. Reload the Cockpit page after the update.
+
 ### Fixed
 
 - Cockpit: approving your own request (only the approver rule `self`
