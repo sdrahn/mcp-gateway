@@ -7,6 +7,16 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v1.12.1 — 2026-10-27
+
+The HTTP listener logs the requests it refuses. An agent often reports
+no more than "4xx" when the gateway refuses it (Kit: "server returned
+4xx for initialize POST, likely a legacy SSE server"); until now the
+journal said why only for a rejected token. Upgrading from 1.12.0
+needs no changes; the SELinux modules do not change. After the update,
+restart the gateway (`systemctl restart mcp-gateway.service`); the
+package does not.
+
 ### Fixed
 
 - Requests the HTTP listener refuses with a `4xx` are logged
