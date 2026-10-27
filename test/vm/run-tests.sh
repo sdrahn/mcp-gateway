@@ -3171,6 +3171,7 @@ check "... with a tool error: approval needed, naming fs/read_file" \
 	bash -c 'grep -q "\"isError\":true" <<<"$1" && grep -qF "approval needed: fs/read_file waits for an approver" <<<"$1"' _ "$out"
 check "... naming the approval, the command and this host" \
 	bash -c '[ -n "$2" ] && grep -qF "on $(hostname)" <<<"$1" && grep -qF "call the tool again with the same arguments" <<<"$1"' _ "$out" "$nw_first"
+check "... without the approval API, no command for other hosts" bash -c '! grep -qF -- "--gateway" <<<"$1"' _ "$out"
 ac_admin jack approvals --json
 check "... the approval is pending for jack, with no call waiting" \
 	bash -c 'jq -e --arg id "$2" "any(.[]; .id == \$id and .waiting == false and .principal.sub == \"ivy\")" <<<"$1" >/dev/null' _ "$out" "$nw_first"
@@ -3528,6 +3529,23 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	check "... and ivy's call runs" grep -q '"isError":false' /root/vmtest/ac-call.out
 	rh_audit() { since=$pp_since audit_since TRUSTED_APP | grep 'op=mcp-approval' | grep -F "id=$1" | grep -F 'by=jack' | grep -q 'via=remote-cli'; }
 	check "... audited as decided from another host (via=remote-cli)" eventually 10 rh_audit "$ac_id"
+
+	# Kit's tool error names the command on other hosts too, with the
+	# gateway's URL, and asks for the commands as plain text (Kit's
+	# display dropped a code block); jack runs it as given.
+	nw_call
+	rh_cmd=$(grep -oE 'mcp-gateway-admin approvals approve a-[0-9a-f]+ --gateway https://[^"]+' <<<"$out" | head -1)
+	echo "  the command on other hosts: $rh_cmd"
+	check "no_wait: the tool error names the command on other hosts, with --gateway $pp_url" test "${rh_cmd##* }" = "$pp_url"
+	check "... how to sign in there, and asks for the commands as plain text" bash -c \
+		'grep -qF "approvals login --gateway $2" <<<"$1" && grep -qF "as plain text, not in a code block" <<<"$1"' _ "$out" "$pp_url"
+	# shellcheck disable=SC2086 # the command as the user copies it
+	out=$(runuser -u jack -- $rh_cmd --yes 2>&1)
+	rc=$?
+	echo "  [jack, as given] rc=$rc $out"
+	check "... jack approves with it from \"another host\"" bash -c '[ "$2" = 0 ] && grep -qF "approved" <<<"$1"' _ "$out" "$rc"
+	nw_call
+	check "... and ivy's retry as Kit runs" grep -qF 'ivy notes' <<<"$out"
 
 	# 1h, then the grant revoked from the other host; a denial.
 	ac_call

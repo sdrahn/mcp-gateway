@@ -78,6 +78,9 @@ type Router struct {
 	// answered at once instead of waited for (approvals.no_wait;
 	// nowait.go).
 	NoWait []string
+	// RemoteApprovals is the URL "mcp-gateway-admin approvals --gateway"
+	// takes on other hosts (Settings.RemoteApprovals).
+	RemoteApprovals string
 	// MaxTasksPerPrincipal, TaskRetention and TaskMaxResultBytes bound
 	// the tasks the gateway offers agents (tasks.go; 0: the default).
 	MaxTasksPerPrincipal int
@@ -297,7 +300,7 @@ func (r *Router) init() {
 			MaxRequestsPerPrincipal: r.MaxRequestsPerPrincipal, MaxStreamsPerPrincipal: r.MaxStreamsPerPrincipal, VaultIdle: r.VaultIdle,
 			MaxVersion: r.MaxVersion, NoRequestTimeout: r.NoRequestTimeout, NoWait: r.NoWait,
 			MaxTasksPerPrincipal: r.MaxTasksPerPrincipal, TaskRetention: r.TaskRetention, TaskMaxResultBytes: r.TaskMaxResultBytes,
-			MaxContextsPerPrincipal: r.MaxContextsPerPrincipal})
+			MaxContextsPerPrincipal: r.MaxContextsPerPrincipal, RemoteApprovals: r.RemoteApprovals})
 		r.pool.onListChanged = r.listChanged
 		r.pool.current = func(server string) *config.Backend { return (*r.registry.Load())[server] }
 		if r.SignIns != nil {
@@ -327,6 +330,11 @@ type Settings struct {
 	TaskRetention                                                   time.Duration
 	TaskMaxResultBytes                                              int
 	MaxContextsPerPrincipal                                         int
+	// RemoteApprovals is the URL "mcp-gateway-admin approvals --gateway"
+	// takes on other hosts (the approval API of the gateway's page with
+	// a device client); "" without one. The tool error of an approval
+	// not waited for names it.
+	RemoteApprovals string
 }
 
 // defaultListTTL and defaultRetryWait are ListTTL and RetryWait when
