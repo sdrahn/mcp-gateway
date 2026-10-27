@@ -33,6 +33,10 @@ policy:
   # How often to check whether OPA loaded a changed policy; clients are
   # then told to list tools, prompts and resources again.
   watch_interval: 10s
+  # With a bundle server: a loopback host:port where OPA's status plugin
+  # reports each bundle it activates, so that the change is noticed at
+  # once (opa-config.yaml.example; label the port mcp_opa_status_port_t).
+  # status_listen: 127.0.0.1:9465
 
 # How long a call waits for a human approval before it is denied.
 approval_timeout: 120s
@@ -198,6 +202,9 @@ limits:
   streams_per_principal: 16
   # Tasks (below) a principal has, running or done and kept.
   tasks_per_principal: 32
+  # Contexts a principal has open on servers with contexts (an instance
+  # each, for agents of MCP 2026-07-28).
+  contexts_per_principal: 8
 
 # Pseudonyms (policy obligation "pseudonymize") of agents of MCP
 # 2026-07-28, which have no session, belong to the user and endpoint and
