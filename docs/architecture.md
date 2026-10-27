@@ -4264,7 +4264,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       no); when none does, the gateway asks polkit (`CheckAuthorization`,
       interaction allowed) for the action
       `io.github.sdrahn.mcp-gateway.decide-own` on the peer process
-      (pid and start time), shipped as `auth_self` without keeping the
+      (its pid and uid; polkitd reads its start time, which the
+      gateway's sandbox cannot see in /proc), shipped as `auth_self` without keeping the
       authorization: every approval asks again, and the dialog names
       the call. Denying, other rules, root and the HTTPS ways do not
       ask; a refusal (403, `"code": "password_required"`) names the ways

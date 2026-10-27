@@ -9,9 +9,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/godbus/dbus/v5"
@@ -35,23 +32,18 @@ var ErrNoAgent = errors.New("polkit: no authentication agent for the process")
 type Authority struct {
 	mu   sync.Mutex
 	conn *dbus.Conn
-	// StartTime reads a process's start time (default: /proc).
-	StartTime func(pid uint32) (uint64, error)
 }
 
 // Check asks whether the process pid of user uid may do action, letting
 // polkit authenticate the user (interaction allowed). details are shown
 // in the authentication dialog. It returns ErrNoAgent when polkit could
 // not ask anyone.
+//
+// The subject is the process with its uid; its start time, which tells
+// it from a later process with the same pid, polkitd reads itself (0
+// asks it to): the gateway's sandbox does not see other users'
+// processes in /proc.
 func (a *Authority) Check(ctx context.Context, pid, uid uint32, action string, details map[string]string) (bool, error) {
-	start := a.StartTime
-	if start == nil {
-		start = ProcStartTime
-	}
-	st, err := start(pid)
-	if err != nil {
-		return false, fmt.Errorf("polkit: process %d: %w", pid, err)
-	}
 	conn, err := a.bus()
 	if err != nil {
 		return false, fmt.Errorf("polkit: system bus: %w", err)
@@ -61,7 +53,7 @@ func (a *Authority) Check(ctx context.Context, pid, uid uint32, action string, d
 		Details map[string]dbus.Variant
 	}{"unix-process", map[string]dbus.Variant{
 		"pid":        dbus.MakeVariant(pid),
-		"start-time": dbus.MakeVariant(st),
+		"start-time": dbus.MakeVariant(uint64(0)),
 		"uid":        dbus.MakeVariant(int32(uid)),
 	}}
 	if details == nil {
@@ -96,30 +88,4 @@ func (a *Authority) bus() (*dbus.Conn, error) {
 	}
 	a.conn = c
 	return c, nil
-}
-
-// ProcStartTime reads the start time of process pid (clock ticks since
-// boot, field 22 of /proc/<pid>/stat), which polkit compares so that a
-// new process with a reused pid is not mistaken for it.
-func ProcStartTime(pid uint32) (uint64, error) {
-	b, err := os.ReadFile("/proc/" + strconv.FormatUint(uint64(pid), 10) + "/stat")
-	if err != nil {
-		return 0, err
-	}
-	return parseStartTime(string(b))
-}
-
-func parseStartTime(stat string) (uint64, error) {
-	// The command name (field 2) is in parentheses and may hold spaces
-	// and parentheses: the fields after it follow the last ")".
-	i := strings.LastIndexByte(stat, ')')
-	if i < 0 {
-		return 0, errors.New("malformed stat")
-	}
-	fields := strings.Fields(stat[i+1:])
-	// fields[0] is field 3 (state): field 22 is fields[19].
-	if len(fields) < 20 {
-		return 0, errors.New("malformed stat")
-	}
-	return strconv.ParseUint(fields[19], 10, 64)
 }

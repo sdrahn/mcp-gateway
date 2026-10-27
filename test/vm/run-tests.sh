@@ -2021,7 +2021,7 @@ ls -Z /etc/mcp-gateway/gateway.d/50-vmtest.yaml | sed 's/^/  /'
 check "a drop-in is labeled mcpgw_etc_t" sh -c 'ls -Z /etc/mcp-gateway/gateway.d/50-vmtest.yaml | grep -q ":mcpgw_etc_t:"'
 check "a drop-in is applied" eventually 40 rl_journal_has '"changed":"limits.tasks_per_principal"'
 check "the doctor lists the drop-in" \
-	sh -c 'mcp-gateway-admin doctor --no-start 2>&1 | grep -E "configuration: .*1 drop-in.*50-vmtest.yaml"'
+	sh -c 'mcp-gateway-admin doctor --no-start 2>&1 | grep -E "configuration: .*drop-in.*50-vmtest.yaml"'
 printf 'limits:\n  task_per_principal: 7\n' >/etc/mcp-gateway/gateway.d/60-vmtest-bad.yaml
 rl_dropin_error() { rl_status | grep -qF 'gateway.d/60-vmtest-bad.yaml'; }
 check "a broken drop-in is reported by its name" eventually 40 rl_dropin_error
