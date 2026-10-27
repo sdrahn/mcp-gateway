@@ -99,7 +99,12 @@ func (o *OAuth) Authenticate(ctx context.Context, token string, cert *x509.Certi
 	}
 	for _, want := range o.cfg.Scopes {
 		if !slices.Contains(scopes, want) {
-			return principal.Principal{}, fmt.Errorf("%w: missing scope %q", ErrInsufficientScope, want)
+			// What an administrator needs to fix the client or the
+			// identity provider: whose token, from which client, with
+			// which scopes.
+			client, _ := claims["azp"].(string)
+			return principal.Principal{}, fmt.Errorf("%w: missing scope %q (the token of %q from client %q has %q)",
+				ErrInsufficientScope, want, sub, client, strings.Join(scopes, " "))
 		}
 	}
 

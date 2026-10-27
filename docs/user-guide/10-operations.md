@@ -564,6 +564,26 @@ level. Common causes: the token's `aud` is not exactly `http.audience`,
 the clock is off, or the IdP's keys cannot be fetched (check that the
 gateway may reach the issuer).
 
+Every other request it refuses with a `4xx` is logged too, as `HTTP
+request refused` with `status`, `reason`, `method`, `path` and `remote`
+(and `sub` once the token is accepted): no token (`no bearer token`,
+also the first request of an agent before it signs in), a token without
+a scope of `http.scopes` (`err` names the missing scope, the token's
+subject, its client and the scopes it has), an `Origin` not allowed, a
+path that is no server's endpoint, a request that is no MCP (content
+type, JSON, protocol version) and an unknown or ended session. An agent
+often reports such an answer only as "4xx" (Kit: "server returned 4xx
+for initialize POST, likely a legacy SSE server"); the journal says
+which it was:
+
+```
+journalctl -u mcp-gateway.service -g 'HTTP request refused|token rejected'
+```
+
+Per reason, five refusals a minute are logged; the next one logged
+after that says how many were left out (`suppressed`), so that scanners
+and agents that retry do not flood the journal.
+
 ### Warnings at start
 
 | Warning | Meaning |

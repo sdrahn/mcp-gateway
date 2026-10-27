@@ -351,7 +351,7 @@ has a password get tokens without the browser's sign-in.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `401 invalid token` from a gateway | the token lacks the gateway's audience: the agent did not ask for its scope, or the scope has no *Audience* mapper | the client scope with its mapper, added to the agent's client; `setup http --token` shows the token's `aud` |
-| `403 insufficient scope` | the token lacks the gateway's scope (`http.scopes`) | add the scope to the agent's client as *Optional*; the agent asks for it after the `401` |
+| `403 insufficient scope` | the token lacks the gateway's scope (`http.scopes`); the gateway's journal names the token's client (`HTTP request refused`, `err`) | add the scope to that client: as *Optional* if the agent asks for it after the `401`, else as *Default*. An agent that registered itself (a client ID that is a UUID) gets the realm's default client scopes: *Client scopes*, the scope's *Assigned type* *Default*, before it registers; *Clients* → the client → *Client scopes* → *Evaluate* shows the access token it gets |
 | a user has no tools | the token has no `groups`, or no binding names its groups | the *Group Membership* mapper (access token on); `bindings.groups` in the role data |
 | the approval page shows nothing to decide | the ID token has no groups, or the approver rules do not name the approver | the mapper on the approval page's client with *Add to ID token* on; `remote-group:` for approvers without a local account |
 | `preferred_username` does not map to the local account | the Keycloak username differs from the account's name, or the account is a system account | the same username on both; tokens never map to root or system accounts |
