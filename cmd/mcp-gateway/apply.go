@@ -43,6 +43,7 @@ func applyConfig(log *slog.Logger, next, running *config.Gateway, certs *certSto
 		MaxStreamsPerPrincipal:   next.Limits.StreamsPerPrincipal,
 		VaultIdle:                next.Pseudonymize.VaultIdle,
 		MaxTasksPerPrincipal:     next.Limits.TasksPerPrincipal,
+		MaxContextsPerPrincipal:  next.Limits.ContextsPerPrincipal,
 		TaskRetention:            next.Tasks.Retention,
 		TaskMaxResultBytes:       next.Tasks.MaxResultBytes,
 		MaxVersion:               next.Agents.MaxVersion,

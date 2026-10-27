@@ -132,6 +132,9 @@ type Limits struct {
 	// TasksPerPrincipal limits the tasks (running, or done and kept)
 	// one principal has; more are refused.
 	TasksPerPrincipal int `yaml:"tasks_per_principal"`
+	// ContextsPerPrincipal limits the contexts (servers with contexts,
+	// D22) one principal has open; more are refused.
+	ContextsPerPrincipal int `yaml:"contexts_per_principal"`
 }
 
 // Tasks configures the tasks the gateway offers agents for tools/call
@@ -498,8 +501,14 @@ type Backend struct {
 	SignIn      *SignIn   `yaml:"sign_in"`
 	SELinuxType string    `yaml:"selinux_type"`
 	Isolation   Isolation `yaml:"isolation"`
-	Network     bool      `yaml:"network"`
-	RunAs       string    `yaml:"run_as"`
+	// Contexts, with isolation: session, offers modern agents contexts
+	// of their own (docs/architecture.md, decision D22): the tools
+	// gateway_new_context and gateway_end_context, and an argument
+	// gateway_context on the server's tools that runs a call in the
+	// context's own instance.
+	Contexts bool   `yaml:"contexts"`
+	Network  bool   `yaml:"network"`
+	RunAs    string `yaml:"run_as"`
 	// Discovery is "shared" (tool, prompt and resource template lists
 	// come from a gateway-owned instance without any user's identity and
 	// are cached, so listing does not start instances for every user) or
@@ -601,6 +610,9 @@ const (
 	IsolationPrincipal Isolation = "principal"
 	// IsolationSession runs one instance per client session.
 	IsolationSession Isolation = "session"
+	// IsolationContext is an instance of a modern agent's context
+	// (Backend.Contexts, D22); not a value of the setting.
+	IsolationContext Isolation = "context"
 )
 
 // Discovery modes (Backend.Discovery).
@@ -690,6 +702,7 @@ const (
 	DefaultStreamsPerPrincipal   = 16
 	DefaultVaultIdle             = time.Hour
 	DefaultTasksPerPrincipal     = 32
+	DefaultContextsPerPrincipal  = 8
 	DefaultTaskRetention         = time.Hour
 	DefaultTaskMaxResultBytes    = 4 << 20
 	// DefaultMCSRange is the upper quarter of the targeted policy's
@@ -866,6 +879,9 @@ func (g *Gateway) setDefaults() {
 	}
 	if g.Limits.TasksPerPrincipal == 0 {
 		g.Limits.TasksPerPrincipal = DefaultTasksPerPrincipal
+	}
+	if g.Limits.ContextsPerPrincipal == 0 {
+		g.Limits.ContextsPerPrincipal = DefaultContextsPerPrincipal
 	}
 	if g.Pseudonymize.VaultIdle == 0 {
 		g.Pseudonymize.VaultIdle = DefaultVaultIdle
@@ -1052,7 +1068,8 @@ func (g *Gateway) Validate() error {
 		}
 	}
 	if g.Limits.SessionsPerPrincipal < 0 || g.Limits.InstancesPerPrincipal < 0 || g.Limits.Instances < 0 ||
-		g.Limits.RequestsPerPrincipal < 0 || g.Limits.StreamsPerPrincipal < 0 || g.Limits.TasksPerPrincipal < 0 {
+		g.Limits.RequestsPerPrincipal < 0 || g.Limits.StreamsPerPrincipal < 0 || g.Limits.TasksPerPrincipal < 0 ||
+		g.Limits.ContextsPerPrincipal < 0 {
 		return errors.New("limits: must not be negative")
 	}
 	if g.Pseudonymize.VaultIdle < time.Minute {
@@ -1358,6 +1375,9 @@ func (b *Backend) Validate() error {
 	case IsolationPrincipal, IsolationSession:
 	default:
 		return fmt.Errorf("isolation: unknown value %q", b.Isolation)
+	}
+	if b.Contexts && b.Isolation != IsolationSession {
+		return errors.New("contexts: only with isolation: session")
 	}
 	switch b.Discovery {
 	case DiscoveryShared, DiscoveryInstance:

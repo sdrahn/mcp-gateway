@@ -53,6 +53,10 @@ type Resource struct {
 	// what the principal's roles allow; docs/architecture.md, roadmap
 	// step 29), not of a server.
 	Builtin bool `json:"builtin,omitempty"`
+	// Context marks the tools gateway_new_context and gateway_end_context
+	// the gateway offers modern agents for a server with contexts
+	// (docs/architecture.md, decision D22).
+	Context bool `json:"context,omitempty"`
 }
 
 // Grant is a recorded human approval, as passed to policy.

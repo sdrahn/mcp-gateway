@@ -71,6 +71,10 @@ type Principal struct {
 	// being accepted (a remote principal's token: exp plus the leeway);
 	// zero for local principals. Not part of the policy input.
 	Expires time.Time `json:"-"`
+	// Context is the context (decision D22) a modern agent's call runs
+	// in, whose own instance serves it; empty for others. Not part of
+	// the policy input.
+	Context string `json:"-"`
 }
 
 // Cert describes a verified TLS client certificate.

@@ -67,6 +67,7 @@ function site() {
     check(!(await page.isVisible("#tab-approvals")) && await page.isVisible("#tab-servers"), "servers tab switch");
     const serversText = await page.textContent("#servers");
     check(serversText.includes("mcpsrv_fs_t") && serversText.includes("mcp-fs-i1.service") && serversText.includes("1 session"), "servers and instance shown");
+    check(serversText.includes("alice via unix, context ctx_Q2xpZW50mcp-fs-i9.service"), "a context's instance names its context");
     check(serversText.includes("No running instances you may manage"), "server without instances");
     check(serversText.includes("privileged: no sandbox") && serversText.includes("call running"), "privileged server and busy instance shown");
     check(await page.$eval("#servers .card:nth-child(3) button.danger", b => b.disabled), "busy privileged instance cannot be stopped");

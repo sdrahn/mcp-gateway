@@ -2,6 +2,7 @@
 # Fields may be added, never renamed or removed (docs/architecture.md, D10).
 [].annotations
 [].builtin
+[].context
 [].kind
 [].name
 [].privileged

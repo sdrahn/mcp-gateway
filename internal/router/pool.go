@@ -189,7 +189,10 @@ func (p *pool) makeRoom(pr principal.Principal) ([]*poolEntry, error) {
 				return
 			}
 			n++
-			if !e.retired && p.idleEntry(e) && (victim == nil || e.released.Before(victim.released)) {
+			// (An idle context's instance holds the agent's state; it
+			// stops with the context, not to make room.)
+			if !e.retired && e.isolation != config.IsolationContext && p.idleEntry(e) &&
+				(victim == nil || e.released.Before(victim.released)) {
 				victim = e
 			}
 		})
@@ -235,17 +238,24 @@ func (p *pool) idleEntry(e *poolEntry) bool {
 }
 
 func instanceKey(b *config.Backend, p principal.Principal) string {
-	if isolation(b, p) == config.IsolationSession {
+	switch isolation(b, p) {
+	case config.IsolationSession:
 		return "session:" + p.SessionID + ":" + b.Name
+	case config.IsolationContext:
+		return "context:" + p.Context + ":" + b.Name
 	}
 	return "principal:" + string(p.Transport) + ":" + p.Sub + ":" + b.Name
 }
 
 // isolation is how instances of b are shared for p: per principal for a
 // principal without a session (a modern agent's request, SEP-2567's
-// "route by authenticated principal"), also for isolation: session.
+// "route by authenticated principal"), also for isolation: session,
+// unless the call runs in one of the agent's contexts (D22).
 func isolation(b *config.Backend, p principal.Principal) config.Isolation {
 	if b.Isolation == config.IsolationSession && p.SessionID == "" {
+		if b.Contexts && p.Context != "" {
+			return config.IsolationContext
+		}
 		return config.IsolationPrincipal
 	}
 	return b.Isolation
@@ -632,7 +642,13 @@ func (p *pool) scheduleStop(e *poolEntry) {
 		go stop()
 		return
 	}
-	e.timer = time.AfterFunc(p.idle, stop)
+	idle := p.idle
+	if e.isolation == config.IsolationContext {
+		// The context expires after the idle timeout (contexts.go): its
+		// instance outlasts it, so that a call just in time finds it.
+		idle += contextGrace
+	}
+	e.timer = time.AfterFunc(idle, stop)
 }
 
 // InstanceInfo describes a running backend instance.
@@ -645,7 +661,10 @@ type InstanceInfo struct {
 	UID       *uint32             `json:"uid,omitempty"`
 	Transport principal.Transport `json:"transport"`
 	// SessionID is set for instances of backends with isolation: session.
-	SessionID string           `json:"session_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	// Context is set for the instance of a modern agent's context
+	// (isolation "context", D22).
+	Context   string           `json:"context,omitempty"`
 	Isolation config.Isolation `json:"isolation"`
 	Started   time.Time        `json:"started"`
 	// Sessions is the number of sessions using the instance; 0 while it
@@ -687,8 +706,11 @@ func (p *pool) list() []InstanceInfo {
 		case e.retired:
 			info.Definition = "previous"
 		}
-		if e.isolation == config.IsolationSession {
+		switch e.isolation {
+		case config.IsolationSession:
 			info.SessionID = e.principal.SessionID
+		case config.IsolationContext:
+			info.Context = e.principal.Context
 		}
 		out = append(out, info)
 	})

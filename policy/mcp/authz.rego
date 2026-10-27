@@ -90,6 +90,24 @@ covering contains p if {
 	is_string(p.tool)
 }
 
+# The tools gateway_new_context and gateway_end_context the gateway offers
+# modern agents for a server with contexts (input.resource.context,
+# decision D22) follow the server's tools as sign_in does: a permission
+# naming any tool of the server covers them, a denial only if it names
+# every tool ("*"), not because it denies some.
+covering contains p if {
+	input.action == "tools.call"
+	input.resource.context == true
+	some p in candidate_perms
+	server_ok(p)
+	is_string(p.tool)
+	context_relevant(p)
+}
+
+context_relevant(p) if not p.effect == "deny"
+
+context_relevant(p) if p.tool == "*"
+
 # Completions follow what they complete: a prompt like prompts.get, a
 # resource template wherever the principal may read some resource of that
 # server. The same rules decide the visibility of resource templates.

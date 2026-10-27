@@ -413,6 +413,45 @@ test_sign_in_follows_server_tools if {
 	authz.decision.effect == "deny" with input as other with data.mcp.rbac as rbac
 }
 
+# The context tools of a server with contexts (D22) follow its tools: a
+# permission for some tool covers them, one denying some tools does not
+# deny them, one denying all does; an approval for every tool asks; a
+# server's own tool of that name, or another server, is not covered.
+test_context_tools_follow_server_tools if {
+	rbac := {
+		"bindings": {"users": {"alice": ["browser-user"]}},
+		"roles": {"browser-user": {"permissions": [
+			{"server": "browser", "tool": "navigate"},
+			{"server": "browser", "tool": "download_*", "effect": "deny"},
+		]}},
+	}
+	ctx := {
+		"principal": alice, "action": "tools.call", "args": {}, "grants": [],
+		"resource": {"server": "browser", "kind": "tool", "name": "gateway_new_context", "context": true},
+	}
+	authz.decision.effect == "allow" with input as ctx with data.mcp.rbac as rbac
+	ending := object.union(ctx, {"resource": {"name": "gateway_end_context"}})
+	authz.decision.effect == "allow" with input as ending with data.mcp.rbac as rbac
+	authz.decision.effect == "deny" with input as call(alice, "browser", "gateway_new_context", {}) with data.mcp.rbac as rbac
+	other := object.union(ctx, {"resource": {"server": "fs"}})
+	authz.decision.effect == "deny" with input as other with data.mcp.rbac as rbac
+
+	denied := {
+		"bindings": {"users": {"alice": ["browser-user"]}},
+		"roles": {"browser-user": {"permissions": [
+			{"server": "browser", "tool": "navigate"},
+			{"server": "browser", "tool": "*", "effect": "deny"},
+		]}},
+	}
+	authz.decision.effect == "deny" with input as ctx with data.mcp.rbac as denied
+
+	asked := {
+		"bindings": {"users": {"alice": ["browser-user"]}},
+		"roles": {"browser-user": {"permissions": [{"server": "browser", "tool": "*", "require_approval": true}]}},
+	}
+	authz.decision.effect == "ask" with input as ctx with data.mcp.rbac as asked
+}
+
 # Delivering a call's result (phase "delivery", D20): allowed while the
 # principal holds a permission for the tool, without asking again;
 # withheld once it no longer does.

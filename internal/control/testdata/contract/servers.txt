@@ -3,6 +3,7 @@
 [].capabilities
 [].instances
 [].instances[].busy
+[].instances[].context
 [].instances[].definition
 [].instances[].id
 [].instances[].isolation

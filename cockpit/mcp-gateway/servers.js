@@ -76,7 +76,8 @@ function instanceRow(inst, landlock) {
         removed: "server removed: stops once its calls end",
     }[inst.definition];
     const who = inst.sub + (inst.iss ? " (" + inst.iss + ")" : "") + " via " + inst.transport +
-        (inst.session_id ? ", session " + inst.session_id.slice(0, 8) : "");
+        (inst.session_id ? ", session " + inst.session_id.slice(0, 8) : "") +
+        (inst.context ? ", context " + inst.context.slice(0, 12) : "");
     let use = inst.sessions > 0 ? inst.sessions + (inst.sessions === 1 ? " session" : " sessions") : "idle";
     if (inst.busy) use += ", call running";
     return el("div", { class: "instance" },

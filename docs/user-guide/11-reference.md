@@ -521,7 +521,7 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `POST /v1/approvals/{id}` | `{"decision": "approve"\|"deny", "scope": "once"\|"session"\|<duration>, "via": "cockpit"\|"cli"}`; returns the grant (`200`) or nothing (`204`, denied); `400 scope not offered`; `403` with `"code": "password_required"` when approving the caller's own request, which only the approver rule `self` allows, without their password (polkit; chapter 7). `via` (optional) names the way the decision came, for the audit; anything else is recorded as `api` |
 | `GET /v1/grants` | grants the caller may manage (list of grants, below) |
 | `DELETE /v1/grants/{id}` | revoke; `204`. `?via=cockpit\|cli` as for decisions |
-| `GET /v1/servers` | registered servers `{"name", "selinux_type", "isolation", "network", "run_as", "privileged", "capabilities", "sign_in", "landlock", "instances"}` with the instances the caller may manage `{"id", "server", "unit", "sub", "iss", "uid", "transport", "session_id", "isolation", "started", "sessions", "privileged", "busy", "definition"}`; an instance's `privileged` is also set for a server with `capabilities` (such an instance is not stopped during a call); `definition` is `current`, `previous` (started from a definition changed since) or `removed`; a server removed from the configuration whose instances still run is listed with `"removed": true` |
+| `GET /v1/servers` | registered servers `{"name", "selinux_type", "isolation", "network", "run_as", "privileged", "capabilities", "sign_in", "landlock", "instances"}` with the instances the caller may manage `{"id", "server", "unit", "sub", "iss", "uid", "transport", "session_id", "context", "isolation", "started", "sessions", "privileged", "busy", "definition"}` (`context`, with isolation `context`, for the instance of an agent's context, chapter 4); an instance's `privileged` is also set for a server with `capabilities` (such an instance is not stopped during a call); `definition` is `current`, `previous` (started from a definition changed since) or `removed`; a server removed from the configuration whose instances still run is listed with `"removed": true` |
 | `DELETE /v1/instances/{id}` | stop an instance; `204`; `409` for a privileged instance with a call running |
 | `GET /v1/tasks` | the agents' tasks the caller may manage (`data.mcp.approvals.manage_task`), newest first: `{"id", "server", "tool", "sub", "iss", "uid", "transport", "status", "status_message", "created", "updated", "ended", "delivered"}`; `status` is `working`, `input_required`, `completed`, `failed` or `cancelled`; `delivered` tells that the agent fetched the result |
 | `POST /v1/tasks/{id}/cancel` | cancel a running task: its call is cancelled at the server, as by its agent; `204`; `409` if it has ended; `404` if unknown or not the caller's to manage |
@@ -582,7 +582,9 @@ the classes and counts replaced (`"EMAIL:2 PERSON:1"`). So is
 expired with its result not fetched (chapter 5, "Long calls: tasks"):
 `event` (`created`, `delivered`, `cancelled`, `expired`), `task`,
 `principal`, `transport`, `session` (at creation), `server`, `tool`,
-`reason`.
+`reason`. So is `mcp-context`, an agent's context of a server with
+`contexts` opened or ended (chapter 4): `op` (`open`, `end`), `context`,
+`principal`, `transport`, `server`.
 
 Kernel audit (`TRUSTED_APP`) operations:
 

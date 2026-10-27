@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"slices"
 	"strings"
@@ -43,8 +44,9 @@ func (fakePDP) Decide(_ context.Context, in pep.Input) (pep.Decision, error) {
 	}
 	switch in.Action {
 	case "tools.call":
-		// gateway_capabilities (builtin.rego): not for "nobody".
-		if in.Resource.Builtin {
+		// gateway_capabilities (builtin.rego), and the context tools
+		// (authz.rego): not for "nobody".
+		if in.Resource.Builtin || in.Resource.Context {
 			if in.Principal.Sub == "nobody" {
 				return deny, nil
 			}
@@ -192,6 +194,10 @@ type fakeInstance struct {
 	methods []string
 	metas   []map[string]json.RawMessage
 	listens []json.RawMessage
+	// callArgs are the arguments of the tools/call requests received;
+	// counter counts the instance's calls of read_counter (its state).
+	callArgs []json.RawMessage
+	counter  int
 }
 
 func (f *fakeInstance) seen() ([]string, []map[string]json.RawMessage, []json.RawMessage) {
@@ -297,6 +303,9 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 		f.seenMu.Lock()
 		f.methods = append(f.methods, m.Method)
 		f.metas = append(f.metas, meta)
+		if m.Method == "tools/call" {
+			f.callArgs = append(f.callArgs, p.Args)
+		}
 		f.seenMu.Unlock()
 		if strings.HasPrefix(f.name, "mute") {
 			continue // a server that never answers anything (a start that hangs)
@@ -401,6 +410,12 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 					}
 					respond(m, text("llm: "+string(resp.Result)))
 				}(m)
+			case "read_counter":
+				f.seenMu.Lock()
+				f.counter++
+				n := f.counter
+				f.seenMu.Unlock()
+				respond(m, text(fmt.Sprintf("%s count %d", f.name, n)))
 			case "read_secret":
 				respond(m, text("user=bob token=abc123 done"))
 			case "read_task":

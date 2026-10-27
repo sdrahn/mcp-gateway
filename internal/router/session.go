@@ -716,6 +716,9 @@ type listItem struct {
 	// signIn marks the tool sign_in of a server the principal must sign
 	// in to.
 	signIn bool
+	// context marks the gateway's context tools of a server with
+	// contexts (contexts.go).
+	context bool
 }
 
 func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.Error) {
@@ -731,13 +734,24 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 			s.log.Warn("listing failed; skipping server", "server", server, "method", m.Method, "err", err)
 			continue
 		}
-		items = append(items, lists[i]...)
+		list := lists[i]
+		signIn := slices.ContainsFunc(list, func(it listItem) bool { return it.signIn })
+		if b := s.endpoint().backends[server]; spec.kind == "tool" && s.offersContexts(b) && !signIn {
+			// The gateway's context tools take the place of a server's
+			// own of those names (not before the principal signed in).
+			list = slices.DeleteFunc(slices.Clone(list), func(it listItem) bool {
+				return it.name == newContextTool || it.name == endContextTool
+			})
+			list = append(list, contextItems(server, s.r.settings().IdleTimeout)...)
+		}
+		items = append(items, list...)
 	}
 
 	s.rememberArgs(spec.kind, items)
 	resources := make([]pep.Resource, len(items))
 	for i, it := range items {
-		resources[i] = pep.Resource{Server: it.server, Kind: spec.kind, Name: it.name, Privileged: s.r.privileged(it.server), SignIn: it.signIn}
+		resources[i] = pep.Resource{Server: it.server, Kind: spec.kind, Name: it.name, Privileged: s.r.privileged(it.server),
+			SignIn: it.signIn, Context: it.context}
 	}
 	type key = itemKey
 	visible := map[key]bool{}
@@ -785,6 +799,9 @@ func (s *Session) list(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 			note := ""
 			if b := s.endpoint().backends[it.server]; b != nil {
 				note = b.ToolNotes[it.name]
+				if !it.context && !it.signIn && s.offersContexts(b) && !withContextArg(it.raw, it.server) {
+					s.log.Debug("tool not offered in contexts: its schema has gateway_context, or is no object", "server", it.server, "tool", it.name)
+				}
 			}
 			if text := hintText(hints[k], note); text != "" {
 				var desc string
@@ -984,6 +1001,9 @@ func (s *Session) target(method string, params map[string]json.RawMessage) (*cal
 			if b := s.endpoint().backends[server]; name == signInTool && b != nil && s.mustSignIn(b) {
 				t.resource.Annotations, t.resource.SignIn = nil, true
 			}
+			if b := s.endpoint().backends[server]; (name == newContextTool || name == endContextTool) && s.offersContexts(b) {
+				t.resource.Annotations, t.resource.Context = nil, true
+			}
 		} else {
 			t.action, t.resource = "prompts.get", pep.Resource{Server: server, Kind: "prompt", Name: name}
 		}
@@ -1071,6 +1091,15 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
+	if m.Method == "tools/call" && !t.resource.Context && s.offersContexts(s.endpoint().backends[t.server]) {
+		// The call runs in the agent's context, if it names one.
+		if rpcErr := s.takeContext(t, params); rpcErr != nil {
+			return nil, rpcErr
+		}
+		if id := s.snapshotPrincipal().Context; id != "" {
+			defer s.r.contexts.use(s.snapshotPrincipal(), t.server, id, 0)
+		}
+	}
 	if err := s.checkArgNames(ctx, t); err != nil {
 		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params: "+err.Error())
 	}
@@ -1122,6 +1151,9 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		if err := setArguments(params, t.args, reidentified); err != nil {
 			return nil, rpcError(jsonrpc.CodeInternalError, "internal error")
 		}
+	}
+	if t.resource.Context {
+		return s.contextTool(ctx, t)
 	}
 
 	b := s.endpoint().backends[t.server]

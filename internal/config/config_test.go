@@ -36,6 +36,7 @@ func TestLoadGatewayDefaults(t *testing.T) {
 		g.Approvals.ControlSocket != DefaultControl || g.Policy.WatchInterval != DefaultWatchInterval ||
 		g.Limits.SessionsPerPrincipal != DefaultSessionsPerPrincipal || g.Limits.InstancesPerPrincipal != DefaultInstancesPerPrincipal ||
 		g.Limits.Instances != 0 || g.Limits.TasksPerPrincipal != DefaultTasksPerPrincipal ||
+		g.Limits.ContextsPerPrincipal != DefaultContextsPerPrincipal ||
 		g.Tasks.Retention != DefaultTaskRetention || g.Tasks.MaxResultBytes != DefaultTaskMaxResultBytes {
 		t.Errorf("defaults not applied: %+v", g)
 	}
@@ -382,6 +383,19 @@ func TestLoadBackendsCapabilities(t *testing.T) {
 	}
 }
 
+// contexts: true needs isolation: session (D22).
+func TestBackendContexts(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "browser.yaml", "name: browser\ncommand: [/usr/bin/browser]\nisolation: session\ncontexts: true\n")
+	bs, err := LoadBackends(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := bs["browser"]; b == nil || !b.Contexts || b.Isolation != IsolationSession {
+		t.Fatalf("%+v", bs)
+	}
+}
+
 func TestLoadBackendsErrors(t *testing.T) {
 	tests := map[string][]string{
 		"bad name":         {"name: Bad_Name\ncommand: [/usr/bin/a]\n"},
@@ -390,6 +404,8 @@ func TestLoadBackendsErrors(t *testing.T) {
 		"bad selinux type": {"name: a\ncommand: [/usr/bin/a]\nselinux_type: unconfined_t\n"},
 		"bad isolation":    {"name: a\ncommand: [/usr/bin/a]\nisolation: global\n"},
 		"bad discovery":    {"name: a\ncommand: [/usr/bin/a]\ndiscovery: cached\n"},
+		"contexts alone":   {"name: a\ncommand: [/usr/bin/a]\ncontexts: true\n"},
+		"context setting":  {"name: a\ncommand: [/usr/bin/a]\nisolation: context\n"},
 		"bad protect_home": {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  protect_home: maybe\n"},
 		"bad cred name":    {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"../x\"]\n"},
 		"relative cred":    {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"db:secrets/db\"]\n"},

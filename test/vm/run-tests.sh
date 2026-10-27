@@ -2329,6 +2329,90 @@ exec 8>&-
 kill "$task_client" 2>/dev/null
 wait "$task_client" 2>/dev/null
 
+section "Contexts"
+# Roadmap step 43 (D22): fsctx, the fs server with isolation: session and
+# contexts: true. alice, as an agent of MCP 2026-07-28 (no session),
+# opens two contexts: each runs in an instance of its own, as her, in
+# mcpsrv_fs_t with its own category pair, beside her shared instance.
+# bob cannot use her context; ending one stops its unit.
+cx_since=$(date +%s)
+jq '.roles.tester.permissions += [{"server": "fsctx", "tool": "read_*"}, {"server": "fsctx", "tool": "list_*"}]' \
+	/etc/mcp-gateway/policy/rbac/data.yaml >/root/cx-data.json &&
+	cat /root/cx-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
+sed -e 's/^name: fs$/name: fsctx/' -e 's/^isolation: principal$/isolation: session/' \
+	/usr/share/mcp-gateway/servers.d/fs-demo.yaml >/etc/mcp-gateway/servers.d/fsctx.yaml
+printf 'contexts: true\n' >>/etc/mcp-gateway/servers.d/fsctx.yaml
+restorecon /etc/mcp-gateway/servers.d/fsctx.yaml
+# cx <user> <params> [--then <params>...]: modern tools/call on fsctx;
+# sets $out and $rc.
+cx() {
+	local u=$1
+	shift
+	out=$(runuser -u "$u" -- /usr/local/bin/mcpcall --modern --server fsctx --method tools/call --params "$@" 2>&1)
+	rc=$?
+	echo "  [$u] rc=$rc ${out:0:300}"
+}
+cx_listed() {
+	runuser -u alice -- /usr/local/bin/mcpcall --modern --server fsctx --method tools/list 2>/dev/null |
+		jq -e '[.tools[].name] | index("gateway_new_context") and index("gateway_end_context")' >/dev/null
+}
+check "a modern agent sees the context tools of fsctx" eventually 40 cx_listed
+cx_schema() {
+	runuser -u alice -- /usr/local/bin/mcpcall --modern --server fsctx --method tools/list 2>/dev/null |
+		jq -e '.tools[] | select(.name == "read_text_file") | .inputSchema.properties.gateway_context' >/dev/null
+}
+check "... and the argument gateway_context on its tools" cx_schema
+cx_legacy() { ! runuser -u alice -- /usr/local/bin/mcpcall --server fsctx --method tools/list | grep -qF gateway_new_context; }
+check "a legacy session (an instance of its own already) does not" cx_legacy
+
+cx alice '{"name":"gateway_new_context","arguments":{}}' --then '{"name":"gateway_new_context","arguments":{}}'
+cx_a=$(sed -n 1p <<<"$out" | jq -r '.structuredContent.context // empty' 2>/dev/null)
+cx_b=$(sed -n 2p <<<"$out" | jq -r '.structuredContent.context // empty' 2>/dev/null)
+check "alice opens two contexts" bash -c '[[ $1 == ctx_* && $2 == ctx_* && $1 != "$2" ]]' _ "$cx_a" "$cx_b"
+read_in() { printf '{"name":"read_text_file","arguments":{"path":"/home/alice/secret.txt"%s}}' "${1:+,\"gateway_context\":\"$1\"}"; }
+cx alice "$(read_in "$cx_a")" --then "$(read_in "$cx_b")" --then "$(read_in "")"
+check "... and reads her file in each, and without one" bash -c '[ "$1" = 0 ] && [ "$(grep -c "alice secret" <<<"$2")" = 3 ]' _ "$rc" "$out"
+cx_instances() { control alice GET /v1/servers | jq -c '[.[] | select(.name == "fsctx") | .instances[] | {context: (.context // ""), isolation, unit}]'; }
+cx_list=$(cx_instances)
+echo "  $cx_list"
+cx_three() {
+	jq -e --arg a "$cx_a" --arg b "$cx_b" 'length == 3 and (map(.context) | sort == (["", $a, $b] | sort))
+		and (map(select(.context == $a))[0].isolation == "context")' <<<"$cx_list" >/dev/null
+}
+check "three instances: one per context, and her shared one" cx_three
+cx_unit() { jq -r --arg c "$1" '.[] | select(.context == $c) | .unit' <<<"$cx_list"; }
+cx_unit_a=$(cx_unit "$cx_a")
+cx_unit_b=$(cx_unit "$cx_b")
+cx_pid_a=$(systemctl show -p MainPID --value "${cx_unit_a:-none}" 2>/dev/null)
+cx_pid_b=$(systemctl show -p MainPID --value "${cx_unit_b:-none}" 2>/dev/null)
+echo "  $cx_unit_a: $(label "${cx_pid_a:-1}")"
+echo "  $cx_unit_b: $(label "${cx_pid_b:-1}")"
+check "each context's instance runs as alice in mcpsrv_fs_t" \
+	bash -c '[ "$(ps -o user= -p "$1" | tr -d " ")" = alice ] && [ "$(ps -o user= -p "$2" | tr -d " ")" = alice ] &&
+		ps -o label= -p "$1" | grep -q ":mcpsrv_fs_t:" && ps -o label= -p "$2" | grep -q ":mcpsrv_fs_t:"' _ "${cx_pid_a:-1}" "${cx_pid_b:-1}"
+check "... with category pairs of their own" \
+	bash -c '[ -n "$1" ] && [ "$1" != "$2" ]' _ "$(categories "$(label "${cx_pid_a:-1}")")" "$(categories "$(label "${cx_pid_b:-1}")")"
+
+cx bob "$(read_in "$cx_a")"
+check "bob cannot use alice's context" bash -c '[ "$1" = 1 ] && grep -qF "no open context" <<<"$2"' _ "$rc" "$out"
+cx bob "{\"name\":\"gateway_end_context\",\"arguments\":{\"gateway_context\":\"$cx_a\"}}"
+check "... nor end it" test "$rc" = 1
+cx alice "{\"name\":\"gateway_end_context\",\"arguments\":{\"gateway_context\":\"$cx_a\"}}"
+check "alice ends one" test "$rc" = 0
+cx_stopped() { ! systemctl is-active -q "$cx_unit_a"; }
+check "... its unit stops" eventually 20 cx_stopped
+check "... the other runs on" systemctl is-active -q "$cx_unit_b"
+cx alice "$(read_in "$cx_a")"
+check "... and the ended context is refused" bash -c '[ "$1" = 1 ] && grep -qF gateway_new_context <<<"$2"' _ "$rc" "$out"
+cx_audited() { journalctl -u mcp-gateway.service -o cat --since "@$cx_since" | grep -F '"event":"mcp-context"' | grep -qF '"op":"end"'; }
+check "opening and ending are in the journal (mcp-context)" eventually 10 cx_audited
+
+rm -f /etc/mcp-gateway/servers.d/fsctx.yaml
+jq '.roles.tester.permissions |= map(select(.server != "fsctx"))' /etc/mcp-gateway/policy/rbac/data.yaml >/root/cx-data.json &&
+	cat /root/cx-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
+cx_gone() { ! control alice GET /v1/servers | jq -e '.[] | select(.name == "fsctx" and (.removed | not))' >/dev/null; }
+check "fsctx is removed again" eventually 40 cx_gone
+
 section "Limits"
 # The limits per principal (decision D14), lowered with mcp-gateway-admin
 # config set while the gateway runs: a session, an instance and a task

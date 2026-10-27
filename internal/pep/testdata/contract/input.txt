@@ -46,6 +46,7 @@ principal.uid
 resource
 resource.annotations
 resource.builtin
+resource.context
 resource.kind
 resource.name
 resource.privileged

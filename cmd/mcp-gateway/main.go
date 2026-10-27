@@ -354,6 +354,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		MaxStreamsPerPrincipal:   gw.Limits.StreamsPerPrincipal,
 		VaultIdle:                gw.Pseudonymize.VaultIdle,
 		MaxTasksPerPrincipal:     gw.Limits.TasksPerPrincipal,
+		MaxContextsPerPrincipal:  gw.Limits.ContextsPerPrincipal,
 		TaskRetention:            gw.Tasks.Retention,
 		TaskMaxResultBytes:       gw.Tasks.MaxResultBytes,
 		MaxVersion:               gw.Agents.MaxVersion,

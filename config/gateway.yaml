@@ -198,6 +198,9 @@ limits:
   streams_per_principal: 16
   # Tasks (below) a principal has, running or done and kept.
   tasks_per_principal: 32
+  # Contexts a principal has open on servers with contexts (an instance
+  # each, for agents of MCP 2026-07-28).
+  contexts_per_principal: 8
 
 # Pseudonyms (policy obligation "pseudonymize") of agents of MCP
 # 2026-07-28, which have no session, belong to the user and endpoint and
