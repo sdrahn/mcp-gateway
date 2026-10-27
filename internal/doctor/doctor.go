@@ -13,8 +13,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -91,6 +93,7 @@ var checkPrefixes = []struct{ prefix, id string }{
 	{"polkit ", "polkit"},
 	{"program ", "program"},
 	{"roles ", "roles"},
+	{"secrets ", "secrets"},
 	{"server ", "server"},
 	{"snapper ", "snapper"},
 	{"tool notes ", "tool-notes"},
@@ -663,6 +666,54 @@ func ReadOnlyRoot(backends map[string]*config.Backend, readOnly bool) []Result {
 	return []Result{r}
 }
 
+// secretArg finds an option with a value in a command line whose name
+// looks like it holds a secret (--token=x, -api-key=x).
+var secretArg = regexp.MustCompile(`^--?([A-Za-z0-9_.-]+)=(.+)$`)
+
+// LiteralSecrets reports secrets written into server definitions:
+// headers, proxy headers and environment variables whose names look like
+// they hold one, and options of the command such as --token=, with a
+// value that is not a credential (${CREDENTIAL:name}). The definitions
+// are readable by every local user, and their values reach the journal
+// with the unit; credentials (LoadCredential=) reach only the server.
+func LiteralSecrets(backends map[string]*config.Backend) []Result {
+	var out []Result
+	literal := func(v string) bool { return v != "" && !strings.Contains(v, "${CREDENTIAL:") }
+	for _, name := range sortedKeys(backends) {
+		b := backends[name]
+		var found []string
+		for _, k := range sortedKeys(b.Headers) {
+			if literal(b.Headers[k]) && config.SecretName(k) {
+				found = append(found, "headers: "+k)
+			}
+		}
+		for _, k := range sortedKeys(b.ProxyHeaders) {
+			if literal(b.ProxyHeaders[k]) && config.SecretName(k) {
+				found = append(found, "proxy_headers: "+k)
+			}
+		}
+		for _, k := range sortedKeys(b.Env) {
+			if literal(b.Env[k]) && config.SecretName(k) {
+				found = append(found, "env: "+k)
+			}
+		}
+		for _, arg := range b.Command {
+			if m := secretArg.FindStringSubmatch(arg); m != nil && literal(m[2]) && config.SecretName(m[1]) {
+				found = append(found, "command: --"+strings.TrimLeft(m[1], "-")+"=…")
+			}
+		}
+		if len(found) == 0 {
+			continue
+		}
+		out = append(out, Result{Check: "secrets " + name, Status: Warn,
+			Summary: "the definition holds what looks like secrets: " + strings.Join(found, ", "),
+			Details: []string{
+				"server definitions are readable by every local user, and the unit's command line and environment by more than the server;",
+				"move each into a credential (credentials: [name], the file in /etc/mcp-gateway/credentials) and name it as ${CREDENTIAL:name} in headers, or read $CREDENTIALS_DIRECTORY/name in the server (user guide, chapter 9, \"Secrets\")"}})
+	}
+	return out
+}
+
 // LandlockKernel is what the kernel offers of Landlock: its ABI (0:
 // none), and without one whether the kernel has Landlock but does not
 // run it (not in its LSM list).
@@ -858,6 +909,14 @@ func ApprovalReach(gw *config.Gateway, notifyInstalled bool) Result {
 	}
 	if len(ways) > 0 {
 		r.Status, r.Summary = OK, "out-of-band approvals reach approvers through "+strings.Join(ways, ", ")
+		e := gw.Notifications.Email
+		if host, _, err := net.SplitHostPort(e.SMTP); err == nil && !config.IsLocalHost(host) && e.StartTLS != "always" {
+			r.Status = Warn
+			r.Summary += fmt.Sprintf("; mail goes to %s without requiring STARTTLS (notifications.email.starttls: %s)", host, e.StartTLS)
+			r.Details = []string{
+				"approval mail names the call, its arguments and the approval page: on the way to another host, anyone on the network path can read it, and can strip STARTTLS from the mail server's answer;",
+				"set notifications.email.starttls: always (the default for a mail server on another host), or send through the local MTA (smtp: localhost:25)"}
+		}
 		return r
 	}
 	noWait := "none"

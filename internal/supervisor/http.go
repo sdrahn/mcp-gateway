@@ -12,6 +12,7 @@ import (
 	"github.com/godbus/dbus/v5"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/egress"
 )
 
 // lookupTimeout bounds resolving the host of a server defined with url.
@@ -36,8 +37,15 @@ func ipEntry(ip net.IP, prefix int) ipAddress {
 // of its proxy (b.Proxy), which then resolves the server's name, with
 // lookup (net.DefaultResolver.LookupIP outside tests). The connector gets
 // the addresses (-resolve host:port:address), since its domain cannot
-// resolve names, and the unit may reach those only.
+// resolve names, and the unit may reach those only. With b.PublicOnly,
+// an address of the local network is an error (through a proxy, which
+// resolves the name itself, only an address in the URL can be checked).
 func httpTarget(ctx context.Context, b *config.Backend, lookup func(ctx context.Context, network, host string) ([]net.IP, error)) (args []string, allow []ipAddress, err error) {
+	if b.PublicOnly {
+		if err := checkPublic(b); err != nil {
+			return nil, nil, err
+		}
+	}
 	target := b.URL
 	if b.Proxy != "" {
 		target = b.Proxy
@@ -58,6 +66,13 @@ func httpTarget(ctx context.Context, b *config.Backend, lookup func(ctx context.
 			return nil, nil, fmt.Errorf("supervisor: resolving %s for server %s: %w", host, b.Name, err)
 		}
 	}
+	if b.PublicOnly && b.Proxy == "" {
+		for _, ip := range ips {
+			if !egress.Public(ip) {
+				return nil, nil, localAddress(b, host, ip)
+			}
+		}
+	}
 	slices.SortFunc(ips, func(a, b net.IP) int { return slices.Compare(a.To16(), b.To16()) })
 	for _, ip := range slices.CompactFunc(ips, net.IP.Equal) {
 		args = append(args, "-resolve", net.JoinHostPort(host, port)+":"+ip.String())
@@ -76,4 +91,22 @@ func httpProperties(allow []ipAddress) []sddbus.Property {
 		{Name: "IPAddressDeny", Value: dbus.MakeVariant(deny)},
 		{Name: "IPAddressAllow", Value: dbus.MakeVariant(allow)},
 	}
+}
+
+// checkPublic refuses a URL whose host is an address of the local
+// network.
+func checkPublic(b *config.Backend) error {
+	u, err := url.Parse(b.URL)
+	if err != nil {
+		return err
+	}
+	if ip := net.ParseIP(u.Hostname()); ip != nil && !egress.Public(ip) {
+		return localAddress(b, u.Hostname(), ip)
+	}
+	return nil
+}
+
+func localAddress(b *config.Backend, host string, ip net.IP) error {
+	return fmt.Errorf("supervisor: %s for %s is %s, an address of the local network, which a server's metadata may not send the sign-in helper to; list the host in sign_in.private_hosts if the authorization server is there",
+		host, b.Name, ip)
 }

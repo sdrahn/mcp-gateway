@@ -107,21 +107,49 @@ func TestLoadGatewayShippedExample(t *testing.T) {
 	}
 }
 
-func TestLoadGatewayHTTP(t *testing.T) {
-	p := writeFile(t, t.TempDir(), "gateway.yaml", `http:
+const httpYAML = `http:
   listen: ":8443"
   cert_file: c
   key_file: k
   issuer: http://127.0.0.1:9000/realms/mcp
   audience: https://gw.example.com:8443/mcp
   scopes: [mcp]
-`)
+`
+
+func TestLoadGatewayHTTP(t *testing.T) {
+	p := writeFile(t, t.TempDir(), "gateway.yaml", httpYAML)
 	g, err := LoadGateway(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g.HTTP.GroupsClaim != "groups" || g.HTTP.SessionIdleTimeout != DefaultHTTPSessionIdle || g.HTTP.Scopes[0] != "mcp" {
+	if g.HTTP.GroupsClaim != "groups" || g.HTTP.SessionIdleTimeout != DefaultHTTPSessionIdle || g.HTTP.Scopes[0] != "mcp" ||
+		g.HTTP.MaxConnections != DefaultHTTPMaxConnections {
 		t.Errorf("http = %+v", g.HTTP)
+	}
+	if _, err := LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", strings.Replace(httpYAML, "scopes: [mcp]", "scopes: [mcp]\n  max_connections: -1", 1))); err == nil ||
+		!strings.Contains(err.Error(), "http.max_connections") {
+		t.Errorf("negative max_connections: %v", err)
+	}
+}
+
+// Mail to another host needs STARTTLS unless set otherwise; on the local
+// host, it is used if offered.
+func TestEmailStartTLSDefault(t *testing.T) {
+	for smtp, want := range map[string]string{
+		"mail.example.com:587": "always", "10.0.0.25:25": "always",
+		"localhost:25": "auto", "127.0.0.1:25": "auto", "[::1]:25": "auto",
+	} {
+		g, err := LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", "notifications:\n  email:\n    smtp: \""+smtp+"\"\n    from: gw@x\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := g.Notifications.Email.StartTLS; got != want {
+			t.Errorf("%s: starttls %s, want %s", smtp, got, want)
+		}
+	}
+	g, err := LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", "notifications:\n  email:\n    smtp: mail.example.com:25\n    from: gw@x\n    starttls: auto\n"))
+	if err != nil || g.Notifications.Email.StartTLS != "auto" {
+		t.Errorf("set: %v %v", g.Notifications.Email.StartTLS, err)
 	}
 }
 
@@ -559,7 +587,7 @@ func TestBackendURL(t *testing.T) {
 }
 
 func TestBackendSignIn(t *testing.T) {
-	b := Backend{Name: "tickets", URL: "https://mcp.example.com/mcp", SignIn: &SignIn{Scopes: []string{"read"}}}
+	b := Backend{Name: "tickets", URL: "https://mcp.example.com/mcp", SignIn: &SignIn{Scopes: []string{"read"}, PrivateHosts: []string{"idp.corp.example", "10.0.0.5"}}}
 	b.setDefaults()
 	if err := b.Validate(); err != nil {
 		t.Fatal(err)
@@ -580,6 +608,8 @@ func TestBackendSignIn(t *testing.T) {
 		{Backend{Name: "x", URL: "https://x/", SignIn: &SignIn{ClientID: "c", ClientSecret: "s"}}, "credentials does not list"},
 		{Backend{Name: "x", URL: "https://x/", SignIn: &SignIn{Scopes: []string{"a b"}}}, "not a scope"},
 		{Backend{Name: "x", URL: "https://x/", SignIn: &SignIn{}, Discovery: DiscoveryShared}, "discovery must be instance"},
+		{Backend{Name: "x", URL: "https://x/", SignIn: &SignIn{PrivateHosts: []string{"https://idp"}}}, "private_hosts"},
+		{Backend{Name: "x", URL: "https://x/", SignIn: &SignIn{PrivateHosts: []string{""}}}, "private_hosts"},
 	} {
 		c.b.setDefaults()
 		if err := c.b.Validate(); err == nil || !strings.Contains(err.Error(), c.err) {

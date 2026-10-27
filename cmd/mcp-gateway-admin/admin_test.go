@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
@@ -155,6 +156,46 @@ func TestMaskSecrets(t *testing.T) {
 		}
 	}
 	for _, kept := range []string{"LEVEL: info", "keys: [a]", "token_file:"} {
+		if !strings.Contains(out, kept) {
+			t.Errorf("%q masked:\n%s", kept, out)
+		}
+	}
+}
+
+// What the first masking missed (security review): header maps, other
+// names of secrets, flow mappings, block scalars; references to
+// credentials are not secrets.
+func TestMaskSecretsForms(t *testing.T) {
+	in := `name: remote
+url: https://mcp.example.com/mcp
+headers:
+  Authorization: Bearer sec1
+  X-Tenant: sec2
+  X-Ref: Bearer ${CREDENTIAL:api}
+proxy_headers: {Proxy-Authorization: Basic sec3}
+env:
+  GITHUB_PAT: sec4
+  OPENAI_KEY: sec5
+  X_AUTH: sec6
+  PATH: /usr/bin
+  LEVEL: info
+other: {user: me, password: sec7}
+plain: {a: b}
+private_key: |
+  sec8
+  sec9
+after: kept
+credentials: [api, "tls:/etc/x"]
+key_file: /etc/mcp-gateway/tls/key.pem
+`
+	out, _ := maskSecrets(in)
+	for i := 1; i <= 9; i++ {
+		if secret := fmt.Sprintf("sec%d", i); strings.Contains(out, secret) {
+			t.Errorf("%s not masked:\n%s", secret, out)
+		}
+	}
+	for _, kept := range []string{"X-Ref: Bearer ${CREDENTIAL:api}", "PATH: /usr/bin", "LEVEL: info", "plain: {a: b}", "after: kept",
+		`credentials: [api, "tls:/etc/x"]`, "key_file: /etc/mcp-gateway/tls/key.pem", "url: https://mcp.example.com/mcp"} {
 		if !strings.Contains(out, kept) {
 			t.Errorf("%q masked:\n%s", kept, out)
 		}

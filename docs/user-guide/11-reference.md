@@ -172,6 +172,7 @@ the same across releases; the texts may change.
 | `server` | server name | server *name* |
 | `roles` | server name | roles *name* |
 | `tool-notes` | server name | tool notes *name* |
+| `secrets` | server name | secrets *name* |
 | `selinux-denials` | SELinux type (absent when there are none) | SELinux *type*, SELinux |
 | `selinux-transitions` | | SELinux transitions |
 | `selinux-types` | | SELinux types |
@@ -634,7 +635,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/usr/libexec/mcp-gateway/mcp-landlock` | starts the instances of definitions with `landlock`: restricts itself with Landlock, then executes the server; `-version` shows the kernel's Landlock ABI |
 | `/usr/lib/systemd/system/mcp-gateway.service`, `mcp-opa.service`, `mcp-policy-render.service` | units |
 | `/usr/lib/sysusers.d/mcp-gateway.conf` | accounts |
-| `/usr/share/polkit-1/rules.d/50-mcp-gateway.rules` | lets the gateway manage `mcp-*.service` |
+| `/usr/share/polkit-1/rules.d/50-mcp-gateway.rules` | lets the gateway manage its instances, `mcp-<server>-<id>.service` |
 | `/usr/share/cockpit/mcp-gateway/` | Cockpit page |
 | `/etc/xdg/autostart/mcp-gateway-notify.desktop` | desktop agent autostart |
 | `/usr/libexec/mcp-servers/` | conventional place for MCP server programs; `mcp-server-fs`, `mcp-server-exec` |

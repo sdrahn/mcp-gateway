@@ -1946,14 +1946,15 @@ either says about itself (client info, tool annotations).
 | Cross-tenant data leakage | instance per principal (or session), MCS categories, separate Unix users where possible; with `landlock` (D19), an instance's trees per principal (the shipped `fs`: the user's home only, even for another user's world-readable files) | principals sharing a dynamic user rely on MCS and the instance split; without `landlock`, files another user made readable |
 | Token theft / confused deputy | audience-bound tokens, optional certificate binding (mTLS), no token passthrough, backend creds via systemd credentials | a stolen token until it expires; an open SSE stream outlives its token (§12) |
 | Approval spoofing | approval ids from 128 random bits; decisions only over the control socket with kernel-identified approvers and approver rules, or the Cockpit page (Cockpit login) | an approver tricked into approving |
-| Policy tampering | signed bundles verified by OPA (file or bundle server; never with `--watch`), OPA in own domain, config/bundle dirs writable only by admin | root |
+| Policy tampering | signed bundles verified by OPA (file or bundle server; never with `--watch`), OPA in own domain, config/bundle dirs writable only by admin; OPA's socket reachable only by the gateway's account and domains (its API has no authorization of its own: whoever controls the gateway, the PEP, can skip the policy anyway) | root; the gateway's account |
 | OPA outage | fail closed; `mcp-gateway-admin doctor` and metrics show it | no service while it lasts |
 | Gateway hang | watchdog (`WatchdogSec=60s`) on the locks of sessions, instances and approvals; goroutine dump on SIGABRT | sessions end with the restart |
-| Resource exhaustion by a client | message size limits (32 MiB), instance memory and task limits, idle stop, restart backoff, rate-limit obligations, limits on sessions and instances per principal (D14) | many principals together, unless `limits.instances` is set; memory per session (replay buffers) within the session limit |
+| Resource exhaustion by a client | message size limits (32 MiB), on the HTTPS listener header and body deadlines (10 s, 30 s), an idle timeout and `http.max_connections`, instance memory and task limits, idle stop, restart backoff, rate-limit obligations, limits on sessions and instances per principal (D14) | many principals together, unless `limits.instances` is set; memory per session (replay buffers) within the session limit |
 | Rate limits reset by a restart | counters in memory (D11); a restart needs root or a crash, both audited | an agent that can crash the gateway; no such crash is known |
 | Theft of principals' upstream tokens (§5.7.3) | tokens encrypted in `state_dir` under a key only the gateway reads, bound to server and principal; refresh tokens never leave the gateway and the helper; a connector gets the access token for its own server and principal only, as a credential | root; a compromised connector uses its access token until it expires |
 | Sign-in link forwarded to someone else (login confusion: another person's account bound to the principal) | the link goes only to the principal's client or their own Cockpit view; its `state` is single-use and expires (10 min); PKCE; the authorization server's consent page names the client | a principal who passes their link on, and someone who signs in with it |
 | Compromised sign-in helper | own domain, a dynamic user, reaches one host per run, no access to the token store; Landlock keeps it to its credentials and that host's port (D19) | the tokens of the one exchange or refresh it runs |
+| A server pointing the sign-in helper into the gateway's network (SSRF through its metadata) | hosts from a server's metadata are reached at public addresses only, except the server's own host and `sign_in.private_hosts`; HTTP ports only (SELinux) | through a proxy, the proxy resolves names |
 | Telemetry disclosure | metrics only for root on the control socket; the HTTP listener is opt-in and carries counts, no names or arguments | counts per server and action to whoever reaches the listener |
 | Local user spoofing identity | kernel-provided peer credentials; `clientInfo` never trusted | — |
 
@@ -4283,6 +4284,39 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       accepted, a wrong password refused, `via` and the polkit result
       in the audit, and Cockpit's Approvals tab with its password
       prompt.
+
+41. **Hardening from the security review** (1.11; done): the review of
+    2026-10-26 found, besides what 1.10.2 fixed (tokens mapping to
+    system accounts, sessions keeping their first token) and step 40:
+    - the sign-in helper reaches hosts named in a server's metadata at
+      public addresses only (not loopback, private, link-local, shared
+      or reserved ones, also not hidden in NAT64 or IPv4-mapped
+      addresses), unless the host is the server's own or listed in
+      `sign_in.private_hosts`;
+    - the HTTPS listener bounds what unauthenticated clients can hold:
+      a body deadline (30 s, cleared once the body is read, so that
+      response streams last), an idle timeout (2 min) and
+      `http.max_connections` (1024);
+    - approval mail to a mail server on another host requires STARTTLS
+      unless `starttls` says otherwise; the doctor's `approval reach`
+      warns about mail that may go out unencrypted;
+    - `show_config` masks every header value, more names of secrets
+      (`*_PAT`, `*_KEY`, `Authorization`, cookies), flow mappings and
+      block scalars that hold one, and keeps references to credentials;
+      the doctor's `secrets <server>` warns about secrets written into
+      definitions;
+    - a definition naming `${USER}` starts only for principals whose
+      name is plain (letters, digits, `._@-`, no `..`);
+    - the polkit rule allows units named as instances only
+      (`mcp-<server>-<16 hex digits>.service`), no longer the gateway's
+      own;
+    - documented: pseudonyms are re-identified across servers; the token
+      store's key protects copies of the tokens, not the tokens from the
+      gateway's account; OPA's API has no authorization (threat model);
+    - tests: unit tests for each (addresses, deadlines and the
+      connection limit, the default, masking, the doctor checks, the
+      plain-name check), and in the VM test (the openQA suite) the polkit
+      rule refusing to stop the gateway's own units.
 
 ## 12. Open items
 

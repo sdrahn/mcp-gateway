@@ -148,7 +148,17 @@ development only.
   systemd, never the refresh token; the agent never sees a token. The
   sign-in link goes only to the user's client or their own Cockpit
   view, and is valid once, for `sign_in.timeout`: a user who forwards it
-  lets someone else bind their account at the server to the user.
+  lets someone else bind their account at the server to the user. The
+  key (`tokens.key`) is kept beside the tokens in the state directory:
+  the encryption protects copies of the tokens made without it (a
+  backup of `tokens.json` alone), not the tokens from root or the
+  gateway's account.
+- Secrets written into server definitions (`headers`, `proxy_headers`,
+  `env`, command options such as `--token=`) are readable by every
+  local user: the files are, and so are the units' command lines and
+  environments. Put them into `credentials:` instead; the doctor warns
+  about such values (`secrets <server>`), and the gateway-admin
+  server's `show_config` masks them, and every header.
 - The OAuth tokens of remote agents are validated and not passed on to
   MCP servers.
 - TLS keys, the SMTP password and the audit key are readable by the
@@ -335,7 +345,8 @@ personal data under the GDPR.
       `run_as: dynamic` where it need not act as the user; `landlock`
       with the trees it works on, `required: true` where the kernel
       must apply it.
-- [ ] Secrets only through `credentials:`, never in `command` or `env`.
+- [ ] Secrets only through `credentials:`, never in `command`, `env` or
+      `headers` (the doctor's `secrets` checks are OK).
 - [ ] Servers returning personal or confidential data pseudonymized for
       agents that use external models; `reidentify` only on the tools
       and arguments that need real values.

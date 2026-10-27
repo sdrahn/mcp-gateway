@@ -280,7 +280,7 @@ notifications:
     smtp: localhost:25
     from: mcp-gateway@gw.example.com
     to: "{user}"
-    starttls: auto
+    starttls: auto             # default: always for a server on another host
     username: ""
     password_file: ""
     include_args: false
@@ -294,7 +294,7 @@ configuration. Chapter 7 explains who receives what.
 | `notifications.email.smtp` | empty (off) | mail server, `host:port` |
 | `notifications.email.from` | — (required with `smtp`) | sender address |
 | `notifications.email.to` | `{user}` | address for an approver's account name: `{user}` for local delivery by the mail server, or e.g. `{user}@example.com` |
-| `notifications.email.starttls` | `auto` | `auto` (if offered), `always` (refuse to send without), `never` |
+| `notifications.email.starttls` | `always`; `auto` for a server on the local host | `auto` (if offered), `always` (refuse to send without), `never`. Approval mail names calls and arguments: with `auto`, anyone on the way to another host can strip STARTTLS and read it, so the doctor warns about it (`approval reach`) |
 | `notifications.email.username`, `password_file` | empty | PLAIN authentication; both or neither. The password is read from the file at start. The password is only sent over TLS or to localhost. |
 | `notifications.email.include_args` | `false` | include the call's arguments in the mail |
 
@@ -447,6 +447,7 @@ http:
   scopes: [mcp]
   allowed_origins: []
   session_idle_timeout: 30m
+  max_connections: 1024
   client_ca_file: ""
   client_auth: none
   require_bound_tokens: false
@@ -464,6 +465,7 @@ http:
 | `http.scopes` | `[]` | scopes every token must carry |
 | `http.allowed_origins` | `[]` | `Origin` values accepted from browser clients; requests with another `Origin` are refused, requests without are accepted |
 | `http.session_idle_timeout` | `30m` | close MCP sessions without traffic |
+| `http.max_connections` | `1024` | open connections at most; more wait to be accepted. Request headers must arrive within 10 s and bodies within 30 s, and idle connections close after 2 min, so that clients without a token cannot tie up the listener; response streams (SSE) last as long as their token |
 | `http.list_ttl` | `1m` | how long agents of MCP 2026-07-28 may use a list before asking again (`ttlMs`, on every transport); for a while after a policy or definition change, lists say 0 |
 | `http.client_ca_file` | empty | CAs client certificates must chain to (mTLS) |
 | `http.client_auth` | `none` (`optional` with a CA file) | `none`, `optional` (verify a certificate if presented), `required` |

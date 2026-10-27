@@ -1,5 +1,7 @@
 // Allow the gateway to start and stop its backend instances, which run as
-// transient units named mcp-<backend>-<session>.service, and nothing else.
+// transient units named mcp-<backend>-<id>.service (<id>: 16 hex digits),
+// and nothing else: not mcp-gateway.service, mcp-opa.service or
+// mcp-policy-render.service, which it must not stop.
 //
 // systemd passes the unit name as the "unit" detail for StartTransientUnit;
 // the VM tests (Leap 16, Tumbleweed) start every instance through this rule.
@@ -7,7 +9,7 @@ polkit.addRule(function(action, subject) {
     if (action.id == "org.freedesktop.systemd1.manage-units" &&
         subject.user == "mcp-gateway") {
         var unit = action.lookup("unit");
-        if (unit && /^mcp-[a-z0-9-]+\.service$/.test(unit)) {
+        if (unit && /^mcp-[a-z0-9-]+-[0-9a-f]{16}\.service$/.test(unit)) {
             return polkit.Result.YES;
         }
     }

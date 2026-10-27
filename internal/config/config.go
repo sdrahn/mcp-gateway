@@ -214,7 +214,9 @@ type Email struct {
 	// To is the address template for an approver's local account name,
 	// "{user}" (local delivery by the MTA) or e.g. "{user}@example.com".
 	To string `yaml:"to"`
-	// StartTLS is "auto" (use it if offered), "always" or "never".
+	// StartTLS is "auto" (use it if offered), "always" or "never". The
+	// default is "always" for a mail server on another host, "auto" on
+	// the local one: approval mail names calls and arguments.
 	StartTLS string `yaml:"starttls"`
 	// Username and PasswordFile authenticate (PLAIN, over TLS or to
 	// localhost). The password file is read at start (e.g. from systemd's
@@ -434,6 +436,9 @@ type HTTP struct {
 	AllowedOrigins []string `yaml:"allowed_origins"`
 	// SessionIdleTimeout closes MCP sessions without traffic.
 	SessionIdleTimeout time.Duration `yaml:"session_idle_timeout"`
+	// MaxConnections bounds the listener's open connections; more wait
+	// to be accepted.
+	MaxConnections int `yaml:"max_connections"`
 	// ListTTL is how long agents of MCP 2026-07-28 may consider a list
 	// fresh (ttlMs), on every transport.
 	ListTTL time.Duration `yaml:"list_ttl"`
@@ -518,6 +523,11 @@ type Backend struct {
 	// instance.
 	Landlock *landlock.Rules `yaml:"landlock"`
 
+	// PublicOnly, set by the gateway for a sign-in helper bound for a host
+	// from a server's metadata, refuses addresses of the local network
+	// for URL (egress.Public).
+	PublicOnly bool `yaml:"-"`
+
 	// Warnings are the deprecated keys the file uses (see deprecation).
 	Warnings []string `yaml:"-"`
 }
@@ -533,6 +543,12 @@ type SignIn struct {
 	// ClientSecret names the credential (in credentials) holding the
 	// client's secret, for a confidential client.
 	ClientSecret string `yaml:"client_secret"`
+	// PrivateHosts are hosts of the authorization server that may resolve
+	// to addresses of the local network (private, loopback, link-local):
+	// the sign-in helper reaches other hosts the server's metadata names
+	// only at public addresses, so that a server cannot point it at the
+	// gateway's network. The server's own host (url) is always allowed.
+	PrivateHosts []string `yaml:"private_hosts"`
 }
 
 // SignInCredential is the credential name of a principal's access token
@@ -677,9 +693,11 @@ const (
 	MinMCSCategories       = 8
 	DefaultWatchInterval   = 10 * time.Second
 	DefaultHTTPSessionIdle = 30 * time.Minute
-	DefaultListTTL         = time.Minute
-	DefaultGroupsClaim     = "groups"
-	DefaultSELinuxType     = "mcpsrv_generic_t"
+	// DefaultHTTPMaxConnections is http.max_connections' default.
+	DefaultHTTPMaxConnections = 1024
+	DefaultListTTL            = time.Minute
+	DefaultGroupsClaim        = "groups"
+	DefaultSELinuxType        = "mcpsrv_generic_t"
 	// MaxToolNote bounds a tool note: it goes into every tools/list.
 	MaxToolNote = 500
 	// HTTPSELinuxType and HTTPRunAs are the defaults of a server defined
@@ -862,13 +880,19 @@ func (g *Gateway) setDefaults() {
 		g.Notifications.Email.To = "{user}"
 	}
 	if g.Notifications.Email.StartTLS == "" {
-		g.Notifications.Email.StartTLS = "auto"
+		g.Notifications.Email.StartTLS = "always"
+		if host, _, err := net.SplitHostPort(g.Notifications.Email.SMTP); err != nil || IsLocalHost(host) {
+			g.Notifications.Email.StartTLS = "auto"
+		}
 	}
 	if g.HTTP.GroupsClaim == "" {
 		g.HTTP.GroupsClaim = DefaultGroupsClaim
 	}
 	if g.HTTP.SessionIdleTimeout == 0 {
 		g.HTTP.SessionIdleTimeout = DefaultHTTPSessionIdle
+	}
+	if g.HTTP.MaxConnections == 0 {
+		g.HTTP.MaxConnections = DefaultHTTPMaxConnections
 	}
 	if g.HTTP.ListTTL == 0 {
 		g.HTTP.ListTTL = DefaultListTTL
@@ -1071,6 +1095,9 @@ func (g *Gateway) Validate() error {
 		}
 		if g.HTTP.SessionIdleTimeout < 0 {
 			return errors.New("http.session_idle_timeout: must not be negative")
+		}
+		if g.HTTP.MaxConnections < 0 {
+			return errors.New("http.max_connections: must not be negative")
 		}
 		if g.HTTP.ListTTL < 0 {
 			return errors.New("http.list_ttl: must not be negative")
@@ -1567,6 +1594,11 @@ func (b *Backend) validateSignIn(creds []Credential) error {
 			return fmt.Errorf("sign_in: %q is not a scope", sc)
 		}
 	}
+	for _, h := range si.PrivateHosts {
+		if h == "" || strings.ContainsAny(h, "/:@ \t\r\n") {
+			return fmt.Errorf("sign_in: private_hosts: %q is not a host name or IPv4 address", h)
+		}
+	}
 	if b.Discovery != DiscoveryInstance {
 		return errors.New("sign_in: discovery must be instance (what a server lists may depend on the account)")
 	}
@@ -1607,3 +1639,30 @@ func checkHeaders(key string, headers map[string]string, creds []Credential) err
 }
 
 var credentialRef = regexp.MustCompile(`\$\{CREDENTIAL:([A-Za-z0-9_][A-Za-z0-9_.-]{0,63})\}`)
+
+// IsLocalHost reports whether host names this host: localhost or a
+// loopback address.
+func IsLocalHost(host string) bool {
+	if strings.EqualFold(host, "localhost") || strings.HasSuffix(strings.ToLower(host), ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// secretWords are what the name of a key holding a secret contains;
+// secretSuffix what it ends with (GITHUB_PAT, OPENAI_KEY, X-Auth).
+var (
+	secretWords  = regexp.MustCompile(`(?i)secret|token|passw|private|api[_-]?key|access[_-]?key|authorization|cookie|credential`)
+	secretSuffix = regexp.MustCompile(`(?i)(^|[_.-])(pat|key|auth)$`)
+)
+
+// SecretName reports whether the name of a key, an environment variable
+// or a header looks like it holds a secret. credentials (a list of names
+// and paths) does not.
+func SecretName(k string) bool {
+	if strings.EqualFold(k, "credentials") {
+		return false
+	}
+	return secretWords.MatchString(k) || secretSuffix.MatchString(k)
+}

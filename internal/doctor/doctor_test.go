@@ -603,6 +603,17 @@ func TestApprovalReach(t *testing.T) {
 	if r := ApprovalReach(gw, false); r.Status != OK || r.Summary != "out-of-band approvals reach approvers through mail, a link to the approval page" {
 		t.Errorf("mail and page: %+v", r)
 	}
+	// Mail to another host without STARTTLS required: a warning.
+	gw.Notifications.Email.SMTP, gw.Notifications.Email.StartTLS = "mail.example.com:25", "auto"
+	if r := ApprovalReach(gw, false); r.Status != Warn || !strings.Contains(r.Summary, "mail goes to mail.example.com without requiring STARTTLS (notifications.email.starttls: auto)") ||
+		!strings.Contains(strings.Join(r.Details, " "), "starttls: always") {
+		t.Errorf("mail without TLS: %+v", r)
+	}
+	gw.Notifications.Email.StartTLS = "always"
+	if r := ApprovalReach(gw, false); r.Status != OK {
+		t.Errorf("mail with TLS: %+v", r)
+	}
+	gw.Notifications.Email.SMTP = "localhost:25"
 	gw.Approvals.ControlSocket = "-"
 	if r := ApprovalReach(gw, false); r.Status != Skip {
 		t.Errorf("control API off: %+v", r)
@@ -610,6 +621,28 @@ func TestApprovalReach(t *testing.T) {
 	rs := []Result{r}
 	Identify(rs)
 	if rs[0].ID != "approval-reach" {
+		t.Errorf("id %q", rs[0].ID)
+	}
+}
+
+func TestLiteralSecrets(t *testing.T) {
+	backends := map[string]*config.Backend{
+		"clean": {Name: "clean", URL: "https://x/", Headers: map[string]string{"Authorization": "Bearer ${CREDENTIAL:tok}", "Accept": "application/json"},
+			Env: map[string]string{"LEVEL": "info", "API_TOKEN": "${CREDENTIAL:t}"}, Command: []string{"/usr/bin/srv", "--port=8080"}},
+		"leaky": {Name: "leaky", URL: "https://x/", Headers: map[string]string{"Authorization": "Bearer abc"},
+			ProxyHeaders: map[string]string{"Proxy-Authorization": "Basic Zm9v"},
+			Env:          map[string]string{"GITHUB_PAT": "ghp_x", "PATH": "/usr/bin"}, Command: []string{"/usr/bin/srv", "--api-key=k1", "--verbose"}},
+	}
+	rs := LiteralSecrets(backends)
+	if len(rs) != 1 || rs[0].Check != "secrets leaky" || rs[0].Status != Warn ||
+		rs[0].Summary != "the definition holds what looks like secrets: headers: Authorization, proxy_headers: Proxy-Authorization, env: GITHUB_PAT, command: --api-key=…" {
+		t.Fatalf("%+v", rs)
+	}
+	if strings.Contains(rs[0].Summary+strings.Join(rs[0].Details, " "), "abc") || strings.Contains(rs[0].Summary, "k1") {
+		t.Error("the warning shows a secret")
+	}
+	Identify(rs)
+	if rs[0].ID != "secrets" || rs[0].Subject != "leaky" {
 		t.Errorf("id %q", rs[0].ID)
 	}
 }

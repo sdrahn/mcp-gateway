@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,6 +29,42 @@ type Instance interface {
 // hex); it appears in unit names.
 type Launcher interface {
 	Start(ctx context.Context, b *config.Backend, p principal.Principal, id string) (Instance, error)
+}
+
+// plainUser is a ${USER} that may go into a command line, a path or an
+// environment variable: a local account's name, or a token subject of
+// letters, digits and ._@- that cannot climb out of a path.
+var plainUser = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._@-]{0,63}$`)
+
+// usesUser reports whether b's command, environment or Landlock rules
+// name ${USER}.
+func usesUser(b *config.Backend) bool {
+	has := func(s string) bool { return strings.Contains(s, "${USER}") || strings.Contains(s, "$USER") }
+	for _, a := range b.Command {
+		if has(a) {
+			return true
+		}
+	}
+	for _, v := range b.Env {
+		if has(v) {
+			return true
+		}
+	}
+	found := false
+	if b.Landlock != nil {
+		b.Landlock.Expand(func(s string) string { found = found || has(s); return s })
+	}
+	return found
+}
+
+// CheckUser refuses to start b for p when b names ${USER} and p's
+// subject is not plain: a remote principal's subject is the identity
+// provider's (security review, 1.11).
+func CheckUser(b *config.Backend, p principal.Principal) error {
+	if usesUser(b) && (strings.Contains(p.Sub, "..") || !plainUser.MatchString(p.Sub)) {
+		return fmt.Errorf("supervisor: server %s names ${USER}, and the principal's name %q is not one that may go into a command or a path (letters, digits and ._@-)", b.Name, p.Sub)
+	}
+	return nil
 }
 
 // expandVars substitutes ${HOME}, ${USER} and ${UID} (the principal's)

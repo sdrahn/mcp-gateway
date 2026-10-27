@@ -100,7 +100,8 @@ approvals:
 #     from: mcp-gateway@gateway.example.com
 #     # Address for an approver's local account name.
 #     to: "{user}"
-#     # auto: STARTTLS if offered; always; never.
+#     # auto: STARTTLS if offered; always; never. Default: always for a
+#     # mail server on another host, auto on the local one.
 #     starttls: auto
 #     # PLAIN authentication; the password file is read at start.
 #     username: ""
@@ -168,6 +169,8 @@ supervisor:
 #   # Origins accepted from browser-based clients.
 #   allowed_origins: []
 #   session_idle_timeout: 30m
+#   # Open connections at most; more wait to be accepted.
+#   max_connections: 1024
 #   # mTLS: verify client certificates against these CAs. client_auth:
 #   # optional (verify if presented; default with a CA file) or required.
 #   # Certificate-bound tokens (cnf/x5t#S256, RFC 8705) are then accepted

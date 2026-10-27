@@ -378,3 +378,24 @@ func TestRetryClosed(t *testing.T) {
 		}
 	}
 }
+
+// A definition naming ${USER} starts only for principals whose name may
+// go into a command or a path.
+func TestCheckUser(t *testing.T) {
+	uid := uint32(1000)
+	b := &config.Backend{Name: "s", Command: []string{"/usr/bin/srv", "--user=${USER}"}}
+	for sub, ok := range map[string]bool{
+		"alice": true, "u-123": true, "alice@example.com": true, "6f1c0e2a-0d3b-4c8e-9a52-1b2c3d4e5f60": true,
+		"../etc": false, "a/b": false, "a..b": false, ".hidden": false, "a b": false, "a;rm": false, "": false, "a\nb": false,
+	} {
+		if err := CheckUser(b, principal.Principal{Sub: sub}); (err == nil) != ok {
+			t.Errorf("%q: %v", sub, err)
+		}
+	}
+	if err := CheckUser(&config.Backend{Name: "s", Command: []string{"/usr/bin/srv"}}, principal.Principal{Sub: "../x", UID: &uid}); err != nil {
+		t.Errorf("no ${USER}: %v", err)
+	}
+	if err := CheckUser(&config.Backend{Name: "s", Command: []string{"/usr/bin/srv"}, Env: map[string]string{"WHO": "$USER"}}, principal.Principal{Sub: "a/b"}); err == nil {
+		t.Error("$USER in env")
+	}
+}

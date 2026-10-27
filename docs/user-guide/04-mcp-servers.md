@@ -831,6 +831,25 @@ sign_in:
   scopes: [tickets.read, tickets.write]    # default: those the server lists
 ```
 
+The sign-in helper reaches the hosts the server's metadata names (its
+authorization server, registration and token endpoints) only at public
+addresses: a server cannot send it into the gateway's network. An
+authorization server on the local network (a company's identity
+provider at a private address) is listed, with its host name as in the
+metadata:
+
+```yaml
+sign_in:
+  private_hosts: [idp.corp.example]
+```
+
+Otherwise the sign-in fails with `idp.corp.example for tickets-sign-in
+is 10.1.2.3, an address of the local network, which a server's metadata
+may not send the sign-in helper to; list the host in
+sign_in.private_hosts …`. The server's own host (`url`) is always
+allowed. Through a `proxy`, the proxy resolves names, and only addresses
+written into the metadata's URLs are checked.
+
 The authorization server sends users back to the gateway, to
 `<origin of http.audience>/oauth/callback`: `sign_in` needs the HTTP
 listener (chapter 3, "Remote access (HTTPS)"), reachable from the users'

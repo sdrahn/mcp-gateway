@@ -356,7 +356,11 @@ arguments as they will be forwarded: the call runs only if that decision
 also allows it ("policy did not accept the re-identified arguments"
 otherwise), and its obligations apply. Name only the arguments of tools
 that need real values; every re-identifying tool can be used to turn a
-pseudonym back into its value.
+pseudonym back into its value. The pseudonyms are the session's, not a
+server's: a pseudonym from one server's output is re-identified in the
+arguments of another server's tool too, if that tool's permission names
+the argument. A tool that sends data elsewhere (mail, a ticket, the
+web) should not re-identify what other servers pseudonymized.
 
 **Merging.** All matching permissions contribute: pseudonymization set
 on `"tool": "*"` applies even when another permission for the same tool

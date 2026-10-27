@@ -50,6 +50,41 @@ func TestHTTPTarget(t *testing.T) {
 		t.Errorf("proxy: %v %v", args, err)
 	}
 
+	// A sign-in helper bound for a host from a server's metadata reaches
+	// public addresses only.
+	b.Proxy, b.PublicOnly = "", true
+	b.URL = "https://mcp.example.com/token"
+	if _, _, err := httpTarget(context.Background(), b, lookup); err != nil {
+		t.Errorf("public: %v", err)
+	}
+	inside := func(_ context.Context, _, _ string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("192.0.2.7"), net.ParseIP("10.1.2.3")}, nil
+	}
+	if _, _, err := httpTarget(context.Background(), b, inside); err == nil || !strings.Contains(err.Error(), "10.1.2.3, an address of the local network") ||
+		!strings.Contains(err.Error(), "sign_in.private_hosts") {
+		t.Errorf("one private address: %v", err)
+	}
+	for _, u := range []string{"https://127.0.0.1/token", "https://[::1]/token", "https://169.254.169.254/latest", "http://localhost/"} {
+		b.URL = u
+		if _, _, err := httpTarget(context.Background(), b, func(context.Context, string, string) ([]net.IP, error) {
+			return []net.IP{net.ParseIP("127.0.0.1")}, nil
+		}); err == nil || !strings.Contains(err.Error(), "address of the local network") {
+			t.Errorf("%s: %v", u, err)
+		}
+	}
+	// Through a proxy, the address in the URL is checked; the proxy
+	// itself, the administrator's, may be anywhere.
+	b.Proxy = "http://10.0.0.8:3128"
+	b.URL = "https://10.9.9.9/token"
+	if _, _, err := httpTarget(context.Background(), b, nil); err == nil {
+		t.Error("an address of the local network through the proxy")
+	}
+	b.URL = "https://idp.example.com/token"
+	if _, _, err := httpTarget(context.Background(), b, nil); err != nil {
+		t.Errorf("a name through the proxy: %v", err)
+	}
+	b.Proxy, b.PublicOnly = "", false
+
 	props := httpProperties(allow)
 	if len(props) != 2 || props[0].Name != "IPAddressDeny" || props[1].Name != "IPAddressAllow" {
 		t.Errorf("props %+v", props)
