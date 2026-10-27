@@ -3086,6 +3086,30 @@ ac_admin oscar approvals approve "$op_id" --yes
 check "without a terminal (an agent's shell tool): refused, with the reason" \
 	bash -c '[ "$2" = 1 ] && grep -qF "approving your own request needs your password" <<<"$1"' _ "$out" "$rc"
 check "... and still pending" op_pending
+# What Cockpit's Approvals tab posts: the refusal is JSON, its code in
+# the body only (cockpit.http hands the page a JSON body beside the error,
+# not in it; 1.12.2 reads it there and asks for the password).
+op_cockpit=$(runuser -u oscar -- curl -s -i --unix-socket /run/mcp-gateway/control.sock -X POST \
+	-H 'Content-Type: application/json' --data '{"decision":"approve","scope":"once","via":"cockpit"}' \
+	"http://gw/v1/approvals/$op_id" | tr -d '\r')
+echo "  $(tr '\n' ' ' <<<"$op_cockpit" | cut -c1-300)"
+op_cockpit_refused() {
+	grep -q '^HTTP/1.1 403' <<<"$op_cockpit" && grep -qi '^content-type: application/json' <<<"$op_cockpit" &&
+		sed -n '/^$/,$p' <<<"$op_cockpit" | jq -e '.code == "password_required"' >/dev/null
+}
+check "as Cockpit's page posts it: 403, JSON with the code password_required" op_cockpit_refused
+check "... and still pending" op_pending
+# The page's terminal: mcp-gateway-admin in the C locale (environ of
+# cockpit.spawn), so that polkit's prompt is the one it answers.
+out=$(runuser -u oscar -- /usr/libexec/mcpgw-privtest -pty Own-pw-1 \
+	env LC_ALL=C LANG=de_DE.UTF-8 mcp-gateway-admin approvals approve "$op_id" --yes 2>&1)
+rc=$?
+echo "  [oscar, the page's terminal] rc=$rc $(tr -d '\r' <<<"$out" | tr '\n' ' ' | cut -c1-400)"
+check "in the page's terminal (LC_ALL=C), polkit asks for the password in English" grep -qF "Password:" <<<"$out"
+check "... and with it oscar approves" bash -c '[ "$2" = 0 ] && grep -qF "approved" <<<"$1"' _ "$out" "$rc"
+wait "$op_pid"
+op_call
+check "oscar's next call waits" eventually 30 op_pending
 op_tty Wrong-pw approvals approve "$op_id" --yes
 check "in a terminal with a wrong password: refused" test "$rc" != 0
 check "... and still pending" op_pending

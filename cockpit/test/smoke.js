@@ -59,6 +59,8 @@ function site() {
     const calls = await page.evaluate(() => __calls);
     check(calls.some(c => c[0] === "spawn" && c[1] === "mcp-gateway-admin approvals approve a2 --scope once --yes" && c[3] === true),
           "the approval runs through mcp-gateway-admin in a pty");
+    check(calls.some(c => c[0] === "spawn" && c[1].startsWith("mcp-gateway-admin approvals approve") && c[4] === "LC_ALL=C"),
+          "... in the C locale, so that polkit's prompt is the one the page answers");
     check(calls.some(c => c[0] === "pty-close") && calls.filter(c => c[0] === "pty-input").map(c => c[1]).join() === "wrong,right",
           "the password is typed once per attempt, a second prompt ends the attempt");
 

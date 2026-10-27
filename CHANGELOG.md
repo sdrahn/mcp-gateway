@@ -7,6 +7,17 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Fixed
+
+- Cockpit: approving your own request (only the approver rule `self`
+  lets you) asks for your password again. Since 1.11.0 the page showed
+  "Talking to mcp-gateway failed: Forbidden" instead: `cockpit.http`
+  hands the page a JSON error body beside the error, not in it, so the
+  page never saw the gateway's `password_required`. The page reads the
+  body there, shows the gateway's error text for any refusal, and
+  answers polkit's prompt in the C locale. Until then, approve in a
+  terminal: `mcp-gateway-admin approvals approve ID`.
+
 ## v1.12.1 — 2026-10-27
 
 The HTTP listener logs the requests it refuses. An agent often reports

@@ -31,7 +31,7 @@ async function decide(id, decision, scope, buttons) {
 /* refusalCode is the code of the gateway's refusal (its JSON body), if any. */
 function refusalCode(ex) {
     try {
-        return ex && ex.status === 403 ? JSON.parse(ex.message).code : null;
+        return ex && ex.status === 403 ? JSON.parse(ex.body).code : null;
     } catch {
         return null;
     }
@@ -75,20 +75,23 @@ function askPassword(id, scope) {
 }
 
 /* approveWithPassword runs the approval in a pty and types the password
- * at polkit's prompt, once: a second prompt means it was wrong. */
+ * at polkit's prompt, once: a second prompt means it was wrong. The
+ * prompt is PAM's, in the C locale whatever the session's language; the
+ * password goes after a moment, as the agent turns echo off after the
+ * prompt and that may discard what was typed before. */
 function approveWithPassword(id, scope, password) {
     return new Promise((resolve, reject) => {
         let out = "";
         let prompts = 0;
         const proc = cockpit.spawn(["mcp-gateway-admin", "approvals", "approve", id, "--scope", scope, "--yes"],
-                                   { pty: true, err: "out" });
+                                   { pty: true, err: "out", environ: ["LC_ALL=C"] });
         proc.stream(data => {
             out += data;
             const n = (out.match(/Password:/g) || []).length;
             if (n > prompts) {
                 prompts = n;
                 if (prompts === 1) {
-                    proc.input(password + "\n", true);
+                    setTimeout(() => proc.input(password + "\n", true), 200);
                 } else {
                     proc.close("terminated");
                 }
