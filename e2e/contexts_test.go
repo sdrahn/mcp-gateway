@@ -97,8 +97,12 @@ func TestContexts(t *testing.T) {
 	}
 
 	m := request("tools/list", nil)
-	if m.Error != nil || !strings.Contains(listNames(t, m, "tools", "name"), "gateway_new_context") ||
-		!strings.Contains(string(m.Result), `"gateway_context"`) {
+	var listed struct {
+		Tools []struct{ Name string } `json:"tools"`
+	}
+	_ = json.Unmarshal(m.Result, &listed)
+	hasNew := slices.ContainsFunc(listed.Tools, func(tl struct{ Name string }) bool { return tl.Name == "gateway_new_context" })
+	if m.Error != nil || !hasNew || !strings.Contains(string(m.Result), `"gateway_context"`) {
 		t.Fatalf("no context tools: %+v %s", m.Error, m.Result)
 	}
 
