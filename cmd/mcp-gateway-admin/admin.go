@@ -549,25 +549,85 @@ func execCommandFiles(backends map[string]*config.Backend) []string {
 	return files
 }
 
-// secretKey matches YAML and JSON keys whose values are secrets.
-var secretKey = regexp.MustCompile(`(?i)^(\s*(?:-\s*)?"?[a-z0-9_.-]*(?:secret|token|passw|private|api_?key)[a-z0-9_.-]*"?\s*:\s*)(\S.*)$`)
+// keyValue splits a YAML or JSON line into its key part (indent, list
+// dash, key, colon) and its value.
+var keyValue = regexp.MustCompile(`^(\s*(?:-\s*)?"?([A-Za-z0-9_.-]+)"?\s*:\s*)(\S.*)?$`)
 
-// maskSecrets replaces the values of keys that look like secrets.
+// flowKey finds the keys of a flow mapping.
+var flowKey = regexp.MustCompile(`([A-Za-z0-9_.-]+)"?\s*:`)
+
+// secretName reports whether a key's name looks like it holds a secret.
+var secretName = config.SecretName
+
+// headerMaps are the keys whose values are maps of HTTP headers: every
+// value in them is masked (an Authorization header under any name).
+var headerMaps = map[string]bool{"headers": true, "proxy_headers": true}
+
+// maskSecrets replaces the values of keys that look like secrets, every
+// header value (headers, proxy_headers), whole flow mappings that hold
+// one, and the lines of block scalars after such a key. Values that only
+// name a credential (${CREDENTIAL:name}) are not secrets and stay.
 func maskSecrets(content string) (string, int) {
 	var b strings.Builder
 	n := 0
+	indent := func(line string) int { return len(line) - len(strings.TrimLeft(line, " -")) }
+	headersAt, blockAt := -1, -1 // indents of an open headers map, a masked block scalar
 	sc := bufio.NewScanner(strings.NewReader(content))
 	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
 	for sc.Scan() {
 		line := sc.Text()
-		if m := secretKey.FindStringSubmatch(line); m != nil {
+		in := indent(line)
+		blank := strings.TrimSpace(line) == ""
+		if blockAt >= 0 {
+			if blank || in > blockAt {
+				if !blank {
+					line = strings.Repeat(" ", in) + "<masked>"
+				}
+				b.WriteString(line + "\n")
+				continue
+			}
+			blockAt = -1
+		}
+		if headersAt >= 0 && !blank && in <= headersAt {
+			headersAt = -1
+		}
+		m := keyValue.FindStringSubmatch(line)
+		if m == nil {
+			b.WriteString(line + "\n")
+			continue
+		}
+		key, value := m[2], m[3]
+		inHeaders := headersAt >= 0 && in > headersAt
+		switch {
+		case value == "" && headerMaps[strings.ToLower(key)]:
+			headersAt = in
+		case value == "" || strings.Contains(value, "${CREDENTIAL:"):
+		case strings.HasPrefix(value, "{"):
+			if headerMaps[strings.ToLower(key)] || inHeaders || secretName(key) || flowHasSecret(value) {
+				line = m[1] + "<masked>"
+				n++
+			}
+		case inHeaders || secretName(key):
+			if v := strings.TrimSpace(value); strings.HasPrefix(v, "|") || strings.HasPrefix(v, ">") {
+				blockAt = in
+			}
 			line = m[1] + "<masked>"
 			n++
 		}
-		b.WriteString(line)
-		b.WriteByte('\n')
+		b.WriteString(line + "\n")
 	}
 	return b.String(), n
+}
+
+// flowHasSecret reports whether a flow mapping ({a: b, c: d}) has a key
+// that looks like it holds a secret.
+func flowHasSecret(flow string) bool {
+	for _, m := range flowKey.FindAllStringSubmatch(flow, -1) {
+		if secretName(m[1]) {
+			return true
+		}
+	}
+	return false
 }
 
 const maxConfigFile = 1 << 20

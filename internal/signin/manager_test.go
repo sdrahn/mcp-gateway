@@ -166,7 +166,8 @@ func TestSignInFlow(t *testing.T) {
 
 	// Every helper unit may reach one host, in its own domain.
 	for _, hb := range f.l.starts {
-		if hb.SELinuxType != config.OAuthSELinuxType || hb.RunAs != "dynamic" || !strings.HasPrefix(hb.URL, f.srv.URL) {
+		if hb.SELinuxType != config.OAuthSELinuxType || hb.RunAs != "dynamic" || !strings.HasPrefix(hb.URL, f.srv.URL) ||
+			hb.PublicOnly { // the server's own host: wherever its url is
 			t.Errorf("helper unit %+v", hb)
 		}
 	}
@@ -514,5 +515,28 @@ func TestRegistrationApplicationType(t *testing.T) {
 	}
 	if len(f.as.Registrations) != 1 || f.as.Registrations[0]["application_type"] != "native" {
 		t.Fatalf("registrations %v", f.as.Registrations)
+	}
+}
+
+// The helper reaches the hosts a server's metadata names at public
+// addresses only, but for the server's own host and sign_in.private_hosts.
+func TestTrustedHost(t *testing.T) {
+	b := &config.Backend{Name: "tickets", URL: "https://Tickets.example.com/mcp", SignIn: &config.SignIn{PrivateHosts: []string{"idp.corp.example"}}}
+	for target, want := range map[string]bool{
+		"https://tickets.example.com/.well-known/oauth-protected-resource": true,
+		"https://tickets.example.com:8443/token":                           true,
+		"https://IDP.corp.example/realms/x/protocol/openid-connect/token":  true,
+		"https://idp.example.com/token":                                    false,
+		"https://169.254.169.254/latest/meta-data":                         false,
+		"https://tickets.example.com.evil.example/token":                   false,
+		"::not a url": false,
+	} {
+		if got := trustedHost(b, target); got != want {
+			t.Errorf("%s: %v, want %v", target, got, want)
+		}
+	}
+	b.SignIn = nil
+	if trustedHost(b, "https://idp.corp.example/token") {
+		t.Error("private_hosts without sign_in")
 	}
 }

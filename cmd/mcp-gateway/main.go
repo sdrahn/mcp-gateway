@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -57,6 +58,13 @@ import (
 // container that takes an instance's pair shares it for at most this long;
 // a scan reads one small file per process.
 const mcsWatchInterval = 2 * time.Second
+
+// The HTTPS listener's bounds: how long a request may take to send its
+// body, and how long a connection may idle between requests.
+const (
+	httpBodyTimeout = 30 * time.Second
+	httpIdleTimeout = 2 * time.Minute
+)
 
 func main() {
 	configPath := flag.String("config", "", "path to the gateway configuration (default: "+
@@ -558,14 +566,23 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Ro
 		mux.Handle("/", h)
 		handler = mux
 	}
+	// Unauthenticated clients reach the listener (the metadata, webhook
+	// callbacks, the approval page's sign-in): headers and bodies have to
+	// come in time, idle connections close, and the connections are
+	// bounded; response streams (SSE) last as long as their token.
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           handler,
+		Handler:           transport.BodyDeadline(handler, httpBodyTimeout),
 		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       httpIdleTimeout,
 		TLSConfig:         tlsConfig,
 	}
+	ln, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		return nil, fmt.Errorf("http: %w", err)
+	}
 	go func() {
-		err := srv.ListenAndServeTLS("", "") // the certificate comes from certs
+		err := srv.ServeTLS(transport.LimitListener(ln, cfg.MaxConnections), "", "") // the certificate comes from certs
 		if !errors.Is(err, http.ErrServerClosed) {
 			errc <- fmt.Errorf("http: %w", err)
 		}

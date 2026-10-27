@@ -7,6 +7,38 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Security
+
+- The sign-in helper reaches the hosts a server's metadata names (its
+  authorization server, registration and token endpoints) at public
+  addresses only, so that a server cannot send it to addresses of the
+  gateway's network. The server's own host is always allowed, and
+  `sign_in.private_hosts` lists authorization servers on the local
+  network.
+- The HTTPS listener gives request bodies 30 seconds, closes idle
+  connections after 2 minutes and accepts at most
+  `http.max_connections` connections (default 1024); response streams
+  are not limited.
+- `show_config` of the gateway-admin server masks every header value and
+  more forms of secrets (names such as `GITHUB_PAT` or `OPENAI_KEY`,
+  flow mappings, block scalars). The doctor warns about secrets written
+  into server definitions (`secrets <server>`), which every local user
+  can read.
+- A server definition that names `${USER}` starts only for principals
+  with a plain name (letters, digits and `._@-`): a remote principal's
+  name is the identity provider's.
+- The polkit rule lets the gateway start and stop only units named as
+  its instances (`mcp-<server>-<id>.service`), no longer its own units
+  (`mcp-opa.service`, `mcp-gateway.service`).
+
+### Changed
+
+- Approval mail to a mail server on another host requires STARTTLS by
+  default (`notifications.email.starttls: always`); `auto` stays the
+  default for one on the local host. Set `starttls: auto` to keep
+  sending to a remote server that offers no TLS; the doctor's `approval
+  reach` warns about it.
+
 ## v1.10.2 — 2026-10-27
 
 Security fixes from a review of the whole code base. A token whose

@@ -216,8 +216,9 @@ layout to other distributions.
 The gateway starts MCP server instances as transient systemd units over
 D-Bus. The package's polkit rule
 (`/usr/share/polkit-1/rules.d/50-mcp-gateway.rules`) lets the
-`mcp-gateway` user start and stop units named `mcp-*.service`, and
-nothing else.
+`mcp-gateway` user start and stop units named as its instances,
+`mcp-<server>-<id>.service` (`<id>`: 16 hex digits), and nothing else,
+not its own `mcp-gateway.service` or `mcp-opa.service`.
 
 ## Development mode
 

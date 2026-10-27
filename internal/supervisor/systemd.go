@@ -289,6 +289,9 @@ func sandboxProperties(b *config.Backend, prop func(string, any) sddbus.Property
 
 // Start implements Launcher.
 func (s *Systemd) Start(ctx context.Context, b *config.Backend, p principal.Principal, id string) (Instance, error) {
+	if err := CheckUser(b, p); err != nil {
+		return nil, err
+	}
 	// Fails early when systemd cannot be reached at all.
 	_, err := s.bus(ctx)
 	if err != nil {

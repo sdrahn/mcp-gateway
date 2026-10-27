@@ -188,3 +188,44 @@ func urlPort(u *url.URL) string {
 	}
 	return "443"
 }
+
+// nonPublic are the ranges besides those net.IP's methods know that do
+// not reach the internet: shared address space (RFC 6598), "this
+// network", IETF protocol assignments, benchmarking, reserved.
+var nonPublic = func() []*net.IPNet {
+	var out []*net.IPNet
+	for _, s := range []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "198.18.0.0/15", "240.0.0.0/4"} {
+		_, n, _ := net.ParseCIDR(s)
+		out = append(out, n)
+	}
+	return out
+}()
+
+// nat64 is the well-known NAT64 prefix (RFC 6052): its addresses stand
+// for the IPv4 address in their last 32 bits.
+var nat64 = func() *net.IPNet { _, n, _ := net.ParseCIDR("64:ff9b::/96"); return n }()
+
+// Public reports whether ip is a public unicast address: not loopback,
+// private (RFC 1918, ULA), link-local, multicast, unspecified, shared or
+// reserved, also not one hidden in a NAT64 or IPv4-mapped address.
+func Public(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if nat64.Contains(ip) {
+		ip = net.IP(slices.Clone(ip.To16()[12:]))
+	}
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return false
+	}
+	for _, n := range nonPublic {
+		if n.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}

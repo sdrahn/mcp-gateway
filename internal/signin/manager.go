@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -156,7 +157,9 @@ func (m *Manager) Signed(p principal.Principal, server string) bool {
 // --- helper runs ---------------------------------------------------------
 
 // helper runs one step of mcp-oauth-helper for server b, in a unit that
-// may reach target's host (or b's proxy) only.
+// may reach target's host (or b's proxy) only: at public addresses only,
+// unless target is on b's own host or one of sign_in.private_hosts
+// (the host comes from the server's metadata, which the server chooses).
 func (m *Manager) helper(ctx context.Context, b *config.Backend, p principal.Principal, target string, req oauth.Request) (oauth.Response, error) {
 	if err := oauth.CheckURL(target); err != nil {
 		return oauth.Response{}, err
@@ -176,6 +179,7 @@ func (m *Manager) helper(ctx context.Context, b *config.Backend, p principal.Pri
 		RunAs:        "dynamic",
 		Discovery:    config.DiscoveryShared,
 		Sandbox:      config.Sandbox{ProtectHome: "yes"},
+		PublicOnly:   !trustedHost(b, target),
 	}
 	if b.Proxy != "" {
 		hb.Command = append(hb.Command, "-proxy", b.Proxy)
@@ -221,6 +225,20 @@ func (m *Manager) helper(ctx context.Context, b *config.Backend, p principal.Pri
 		return oauth.Response{}, fmt.Errorf("sign-in helper: malformed answer: %w", err)
 	}
 	return resp, nil
+}
+
+// trustedHost reports whether target is on b's own host (its url, which
+// the administrator chose) or one of b's sign_in.private_hosts.
+func trustedHost(b *config.Backend, target string) bool {
+	t, err := url.Parse(target)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(t.Hostname())
+	if own, err := url.Parse(b.URL); err == nil && strings.ToLower(own.Hostname()) == host {
+		return true
+	}
+	return b.SignIn != nil && slices.ContainsFunc(b.SignIn.PrivateHosts, func(h string) bool { return strings.EqualFold(h, host) })
 }
 
 func (m *Manager) newHelperID() string {

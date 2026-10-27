@@ -834,10 +834,17 @@ check "~/.ssh stays out of reach with mcpsrv_fs_manage_xdg" tool_error_with "per
 setsebool mcpsrv_fs_manage_xdg off
 
 section "polkit"
-check "the gateway user may start mcp-* units" \
-	runuser -u mcp-gateway -- systemd-run --quiet --wait --unit=mcp-vmtest-probe.service /bin/true
+check "the gateway user may start instance units (mcp-<server>-<id>.service)" \
+	runuser -u mcp-gateway -- systemd-run --quiet --wait --unit=mcp-vmtest-0123456789abcdef.service /bin/true
 check "the gateway user may not start other units" \
 	as_gateway_user_fails systemd-run --quiet --wait --unit=vmtest-probe.service /bin/true
+check "... nor mcp-* units without an instance id" \
+	as_gateway_user_fails systemd-run --quiet --wait --unit=mcp-vmtest-probe.service /bin/true
+# Nor the gateway's own units (the rule used to match them as mcp-*).
+for u in mcp-opa.service mcp-policy-render.service mcp-gateway.service; do
+	check "... nor stop $u" as_gateway_user_fails systemctl --no-ask-password stop "$u"
+done
+systemctl start mcp-opa.service 2>/dev/null || true
 
 section "Credentials"
 echo s3cr3t | install -m 0600 /dev/stdin /etc/mcp-gateway/credentials/probe

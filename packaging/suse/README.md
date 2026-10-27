@@ -154,7 +154,8 @@ module, servers run in `mcpsrv_generic_t`.
   `License:` tag (e.g. `MIT AND Apache-2.0 AND BSD-2-Clause AND
   BSD-3-Clause`).
 - **polkit rule:** `50-mcp-gateway.rules` lets the `mcp-gateway` user
-  start and stop `mcp-*.service` transient units. polkit rules need review
+  start and stop its transient instance units,
+  `mcp-<server>-<16 hex digits>.service`. polkit rules need review
   and whitelisting by the SUSE security team (open a bug for
   "polkit-default-privs"/security review); `mcp-gateway-rpmlintrc` filters
   the rpmlint errors only to keep devel/home builds working.

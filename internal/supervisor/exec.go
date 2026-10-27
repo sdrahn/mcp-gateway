@@ -37,6 +37,9 @@ type execInstance struct {
 
 // Start implements Launcher.
 func (e *Exec) Start(_ context.Context, b *config.Backend, p principal.Principal, id string) (Instance, error) {
+	if err := CheckUser(b, p); err != nil {
+		return nil, err
+	}
 	argv := command(b, p)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Env = environment(b, p)
