@@ -21,7 +21,7 @@ trees into one policy:
 
 | Directory | Contents |
 |---|---|
-| `/usr/share/mcp-gateway/policy/` | the shipped logic: `mcp/authz.rego` (with `mcp/reasons.rego`, the reasons of denials, and `mcp/builtin.rego`, the gateway's own tools), `mcp/filter.rego`, `mcp/approvals.rego`, `mcp/log.rego` |
+| `/usr/share/mcp-gateway/policy/` | the shipped logic: `mcp/authz.rego` (with `mcp/reasons.rego`, the reasons of denials, `mcp/builtin.rego`, the gateway's own tools, and `mcp/contexts.rego`, the context tools), `mcp/filter.rego`, `mcp/approvals.rego`, `mcp/log.rego` |
 | `/etc/mcp-gateway/policy/` | your files: `rbac/data.yaml`, and any `.rego` and `data.yaml` files you add (JSON is no longer read since 1.7) |
 | `/run/mcp-opa/rbac/` | the role data as OPA loads it: what `mcp-policy-render.service` renders from `/etc/mcp-gateway/policy/rbac/` |
 

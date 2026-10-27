@@ -4423,7 +4423,7 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       expire after the idle timeout without a call; at most
       `limits.contexts_per_principal` (8) per principal;
     - policy: `input.resource.context`, the context tools follow the
-      server's tools (authz.rego); the journal event `mcp-context` (`op`
+      server's tools (mcp/contexts.rego); the journal event `mcp-context` (`op`
       `open`, `end`);
     - tests: unit tests of the router (lists, schemas, an instance and
       state per context, the argument kept from the server, ending,
