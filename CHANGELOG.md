@@ -7,6 +7,18 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v1.10.2 — 2026-10-27
+
+Security fixes from a review of the whole code base. A token whose
+`http.local_user_claim` names root or a system account is now refused,
+and an HTTP session applies the token of each request, not only the one
+that opened it. Upgrading from 1.10.1 needs no changes, unless tokens
+are meant to map to accounts below `UID_MIN` (they are refused now). The
+SELinux modules do not change. Read chapter 7, "`self` and agents that
+run commands", if agents with a shell tool run as the users whose calls
+they ask approval for. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not.
+
 ### Security
 
 - A token whose `http.local_user_claim` names root, a system account or
