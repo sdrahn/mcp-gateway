@@ -156,7 +156,8 @@ func (l *fakeLauncher) Start(_ context.Context, b *config.Backend, p principal.P
 	}
 	time.Sleep(delay)
 	gw, be := net.Pipe()
-	fi := &fakeInstance{Conn: gw, name: b.Name, id: id, p: p, closed: make(chan struct{}), cancelled: make(chan string, 10), commit: make(chan struct{})}
+	fi := &fakeInstance{Conn: gw, name: b.Name, id: id, p: p, closed: make(chan struct{}), cancelled: make(chan string, 10), commit: make(chan struct{}),
+		logged: make(chan struct{}, 2)}
 	fi.be = jsonrpc.NewConn(be)
 	go fi.serve(fi.be)
 	l.mu.Lock()
@@ -198,6 +199,8 @@ type fakeInstance struct {
 	// counter counts the instance's calls of read_counter (its state).
 	callArgs []json.RawMessage
 	counter  int
+	// logged holds read_logged calls until two are in flight.
+	logged chan struct{}
 }
 
 func (f *fakeInstance) seen() ([]string, []map[string]json.RawMessage, []json.RawMessage) {
@@ -410,6 +413,39 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 					}
 					respond(m, text("llm: "+string(resp.Result)))
 				}(m)
+			case "read_logged":
+				// Two calls in flight at once, each logging, the log
+				// message named as its call's as mcp-http-connector names
+				// what comes on a request's stream (also by the stdio
+				// fake, whose naming the gateway must not trust).
+				go func(m *jsonrpc.Message, args json.RawMessage) {
+					f.logged <- struct{}{}
+					for len(f.logged) < 2 {
+						time.Sleep(5 * time.Millisecond)
+					}
+					var a struct{ Tag string }
+					_ = json.Unmarshal(args, &a)
+					n, _ := jsonrpc.NewNotification("notifications/message", map[string]any{"level": "info", "data": a.Tag,
+						"_meta": map[string]any{jsonrpc.RelatedMeta: m.ID}})
+					_ = c.Write(n)
+					time.Sleep(20 * time.Millisecond)
+					respond(m, text("logged "+a.Tag))
+				}(m, p.Args)
+			case "ask_logged":
+				// As read_logged, with an elicitation instead of a log
+				// message.
+				go func(m *jsonrpc.Message, args json.RawMessage) {
+					f.logged <- struct{}{}
+					for len(f.logged) < 2 {
+						time.Sleep(5 * time.Millisecond)
+					}
+					var a struct{ Tag string }
+					_ = json.Unmarshal(args, &a)
+					resp := ask("elicitation/create", map[string]any{"message": a.Tag,
+						"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean"}}},
+						"_meta":           map[string]any{jsonrpc.RelatedMeta: m.ID}})
+					respond(m, text("asked "+a.Tag+" "+string(resp.Result)))
+				}(m, p.Args)
 			case "read_counter":
 				f.seenMu.Lock()
 				f.counter++

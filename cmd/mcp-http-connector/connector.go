@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/egress"
+	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
 	"github.com/sdrahn/mcp-gateway/internal/mcpheader"
 )
 
@@ -582,6 +583,11 @@ func (c *connector) relay(data []byte, id string) bool {
 			if isInit && m.Result != nil {
 				c.getOnce.Do(func() { go c.listen(c.listenCtx()) })
 			}
+		} else if m.Method != "" && id != "" {
+			// A request or notification on the stream of the gateway's
+			// request id belongs to that request: the gateway routes it
+			// to the client request the call serves.
+			raw = jsonrpc.SetRelated(raw, json.RawMessage(id))
 		}
 		c.write(raw)
 	}

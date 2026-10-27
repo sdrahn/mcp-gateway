@@ -26,6 +26,10 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
+- A log message or request of a server that speaks HTTP, while an agent
+  has several calls in flight on it, goes with the call it belongs to:
+  on HTTP, that call's stream, no longer the most recent one. The
+  connector names the request a message came with.
 - Approval mail reaches directory users whose primary group is an
   approver group also when SSSD does not enumerate users and they never
   used the gateway: the gateway asks SSSD's InfoPipe (package

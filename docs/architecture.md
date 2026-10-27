@@ -4433,16 +4433,38 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       server, each with its own instance and state under its own unit,
       ends one (its unit stops), and another user cannot use it.
 
+44. **Messages that keep to their call's stream** (1.12; done): a log
+    message or request of a server that speaks HTTP while several calls
+    of a session are in flight on its instance went where messages of no
+    request go (§12):
+    - `mcp-http-connector` puts the id of the gateway's request on what
+      the server sends on that request's event stream (`_meta`
+      `io.github.sdrahn.mcp-gateway/relatedRequest`); the gateway
+      removes it from every server's messages and, for a server defined
+      with `url`, routes the message to the client request the call
+      serves: on HTTP, that request's stream. A stdio server's naming is
+      not trusted (it could name any request): its messages go as
+      before;
+    - tests: unit tests of the connector (the name on a request's
+      stream) and the router (two calls in flight on an HTTP server: each
+      log message and elicitation with its call, nothing for a stdio
+      server, the name never reaching the client), and an e2e test: a
+      legacy agent over HTTPS with two calls in flight on an HTTP server
+      gets each call's log message on that call's stream.
+
 ## 12. Open items
 
-- HTTP streams: a backend's request or log message while a session has
-  several calls in flight on that backend cannot be told apart and goes
-  where messages of no request go (the GET stream, else the most recent
+- HTTP streams: a request or log message of a stdio server while a
+  session has several calls in flight on that server cannot be told
+  apart (stdio says nothing of the request it belongs to) and goes where
+  messages of no request go (the GET stream, else the most recent
   request stream). Clients treat all streams as one session, so this is
-  harmless, but not precise. Replay is bounded (256 events per stream)
-  and lives in memory: a gateway restart ends all HTTP sessions anyway.
-  With modern agents (§5.11) this goes away: what a server needs from
-  the client travels with its call (MRTR); it remains for legacy
+  harmless, but not precise. For servers that speak HTTP the connector
+  names the request whose stream a message came on, and the gateway
+  routes it precisely (step 44). Replay is bounded (256 events per
+  stream) and lives in memory: a gateway restart ends all HTTP sessions
+  anyway. With modern agents (§5.11) this goes away: what a server needs
+  from the client travels with its call (MRTR); it remains for legacy
   sessions.
 - Approval mail finds the users whose primary group an approver group is
   by enumerating users (`getent passwd`), among the local users who
