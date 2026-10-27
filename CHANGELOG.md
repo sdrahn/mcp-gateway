@@ -5,7 +5,15 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.12.3 — 2026-10-27
+
+The tool error that tells an agent such as Kit at once that a call
+waits for an approval names the command for other hosts too, and asks
+the model to pass the commands on as plain text: Kit showed "Command
+line on <host>:" with nothing after it. Upgrading from 1.12.2 needs no
+changes; the SELinux modules do not change. After the update, restart
+the gateway (`systemctl restart mcp-gateway.service`); the package does
+not.
 
 ### Fixed
 
