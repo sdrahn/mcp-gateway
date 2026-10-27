@@ -82,6 +82,7 @@ page (Cockpit).
    the first URI, *Valid post logout redirect URIs* the second;
    *Client authentication* off for a public client, or on
    for a confidential one (then copy its secret from *Credentials*).
+   For several gateways, one client lists all their URIs (chapter 15).
 2. Tell the gateway, which checks the client at the provider:
 
    ```console

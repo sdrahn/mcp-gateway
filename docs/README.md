@@ -6,7 +6,7 @@ which question, and where each common error message is explained.
 
 | File | What it is |
 |---|---|
-| [`user-guide/`](user-guide/README.md) | the user guide: installing, configuring and running the gateway, in 13 chapters. Chapter *N* is `user-guide/NN-*.md` (chapter 4 is `04-mcp-servers.md`); "chapter 10, "Self-check"" means the section *Self-check* there. |
+| [`user-guide/`](user-guide/README.md) | the user guide: installing, configuring and running the gateway, in 15 chapters. Chapter *N* is `user-guide/NN-*.md` (chapter 4 is `04-mcp-servers.md`); "chapter 10, "Self-check"" means the section *Self-check* there. |
 | [`architecture.md`](architecture.md) | the design: components, policy model, decisions (D1, D2, …) and their reasons, the roadmap. Large; read the section you need. |
 | `CHANGELOG.md` | what changed in each release, with upgrade notes; newest first. Installed next to this file; in the source tree, at its top. |
 
@@ -57,6 +57,7 @@ For an agent, which server to ask:
 | Writing Rego: the policy's inputs and decisions, adding to or replacing the shipped logic, testing | [12. Custom policy](user-guide/12-custom-policy.md) |
 | systemd, firewalld, zypp, suseconnect and snapper servers: setup packages, accounts, polkit, roles | [13. System management servers](user-guide/13-system-management-servers.md) |
 | Slow starts or timeouts, a small host (Raspberry Pi), many users: what to measure, which settings to change | [14. Tuning](user-guide/14-tuning.md) |
+| Setting up Keycloak for the gateway, or for several gateways: the container, the realm, the clients, scopes and mappers, each gateway's configuration | [15. Keycloak](user-guide/15-keycloak.md) |
 | Why something is designed the way it is | [architecture.md, "9. Decisions"](architecture.md#9-decisions) |
 
 ## Error messages

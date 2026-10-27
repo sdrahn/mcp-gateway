@@ -249,6 +249,9 @@ With **Keycloak**, on the realm the issuer names
   `http.local_user_claim` (e.g. `preferred_username`) to act as local
   accounts.
 
+Chapter 15 sets up Keycloak step by step, in a container, for one
+gateway or several, with a token for each gateway.
+
 The gateway fetches the keys from the IdP itself: its SELinux domain
 reaches HTTP ports (`http_port_t`: 443, 8443, …) and proxy ports
 (`http_cache_port_t`: 8080, Keycloak's default); for another port, label
