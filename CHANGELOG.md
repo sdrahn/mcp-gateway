@@ -7,6 +7,14 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- User guide, chapter 15: Keycloak for one or more gateways. Keycloak in
+  a container (a Podman Quadlet), the realm, the clients for agents, the
+  approval pages and the command line, a client scope per gateway so
+  that a token is valid at one gateway only, and each gateway's
+  configuration and role data.
+
 ## v1.11.0 — 2026-10-27
 
 Security hardening from a review of the whole code base (2026-10-26),
