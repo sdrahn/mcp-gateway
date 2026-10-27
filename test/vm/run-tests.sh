@@ -3534,7 +3534,8 @@ if declare -F hl_cert >/dev/null && command -v semanage >/dev/null; then
 	# gateway's URL, and asks for the commands as plain text (Kit's
 	# display dropped a code block); jack runs it as given.
 	nw_call
-	rh_cmd=$(grep -oE 'mcp-gateway-admin approvals approve a-[0-9a-f]+ --gateway https://[^"]+' <<<"$out" | head -1)
+	# (in mcpcall's JSON, where the quote after it is escaped: \")
+	rh_cmd=$(grep -oE 'mcp-gateway-admin approvals approve a-[0-9a-f]+ --gateway https://[^"\\ ]+' <<<"$out" | head -1)
 	echo "  the command on other hosts: $rh_cmd"
 	check "no_wait: the tool error names the command on other hosts, with --gateway $pp_url" test "${rh_cmd##* }" = "$pp_url"
 	check "... how to sign in there, and asks for the commands as plain text" bash -c \
