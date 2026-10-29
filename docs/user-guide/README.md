@@ -29,7 +29,7 @@ message is explained.
 | [12. Custom policy (Rego)](12-custom-policy.md) | The policy contract (queries, inputs, decisions), extending or replacing the shipped logic, writing policy from scratch, testing and deploying |
 | [13. System management servers](13-system-management-servers.md) | systemd, firewalld, snapper, suseconnect and zypp MCP servers, and podman for the users' own containers: setup packages, accounts, SELinux domains, polkit, read freely and change only with approval |
 | [14. Tuning](14-tuning.md) | What to measure, settings for slow server starts, policy decisions, many users, remote clients and approvals; starting points for a small host (Raspberry Pi), a typical server and many users |
-| [15. Keycloak for one or more gateways](15-keycloak.md) | Keycloak in a container (Podman Quadlet), the realm for remote agents, the approval page and the command line, one token per gateway, connecting each gateway |
+| [15. Keycloak for one or more gateways](15-keycloak.md) | Keycloak in a container (Podman Quadlet), the realm for remote agents, the approval page and the command line, one token per gateway, token lifetimes and offline tokens, connecting each gateway |
 
 ## Quick start (openSUSE Tumbleweed)
 
