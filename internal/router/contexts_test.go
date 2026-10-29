@@ -278,3 +278,25 @@ func TestContextInstanceNotEvicted(t *testing.T) {
 		t.Errorf("the context's instance was evicted: %q", got)
 	}
 }
+
+// An agent's request lets go of its instances and its place among the
+// principal's requests before it is answered: back-to-back requests at
+// requests_per_principal 1 and instances_per_principal 1, each sent as
+// soon as the last is answered, are never refused for a limit.
+func TestAgentRequestReleasedBeforeAnswer(t *testing.T) {
+	r, _ := contextRouter(t)
+	r.MaxRequestsPerPrincipal = 1
+	r.MaxInstancesPerPrincipal = 1
+	fs := agent(t, r, alice(), "fs")
+	browser := agent(t, r, alice(), "browser")
+	for i := 1; i <= 40; i++ {
+		c, name := fs, "read_file"
+		if i%2 == 0 {
+			c, name = browser, "read_counter"
+		}
+		m := c.roundTrip(i, "tools/call", withAgentMeta(map[string]any{"name": name}, nil))
+		if m.Error != nil {
+			t.Fatalf("request %d: %s", i, m.Error.Message)
+		}
+	}
+}

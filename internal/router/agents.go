@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -133,6 +134,7 @@ func (r *Router) serveAgentRequest(ctx context.Context, ep endpoint, out jsonrpc
 		_ = out.Write(&jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: m.ID, Error: limitError(limitErr)})
 		return
 	}
+	release = sync.OnceFunc(release)
 	defer release()
 	s := newSession(r, ep, out, p)
 	s.modern = true
@@ -153,6 +155,12 @@ func (r *Router) serveAgentRequest(ctx context.Context, ep endpoint, out jsonrpc
 
 	reqCtx, challenge := withChallenge(withRequest(ctx, m.ID))
 	result, rpcErr := s.agentRequest(reqCtx, m, header)
+	// The request's instances and its place among the principal's
+	// requests are let go before the answer is written: an agent that
+	// sends its next request as soon as it has the answer finds them free
+	// (an idle instance to make room with at instances_per_principal).
+	s.release()
+	release()
 	if ctx.Err() != nil {
 		if ended.Load() {
 			_ = out.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "mcp-gateway: "+errEnded))
