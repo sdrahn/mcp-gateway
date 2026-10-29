@@ -5,7 +5,14 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.12.4 — 2026-10-29
+
+Agents of MCP 2026-07-28 that send their next request as soon as they
+have an answer are no longer refused at the per-principal instance or
+request limit, and `mcp-gateway-admin doctor` reports OPA 1.22's
+errors on one line. Upgrading from 1.12.3 needs no changes; the SELinux
+modules do not change. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not.
 
 ### Fixed
 
