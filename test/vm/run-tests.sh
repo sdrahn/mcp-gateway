@@ -2167,7 +2167,7 @@ grep -A3 -E '^[A-Z]+ +(policy|policy listing):' <<<"$pl_doctor" | sed 's/^/  /'
 check "doctor: the policy check still says OPA decides" bash -c 'grep -qE "^OK +policy: OPA decides" <<<"$1"' _ "$pl_doctor"
 check "doctor: the policy listing check fails, naming alice, fs and OPA's error" \
 	bash -c 'grep -qE "^FAIL +policy listing: the policy cannot decide tools for [0-9]+ of [0-9]+ principals" <<<"$1" &&
-		grep -qE "^ +alice( \(groups [^)]*\))?: (server fs|fs [^:]*): eval_conflict_error: complete rules must not produce multiple outputs \(vmtest_conflict.rego:" <<<"$1"' _ "$pl_doctor"
+		grep -qE "^ +alice( \(groups [^)]*\))?: (server fs|fs [^:]*): eval_conflict_error: (complete rules must not produce multiple outputs|rule data\.mcp\.authz\.vmtest_conflict produced conflicting values: [^(]*) \(vmtest_conflict.rego:" <<<"$1"' _ "$pl_doctor"
 pl_json=$(mcp-gateway-admin doctor --no-start --json 2>/dev/null)
 check "doctor --json: its id is policy-listing" \
 	bash -c 'jq -e "any(.[]?; .id == \"policy-listing\" and .status == \"fail\")" >/dev/null <<<"$1"' _ "$pl_json"

@@ -81,4 +81,12 @@ func TestOPAError(t *testing.T) {
 	if got := OPAError(errors.New("opa: timeout")); got != "opa: timeout" {
 		t.Errorf("%q", got)
 	}
+	// OPA 1.22 names the conflicting values on lines of their own.
+	conflict122 := errors.New(`opa: 500: {"code": "internal_error", "errors": [{"code": "eval_conflict_error", ` +
+		`"message": "rule data.mcp.authz.x produced conflicting values:\n  1 at etc/policy/x.rego:5\n  2 at etc/policy/x.rego:7", ` +
+		`"location": {"file": "etc/policy/x.rego", "row": 7, "col": 1}}]}`)
+	if got, want := OPAError(conflict122), "eval_conflict_error: rule data.mcp.authz.x produced conflicting values: "+
+		"1 at etc/policy/x.rego:5; 2 at etc/policy/x.rego:7 (x.rego:7)"; got != want {
+		t.Errorf("OPA 1.22:\n got %q\nwant %q", got, want)
+	}
 }
