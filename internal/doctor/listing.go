@@ -114,7 +114,7 @@ func OPAError(err error) string {
 	}
 	var out []string
 	for _, e := range body.Errors {
-		m := e.Code + ": " + e.Message
+		m := e.Code + ": " + oneLine(e.Message)
 		if e.Location != nil && e.Location.File != "" {
 			file := e.Location.File
 			if j := strings.LastIndexByte(file, '/'); j >= 0 {
@@ -125,4 +125,21 @@ func OPAError(err error) string {
 		out = append(out, m)
 	}
 	return strings.Join(out, "; ")
+}
+
+// oneLine folds a message of several lines onto one, its later lines
+// separated by "; ": OPA 1.22 names a conflict's values on lines of
+// their own ("rule … produced conflicting values:\n  1 at f:5\n  2 at
+// f:7").
+func oneLine(msg string) string {
+	var parts []string
+	for _, l := range strings.Split(msg, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			parts = append(parts, l)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(parts[0] + " " + strings.Join(parts[1:], "; "))
 }

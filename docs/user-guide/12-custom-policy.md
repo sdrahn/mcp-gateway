@@ -308,7 +308,8 @@ Additions to `denied` are decided for every entry, as for calls.
 Do **not** define `decision`, `ask_channel`, `obligations` or any other
 single-valued rule of the shipped packages again: OPA accepts the files,
 but as soon as both definitions produce a value the evaluation fails
-("complete rules must not produce multiple outputs") and the gateway
+("complete rules must not produce multiple outputs", from OPA 1.22
+"rule … produced conflicting values") and the gateway
 denies the request. Use approach B for those.
 
 These rule names are internals of the shipped policy, not a stable API.

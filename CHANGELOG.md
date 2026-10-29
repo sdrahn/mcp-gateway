@@ -15,6 +15,9 @@ minor release (with a warning) and removed in the next.
   or `limits.requests_per_principal`: the gateway let go of the
   request's instances and its place among the principal's requests only
   after writing the answer. It now does so before.
+- `mcp-gateway-admin doctor` (`policy listing`) keeps OPA's error on one
+  line with OPA 1.22, which names a rule's conflicting values on lines of
+  their own ("rule … produced conflicting values").
 
 ## v1.12.3 — 2026-10-27
 
