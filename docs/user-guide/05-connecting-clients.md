@@ -698,7 +698,7 @@ mcpServers:
 
 | Topic | Behaviour |
 |---|---|
-| Sessions | one MCP session per server per `kit` run (`kit -p` runs are one each); within a run, Kit replaces a session that has been idle for 5 minutes. "Session" grants end with it: offer a duration (`approval_scopes`) to Kit users |
+| Sessions | one MCP session per server per `kit` run (each non-interactive run, `kit "prompt"`, is one: Kit takes the prompt as an argument, it has no `-p`); within a run, Kit replaces a session that has been idle for 5 minutes. "Session" grants end with it: offer a duration (`approval_scopes`) to Kit users |
 | Approvals | Kit cannot answer elicitations, so `url` and `form` fall back to `oob` (the shipped policy's fallback). Kit shows nothing while a call waits, so it is named in `approvals.no_wait`: the call is answered at once with "approval needed: …", naming the approval and the command that decides it (`mcp-gateway-admin approvals approve ID` on the gateway's host, or the approval page), which Kit's model tells the user; once decided, asking Kit again runs the call (chapter 7, "Agents told at once"). With `approvals.no_wait: []` Kit's call waits instead, up to `approval_timeout`, while approvers learn of it from the desktop notification or mail |
 | Timeouts | none of its own on tool calls; `approval_timeout` decides |
 | Protocol | with `agents.max_version: {}` (no cap) Kit speaks 2026-07-28: no session, no "session" grants; approvals still wait up to `approval_timeout`, since Kit is named in `agents.no_request_timeout` (a round waits until the decision). Without that, an approval ends for Kit after about 75 s (three waiting rounds of `approvals.retry_wait`, above) |
