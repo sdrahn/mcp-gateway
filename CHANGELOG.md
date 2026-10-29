@@ -5,6 +5,17 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Fixed
+
+- An agent of MCP 2026-07-28 (no session) that sends its next request
+  as soon as it has an answer could be refused with "instance limit
+  reached" or "request limit reached" at `limits.instances_per_principal`
+  or `limits.requests_per_principal`: the gateway let go of the
+  request's instances and its place among the principal's requests only
+  after writing the answer. It now does so before.
+
 ## v1.12.3 — 2026-10-27
 
 The tool error that tells an agent such as Kit at once that a call
