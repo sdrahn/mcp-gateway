@@ -218,6 +218,66 @@ For `mcp-gateway-admin approvals --gateway` on other hosts (chapter 7,
 2. The *Group Membership* mapper with *Add to ID token* on, as for the
    approval pages.
 
+### Token lifetimes
+
+An agent signs in once in the browser and then renews its access token
+with the refresh token Keycloak gave it, without asking the user. The
+gateway takes each new token as it comes: an HTTP session follows the
+tokens of its requests (chapter 5). How long that goes on is Keycloak's
+to decide, in *Realm settings*:
+
+| Setting | Default | What it means |
+|---|---|---|
+| *Tokens* → *Access Token Lifespan* | 5 min | how long an access token lasts; the agent renews it after that |
+| *Sessions* → *SSO Session Idle* | 30 min | the refresh token expires after this long without a renewal (the agent closed over lunch) |
+| *Sessions* → *SSO Session Max* | 10 h | the refresh token expires after this long, renewed or not |
+| *Sessions* → *Offline Session Idle* | 30 days | the same for an offline token (below) |
+
+When the refresh token has expired, the agent has to send its user to
+the browser again. Which limit was hit shows in when that happens:
+
+- **About every 5 minutes:** the agent does not renew at all. The
+  gateway's journal says `token rejected` with `token is expired` for
+  each request with the old token. That is the agent's to fix; a longer
+  *Access Token Lifespan* only hides it, and makes a stolen token
+  useful for longer.
+- **After a break of half an hour or more:** *SSO Session Idle*.
+- **Once a day, whatever you do:** *SSO Session Max*.
+
+Two ways to keep agents signed in longer:
+
+- **Longer sessions:** raise *SSO Session Idle* (8 h, say) and *SSO
+  Session Max* (7 days). That applies to every client of the realm,
+  the approval pages and the command line too. *Clients* → a client →
+  *Advanced* → *Client Session Idle* and *Client Session Max* can only
+  make it shorter for that client.
+- **Offline tokens, for the agents' client:** an offline token is a
+  refresh token that does not depend on the sign-in session: it lasts
+  *Offline Session Idle* without use and survives a restart of
+  Keycloak. Agents ask only for the gateway's scope, so make
+  `offline_access` a scope they get without asking: *Clients* →
+  `mcp-agent` → *Client scopes*, where `offline_access` is listed as
+  *Optional* (every new client gets it so; the *Add client scope*
+  dialog does not offer scopes the client has), and set it to
+  **Default**. For agents that register themselves, also set
+  `offline_access` to *Default* under *Client scopes* (the realm's
+  list, *Assigned type*). The users need the realm role
+  `offline_access`, which `default-roles-mcp` includes. After the next
+  sign-in, *Users* → the user → *Sessions* lists an *Offline* session
+  for the client; signing it out there revokes the token.
+
+Do not put `offline_access` in a gateway's `http.scopes`: the gateway
+would then refuse every token without it, from every agent. An access
+token's lifespan also bounds a single call: one that outlasts it ends
+with `token_expired` and its result is withheld (chapter 5); ask for a
+task for such calls rather than lengthening the lifespan.
+
+If the realm has no `offline_access` client scope at all (someone
+deleted it): *Client scopes* → *Create client scope*, name
+`offline_access`, type *Optional*, *Include in token scope* on; in its
+*Scope* tab, *Assign role* → the realm role `offline_access` (create it
+under *Realm roles* and add it to `default-roles-mcp` if it is gone too).
+
 ## Each gateway
 
 The same on every gateway host, with its own name; only `http.audience`
@@ -344,7 +404,7 @@ has a password get tokens without the browser's sign-in.
 
 | Client | Kind | Flow | Mappers |
 |---|---|---|---|
-| `mcp-agent` | public | authorization code, PKCE (S256) | the gateways' scopes (optional); Group Membership in the access token |
+| `mcp-agent` | public | authorization code, PKCE (S256) | the gateways' scopes (optional), `offline_access` (default, for offline tokens); Group Membership in the access token |
 | `mcp-gateway-approvals` | public | authorization code, PKCE | Group Membership in the ID token |
 | `mcp-gateway-approvals-cli` | public | device authorization grant | Group Membership in the ID token |
 
@@ -355,6 +415,8 @@ has a password get tokens without the browser's sign-in.
 | a user has no tools | the token has no `groups`, or no binding names its groups | the *Group Membership* mapper (access token on); `bindings.groups` in the role data |
 | the approval page shows nothing to decide | the ID token has no groups, or the approver rules do not name the approver | the mapper on the approval page's client with *Add to ID token* on; `remote-group:` for approvers without a local account |
 | `preferred_username` does not map to the local account | the Keycloak username differs from the account's name, or the account is a system account | the same username on both; tokens never map to root or system accounts |
+| the agent asks for a browser sign-in again every few minutes | the agent does not renew its token (the journal: `token rejected`, `token is expired`) | the agent's to fix; see "Token lifetimes" |
+| the agent asks for a browser sign-in again after a break, or once a day | the refresh token expired: *SSO Session Idle* (30 min) or *SSO Session Max* (10 h) | longer sessions, or `offline_access` as a *Default* scope of the agents' client ("Token lifetimes") |
 | *Sign out* on the page fails: "invalid redirect uri" | the post-logout redirect URI is missing | add `https://<gateway>:8443/approvals/signed-out` to the client |
 | `identity provider` fails: connection refused or permission denied | the gateway's SELinux domain may not connect to Keycloak's port, or a firewall | Keycloak on 443 or 8080, or label its port `http_port_t` (not one labeled `mcp_port_t` on the gateway host) |
 | `certificate signed by unknown authority` | Keycloak's CA is not trusted on the gateway host | `cp ca.pem /etc/pki/trust/anchors/ && update-ca-certificates` |
