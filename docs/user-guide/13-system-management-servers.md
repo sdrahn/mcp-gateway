@@ -466,6 +466,61 @@ landlock:
   calls: tasks"): the installation then outlasts their token, and they
   fetch its result afterwards.
 
+### Root jobs as units: refreshing the repositories
+
+Some jobs need root and more than any sandbox gives: `zypper refresh`
+writes its lock (`/run/zypp.pid`), the repositories' metadata
+(`/var/cache/zypp`, `/var/lib/zypp`) and downloads them. As a command of
+a command server (chapter 4, "Commands an administrator allows") it
+fails with "Can't open /run/zypp.pid", and making it work there would
+open `/run`, zypp's trees and the network to every command of that
+server. Run such a job as a systemd unit instead, and let agents start
+it through the `systemd` server: it runs as an ordinary root service,
+and the gateway's policy and approval decide when.
+
+```ini
+# /etc/systemd/system/zypper-refresh.service
+[Unit]
+Description=Refresh the zypper repositories
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/zypper --non-interactive refresh
+```
+
+```bash
+systemctl daemon-reload
+systemctl start zypper-refresh.service      # once by hand: does it work?
+journalctl -u zypper-refresh.service -n 20
+```
+
+An agent starts it with `change_unit_state` (`name`
+`zypper-refresh.service`, `action` `start`) and reads the result with
+`list_log` for the unit. With `systemd-operator` the start waits for an
+approval, as every change does. To let a role start this one unit
+without one, name the tool with both arguments: any other unit or
+action falls through to the approval permission.
+
+```yaml
+roles:
+  sysops:
+    permissions:
+      - server: systemd
+        tool: change_unit_state
+        args: {name: '^zypper-refresh\.service$', action: '^start$'}
+      # ... systemd-operator's permissions, or the role above
+```
+
+`check_updates` of `mcp-server-zypp` reads the metadata on the system:
+start the refresh first, or refresh on a schedule (a
+`zypper-refresh.timer` with `OnCalendar=daily`). A `Type=oneshot` unit
+counts as active only while it runs: `list_loaded_units` shows it
+`inactive` once done, and its journal and `Result` say how it went.
+The same pattern suits other root jobs a sandbox cannot hold (a backup,
+a certificate renewal): one unit per job, one permission per unit.
+
 ## SELinux domains
 
 `mcp-gateway-selinux` ships the modules `mcp_systemd`, `mcp_firewalld`,
