@@ -303,17 +303,24 @@ jobs:
       # The distribution's Go; it fetches the toolchain a server's go.mod
       # asks for (GOTOOLCHAIN=auto). setup-go would leave the container's
       # PATH without /usr/bin.
-      # Between Tumbleweed snapshots the image can carry newer systemd
-      # libraries than the repository's systemd-devel requires: then take
-      # them back to the repository's version and install again.
+      # Between Tumbleweed snapshots the image can carry newer libraries
+      # than the repository's -devel packages require (systemd's, libzypp):
+      # then take them back to the repository's version and install again.
+      # align DEVEL LIB...: LIB at DEVEL's version in the repository (a
+      # no-op for one already there; zypper and libsolv follow libzypp).
       - name: Install build tools
         run: |
           pkgs="git tar gzip findutils make go gcc gcc-c++ cmake systemd-devel
             libzypp-devel yaml-cpp-devel libboost_test-devel"
+          align() {
+            v=$(zypper -n info "$1" | sed -n 's/^Version *: *//p' | head -n 1)
+            shift
+            echo "aligning $* with $v"
+            zypper -n in --no-recommends --oldpackage --force-resolution $(printf "%s=$v " "$@")
+          }
           zypper -n --gpg-auto-import-keys in --no-recommends $pkgs || {
-            v=$(zypper -n info systemd-devel | sed -n 's/^Version *: *//p' | head -n 1)
-            echo "aligning libsystemd0 and libudev1 with systemd-devel $v"
-            zypper -n in --no-recommends --oldpackage "libsystemd0=$v" "libudev1=$v"
+            align systemd-devel libsystemd0 libudev1
+            align libzypp-devel libzypp
             zypper -n in --no-recommends $pkgs
           }
       - uses: actions/checkout@v4
