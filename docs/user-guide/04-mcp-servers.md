@@ -1264,7 +1264,10 @@ user's journal, files in homes), run it in a test with
 `mcp-gateway-admin profile --server exec` and load the module it
 drafts, or define a second command server with a domain of its own
 (copy `exec.yaml` under another name, with its own `selinux_type` and
-`--commands` directory). Do not
+`--commands` directory). A command that needs root and writes the
+system (`zypper refresh`: its lock in `/run`, zypp's caches, the
+network) belongs in a systemd unit that agents start through the
+`systemd` server (chapter 13, "Root jobs as units"). Do not
 allow a shell or an interpreter with arguments from the caller
 (`/bin/sh -c "{cmd}"`): that is a shell again, only without the
 confinement this is for.
