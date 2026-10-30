@@ -129,7 +129,9 @@ The page keeps the sign-in as a session cookie of its own for
 `approvals.page.session_ttl` (1 h), with the groups
 the ID token had: a user disabled or a group removed at the identity
 provider keeps the page until then (changed approver rules apply at
-once). *Sign out* ends it, and the sign-in at the identity provider
+once). Signing in again after that asks for a password only if the
+provider's own browser session has ended too (with Keycloak: chapter 15,
+"How long a sign-in on the approval page lasts"). *Sign out* ends it, and the sign-in at the identity provider
 too, where the provider offers that (`end_session_endpoint` in its
 discovery, OpenID Connect RP-Initiated Logout, as Keycloak does): the
 browser goes to the provider's sign-out, with the sign-in's ID token as
