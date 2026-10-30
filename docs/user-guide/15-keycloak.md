@@ -278,6 +278,45 @@ deleted it): *Client scopes* → *Create client scope*, name
 *Scope* tab, *Assign role* → the realm role `offline_access` (create it
 under *Realm roles* and add it to `default-roles-mcp` if it is gone too).
 
+### How long a sign-in on the approval page lasts
+
+Offline tokens do not reach the approval page: it uses no refresh
+token. After a sign-in it keeps a session of its own for
+`approvals.page.session_ttl` (1 h; 1m to 168h), with the groups the ID
+token had (chapter 7, "The gateway's approval page"):
+
+```yaml
+# /etc/mcp-gateway/gateway.d/40-approval-page.yaml
+approvals:
+  page:
+    session_ttl: 12h
+```
+
+```bash
+mcp-gateway --check && systemctl restart mcp-gateway.service
+```
+
+The page is set up at the start, so the value takes effect at the next
+restart, not with a reload; its sessions are held in the gateway's
+memory, so a restart signs everyone out of the page once.
+
+When a page session ends, the page sends the browser to Keycloak. While
+Keycloak's own browser session lives (*SSO Session Idle*, *SSO Session
+Max*, above), that is a redirect and back, without a password; the
+password is asked for only once it has ended. To let people keep
+Keycloak's browser session longer without lengthening it for everyone:
+*Realm settings* → *Login* → *Remember me* on, then *Realm settings* →
+*Sessions* → *SSO Session Idle Remember Me* and *SSO Session Max Remember
+Me* (e.g. 12 h and 7 days); those who tick *Remember me* at the sign-in
+get them. After *Sign out* on the page, that browser's next sign-in asks
+for the password in any case (`prompt=login`, for 24 hours).
+
+A page session keeps the groups it signed in with: someone removed from
+an approver group in Keycloak can still approve on the page until the
+session ends (changes to the gateway's approver rules apply at once). A
+long `session_ttl` widens that window; a working day (`8h` to `12h`) is a
+reasonable middle.
+
 ## Each gateway
 
 The same on every gateway host, with its own name; only `http.audience`
@@ -417,6 +456,7 @@ has a password get tokens without the browser's sign-in.
 | `preferred_username` does not map to the local account | the Keycloak username differs from the account's name, or the account is a system account | the same username on both; tokens never map to root or system accounts |
 | the agent asks for a browser sign-in again every few minutes | the agent does not renew its token (the journal: `token rejected`, `token is expired`) | the agent's to fix; see "Token lifetimes" |
 | the agent asks for a browser sign-in again after a break, or once a day | the refresh token expired: *SSO Session Idle* (30 min) or *SSO Session Max* (10 h) | longer sessions, or `offline_access` as a *Default* scope of the agents' client ("Token lifetimes") |
+| the approval page asks for a sign-in again after an hour | the page's own session ended (`approvals.page.session_ttl`, 1 h); with a password only if Keycloak's browser session ended too | a longer `session_ttl` (restart); longer SSO sessions, or *Remember me* ("How long a sign-in on the approval page lasts") |
 | *Sign out* on the page fails: "invalid redirect uri" | the post-logout redirect URI is missing | add `https://<gateway>:8443/approvals/signed-out` to the client |
 | `identity provider` fails: connection refused or permission denied | the gateway's SELinux domain may not connect to Keycloak's port, or a firewall | Keycloak on 443 or 8080, or label its port `http_port_t` (not one labeled `mcp_port_t` on the gateway host) |
 | `certificate signed by unknown authority` | Keycloak's CA is not trusted on the gateway host | `cp ca.pem /etc/pki/trust/anchors/ && update-ca-certificates` |
