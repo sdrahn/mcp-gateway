@@ -38,6 +38,13 @@ elicitation, or `url_template` is empty, the request appears in the
 approval inbox instead. If neither is possible, the call is denied with
 "approval via url required but not available".
 
+An agent that tracks its own calls (Custos, for example) finds the call
+a log message is about in its `_meta`:
+`"io.github.sdrahn.mcp-gateway/approval": {"id": "a-…", "requestId": 7,
+"progressToken": "…"}`, the call's JSON-RPC id and, if the call's
+`_meta` had one, its progress token. With two calls of one tool waiting
+at once, the tool's name alone cannot tell them apart.
+
 Use `form` only for low-risk confirmations ("really send this
 message?"); a compromised or over-eager agent can answer it itself. Use
 `url` or `oob` for anything that matters, and consider removing `self`

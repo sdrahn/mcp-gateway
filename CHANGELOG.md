@@ -7,6 +7,15 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- The approval notice (the `oob` channel's log message, "Waiting for
+  approval of … (id a-…)") names the call it is for in its `_meta`:
+  `io.github.sdrahn.mcp-gateway/approval` with the approval `id`, the
+  call's JSON-RPC `requestId` and, if the call's `_meta` had one, its
+  `progressToken`. An agent with two calls of one tool waiting at once
+  can now tell which one an approval is for. The text is unchanged.
+
 ## v1.12.4 — 2026-10-29
 
 Agents of MCP 2026-07-28 that send their next request as soon as they

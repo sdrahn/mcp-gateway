@@ -545,15 +545,47 @@ func requestOf(ctx context.Context) json.RawMessage {
 	return id
 }
 
+// progressTokenKey is the context key of the client request's
+// _meta.progressToken.
+type progressTokenKey struct{}
+
+// progressTokenOf returns the progress token of the request ctx serves,
+// nil if it has none.
+func progressTokenOf(ctx context.Context) json.RawMessage {
+	t, _ := ctx.Value(progressTokenKey{}).(json.RawMessage)
+	return t
+}
+
 // requestElicitor is the session as the broker's Elicitor for one client
 // request: what it sends belongs to that request (its HTTP stream).
 type requestElicitor struct {
 	*Session
-	req json.RawMessage
+	req   json.RawMessage
+	token json.RawMessage // the request's progress token, if any
 }
 
-// Notify implements broker.Elicitor.
-func (e requestElicitor) Notify(method string, params any) { e.notifyRelated(method, params, e.req) }
+// elicitorFor is the Elicitor for the client request ctx serves.
+func (s *Session) elicitorFor(ctx context.Context) requestElicitor {
+	return requestElicitor{s, requestOf(ctx), progressTokenOf(ctx)}
+}
+
+// Notify implements broker.Elicitor. An approval notice names the
+// request it is for (broker.MetaApproval).
+func (e requestElicitor) Notify(method string, params any) {
+	if m, ok := params.(map[string]any); ok {
+		if meta, ok := m["_meta"].(map[string]any); ok {
+			if a, ok := meta[broker.MetaApproval].(map[string]any); ok {
+				if len(e.req) > 0 {
+					a["requestId"] = e.req
+				}
+				if len(e.token) > 0 {
+					a["progressToken"] = e.token
+				}
+			}
+		}
+	}
+	e.notifyRelated(method, params, e.req)
+}
 
 // Elicit implements broker.Elicitor.
 func (e requestElicitor) Elicit(ctx context.Context, p any) (broker.ElicitResult, error) {
@@ -1104,6 +1136,9 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params: "+err.Error())
 	}
 	t.progress = s.progressOf(ctx, params)
+	if t.progress != nil {
+		ctx = context.WithValue(ctx, progressTokenKey{}, t.progress.token)
+	}
 
 	decisionID := newDecisionID()
 	var dec pep.Decision
@@ -1366,12 +1401,12 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 	if s.noWait() {
 		// Answered at once, if the approval goes out of band
 		// (approvals.no_wait; nowait.go).
-		if c, err := s.r.Broker.Channel(requestElicitor{s, requestOf(ctx)}, ask); err == nil && c == pep.ChannelOOB {
+		if c, err := s.r.Broker.Channel(s.elicitorFor(ctx), ask); err == nil && c == pep.ChannelOOB {
 			return s.askedElsewhere(ctx, t, in, ask), "", in
 		}
 	}
 	stop := s.reportWaiting(t)
-	g, err := s.r.Broker.Approve(ctx, requestElicitor{s, requestOf(ctx)}, in, ask)
+	g, err := s.r.Broker.Approve(ctx, s.elicitorFor(ctx), in, ask)
 	stop()
 	switch {
 	case errors.Is(err, broker.ErrNoChannel):
@@ -1483,7 +1518,7 @@ func (s *Session) mustSignIn(b *config.Backend) bool {
 
 // signIn signs the session's principal in to b through the client.
 func (s *Session) signIn(ctx context.Context, b *config.Backend) error {
-	return s.r.SignIns.Run(ctx, requestElicitor{s, requestOf(ctx)}, b, s.snapshotPrincipal())
+	return s.r.SignIns.Run(ctx, s.elicitorFor(ctx), b, s.snapshotPrincipal())
 }
 
 func signInItem(server string) listItem {

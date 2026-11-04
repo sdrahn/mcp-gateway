@@ -603,6 +603,12 @@ func (b *Broker) urlParams(in pep.Input, ask pep.AskSpec, id string) URLElicitPa
 	}
 }
 
+// MetaApproval is the _meta key of the approval notice: {"id": the
+// approval id}, and, added by the router, the client request it is for
+// ("requestId", "progressToken": what the request's _meta had), so that a
+// client with several calls of one tool in flight knows which one waits.
+const MetaApproval = "io.github.sdrahn.mcp-gateway/approval"
+
 // notifyOOB tells the client where approval id is decided.
 func (b *Broker) notifyOOB(el Elicitor, in pep.Input, id string) {
 	where := "on the mcp-gateway approvals page"
@@ -613,6 +619,7 @@ func (b *Broker) notifyOOB(el Elicitor, in pep.Input, id string) {
 		"level":  "notice",
 		"logger": "mcp-gateway",
 		"data":   fmt.Sprintf("Waiting for approval of %s/%s %s (id %s).", in.Resource.Server, in.Resource.Name, where, id),
+		"_meta":  map[string]any{MetaApproval: map[string]any{"id": id}},
 	})
 }
 

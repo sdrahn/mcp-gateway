@@ -41,7 +41,7 @@ func (s *Session) askedElsewhere(ctx context.Context, t *callTarget, in pep.Inpu
 		return pep.Decision{Effect: pep.Deny, Reason: "declined by an approver"}
 	}
 	id, expires := s.r.Broker.ParkFor(in, ask, pep.ChannelOOB, broker.NoWaitTTL)
-	s.r.Broker.NotifyOOB(requestElicitor{s, requestOf(ctx)}, in, id)
+	s.r.Broker.NotifyOOB(s.elicitorFor(ctx), in, id)
 	return pep.Decision{Effect: pep.Ask, Reason: approvalNeeded(t.resource.Server, t.resource.Name, id, expires,
 		gatewayHost(), s.r.settings().RemoteApprovals, s.r.Broker.ApprovalURL(id))}
 }
