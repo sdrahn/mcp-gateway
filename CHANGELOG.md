@@ -7,6 +7,21 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v1.13.0 — 2026-11-04
+
+Approvals an agent can match to its calls, and a user guide for running
+the gateway with Keycloak day to day. The approval notice an agent gets
+while a call waits names that call: an agent with two calls of one tool
+waiting at once can tell which approval is whose. The user guide says
+how long agents and approvers stay signed in with Keycloak and how to
+extend it, and how to run root jobs (refreshing the repositories) as
+units an agent starts through the systemd server.
+
+Upgrading from 1.12.x needs no changes to server definitions, role data
+or custom policies; the SELinux modules do not change. After the
+update, restart the gateway (`systemctl restart mcp-gateway.service`);
+the package does not.
+
 ### Added
 
 - The approval notice (the `oob` channel's log message, "Waiting for
@@ -15,6 +30,19 @@ minor release (with a warning) and removed in the next.
   call's JSON-RPC `requestId` and, if the call's `_meta` had one, its
   `progressToken`. An agent with two calls of one tool waiting at once
   can now tell which one an approval is for. The text is unchanged.
+- User guide, chapter 15: token lifetimes (Keycloak's access token,
+  SSO session idle and max), offline tokens for the agents' client
+  (`offline_access` as a *Default* scope), and how long a sign-in on the
+  approval page lasts (`approvals.page.session_ttl`, *Remember me*).
+- User guide, chapter 13: root jobs as units. A job a sandbox cannot
+  hold (`zypper refresh`) runs as a systemd unit that agents start with
+  the systemd server's `change_unit_state`, with a permission for that
+  one unit.
+
+### Fixed
+
+- User guide, chapter 5: Kit takes its prompt as an argument (`kit
+  "prompt"`); it has no `-p`.
 
 ## v1.12.4 — 2026-10-29
 
