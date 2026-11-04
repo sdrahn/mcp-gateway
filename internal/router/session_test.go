@@ -553,6 +553,58 @@ func TestProgressWhileWaitingForApproval(t *testing.T) {
 	}
 }
 
+// The approval notice names the request it is for: with two calls of one
+// tool in flight, each notice carries its call's request id and progress
+// token in _meta (broker.MetaApproval), next to the approval id.
+func TestApprovalNoticeNamesRequest(t *testing.T) {
+	r, _ := testRouter(t, 0)
+	r.PDP = askPDP{channel: pep.ChannelOOB, ask: map[string]bool{"write_file": true}}
+	r.Broker = mustBroker(t, broker.Options{Timeout: 5 * time.Second, OOB: true})
+	c := connect(t, r, alice(), "fs", nil)
+	c.send(1, "tools/call", map[string]any{"name": "write_file", "_meta": map[string]any{"progressToken": "call-a"}})
+	c.send(2, "tools/call", map[string]any{"name": "write_file", "_meta": map[string]any{"progressToken": "call-b"}})
+	c.send(3, "tools/call", map[string]any{"name": "write_file"})
+	type approval struct {
+		ID            string          `json:"id"`
+		RequestID     json.RawMessage `json:"requestId"`
+		ProgressToken json.RawMessage `json:"progressToken"`
+	}
+	got := map[string]approval{}
+	for len(got) < 3 {
+		m := c.read()
+		if m.Method != "notifications/message" {
+			continue // the gateway's progress while the calls wait
+		}
+		var p struct {
+			Data string                     `json:"data"`
+			Meta map[string]json.RawMessage `json:"_meta"`
+		}
+		if err := json.Unmarshal(m.Params, &p); err != nil {
+			t.Fatal(err)
+		}
+		var a approval
+		if err := json.Unmarshal(p.Meta[broker.MetaApproval], &a); err != nil || a.ID == "" {
+			t.Fatalf("notice without the approval in _meta: %s", m.Params)
+		}
+		if !strings.HasSuffix(p.Data, "(id "+a.ID+").") {
+			t.Errorf("_meta's id %s is not the text's: %s", a.ID, p.Data)
+		}
+		got[string(a.RequestID)] = a
+	}
+	for req, tok := range map[string]string{"1": `"call-a"`, "2": `"call-b"`, "3": ""} {
+		a, ok := got[req]
+		if !ok {
+			t.Fatalf("no notice for request %s: %+v", req, got)
+		}
+		if string(a.ProgressToken) != tok {
+			t.Errorf("request %s: progress token %s, want %q", req, a.ProgressToken, tok)
+		}
+	}
+	if got["1"].ID == got["2"].ID {
+		t.Error("two calls, one approval id")
+	}
+}
+
 // Clients of MCP 2026-07-28 (the Python SDK 2, mcp-go 1.1 and so Kit)
 // probe server/discover first: they get "method not found", fall back to
 // initialize, and the probe is not audited as a denial.

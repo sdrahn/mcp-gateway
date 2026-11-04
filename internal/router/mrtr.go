@@ -320,7 +320,7 @@ func (s *Session) decideModern(ctx context.Context, t *callTarget, decisionID st
 		}
 		// Nothing to show the agent first: this round waits already.
 		id := s.r.Broker.Park(in, ask, c)
-		s.r.Broker.NotifyOOB(requestElicitor{s, requestOf(ctx)}, in, id)
+		s.r.Broker.NotifyOOB(s.elicitorFor(ctx), in, id)
 		return s.awaitApproval(ctx, t, in, dec, id, r)
 	}
 }
