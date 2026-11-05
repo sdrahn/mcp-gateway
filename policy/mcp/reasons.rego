@@ -46,6 +46,7 @@ denial_reason := concat("; ", sort(deny_reasons)) if {
 }
 
 # METADATA
+# scope: document
 # description: |
 #   The reason of a request that matches no permission. A module that
 #   leaves a permission out ("this would have been permitted, but …")
