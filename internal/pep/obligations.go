@@ -52,6 +52,8 @@ type Compiled struct {
 	// Pseudo is nil when nothing is to be pseudonymized.
 	Pseudo     *pseudo.Compiled
 	Reidentify []string
+	// Review: the call becomes a review item once it ran.
+	Review bool
 }
 
 // Compile validates o. Any malformed obligation makes the whole decision
@@ -99,6 +101,7 @@ func (o *Obligations) Compile() (*Compiled, error) {
 		}
 		c.Reidentify = append(c.Reidentify, name)
 	}
+	c.Review = o.Review
 	switch o.Audit {
 	case "", "digest":
 	case "full":

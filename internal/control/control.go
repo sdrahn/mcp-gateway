@@ -257,6 +257,18 @@ func (s *Server) Handler() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
+	mux.HandleFunc("GET /v1/reviews", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+		writeJSON(w, http.StatusOK, s.Broker.ListReviews(r.Context(), a))
+	}))
+	mux.HandleFunc("GET /v1/reviews/{id}", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+		rv, err := s.Broker.GetReview(r.Context(), a, r.PathValue("id"))
+		if err != nil {
+			writeError(w, http.StatusNotFound, "no such review")
+			return
+		}
+		writeJSON(w, http.StatusOK, rv)
+	}))
+	mux.HandleFunc("POST /v1/reviews/{id}", s.with(s.judge))
 	mux.HandleFunc("GET /v1/events", s.with(s.events))
 	mux.HandleFunc("GET /v1/metrics", s.with(s.metrics))
 	return mux
@@ -789,7 +801,59 @@ type approvalEvent struct {
 	New     bool            `json:"new,omitempty"`
 	Pending *broker.Pending `json:"pending,omitempty"`
 	Notice  *broker.Notice  `json:"notice,omitempty"`
+	Review  *broker.Review  `json:"review,omitempty"`
 	URL     string          `json:"url,omitempty"` // the approval page
+}
+
+// verdictRequest is the body of POST /v1/reviews/{id}.
+type verdictRequest struct {
+	Verdict string `json:"verdict"`
+	Reason  string `json:"reason"`
+	Via     string `json:"via"`
+}
+
+// judge records the caller's verdict on a review item. A verdict "ok"
+// on one's own call that only "self" lets them review needs their
+// password, as approving one's own request does; "incident" does not.
+func (s *Server) judge(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+	var body verdictRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	id := r.PathValue("id")
+	if body.Verdict == broker.VerdictOK && s.OwnPassword != nil {
+		own, err := s.Broker.ReviewOwnOnly(r.Context(), a, id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "no such review")
+			return
+		}
+		if own {
+			rv, err := s.Broker.GetReview(r.Context(), a, id)
+			if err != nil {
+				writeError(w, http.StatusNotFound, "no such review")
+				return
+			}
+			peer, _ := r.Context().Value(peerKey{}).(transport.PeerCred)
+			if err := s.OwnPassword(r.Context(), peer, rv.AsPending()); err != nil {
+				s.log().Warn("review of one's own call refused: no password", "id", id, "reviewer", a.Name, "err", err)
+				writeJSON(w, http.StatusForbidden, errorResponse{Code: PasswordRequired, Error: "judging your own call fine needs your password (approvals.self_needs_password): " +
+					err.Error() + "; run mcp-gateway-admin reviews ok " + id + " in a terminal, use the approval page, or ask a reviewer"})
+				return
+			}
+		}
+	}
+	rv, err := s.Broker.Judge(r.Context(), a, id, body.Verdict, body.Reason, via(body.Via))
+	switch {
+	case errors.Is(err, broker.ErrNotFound):
+		writeError(w, http.StatusNotFound, "no such review")
+	case errors.Is(err, broker.ErrBadVerdict):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "internal error")
+	default:
+		writeJSON(w, http.StatusOK, rv)
+	}
 }
 
 // noticeRequest is the body of POST /v1/notices.
@@ -878,6 +942,12 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a broker.Approve
 			return
 		}
 	}
+	for _, rv := range s.Broker.ListReviews(r.Context(), a) {
+		sent[rv.ID] = true
+		if !write(approvalEvent{Type: "review", ID: rv.ID, Review: &rv, URL: s.Broker.ReviewURL(rv.ID)}) {
+			return
+		}
+	}
 	flusher.Flush()
 	ping := time.NewTicker(eventKeepAlive)
 	defer ping.Stop()
@@ -898,6 +968,16 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a broker.Approve
 			case ev.Type == "notice" && ev.Notice != nil && s.Broker.MayReadNotice(r.Context(), a, *ev.Notice):
 				sent[ev.ID] = true
 				if !write(approvalEvent{Type: ev.Type, ID: ev.ID, New: ev.New, Notice: ev.Notice, URL: s.Broker.NoticesURL()}) {
+					return
+				}
+			case ev.Type == "review" && ev.Review != nil && s.Broker.MayReview(r.Context(), a, *ev.Review):
+				sent[ev.ID] = true
+				if !write(approvalEvent{Type: ev.Type, ID: ev.ID, New: ev.New, Review: ev.Review, URL: s.Broker.ReviewURL(ev.ID)}) {
+					return
+				}
+			case ev.Type == "review-closed" && sent[ev.ID]:
+				delete(sent, ev.ID)
+				if !write(approvalEvent{Type: ev.Type, ID: ev.ID}) {
 					return
 				}
 			case ev.Type == "notice-closed" && sent[ev.ID] && (ev.Reader == "" || ev.Reader == a.ReaderKey()):

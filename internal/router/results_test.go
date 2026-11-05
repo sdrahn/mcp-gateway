@@ -236,3 +236,34 @@ func TestResultRecordApproval(t *testing.T) {
 		t.Fatalf("by grant: %+v (grant %s)", rec, g.ID)
 	}
 }
+
+// A call allowed with the obligation "review" becomes a review item once
+// it ran, with its outcome and decision; its arguments only with the
+// obligation audit "full". A call without it does not.
+func TestReviewItems(t *testing.T) {
+	r, _ := testRouter(t, time.Hour)
+	logs := &syncWriter{w: &strings.Builder{}}
+	r.Audit = audit.New(logs)
+	p := alice()
+	c := connect(t, r, p, "fs", nil)
+	root := broker.Approver{Name: "root", UID: 0}
+
+	c.roundTrip(1, "tools/call", map[string]any{"name": "read_file"})
+	c.roundTrip(2, "tools/call", map[string]any{"name": "read_reviewed", "arguments": map[string]any{"path": "/etc/motd"}})
+	c.roundTrip(3, "tools/call", map[string]any{"name": "read_reviewed_full", "arguments": map[string]any{"path": "/etc/hosts"}})
+	items := r.Broker.ListReviews(context.Background(), root)
+	if len(items) != 2 {
+		t.Fatalf("review items %+v", items)
+	}
+	plain, full := items[0], items[1]
+	if plain.Name != "read_reviewed" || plain.Server != "fs" || plain.Principal.Sub != "alice" || plain.Outcome != "ok" ||
+		plain.Args != nil || plain.Action != "tools.call" {
+		t.Fatalf("item %+v", plain)
+	}
+	if id := decisionIDOf(t, logs, "read_reviewed"); id == "" || plain.DecisionID != id {
+		t.Fatalf("decision id %q, the decision's %q", plain.DecisionID, id)
+	}
+	if full.Name != "read_reviewed_full" || full.Args["path"] != "/etc/hosts" {
+		t.Fatalf("item with audit full %+v", full)
+	}
+}

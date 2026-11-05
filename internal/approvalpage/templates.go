@@ -117,6 +117,13 @@ var inboxTmpl = template.Must(template.New("inbox").Funcs(funcs).Parse(layout + 
 {{range .Pending}}<tr><td>{{.Server}}/{{.Name}}</td><td>{{.Principal.Sub}}</td><td>{{.Principal.Client.Name}} {{.Principal.Client.Version}}</td>
 <td>{{clock .Created}}</td><td>{{clock .Expires}}</td><td><a class="button" href="/approvals/{{.ID}}">Decide</a></td></tr>
 {{end}}</table>{{else}}<p class="muted">No approvals wait for you.</p>{{end}}
+{{if .Reviews}}<h2>Reviews</h2>
+<p class="muted">Calls that ran without asking you, to judge afterwards.</p>
+<table><tr><th>Call</th><th>For</th><th>Ran</th><th>Outcome</th><th>Verdict</th><th></th></tr>
+{{range .Reviews}}<tr><td>{{.Server}}/{{.Name}}</td><td>{{.Principal.Sub}}</td><td>{{clock .Ran}}</td><td>{{.Outcome}}</td>
+<td>{{if .Verdict}}{{.Verdict.Verdict}} <span class="muted">({{.Verdict.By}})</span>{{else}}<span class="muted">none yet</span>{{end}}</td>
+<td><a class="button" href="/approvals/reviews/{{.ID}}">Review</a></td></tr>
+{{end}}</table>{{end}}
 <h2>Grants</h2>
 {{if .Grants}}<table><tr><th>Tool</th><th>For</th><th>Scope</th><th>Until</th><th>Approved by</th><th></th></tr>
 {{range .Grants}}<tr><td>{{.Server}}/{{.Tool}}</td><td>{{.Sub}}</td><td>{{.Scope}}</td><td>{{.Expires}}</td><td>{{.ApprovedBy}}</td>
@@ -143,6 +150,30 @@ var showTmpl = template.Must(template.New("show").Funcs(funcs).Parse(layout + `{
 </form>
 {{template "bottom" .}}`))
 
+var reviewTmpl = template.Must(template.New("review").Funcs(funcs).Parse(layout + `{{template "top" .}}
+<div class="card"><dl>
+<dt>Call</dt><dd>{{.R.Server}}/{{.R.Name}} ({{.R.Action}})</dd>
+<dt>For</dt><dd>{{.R.Principal.Sub}}{{if .R.Principal.Issuer}} ({{.R.Principal.Issuer}}){{end}}</dd>
+<dt>Client</dt><dd>{{.R.Principal.Client.Name}} {{.R.Principal.Client.Version}} <span class="muted">(as the agent names itself)</span></dd>
+<dt>Ran</dt><dd>{{clock .R.Ran}} ({{.R.DurationMS}} ms)</dd>
+<dt>Outcome</dt><dd>{{.R.Outcome}}{{if .R.Error}}: {{.R.Error}}{{end}}</dd>
+<dt>Allowed by</dt><dd>{{if .R.ApprovalID}}approval {{.R.ApprovalID}}{{else if .R.GrantID}}grant {{.R.GrantID}}{{else}}policy{{end}} <span class="muted">(decision {{.R.DecisionID}})</span></dd>
+<dt>Review until</dt><dd>{{clock .R.Expires}}</dd>
+{{if .R.Verdict}}<dt>Verdict</dt><dd>{{.R.Verdict.Verdict}} by {{.R.Verdict.By}}, {{clock .R.Verdict.At}}{{if .R.Verdict.Reason}}: {{.R.Verdict.Reason}}{{end}}</dd>{{end}}
+</dl></div>
+<h2>Arguments</h2>
+{{if .Args}}<div class="card"><pre>{{.Args}}</pre></div>{{else}}<p class="muted">Not recorded (the policy's audit keeps only a digest).</p>{{end}}
+<form method="post" action="/approvals/reviews/{{.R.ID}}">
+<input type="hidden" name="csrf" value="{{.S.CSRF}}">
+<fieldset><legend class="muted">Verdict{{if .R.Verdict}} (replaces the one above){{end}}</legend>
+<label><input type="radio" name="verdict" value="ok" checked> fine</label>
+<label><input type="radio" name="verdict" value="incident"> should not have run (an incident)</label></fieldset>
+<p><label for="reason" class="muted">Reason (required for an incident)</label><br>
+<textarea id="reason" name="reason" rows="3" cols="60" maxlength="1000"></textarea></p>
+<div class="actions"><button>Record the verdict</button></div>
+</form>
+{{template "bottom" .}}`))
+
 // page shows a message.
 func (pg *Page) page(w http.ResponseWriter, status int, title, text string, s *session) {
 	pg.render(w, status, pageTmpl, map[string]any{"Text": text, "S": s, "Title": title})
@@ -158,6 +189,8 @@ func (pg *Page) render(w http.ResponseWriter, status int, t *template.Template, 
 			data["Title"] = "Approvals"
 		case showTmpl:
 			data["Title"] = "Approve or deny"
+		case reviewTmpl:
+			data["Title"] = "Review a call"
 		}
 	}
 	var b bytes.Buffer

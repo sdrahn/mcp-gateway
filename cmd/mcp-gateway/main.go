@@ -271,6 +271,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		GrantsFile:  filepath.Join(gw.StateDir, "grants.json"),
 		PendingFile: filepath.Join(gw.StateDir, "pending.json"),
 		NoticesFile: filepath.Join(gw.StateDir, "notices.json"),
+		ReviewsFile: filepath.Join(gw.StateDir, "reviews.json"),
 		URLTemplate: gw.ApprovalURLTemplate(),
 		OOB:         control,
 		Policy:      opa,

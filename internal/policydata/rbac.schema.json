@@ -125,7 +125,8 @@
         },
         "audit": { "enum": ["digest", "full"] },
         "pseudonymize": { "$ref": "#/definitions/pseudonymize" },
-        "reidentify": { "$ref": "#/definitions/stringOrList" }
+        "reidentify": { "$ref": "#/definitions/stringOrList" },
+        "review": { "type": "boolean" }
       },
       "additionalProperties": false
     },

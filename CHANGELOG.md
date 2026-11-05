@@ -17,6 +17,16 @@ minor release (with a warning) and removed in the next.
   and joined with "; ". The agent, the audit record and the kernel audit
   message get them as other reasons. Without them, decisions are as
   before (chapter 12, "Reasons for denials").
+- Reviews of calls that ran without asking anyone (chapter 7,
+  "Reviews"): the obligation `review: true`, on a permission or by a
+  policy module's rule `review_wanted`, makes a tool call a review item
+  once it ran, with its outcome and what allowed it. Who may decide on
+  that call as an approval reviews it: on the approval page, with
+  `mcp-gateway-admin reviews`, through `GET`/`POST /v1/reviews` and the
+  event stream. A verdict is `ok` or `incident` (with a reason); a later
+  one replaces it; each is audited (`mcp-review`). `ok` on one's own call
+  that only `self` lets one review needs one's password, as approving
+  one's own request does. Items are kept for 7 days.
 - Notices to approvers from a trusted local service (chapter 7,
   "Notices"): `POST /v1/notices` on the control socket, by root or whom
   the approver rule `post_notice` allows, about a principal and its

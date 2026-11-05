@@ -18,6 +18,7 @@ obligations.pseudonymize.patterns
 obligations.rate_limit
 obligations.redact_output
 obligations.reidentify
+obligations.review
 outside_scopes
 reason
 required_scopes
