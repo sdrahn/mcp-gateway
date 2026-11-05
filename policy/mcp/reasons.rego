@@ -39,21 +39,18 @@ deny_reasons contains "denied by policy" if {
 	p.effect == "deny"
 }
 
-# METADATA
-# description: |
-#   Why a request that matches no permission matches none, for a module
-#   that leaves a permission out ("this would have been permitted, but
-#   …"): the decision's reason is all of them, sorted and joined with
-#   "; ", instead of "no matching permission". The shipped policy gives
-#   none.
-unmatched_reasons contains reason if {
-	some reason in set()
-}
-
 denial_reason := concat("; ", sort(deny_reasons)) if {
 	count(deny_reasons) > 0
 } else := "denied by policy"
 
-unmatched_reason := concat("; ", sort(unmatched_reasons)) if {
-	count(unmatched_reasons) > 0
+# METADATA
+# description: |
+#   The reason of a request that matches no permission. A module that
+#   leaves a permission out ("this would have been permitted, but …")
+#   explains it with `unmatched_reasons contains "…" if { … }`: the
+#   reason is all of them, sorted and joined with "; ", instead of "no
+#   matching permission". The shipped policy defines no such rule, so
+#   it is referred to by its full path (undefined without a module).
+unmatched_reason := concat("; ", sort(data.mcp.authz.unmatched_reasons)) if {
+	count(data.mcp.authz.unmatched_reasons) > 0
 } else := "no matching permission"
