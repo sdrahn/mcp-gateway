@@ -5,7 +5,9 @@ import rego.v1
 import data.mcp.authz
 
 # The obligation "review": from a permission, or from a module's rule
-# review_wanted; only on allows.
+# review_wanted; only on allows. The principal is not named agent-…:
+# Custos runs these tests with its modules, which deny an agent-* user
+# with a bound role.
 
 review_rbac := {
 	"roles": {"bot": {"permissions": [
@@ -13,11 +15,11 @@ review_rbac := {
 		{"server": "systemd", "tool": "list_units"},
 		{"server": "systemd", "tool": "stop_unit", "require_approval": true, "obligations": {"review": true}},
 	]}},
-	"bindings": {"users": {"agent-ops": ["bot"]}, "groups": {}},
+	"bindings": {"users": {"ops-bot": ["bot"]}, "groups": {}},
 }
 
 call(tool) := {
-	"principal": {"sub": "agent-ops", "groups": [], "transport": "unix", "session_id": "s1"},
+	"principal": {"sub": "ops-bot", "groups": [], "transport": "unix", "session_id": "s1"},
 	"action": "tools.call",
 	"resource": {"server": "systemd", "kind": "tool", "name": tool},
 	"args": {},
