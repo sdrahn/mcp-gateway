@@ -532,7 +532,10 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `GET /v1/policy` | `{"mode": "directories"\|"bundle", "bundles": {name: revision}, "shipped_roles": {role: {"setup", "description", "permissions"}}}`; `502` if OPA is unavailable |
 | `POST /v1/policy/whatif` | body: proposed role data (as `data.json`); returns `{"changes": [{"principal", "server", "kind", "name", "before", "after"}], "principals", "resources", "unchecked": {server: reason}}`: the decisions that would change, for the users (`user:<name>`) and groups (`group:<name>`) either role data binds; `403` unless `data.mcp.approvals.review_policy` allows the caller |
 | `GET /v1/metrics` | metrics in the Prometheus text format (chapter 10); `403` unless the caller is root |
-| `GET /v1/events` | server-sent events (`event: approval`) for the approvals the caller may decide on: first all pending, then changes; `data` is `{"type": "pending"\|"resolved", "id", "new", "pending", "url"}` |
+| `POST /v1/notices` | post a notice (chapter 7, "Notices"): `{"principal", "servers", "severity": "info"\|"warning", "title", "text"}`; returns the notice (`201`): `{"id", "principal": {"sub", "uid"}, "servers", "severity", "title", "text", "posted_by", "created", "expires"}`; `400` with what is wrong; `403` unless the caller is root or `data.mcp.approvals.post_notice` allows them |
+| `GET /v1/notices` | the unexpired notices the caller may read and has not dismissed, oldest first |
+| `POST /v1/notices/{id}/dismiss` | hide a notice for the caller; `204`; `404` if unknown or not the caller's to read |
+| `GET /v1/events` | server-sent events (`event: approval`) for the approvals the caller may decide on and the notices they may read: first all pending and all notices, then changes; `data` is `{"type": "pending"\|"resolved"\|"notice"\|"notice-closed", "id", "new", "pending", "notice", "url"}`; `notice-closed` when a notice expired or the caller dismissed it |
 
 Errors are `{"error": "…"}` with a matching status, and `"code"` for
 those a client handles: `"password_required"` (403) refuses approving
@@ -617,6 +620,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 |---|---|---|
 | `mcp-gateway-start` | the gateway started | |
 | `mcp-decision` | a request was denied (`res=failed`), or any decision on a privileged server | `session`, `principal`, `action`, `server`, `target`, `reason`, `decision_id`; for privileged servers also `privileged=yes` and `grant` |
+| `mcp-notice` | a notice was posted (chapter 7, "Notices") | `id`, `by`, `principal`, `servers`, `severity`, `title`, `notify` (the notify rules' recipients, `user:`/`group:` names) |
 | `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel`; `via`: `page` on the gateway's approval page, `remote-cli` from `mcp-gateway-admin --gateway`, `webhook` on a webhook's callback, `cockpit`, `cli` or `api` when decided through the control API and the caller named it |
 | `mcp-approver-sign-in` | an approver signed in on the gateway's approval page (`res=success`), or a sign-in failed after the identity provider answered (`res=failed`); or signed in on another host (`approvals login --gateway`) | `principal`, `issuer`, `via` (`page`, `remote-cli`), `reason` |
 | `mcp-webhook-callback` | a webhook's receiver called back with a decision, validly signed (`res=success` taken; `failed` refused: replayed, an approver the rules do not allow, a scope not offered, …; unsigned or stale callbacks are not audited) | `webhook`, `approver` (as the callback names them), `id`, `reason` |
@@ -656,7 +660,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/etc/mcp-gateway/bundle/` | `policy.tar.gz`, `verify.pem`, `signing.pem` |
 | `/usr/share/mcp-gateway/opa/` | OPA drop-ins: `signed-bundle.conf`, `bundle-server.conf`, `decision-logs.conf`; examples `opa-config.yaml.example`, `decision-logs.yaml.example` |
 | `/usr/share/mcp-gateway/mcs/` | libvirt drop-ins: `virtqemud.conf`, `libvirtd.conf` |
-| `/var/lib/mcp-gateway/` | `grants.json`, `pending.json`, `audit.key`, `principals.json` |
+| `/var/lib/mcp-gateway/` | `grants.json`, `pending.json`, `notices.json`, `audit.key`, `principals.json` |
 | `/var/lib/mcp-gateway/tokens/` | principals' tokens for servers with `sign_in` (`tokens.json`, encrypted) and their key (`tokens.key`); 0700, `mcpgw_token_t` |
 | `/run/mcp-gateway/mcp.sock` | MCP socket |
 | `/run/mcp-gateway/control.sock` | control API |
@@ -728,6 +732,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | MCS collision check | 2 s | no |
 | "once" grant | 1 min (15 min if decided with no call waiting) | no |
 | "session" grant | session end, at most 8 h | no |
+| notice | 7 days; at most 1000 | no |
 | duration grant | at most 30 days | `approval_scopes` (role data) |
 | SSE replay buffer | 256 events per stream, 5 min | no |
 | sign-in, from the link to the callback | 10 min | `sign_in.timeout` |

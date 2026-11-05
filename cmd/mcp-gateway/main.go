@@ -270,6 +270,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		Timeout:     gw.ApprovalTimeout,
 		GrantsFile:  filepath.Join(gw.StateDir, "grants.json"),
 		PendingFile: filepath.Join(gw.StateDir, "pending.json"),
+		NoticesFile: filepath.Join(gw.StateDir, "notices.json"),
 		URLTemplate: gw.ApprovalURLTemplate(),
 		OOB:         control,
 		Policy:      opa,
@@ -286,6 +287,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		return err
 	}
 	mail.URL = b.ApprovalURL
+	mail.NoticesURL = b.NoticesURL
 	// Local users seen, for approval mail to primary-group members where
 	// NSS does not enumerate users.
 	seen, err := notify.LoadSeen(filepath.Join(gw.StateDir, "principals.json"))

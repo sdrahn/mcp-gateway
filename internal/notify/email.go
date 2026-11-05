@@ -30,7 +30,7 @@ import (
 )
 
 // notifyPath is the policy rule naming whom to tell.
-const notifyPath = "/v1/data/mcp/approvals/notify"
+const notifyPath = broker.NotifyPath
 
 // sendTimeout bounds one delivery to the mail server.
 const sendTimeout = 30 * time.Second
@@ -46,7 +46,9 @@ type Email struct {
 	policy Policy
 	// URL returns the approval page for an approval id ("" if none).
 	URL func(id string) string
-	Log *slog.Logger
+	// NoticesURL returns the page that lists notices ("" if none).
+	NoticesURL func() string
+	Log        *slog.Logger
 	// GroupMembers lists a group's members (default: getent, see
 	// getentMembers, with the users Known returns).
 	GroupMembers func(ctx context.Context, group string) ([]string, error)
@@ -130,8 +132,11 @@ func (e *Email) Run(ctx context.Context, events <-chan broker.Event) {
 			if !ok {
 				return
 			}
-			if ev.Type == "pending" && ev.New && ev.Pending != nil {
+			switch {
+			case ev.Type == "pending" && ev.New && ev.Pending != nil:
 				go e.notify(ctx, *ev.Pending)
+			case ev.Type == "notice" && ev.New && ev.Notice != nil:
+				go e.notifyNotice(ctx, *ev.Notice)
 			}
 		}
 	}
@@ -160,9 +165,24 @@ func (e *Email) notify(ctx context.Context, p broker.Pending) {
 
 // Recipients returns the addresses to mail about p.
 func (e *Email) Recipients(ctx context.Context, p broker.Pending) ([]string, error) {
-	names, err := e.policy.Strings(ctx, notifyPath, broker.ApproverInput{Request: p.Target()})
-	if err != nil {
-		return nil, err
+	return e.recipients(ctx, broker.ApproverInput{Request: p.Target()})
+}
+
+// NoticeRecipients returns the addresses to mail about n: those of each
+// request it is as for (a request of its principal on each server).
+func (e *Email) NoticeRecipients(ctx context.Context, n broker.Notice) ([]string, error) {
+	return e.recipients(ctx, n.Requests()...)
+}
+
+// recipients returns the addresses the notify rules name for inputs.
+func (e *Email) recipients(ctx context.Context, inputs ...broker.ApproverInput) ([]string, error) {
+	var names []string
+	for _, in := range inputs {
+		got, err := e.policy.Strings(ctx, notifyPath, in)
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, got...)
 	}
 	var users []string
 	for _, n := range names {
@@ -189,6 +209,77 @@ func (e *Email) Recipients(ctx context.Context, p broker.Pending) ([]string, err
 		}
 	}
 	return to, nil
+}
+
+// notifyNotice mails the recipients of notice n.
+func (e *Email) notifyNotice(ctx context.Context, n broker.Notice) {
+	if !e.Enabled() {
+		return
+	}
+	to, err := e.NoticeRecipients(ctx, n)
+	if err != nil {
+		e.Log.Warn("notice mail: finding recipients failed", "id", n.ID, "err", err)
+		return
+	}
+	if len(to) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
+	defer cancel()
+	if err := e.Send(ctx, to, e.NoticeMessage(n)); err != nil {
+		e.Log.Warn("notice mail not sent", "id", n.ID, "err", err)
+		return
+	}
+	e.Log.Info("notice mail sent", "id", n.ID, "recipients", len(to))
+}
+
+// NoticeMessage formats the mail about notice n.
+func (e *Email) NoticeMessage(n broker.Notice) []byte {
+	var b bytes.Buffer
+	kind := "Notice"
+	if n.Severity == broker.SeverityWarning {
+		kind = "Warning"
+	}
+	subject := fmt.Sprintf("[mcp-gateway] %s: %s (%s)", kind, n.Title, n.Principal.Sub)
+	hdr := func(k, v string) { fmt.Fprintf(&b, "%s: %s\r\n", k, v) }
+	hdr("From", clean(e.config().From))
+	hdr("To", "undisclosed-recipients:;")
+	hdr("Subject", mime.QEncoding.Encode("utf-8", clean(subject)))
+	hdr("Date", e.now().Format(time.RFC1123Z))
+	hdr("Message-ID", fmt.Sprintf("<%s@%s>", n.ID, clean(e.host)))
+	hdr("Auto-Submitted", "auto-generated")
+	hdr("MIME-Version", "1.0")
+	hdr("Content-Type", "text/plain; charset=utf-8")
+	hdr("Content-Transfer-Encoding", "8bit")
+	b.WriteString("\r\n")
+	line := func(format string, a ...any) {
+		for i, v := range a {
+			if s, ok := v.(string); ok {
+				a[i] = clean(s)
+			}
+		}
+		fmt.Fprintf(&b, format+"\r\n", a...)
+	}
+	line("%s posted a notice for the approvers of %s:", n.PostedBy, n.Principal.Sub)
+	line("")
+	line("  %s", n.Title)
+	if len(n.Servers) > 0 {
+		line("  Servers:    %s", strings.Join(n.Servers, ", "))
+	}
+	line("  Severity:   %s", n.Severity)
+	line("")
+	for _, l := range strings.Split(strings.ReplaceAll(n.Text, "\r", ""), "\n") {
+		line("%s", l)
+	}
+	line("")
+	if e.NoticesURL != nil {
+		if u := e.NoticesURL(); u != "" {
+			line("The notice is listed on the approval page: %s", u)
+			line("")
+		}
+	}
+	line("This notice asks for no decision.")
+	return b.Bytes()
 }
 
 // validName accepts plausible account names only (no header or SMTP

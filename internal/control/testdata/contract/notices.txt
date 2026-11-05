@@ -1,0 +1,11 @@
+[].created
+[].expires
+[].id
+[].posted_by
+[].principal
+[].principal.sub
+[].principal.uid
+[].servers
+[].severity
+[].text
+[].title

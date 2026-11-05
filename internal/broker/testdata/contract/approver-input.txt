@@ -24,6 +24,11 @@ grant.uid
 instance
 instance.server
 instance.uid
+notice
+notice.principal
+notice.servers
+notice.severity
+notice.title
 request
 request.action
 request.name
@@ -48,6 +53,7 @@ request.principal.sub
 request.principal.transport
 request.principal.uid
 request.server
+request.servers
 session
 session.client
 session.client.name

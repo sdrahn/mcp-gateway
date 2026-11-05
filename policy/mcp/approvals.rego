@@ -131,6 +131,15 @@ review_policy if {
 	grants(rule, {})
 }
 
+# METADATA
+# description: >-
+#   May the caller post a notice to the approvers of a principal
+#   (POST /v1/notices; input.notice)? Root always may; with this rule
+#   undefined or false, nobody else. A local service account is allowed
+#   by name, for instance: post_notice if input.approver.name == "custos".
+# entrypoint: true
+default post_notice := false
+
 # Whom to tell about a pending approval (e-mail notifications): the
 # approvers its server's rules name, as "user:<name>" and "group:<name>".
 # "self" is the principal's local account, if it has one.

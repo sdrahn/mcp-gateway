@@ -17,6 +17,15 @@ minor release (with a warning) and removed in the next.
   and joined with "; ". The agent, the audit record and the kernel audit
   message get them as other reasons. Without them, decisions are as
   before (chapter 12, "Reasons for denials").
+- Notices to approvers from a trusted local service (chapter 7,
+  "Notices"): `POST /v1/notices` on the control socket, by root or whom
+  the approver rule `post_notice` allows, about a principal and its
+  servers. The approvers of that principal's requests on those servers
+  read it (rule `allow`, as for a pending request), the `notify`
+  recipients get one mail, the event stream has it (`"type": "notice"`,
+  so `mcp-gateway-notify` shows it), and the approval page lists it
+  until the reader dismisses it or it expires after 7 days. Each post
+  is audited (`mcp-notice`).
 - The outcome of each tool call the gateway forwards is audited, in the
   journal: event `mcp-result` with `ok`, `tool_error`, `error`,
   `cancelled` or `timeout`, the decision id, the approval and grant that

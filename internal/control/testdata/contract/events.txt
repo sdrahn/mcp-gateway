@@ -2,6 +2,18 @@
 # Fields may be added, never renamed or removed (docs/architecture.md, D10).
 id
 new
+notice
+notice.created
+notice.expires
+notice.id
+notice.posted_by
+notice.principal
+notice.principal.sub
+notice.principal.uid
+notice.servers
+notice.severity
+notice.text
+notice.title
 pending
 pending.action
 pending.args

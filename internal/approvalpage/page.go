@@ -48,6 +48,9 @@ type Broker interface {
 	Subscribe() (<-chan broker.Event, func())
 	MayApprove(ctx context.Context, a broker.Approver, p broker.Pending) bool
 	ApprovalURL(id string) string
+	// Notices to the approver (POST /v1/notices on the control socket).
+	ListNotices(ctx context.Context, a broker.Approver) []broker.Notice
+	DismissNotice(ctx context.Context, a broker.Approver, id string) error
 }
 
 // IDTokens validates the identity provider's ID tokens (authn.OAuth).
@@ -227,6 +230,7 @@ func (pg *Page) Handler() http.Handler {
 	mux.HandleFunc("GET /approvals/{id}", pg.show)
 	mux.HandleFunc("POST /approvals/{id}", pg.decide)
 	mux.HandleFunc("POST /approvals/grants/{id}/revoke", pg.revoke)
+	mux.HandleFunc("POST /approvals/notices/{id}/dismiss", pg.dismiss)
 	pg.apiRoutes(mux)
 	mux.HandleFunc("/approvals/", func(w http.ResponseWriter, r *http.Request) {
 		pg.page(w, http.StatusNotFound, "Not found", "There is no such page.", nil)
@@ -599,11 +603,12 @@ func (pg *Page) inbox(w http.ResponseWriter, r *http.Request) {
 	}
 	pending := pg.Broker.ListPending(r.Context(), s.Approver)
 	grants := pg.Broker.ListGrants(r.Context(), s.Approver)
+	notices := pg.Broker.ListNotices(r.Context(), s.Approver)
 	pg.mu.Lock()
 	done := s.done
 	s.done = ""
 	pg.mu.Unlock()
-	pg.render(w, http.StatusOK, inboxTmpl, map[string]any{"S": s, "Pending": pending, "Grants": grants, "Msg": done})
+	pg.render(w, http.StatusOK, inboxTmpl, map[string]any{"S": s, "Pending": pending, "Grants": grants, "Notices": notices, "Msg": done})
 }
 
 func (pg *Page) show(w http.ResponseWriter, r *http.Request) {
@@ -666,6 +671,21 @@ func (pg *Page) revoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pg.flash(s, "revoked "+id)
+	http.Redirect(w, r, "/approvals/", http.StatusSeeOther)
+}
+
+// dismiss hides a notice from the signed-in approver.
+func (pg *Page) dismiss(w http.ResponseWriter, r *http.Request) {
+	s := pg.checkPost(w, r)
+	if s == nil {
+		return
+	}
+	id := r.PathValue("id")
+	if err := pg.Broker.DismissNotice(r.Context(), s.Approver, id); err != nil {
+		pg.page(w, http.StatusNotFound, "No such notice", "This notice is unknown, expired, or not for you.", s)
+		return
+	}
+	pg.flash(s, "dismissed notice "+id)
 	http.Redirect(w, r, "/approvals/", http.StatusSeeOther)
 }
 
