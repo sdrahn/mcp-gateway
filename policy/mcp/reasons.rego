@@ -39,9 +39,11 @@ deny_reasons contains "denied by policy" if {
 	p.effect == "deny"
 }
 
+default denial_reason := "denied by policy"
+
 denial_reason := concat("; ", sort(deny_reasons)) if {
 	count(deny_reasons) > 0
-} else := "denied by policy"
+}
 
 # METADATA
 # description: |
@@ -51,6 +53,8 @@ denial_reason := concat("; ", sort(deny_reasons)) if {
 #   reason is all of them, sorted and joined with "; ", instead of "no
 #   matching permission". The shipped policy defines no such rule, so
 #   it is referred to by its full path (undefined without a module).
+default unmatched_reason := "no matching permission"
+
 unmatched_reason := concat("; ", sort(data.mcp.authz.unmatched_reasons)) if {
 	count(data.mcp.authz.unmatched_reasons) > 0
-} else := "no matching permission"
+}

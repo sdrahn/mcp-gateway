@@ -31,23 +31,23 @@ call(server, tool, args) := {
 test_module_denial_names_its_reason if {
 	d := authz.decision with input as call("fs", "read_file", {})
 		with data.mcp.rbac as rbac
-		with data.mcp.authz.denied as true
-		with data.mcp.authz.deny_reasons as {"the agent is paused"}
+		with authz.denied as true
+		with authz.deny_reasons as {"the agent is paused"}
 	d == {"effect": "deny", "reason": "the agent is paused"}
 }
 
 test_reasons_of_two_modules_sorted if {
 	d := authz.decision with input as call("fs", "read_file", {})
 		with data.mcp.rbac as rbac
-		with data.mcp.authz.denied as true
-		with data.mcp.authz.deny_reasons as {"the agent is paused", "emergency stop"}
+		with authz.denied as true
+		with authz.deny_reasons as {"the agent is paused", "emergency stop"}
 	d.reason == "emergency stop; the agent is paused"
 }
 
 test_module_denial_without_reason_as_before if {
 	d := authz.decision with input as call("fs", "read_file", {})
 		with data.mcp.rbac as rbac
-		with data.mcp.authz.denied as true
+		with authz.denied as true
 	d == {"effect": "deny", "reason": "denied by policy"}
 }
 
@@ -60,14 +60,14 @@ test_denying_permission_as_before if {
 test_unmatched_explained if {
 	d := authz.decision with input as call("fs", "move_file", {})
 		with data.mcp.rbac as rbac
-		with data.mcp.authz.unmatched_reasons as {"task category files-cleanup is not enabled on this host"}
+		with authz.unmatched_reasons as {"task category files-cleanup is not enabled on this host"}
 	d == {"effect": "deny", "reason": "task category files-cleanup is not enabled on this host"}
 }
 
 test_unmatched_reasons_sorted if {
 	d := authz.decision with input as call("fs", "move_file", {})
 		with data.mcp.rbac as rbac
-		with data.mcp.authz.unmatched_reasons as {"b: not enabled", "a: not enabled"}
+		with authz.unmatched_reasons as {"b: not enabled", "a: not enabled"}
 	d.reason == "a: not enabled; b: not enabled"
 }
 
@@ -83,15 +83,15 @@ test_unmatched_reasons_only_for_no_match if {
 	reasons := {"task category x is not enabled on this host"}
 	allowed := authz.decision with input as call("fs", "read_file", {})
 		with data.mcp.rbac as rbac
-		with data.mcp.authz.unmatched_reasons as reasons
+		with authz.unmatched_reasons as reasons
 	allowed.effect == "allow"
 	asks := authz.decision with input as call("systemd", "restart_unit", {})
 		with data.mcp.rbac as rbac
-		with data.mcp.authz.unmatched_reasons as reasons
+		with authz.unmatched_reasons as reasons
 	asks.effect == "ask"
 	limited := authz.decision with input as call("fs", "write_file", {"path": "/etc/passwd"})
 		with data.mcp.rbac as rbac
-		with data.mcp.authz.unmatched_reasons as reasons
+		with authz.unmatched_reasons as reasons
 	startswith(limited.reason, "no matching permission: the arguments are outside what your roles allow")
 }
 
@@ -99,6 +99,6 @@ test_unmatched_reasons_only_for_no_match if {
 test_deny_reasons_only_when_denied if {
 	d := authz.decision with input as call("fs", "read_file", {})
 		with data.mcp.rbac as rbac
-		with data.mcp.authz.deny_reasons as {"the agent is paused"}
+		with authz.deny_reasons as {"the agent is paused"}
 	d.effect == "allow"
 }
