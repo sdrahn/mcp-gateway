@@ -292,6 +292,8 @@ several definitions:
 | Rule | Kind | Adding a definition… |
 |---|---|---|
 | `mcp.authz.denied` | boolean | denies more requests ("denied by policy"); a deny always wins |
+| `mcp.authz.deny_reasons` | set of texts | says why: the denial's reason is the texts, sorted and joined with "; ", instead of "denied by policy" ("Reasons for denials" below) |
+| `mcp.authz.unmatched_reasons` | set of texts | explains a request that matches no permission: its reason instead of "no matching permission" |
 | `mcp.authz.roles` | set | gives principals additional roles |
 | `mcp.authz.perms` | set | adds permissions (objects as in the role data) |
 | `mcp.approvals.allow`, `manage_grant`, `manage_instance`, `manage_task`, `manage_session` | boolean | lets more approvers act |
@@ -315,6 +317,48 @@ denies the request. Use approach B for those.
 These rule names are internals of the shipped policy, not a stable API.
 Keep tests for your additions and run them after every package update
 (see [Testing](#testing)).
+
+#### Reasons for denials
+
+A denial reads "denied by policy" (a rule in `denied`, or a permission
+with `"effect": "deny"`) or "no matching permission" (nothing permits the
+request). The agent and the administrator reading the audit cannot tell
+one cause from another. A module that denies, or that leaves a
+permission out, says why with two sets of texts:
+
+```rego
+# /etc/mcp-gateway/policy/custom/maintenance.rego
+package mcp.authz
+
+import rego.v1
+
+# Denies changes during the maintenance window, and says so.
+denied if maintenance
+
+deny_reasons contains "the host is in its maintenance window" if maintenance
+
+# A request a permission of the paused team would have allowed: no
+# permission now, and why.
+unmatched_reasons contains "the team's permissions are paused" if {
+	input.principal.sub in data.paused_team
+}
+```
+
+- **`deny_reasons`**: with a denial (`denied`), the decision's reason
+  is all of its texts, sorted and joined with "; ". A permission that
+  denies the request adds "denied by policy", so two causes are both
+  named. Without texts the reason is "denied by policy", as before.
+- **`unmatched_reasons`**: for a request that matches no permission
+  only (not one that is allowed, asks, or whose arguments a permission
+  limits), its texts replace "no matching permission".
+- The reason reaches the agent (`mcp-gateway: <reason>`), the audit
+  record (`reason`) and the kernel audit message, as other reasons do.
+  It is shown to the agent: name the cause, not secrets.
+- Listings (`mcp.filter`) are unaffected: a tool either is listed or not.
+- A text belongs to the module's own denial: add it under the same
+  conditions as the `denied` rule (or the left-out permission), or the
+  reason names a cause that did not apply. Several modules' texts add
+  up; the order is the sort order, not the modules'.
 
 #### Example: changing tools only during office hours
 

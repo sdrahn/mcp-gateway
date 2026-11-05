@@ -7,6 +7,17 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- A policy module can give the reason for a denial: texts in
+  `mcp.authz.deny_reasons` become the reason of a denial (`denied`)
+  instead of "denied by policy", and texts in
+  `mcp.authz.unmatched_reasons` that of a request that matches no
+  permission instead of "no matching permission"; several are sorted
+  and joined with "; ". The agent, the audit record and the kernel audit
+  message get them as other reasons. Without them, decisions are as
+  before (chapter 12, "Reasons for denials").
+
 ## v1.13.0 — 2026-11-04
 
 Approvals an agent can match to its calls, and a user guide for running
