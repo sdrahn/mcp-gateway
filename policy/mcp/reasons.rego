@@ -26,3 +26,36 @@ args_reason := sprintf(
 	"no matching permission: the arguments are outside what your roles allow (%s)",
 	[concat("; or ", sort(args_limits))],
 )
+
+# METADATA
+# description: |
+#   Why a request is denied, for a module that adds to `denied`: each
+#   text is one reason, and the decision's reason is all of them, sorted
+#   and joined with "; " (an empty set: "denied by policy"). The shipped
+#   policy names a permission that denies the request; a module adds its
+#   own (`deny_reasons contains "the agent is paused" if { … }`).
+deny_reasons contains "denied by policy" if {
+	some p in matching
+	p.effect == "deny"
+}
+
+default denial_reason := "denied by policy"
+
+denial_reason := concat("; ", sort(deny_reasons)) if {
+	count(deny_reasons) > 0
+}
+
+# METADATA
+# scope: document
+# description: |
+#   The reason of a request that matches no permission. A module that
+#   leaves a permission out ("this would have been permitted, but …")
+#   explains it with `unmatched_reasons contains "…" if { … }`: the
+#   reason is all of them, sorted and joined with "; ", instead of "no
+#   matching permission". The shipped policy defines no such rule, so
+#   it is referred to by its full path (undefined without a module).
+default unmatched_reason := "no matching permission"
+
+unmatched_reason := concat("; ", sort(data.mcp.authz.unmatched_reasons)) if {
+	count(data.mcp.authz.unmatched_reasons) > 0
+}

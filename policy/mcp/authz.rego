@@ -462,7 +462,7 @@ else := d
 # entrypoint: true
 default decision := {"effect": "deny", "reason": "no matching permission"}
 
-decision := {"effect": "deny", "reason": "denied by policy"} if {
+decision := {"effect": "deny", "reason": denial_reason} if {
 	denied
 } else := scope_denial if {
 	outside_scopes
@@ -490,4 +490,4 @@ decision := {"effect": "deny", "reason": "denied by policy"} if {
 	count(approvable) > 0
 } else := {"effect": "deny", "reason": args_reason} if {
 	count(args_limits) > 0
-}
+} else := {"effect": "deny", "reason": unmatched_reason}

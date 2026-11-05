@@ -14,6 +14,8 @@ rules:
         - data.mcp.rbac.**
         - data.mcp.profiles
         - data.mcp.profiles.**
+        # Defined by a site's own module only (policy/mcp/reasons.rego).
+        - data.mcp.authz.unmatched_reasons
   performance:
     with-outside-test-context:
       # The filter decides every resource of a listing as if it were
