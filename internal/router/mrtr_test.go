@@ -25,7 +25,7 @@ type askPDP struct {
 func (p askPDP) Decide(ctx context.Context, in pep.Input) (pep.Decision, error) {
 	if in.Action == "tools.call" && p.ask[in.Resource.Name] {
 		if len(in.Grants) > 0 {
-			return pep.Decision{Effect: pep.Allow}, nil
+			return pep.Decision{Effect: pep.Allow, Reason: "approved"}, nil
 		}
 		return pep.Decision{Effect: pep.Ask, Ask: &pep.AskSpec{Channel: p.channel, Fallback: "oob", Scopes: []string{"once", "session", "1h"}}}, nil
 	}

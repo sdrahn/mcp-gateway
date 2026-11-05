@@ -252,7 +252,7 @@ var emptyResultFields = map[string]string{"tools/call": "content", "resources/re
 // a request that cannot ask for input), with the approval policy asks
 // for as rounds of the call. A non-nil last result is the
 // InputRequiredResult to answer with.
-func (s *Session) decideModern(ctx context.Context, t *callTarget, decisionID string, r *agentRound) (pep.Decision, string, pep.Input, any) {
+func (s *Session) decideModern(ctx context.Context, t *callTarget, decisionID string, r *agentRound) (pep.Decision, *pep.Grant, pep.Input, any) {
 	p := s.snapshotPrincipal()
 	in := pep.Input{
 		Principal: p,
@@ -273,7 +273,7 @@ func (s *Session) decideModern(ctx context.Context, t *callTarget, decisionID st
 			if dec.Effect == pep.Allow {
 				r.grant = st.Grant
 			}
-			return dec, st.Grant.ID, in, nil
+			return dec, st.Grant, in, nil
 		}
 		in.Grants = in.Grants[:len(in.Grants)-1]
 	}
@@ -282,7 +282,7 @@ func (s *Session) decideModern(ctx context.Context, t *callTarget, decisionID st
 		return dec, grantID, in, nil
 	}
 	if r == nil {
-		return pep.Decision{Effect: pep.Deny, Reason: "approval required, which a " + t.action + " request of MCP 2026-07-28 cannot ask for"}, "", in, nil
+		return pep.Decision{Effect: pep.Deny, Reason: "approval required, which a " + t.action + " request of MCP 2026-07-28 cannot ask for"}, nil, in, nil
 	}
 	ask := *dec.Ask
 	// No session: no grant for the session.
@@ -297,26 +297,26 @@ func (s *Session) decideModern(ctx context.Context, t *callTarget, decisionID st
 	case st.Approval != "":
 		if res, ok := r.response("approval"); ok && res.Action != "accept" {
 			s.r.Broker.Withdraw(st.Approval, p)
-			return pep.Decision{Effect: pep.Deny, Reason: "declined by user"}, "", in, nil
+			return pep.Decision{Effect: pep.Deny, Reason: "declined by user"}, nil, in, nil
 		}
 		return s.awaitApproval(ctx, t, in, dec, st.Approval, r)
 	}
 	c, err := s.r.Broker.Channel(s, ask)
 	if err != nil {
-		return pep.Decision{Effect: pep.Deny, Reason: fmt.Sprintf("approval via %s required but not available", ask.Channel)}, "", in, nil
+		return pep.Decision{Effect: pep.Deny, Reason: fmt.Sprintf("approval via %s required but not available", ask.Channel)}, nil, in, nil
 	}
 	switch c {
 	case pep.ChannelForm:
-		return dec, "", in, s.inputRequired(r, agentState{Form: true}, map[string]inputRequest{
+		return dec, nil, in, s.inputRequired(r, agentState{Form: true}, map[string]inputRequest{
 			"approval": {Method: "elicitation/create", Params: broker.FormParams(in, ask)}})
 	case pep.ChannelURL:
 		id := s.r.Broker.Park(in, ask, c)
-		return dec, "", in, s.inputRequired(r, agentState{Approval: id}, map[string]inputRequest{
+		return dec, nil, in, s.inputRequired(r, agentState{Approval: id}, map[string]inputRequest{
 			"approval": {Method: "elicitation/create", Params: s.r.Broker.URLParams(in, ask, id)}})
 	default:
 		if s.noWait() {
 			// Answered at once (approvals.no_wait; nowait.go).
-			return s.askedElsewhere(ctx, t, in, ask), "", in, nil
+			return s.askedElsewhere(ctx, t, in, ask), nil, in, nil
 		}
 		// Nothing to show the agent first: this round waits already.
 		id := s.r.Broker.Park(in, ask, c)
@@ -343,13 +343,13 @@ func (s *Session) roundWait() time.Duration {
 
 // awaitApproval waits a round (roundWait) for the decision on parked
 // approval id, and answers the round with it, or to retry.
-func (s *Session) awaitApproval(ctx context.Context, t *callTarget, in pep.Input, dec pep.Decision, id string, r *agentRound) (pep.Decision, string, pep.Input, any) {
+func (s *Session) awaitApproval(ctx context.Context, t *callTarget, in pep.Input, dec pep.Decision, id string, r *agentRound) (pep.Decision, *pep.Grant, pep.Input, any) {
 	stop := s.reportWaiting(t)
 	g, outcome := s.r.Broker.Await(ctx, id, in.Principal, s.roundWait())
 	stop()
 	switch outcome {
 	case broker.Waiting:
-		return dec, "", in, s.inputRequired(r, agentState{Approval: id}, nil)
+		return dec, nil, in, s.inputRequired(r, agentState{Approval: id}, nil)
 	case broker.Decided:
 		return s.granted(ctx, in, g, nil, r)
 	}
@@ -365,34 +365,34 @@ func (s *Session) awaitApproval(ctx context.Context, t *callTarget, in pep.Input
 
 // withOnce evaluates in, with a "once" grant from an approval decided
 // while no call waited if there is one (used up if it allows the call).
-func (s *Session) withOnce(ctx context.Context, in *pep.Input, r *agentRound) (pep.Decision, string) {
+func (s *Session) withOnce(ctx context.Context, in *pep.Input, r *agentRound) (pep.Decision, *pep.Grant) {
 	once, haveOnce := s.r.Broker.TakeOnce(in.Principal, in.Resource.Server, in.Resource.Name)
 	if haveOnce {
 		in.Grants = append(in.Grants, once)
 	}
 	dec := pep.Evaluate(ctx, s.r.PDP, *in)
 	if !haveOnce {
-		return dec, ""
+		return dec, nil
 	}
 	if dec.Effect == pep.Allow {
 		if r != nil {
 			r.grant = &once
 		}
-		return dec, once.ID
+		return dec, &once
 	}
 	s.r.Broker.ReturnOnce(once)
 	in.Grants = in.Grants[:len(in.Grants)-1]
-	return dec, ""
+	return dec, nil
 }
 
 // granted decides again with the grant g of an approval (nil: declined).
-func (s *Session) granted(ctx context.Context, in pep.Input, g *pep.Grant, err error, r *agentRound) (pep.Decision, string, pep.Input, any) {
+func (s *Session) granted(ctx context.Context, in pep.Input, g *pep.Grant, err error, r *agentRound) (pep.Decision, *pep.Grant, pep.Input, any) {
 	switch {
 	case err != nil:
 		s.log.Warn("approval failed", "err", err)
-		return pep.Decision{Effect: pep.Deny, Reason: "approval failed"}, "", in, nil
+		return pep.Decision{Effect: pep.Deny, Reason: "approval failed"}, nil, in, nil
 	case g == nil:
-		return pep.Decision{Effect: pep.Deny, Reason: "declined by user"}, "", in, nil
+		return pep.Decision{Effect: pep.Deny, Reason: "declined by user"}, nil, in, nil
 	}
 	in.Grants = s.r.Broker.Grants(in.Principal, in.Resource.Server, in.Resource.Name)
 	if g.Scope == "once" {
@@ -405,7 +405,7 @@ func (s *Session) granted(ctx context.Context, in pep.Input, g *pep.Grant, err e
 	if dec.Effect == pep.Allow && g.Scope == "once" {
 		r.grant = g
 	}
-	return dec, g.ID, in, nil
+	return dec, g, in, nil
 }
 
 // signInModern signs a modern agent's principal in to b as rounds of the

@@ -17,6 +17,15 @@ minor release (with a warning) and removed in the next.
   and joined with "; ". The agent, the audit record and the kernel audit
   message get them as other reasons. Without them, decisions are as
   before (chapter 12, "Reasons for denials").
+- The outcome of each tool call the gateway forwards is audited, in the
+  journal: event `mcp-result` with `ok`, `tool_error`, `error`,
+  `cancelled` or `timeout`, the decision id, the approval and grant that
+  allowed the call, its duration and the client's progress token; a short
+  error text only with the obligation `audit: "full"` (chapter 11, "Audit
+  records"). It is written when the server answers, whatever the client
+  does with the result. Grants name the approval they were made for
+  (`approval_id`), and the decision record names a stored grant that
+  allowed a call (policy reason `approved`) as `grant`.
 
 ## v1.13.0 — 2026-11-04
 

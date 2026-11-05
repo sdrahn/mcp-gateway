@@ -551,7 +551,8 @@ with `/v1` kept for one more minor release.
 
 **Grant** fields: `id`, `sub`, `iss`, `uid`, `server`, `tool`, `scope`
 (`once`, `session`, `duration`), `session_id`, `expires`, `approved_by`,
-`channel`.
+`channel`, `approval_id` (the approval it was made for; none for an
+answer to a form).
 
 ## Audit records
 
@@ -566,7 +567,7 @@ Decision records (journal of `mcp-gateway.service`, `"audit": true`):
 | `name` | tool, prompt, resource URI or method |
 | `effect` | `allow` or `deny` |
 | `reason` | why (for denials, and `approved`) |
-| `grant` | the grant that allowed the call |
+| `grant` | the grant that allowed the call: one made by an approval, or a stored grant when policy allowed the call `approved` |
 | `instance` | the instance involved |
 | `decision_id` | correlates with OPA's decision log |
 | `args_hmac` | HMAC-SHA256 of the arguments (key: `/var/lib/mcp-gateway/audit.key`) |
@@ -585,6 +586,30 @@ expired with its result not fetched (chapter 5, "Long calls: tasks"):
 `reason`. So is `mcp-context`, an agent's context of a server with
 `contexts` opened or ended (chapter 4): `op` (`open`, `end`), `context`,
 `principal`, `transport`, `server`.
+
+The outcome of each tool call the gateway forwarded, `mcp-result`, is
+recorded in the journal only too, when the server's answer comes back or
+the call ends without one, whatever the client then does with it (also
+for a task's call, and for a client that never reads the answer). Calls
+that policy denied were not forwarded and have none:
+
+| Field | Meaning |
+|---|---|
+| `session`, `sub`, `server`, `name` | as in the decision record |
+| `decision_id` | the decision that let the call through |
+| `approval_id` | the approval, if the call was approved |
+| `grant` | the grant that allowed the call, as in the decision record |
+| `outcome` | `ok`; `tool_error` (the result had `isError: true`); `error` (a JSON-RPC error from the server, or the server could not be reached or went away); `cancelled` (by the client, or the session ended); `timeout` |
+| `error` | with `tool_error` and `error`: the result's first text or the error's message, on one line, at most 200 bytes; only with the obligation `audit: "full"` (the digest mode records no text of the call) |
+| `duration_ms` | from forwarding the call to its end |
+| `progress_token` | the client's `_meta.progressToken` for the call, if it sent one. Client-supplied: for correlating with the client's own records only |
+
+```json
+{"audit": true, "event": "mcp-result", "session": "4f1c…", "sub": "alice",
+ "server": "zypp", "name": "patch", "decision_id": "8c2b…", "approval_id": "a-…",
+ "grant": "g-…", "outcome": "tool_error", "duration_ms": 8123,
+ "progress_token": "e-1/call_3"}
+```
 
 Kernel audit (`TRUSTED_APP`) operations:
 

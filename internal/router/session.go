@@ -1142,15 +1142,22 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 
 	decisionID := newDecisionID()
 	var dec pep.Decision
-	var grantID string
+	var grant *pep.Grant
 	var in pep.Input
 	if s.modern {
 		var ask any
-		if dec, grantID, in, ask = s.decideModern(ctx, t, decisionID, round); ask != nil {
+		if dec, grant, in, ask = s.decideModern(ctx, t, decisionID, round); ask != nil {
 			return ask, nil
 		}
 	} else {
-		dec, grantID, in = s.decide(ctx, t, decisionID)
+		dec, grant, in = s.decide(ctx, t, decisionID)
+	}
+	if grant == nil {
+		grant = storedGrant(dec, in)
+	}
+	var grantID, approvalID string
+	if grant != nil {
+		grantID, approvalID = grant.ID, grant.ApprovalID
 	}
 	p := s.snapshotPrincipal()
 	// Obligations were validated by pep.Evaluate; a compile error here
@@ -1237,8 +1244,28 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	if gw := s.rewriteProgressToken(u, params, t.progress.offset(), requestOf(ctx)); gw != nil {
 		defer u.unregisterProgress(gw)
 	}
+	// The outcome of a tool call is audited when its answer comes back or
+	// it ends without one (mcp-result), whatever the client then does.
+	started := time.Now()
+	var sendErr error
+	result := func(raw json.RawMessage, rerr *jsonrpc.Error) {
+		if m.Method != "tools/call" {
+			return
+		}
+		r := audit.Result{Session: p.SessionID, Sub: p.Sub, Server: t.server, Name: t.resource.Name,
+			DecisionID: decisionID, ApprovalID: approvalID, GrantID: grantID, Duration: time.Since(started)}
+		r.Outcome, r.Error = callOutcome(ctx, raw, rerr, sendErr)
+		if ob == nil || !ob.FullAudit {
+			r.Error = "" // the digest mode records no text of the call
+		}
+		if t.progress != nil {
+			r.ProgressToken = tokenText(t.progress.token)
+		}
+		s.r.Audit.Result(r)
+	}
 	send := func() (json.RawMessage, bool, *jsonrpc.Error) {
 		resp, err := u.request(ctx, s, m.Method, params)
+		sendErr = err
 		if errors.Is(err, errShuttingDown) {
 			return nil, false, rpcError(jsonrpc.CodeInternalError, err.Error())
 		}
@@ -1268,7 +1295,9 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	// state and calls again itself.
 	for ; inputRequired && rerr == nil; inputRound++ {
 		if inputRound == maxInputRounds {
-			return nil, rpcError(jsonrpc.CodeInternalError, fmt.Sprintf("%s asked the client for input more than %d times in one call", t.server, maxInputRounds))
+			rerr = rpcError(jsonrpc.CodeInternalError, fmt.Sprintf("%s asked the client for input more than %d times in one call", t.server, maxInputRounds))
+			result(nil, rerr)
+			return nil, rerr
 		}
 		if round != nil {
 			var ask any
@@ -1277,7 +1306,9 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 				return ask, nil
 			}
 		} else if s.modern {
-			return nil, rpcError(jsonrpc.CodeInternalError, t.server+" asks for input, which a "+m.Method+" request of MCP 2026-07-28 cannot pass on")
+			rerr = rpcError(jsonrpc.CodeInternalError, t.server+" asks for input, which a "+m.Method+" request of MCP 2026-07-28 cannot pass on")
+			result(nil, rerr)
+			return nil, rerr
 		} else {
 			rerr = s.answerInput(ctx, u, raw, params)
 		}
@@ -1285,6 +1316,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 			raw, inputRequired, rerr = send()
 		}
 	}
+	result(raw, rerr)
 	if rerr != nil {
 		return nil, rerr
 	}
@@ -1362,7 +1394,7 @@ func rateKey(p principal.Principal, t *callTarget) string {
 // with the audit record.
 // It also returns the policy input of the final decision (with the grants
 // it was made with).
-func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) (pep.Decision, string, pep.Input) {
+func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) (pep.Decision, *pep.Grant, pep.Input) {
 	p := s.snapshotPrincipal()
 	in := pep.Input{
 		Principal: p,
@@ -1383,13 +1415,13 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 	dec := pep.Evaluate(ctx, s.r.PDP, in)
 	if haveOnce {
 		if dec.Effect == pep.Allow {
-			return dec, once.ID, in
+			return dec, &once, in
 		}
 		s.r.Broker.ReturnOnce(once)
 		in.Grants = in.Grants[:len(in.Grants)-1]
 	}
 	if dec.Effect != pep.Ask {
-		return dec, "", in
+		return dec, nil, in
 	}
 	ask := *dec.Ask
 	if p.SessionID == "" || s.task != nil {
@@ -1402,7 +1434,7 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 		// Answered at once, if the approval goes out of band
 		// (approvals.no_wait; nowait.go).
 		if c, err := s.r.Broker.Channel(s.elicitorFor(ctx), ask); err == nil && c == pep.ChannelOOB {
-			return s.askedElsewhere(ctx, t, in, ask), "", in
+			return s.askedElsewhere(ctx, t, in, ask), nil, in
 		}
 	}
 	stop := s.reportWaiting(t)
@@ -1410,12 +1442,12 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 	stop()
 	switch {
 	case errors.Is(err, broker.ErrNoChannel):
-		return pep.Decision{Effect: pep.Deny, Reason: fmt.Sprintf("approval via %s required but not available", dec.Ask.Channel)}, "", in
+		return pep.Decision{Effect: pep.Deny, Reason: fmt.Sprintf("approval via %s required but not available", dec.Ask.Channel)}, nil, in
 	case err != nil:
 		s.log.Warn("approval failed", "err", err)
-		return pep.Decision{Effect: pep.Deny, Reason: "approval failed"}, "", in
+		return pep.Decision{Effect: pep.Deny, Reason: "approval failed"}, nil, in
 	case g == nil:
-		return pep.Decision{Effect: pep.Deny, Reason: "declined by user"}, "", in
+		return pep.Decision{Effect: pep.Deny, Reason: "declined by user"}, nil, in
 	}
 	// Stored grants now include g, unless it is a "once" grant, which is
 	// only valid for this re-evaluation.
@@ -1427,7 +1459,7 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 	if dec.Effect == pep.Ask {
 		dec = pep.Decision{Effect: pep.Deny, Reason: "policy did not accept the approval"}
 	}
-	return dec, g.ID, in
+	return dec, g, in
 }
 
 // reidentify replaces the session's pseudonyms in the arguments that the

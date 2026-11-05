@@ -137,7 +137,7 @@ not enforce.
   "grants": [
     {"id": "g-5d0e…", "sub": "alice", "uid": 1000, "server": "fs", "tool": "write_file",
      "scope": "session", "session_id": "4f1c…", "expires": "2026-09-27T18:00:00Z",
-     "approved_by": "bob", "channel": "url"}
+     "approved_by": "bob", "channel": "url", "approval_id": "a-91c3…"}
   ],
   "context": {
     "time": "2026-09-27T10:12:03Z",

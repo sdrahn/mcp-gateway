@@ -1,5 +1,6 @@
 # POST /v1/approvals/{id}: the grant (200)
 # Fields may be added, never renamed or removed (docs/architecture.md, D10).
+approval_id
 approved_by
 args_match
 channel

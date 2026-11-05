@@ -8,6 +8,7 @@ approver.name
 approver.remote
 approver.uid
 grant
+grant.approval_id
 grant.approved_by
 grant.args_match
 grant.channel
