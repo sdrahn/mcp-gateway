@@ -727,6 +727,14 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 	return s.w.Write(p)
 }
 
+// String is what was written so far, read under the lock: records of
+// calls that end (mcp-result) may still come in.
+func (s *syncWriter) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.String()
+}
+
 func TestLabelElicitation(t *testing.T) {
 	out := labelElicitation(json.RawMessage(`{"message":"Your token?","requestedSchema":{}}`), "fs")
 	if !strings.Contains(string(out), `"[fs] Your token?"`) {

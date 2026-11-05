@@ -125,8 +125,8 @@ func sessionOf(t *testing.T, r *Router, sub, kind string) string {
 // server's instance runs until its call ends.
 func TestEndSession(t *testing.T) {
 	r, l := testRouter(t, time.Hour)
-	var logs strings.Builder
-	r.Audit = audit.New(&syncWriter{w: &logs})
+	logs := &syncWriter{w: &strings.Builder{}}
+	r.Audit = audit.New(logs)
 
 	c := connect(t, r, alice(), "fs", nil)
 	c.send(1, "tools/call", map[string]any{"name": "slow"})

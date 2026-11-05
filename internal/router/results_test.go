@@ -90,7 +90,7 @@ func waitResult(t *testing.T, logs *syncWriter, name string) map[string]any {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("no mcp-result record for %s: %s", name, logs.w.String())
+	t.Fatalf("no mcp-result record for %s: %s", name, logs.String())
 	return nil
 }
 
