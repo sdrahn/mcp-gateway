@@ -5,7 +5,22 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.14.0 — 2026-11-05
+
+What a deployment that lets agents act on their own needs from the
+gateway, written for Custos but open to any policy: the outcome of every
+call in the gateway's own audit, so that it need not rest on what an
+agent reports; reasons a policy module gives for its denials; notices a
+trusted local service sends to an agent's approvers; and reviews, by
+those approvers, of calls that ran without asking anyone.
+
+Upgrading from 1.13.x needs no changes to server definitions, role data
+or custom policies; the SELinux modules do not change. The journal gets
+one more record per tool call (`mcp-result`), and a decision allowed by
+a stored grant now names it (`grant`). Notices and review items are kept
+in `/var/lib/mcp-gateway/` (`notices.json`, `reviews.json`). After the
+update, restart the gateway (`systemctl restart mcp-gateway.service`);
+the package does not.
 
 ### Added
 
@@ -17,6 +32,24 @@ minor release (with a warning) and removed in the next.
   and joined with "; ". The agent, the audit record and the kernel audit
   message get them as other reasons. Without them, decisions are as
   before (chapter 12, "Reasons for denials").
+- The outcome of each tool call the gateway forwards is audited, in the
+  journal: event `mcp-result` with `ok`, `tool_error`, `error`,
+  `cancelled` or `timeout`, the decision id, the approval and grant that
+  allowed the call, its duration and the client's progress token; a short
+  error text only with the obligation `audit: "full"` (chapter 11, "Audit
+  records"). It is written when the server answers, whatever the client
+  does with the result. Grants name the approval they were made for
+  (`approval_id`), and the decision record names a stored grant that
+  allowed a call (policy reason `approved`) as `grant`.
+- Notices to approvers from a trusted local service (chapter 7,
+  "Notices"): `POST /v1/notices` on the control socket, by root or whom
+  the approver rule `post_notice` allows, about a principal and its
+  servers. The approvers of that principal's requests on those servers
+  read it (rule `allow`, as for a pending request), the `notify`
+  recipients get one mail, the event stream has it (`"type": "notice"`,
+  so `mcp-gateway-notify` shows it), and the approval page lists it
+  until the reader dismisses it or it expires after 7 days. Each post
+  is audited (`mcp-notice`).
 - Reviews of calls that ran without asking anyone (chapter 7,
   "Reviews"): the obligation `review: true`, on a permission or by a
   policy module's rule `review_wanted`, makes a tool call a review item
@@ -27,24 +60,6 @@ minor release (with a warning) and removed in the next.
   one replaces it; each is audited (`mcp-review`). `ok` on one's own call
   that only `self` lets one review needs one's password, as approving
   one's own request does. Items are kept for 7 days.
-- Notices to approvers from a trusted local service (chapter 7,
-  "Notices"): `POST /v1/notices` on the control socket, by root or whom
-  the approver rule `post_notice` allows, about a principal and its
-  servers. The approvers of that principal's requests on those servers
-  read it (rule `allow`, as for a pending request), the `notify`
-  recipients get one mail, the event stream has it (`"type": "notice"`,
-  so `mcp-gateway-notify` shows it), and the approval page lists it
-  until the reader dismisses it or it expires after 7 days. Each post
-  is audited (`mcp-notice`).
-- The outcome of each tool call the gateway forwards is audited, in the
-  journal: event `mcp-result` with `ok`, `tool_error`, `error`,
-  `cancelled` or `timeout`, the decision id, the approval and grant that
-  allowed the call, its duration and the client's progress token; a short
-  error text only with the obligation `audit: "full"` (chapter 11, "Audit
-  records"). It is written when the server answers, whatever the client
-  does with the result. Grants name the approval they were made for
-  (`approval_id`), and the decision record names a stored grant that
-  allowed a call (policy reason `approved`) as `grant`.
 
 ## v1.13.0 — 2026-11-04
 
