@@ -487,7 +487,7 @@ func (b *Broker) formAnswer(in pep.Input, ask pep.AskSpec, res ElicitResult) (*p
 	scope, _ := res.Content["scope"].(string)
 	// With form mode the governed client answers itself; the approval is
 	// recorded as the principal's own.
-	g, err := b.grant(in.Principal, in.Resource.Server, in.Resource.Name, scope, ask.Scopes, in.Principal.Sub, pep.ChannelForm)
+	g, err := b.grant(in.Principal, in.Resource.Server, in.Resource.Name, scope, ask.Scopes, in.Principal.Sub, pep.ChannelForm, "")
 	if err == nil {
 		b.auditApproval(g.ID, true, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, scope, pep.ChannelForm, "")
 	}
@@ -1017,7 +1017,7 @@ func (b *Broker) ResolveVia(ctx context.Context, a Approver, id string, approve 
 		if c.result == nil {
 			g, err = b.orphanGrant(c, scope, a.Name)
 		} else {
-			g, err = b.grant(c.Principal, c.Server, c.Name, scope, c.Scopes, a.Name, c.Channel)
+			g, err = b.grant(c.Principal, c.Server, c.Name, scope, c.Scopes, a.Name, c.Channel, id)
 		}
 		if err != nil {
 			if c.result != nil {
@@ -1043,7 +1043,7 @@ func (b *Broker) ResolveVia(ctx context.Context, a Approver, id string, approve 
 // waiting: a "once" grant is kept for the next attempt (OrphanOnceTTL).
 func (b *Broker) orphanGrant(p Pending, scope, by string) (*pep.Grant, error) {
 	if scope != "once" {
-		return b.grant(p.Principal, p.Server, p.Name, scope, p.Scopes, by, p.Channel)
+		return b.grant(p.Principal, p.Server, p.Name, scope, p.Scopes, by, p.Channel, p.ID)
 	}
 	g := pep.Grant{
 		ID:         "g-" + randomHex(8),
@@ -1056,6 +1056,7 @@ func (b *Broker) orphanGrant(p Pending, scope, by string) (*pep.Grant, error) {
 		Expires:    b.now().Add(OrphanOnceTTL).UTC().Format(time.RFC3339),
 		ApprovedBy: by,
 		Channel:    p.Channel,
+		ApprovalID: p.ID,
 	}
 	if err := b.store.Add(g); err != nil {
 		return nil, fmt.Errorf("broker: storing grant: %w", err)
@@ -1063,8 +1064,9 @@ func (b *Broker) orphanGrant(p Pending, scope, by string) (*pep.Grant, error) {
 	return &g, nil
 }
 
-// grant creates (and, unless "once", stores) a grant.
-func (b *Broker) grant(p principal.Principal, server, tool, scope string, offered []string, by string, c pep.Channel) (*pep.Grant, error) {
+// grant creates (and, unless "once", stores) a grant, for the approval
+// approvalID if it was made for one.
+func (b *Broker) grant(p principal.Principal, server, tool, scope string, offered []string, by string, c pep.Channel, approvalID string) (*pep.Grant, error) {
 	if !slices.Contains(offered, scope) {
 		return nil, fmt.Errorf("%w: %q", ErrBadScope, scope)
 	}
@@ -1092,6 +1094,7 @@ func (b *Broker) grant(p principal.Principal, server, tool, scope string, offere
 		Expires:    b.now().Add(ttl).UTC().Format(time.RFC3339),
 		ApprovedBy: by,
 		Channel:    c,
+		ApprovalID: approvalID,
 	}
 	if scope != "once" {
 		if err := b.store.Add(*g); err != nil {

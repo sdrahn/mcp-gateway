@@ -10,6 +10,7 @@ context.request_id
 context.time
 context.transport
 grants
+grants[].approval_id
 grants[].approved_by
 grants[].args_match
 grants[].channel

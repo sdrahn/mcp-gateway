@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Record is one enforcement decision.
@@ -131,6 +132,47 @@ func (a *Logger) Log(r Record) {
 		}
 		a.kernel("mcp-decision", r.Effect != "deny", fields)
 	}
+}
+
+// Result is the outcome of a call the gateway forwarded to a server,
+// recorded when its answer came back or the call ended without one.
+type Result struct {
+	Session, Sub, Server, Name string
+	// DecisionID is that of the decision that let the call through;
+	// ApprovalID and GrantID name the approval and the grant that allowed
+	// it, if any.
+	DecisionID, ApprovalID, GrantID string
+	// Outcome is "ok", "tool_error" (the result had isError), "error" (a
+	// JSON-RPC error, or the server could not be reached), "cancelled" or
+	// "timeout".
+	Outcome string
+	// Error is a short text of a tool error or an error, only where the
+	// policy's audit obligation lets the arguments be recorded too.
+	Error    string
+	Duration time.Duration
+	// ProgressToken is the client's _meta.progressToken for the call: what
+	// the client said, for correlation only.
+	ProgressToken string
+}
+
+// Result records the outcome of a forwarded call (event mcp-result), in
+// the journal as the decisions are.
+func (a *Logger) Result(r Result) {
+	if a == nil {
+		return
+	}
+	attrs := []any{"event", "mcp-result", "session", r.Session, "sub", r.Sub, "server", r.Server, "name", r.Name}
+	for _, kv := range [][2]string{{"decision_id", r.DecisionID}, {"approval_id", r.ApprovalID}, {"grant", r.GrantID},
+		{"outcome", r.Outcome}, {"error", r.Error}} {
+		if kv[1] != "" {
+			attrs = append(attrs, kv[0], kv[1])
+		}
+	}
+	attrs = append(attrs, "duration_ms", r.Duration.Milliseconds())
+	if r.ProgressToken != "" {
+		attrs = append(attrs, "progress_token", r.ProgressToken)
+	}
+	a.l.Info("mcp", attrs...)
 }
 
 // Event records a security-relevant event that is not a decision: an

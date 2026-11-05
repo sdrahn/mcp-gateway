@@ -75,6 +75,9 @@ type Grant struct {
 	Expires    string  `json:"expires"`
 	ApprovedBy string  `json:"approved_by"`
 	Channel    Channel `json:"channel"`
+	// ApprovalID is the approval the grant was made for (url and oob
+	// channels; a form's answer has none).
+	ApprovalID string `json:"approval_id,omitempty"`
 }
 
 // Context carries request metadata that is not part of the identity.

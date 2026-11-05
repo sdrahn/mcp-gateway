@@ -113,14 +113,15 @@ func (f fakePDP) Visible(ctx context.Context, p principal.Principal, rs []pep.Re
 
 // testObligations are attached to allows of these tools.
 var testObligations = map[string]pep.Obligations{
-	"read_secret":     {RedactOutput: []string{`token=\S+`}},
-	"read_big":        {MaxOutputBytes: 64},
-	"read_limited":    {RateLimit: pep.StringList{"2/m"}},
-	"read_path":       {ArgConstraints: map[string]pep.StringList{"path": {"^/ok/"}}},
-	"read_audited":    {Audit: "full"},
-	"read_broken":     {RedactOutput: []string{"("}},
-	"read_customer":   {Pseudonymize: customerSpec},
-	"update_customer": {Pseudonymize: customerSpec, Reidentify: pep.StringList{"id", "note"}},
+	"read_secret":       {RedactOutput: []string{`token=\S+`}},
+	"read_big":          {MaxOutputBytes: 64},
+	"read_limited":      {RateLimit: pep.StringList{"2/m"}},
+	"read_path":         {ArgConstraints: map[string]pep.StringList{"path": {"^/ok/"}}},
+	"read_audited":      {Audit: "full"},
+	"read_failing_full": {Audit: "full"},
+	"read_broken":       {RedactOutput: []string{"("}},
+	"read_customer":     {Pseudonymize: customerSpec},
+	"update_customer":   {Pseudonymize: customerSpec, Reidentify: pep.StringList{"id", "note"}},
 }
 
 var customerSpec = &pseudo.Spec{Detect: []string{"email"}, Fields: map[string]string{"name": "person", "id": "customer"}}
@@ -464,6 +465,14 @@ func (f *fakeInstance) serve(c *jsonrpc.Conn) {
 				}
 			case "read_big":
 				respond(m, text(strings.Repeat("x", 200)))
+			case "read_failing", "read_failing_full":
+				// A tool error, its text longer than mcp-result records.
+				respond(m, map[string]any{"isError": true, "content": []map[string]any{
+					{"type": "text", "text": "zypper exited 4\n" + strings.Repeat("e", 300)}}})
+			case "read_rpcerror":
+				_ = c.Write(jsonrpc.NewError(m.ID, jsonrpc.CodeInternalError, "backend broke"))
+			case "read_crash":
+				_ = c.Close() // the server dies during the call
 			case "progress", "write_progress":
 				var meta struct {
 					ProgressToken json.RawMessage `json:"progressToken"`
