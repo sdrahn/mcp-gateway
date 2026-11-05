@@ -95,6 +95,8 @@ type Options struct {
 	PendingFile string
 	// NoticesFile persists notices ("" = memory only).
 	NoticesFile string
+	// ReviewsFile persists review items ("" = memory only).
+	ReviewsFile string
 	// URLTemplate is the approval page URL with "{id}" for the approval
 	// id; empty disables the url channel.
 	URLTemplate string
@@ -143,6 +145,8 @@ type Broker struct {
 	declined []declinedRequest
 	// notices to approvers (notices.go)
 	notices map[string]*storedNotice
+	// reviews of calls that ran (reviews.go)
+	reviews map[string]*Review
 }
 
 // declinedRequest is a request denied while no call waited.
@@ -157,13 +161,15 @@ type Event struct {
 	// Type is "pending" (an approval appeared, was taken over by a new
 	// attempt, or lost its waiting call) or "resolved" (decided, timed
 	// out, declined, expired); "notice" (posted) or "notice-closed"
-	// (expired, or dismissed by Reader).
+	// (expired, or dismissed by Reader); "review" (a review item, new
+	// or with a new verdict) or "review-closed" (expired).
 	Type string `json:"type"`
 	ID   string `json:"id"`
 	// New marks the first announcement of an approval or notice.
 	New     bool     `json:"new,omitempty"`
 	Pending *Pending `json:"pending,omitempty"` // a copy, for "pending"
 	Notice  *Notice  `json:"notice,omitempty"`  // a copy, for "notice"
+	Review  *Review  `json:"review,omitempty"`  // a copy, for "review"
 	// Reader is who dismissed a notice (notice-closed for them only);
 	// "" for all.
 	Reader string `json:"-"`
@@ -303,6 +309,9 @@ func New(opts Options) (*Broker, error) {
 		return nil, err
 	}
 	if err := b.loadNotices(); err != nil {
+		return nil, err
+	}
+	if err := b.loadReviews(); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -747,6 +756,8 @@ type ApproverInput struct {
 	// Notice is a notice to post or read (notices.go); with a notice,
 	// Request is a request of its principal on one of its servers.
 	Notice *NoticeTarget `json:"notice,omitempty"`
+	// Review is a review item (reviews.go); Request is its call.
+	Review *ReviewTarget `json:"review,omitempty"`
 }
 
 // SessionTarget is a client of the gateway, as approver rules see it: its

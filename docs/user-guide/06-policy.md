@@ -257,10 +257,12 @@ Obligations attach conditions to an allowed call:
 | `audit: "full"` | the audit record contains the arguments verbatim instead of a keyed digest, and OPA's decision log keeps them |
 | `pseudonymize` | replace personal or confidential values in the result by per-session pseudonyms such as `[EMAIL_1]`, see [Pseudonymization](#pseudonymization) |
 | `reidentify` | argument names (a string or a list) in which pseudonyms are replaced by the original values before the call is forwarded |
+| `review: true` | the tool call becomes a review item for its approvers once it ran (chapter 7, "Reviews"); a policy module can mark calls too, with its own rule `review_wanted` (chapter 12) |
 
 When several matching permissions carry obligations, they are merged:
 redaction patterns, rate limits and argument constraints add up (all
-apply), the smallest `max_output_bytes` wins, and `audit: "full"` wins.
+apply), the smallest `max_output_bytes` wins, and `audit: "full"` and
+`review: true` win.
 Pseudonymization detectors, patterns and field rules add up, and so do
 the arguments to re-identify. A malformed obligation (an invalid
 regular expression, a bad rate, an unknown detector) denies the call.

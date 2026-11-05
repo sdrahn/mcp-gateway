@@ -77,6 +77,30 @@ func (pg *Page) apiRoutes(mux *http.ServeMux) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
+	mux.HandleFunc("GET /approvals/api/v1/reviews", pg.api(func(w http.ResponseWriter, r *http.Request, a broker.Approver, _ time.Time) {
+		writeJSON(w, http.StatusOK, pg.Broker.ListReviews(r.Context(), a))
+	}))
+	mux.HandleFunc("POST /approvals/api/v1/reviews/{id}", pg.api(func(w http.ResponseWriter, r *http.Request, a broker.Approver, _ time.Time) {
+		var body struct {
+			Verdict string `json:"verdict"`
+			Reason  string `json:"reason"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&body); err != nil {
+			apiError(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+		rv, err := pg.Broker.Judge(r.Context(), a, r.PathValue("id"), body.Verdict, body.Reason, ViaRemote)
+		switch {
+		case errors.Is(err, broker.ErrNotFound):
+			apiError(w, http.StatusNotFound, "no such review")
+		case errors.Is(err, broker.ErrBadVerdict):
+			apiError(w, http.StatusBadRequest, err.Error())
+		case err != nil:
+			apiError(w, http.StatusInternalServerError, "internal error")
+		default:
+			writeJSON(w, http.StatusOK, rv)
+		}
+	}))
 	mux.HandleFunc("GET /approvals/api/v1/events", pg.api(pg.apiEvents))
 	mux.HandleFunc("/approvals/api/", func(w http.ResponseWriter, _ *http.Request) {
 		apiError(w, http.StatusNotFound, "no such endpoint")

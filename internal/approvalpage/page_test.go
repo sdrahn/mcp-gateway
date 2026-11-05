@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"net/http"
@@ -27,6 +28,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
+	"github.com/sdrahn/mcp-gateway/internal/principal"
 )
 
 // fakeIdP is an OpenID provider with the authorization code flow: the
@@ -163,6 +165,9 @@ type fakeBroker struct {
 	notices  []broker.Notice
 	// dismissed are "<notice id> by <approver>"
 	dismissed []string
+	reviews   []broker.Review
+	// verdicts are "<id> <verdict> <reason> via <via> by <approver>"
+	verdicts []string
 }
 
 func (b *fakeBroker) may(a broker.Approver) bool {
@@ -267,6 +272,43 @@ func (b *fakeBroker) ListNotices(_ context.Context, a broker.Approver) []broker.
 		}
 	}
 	return out
+}
+
+func (b *fakeBroker) ListReviews(_ context.Context, a broker.Approver) []broker.Review {
+	if !b.may(a) {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]broker.Review(nil), b.reviews...)
+}
+
+func (b *fakeBroker) GetReview(_ context.Context, a broker.Approver, id string) (broker.Review, error) {
+	if !b.may(a) {
+		return broker.Review{}, broker.ErrNotFound
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, r := range b.reviews {
+		if r.ID == id {
+			return r, nil
+		}
+	}
+	return broker.Review{}, broker.ErrNotFound
+}
+
+func (b *fakeBroker) Judge(ctx context.Context, a broker.Approver, id, verdict, reason, via string) (broker.Review, error) {
+	r, err := b.GetReview(ctx, a, id)
+	if err != nil {
+		return r, err
+	}
+	if verdict != "ok" && verdict != "incident" || verdict == "incident" && reason == "" {
+		return r, fmt.Errorf("%w: an incident needs a reason", broker.ErrBadVerdict)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.verdicts = append(b.verdicts, id+" "+verdict+" "+reason+" via "+via+" by "+a.Name)
+	return r, nil
 }
 
 func (b *fakeBroker) DismissNotice(_ context.Context, a broker.Approver, id string) error {
@@ -780,5 +822,41 @@ func TestNotices(t *testing.T) {
 	}
 	if code, _ := post(t, c, f.srv.URL+"/approvals/notices/n-2/dismiss", url.Values{"csrf": {csrf}}, nil); code != http.StatusNotFound {
 		t.Fatalf("unknown notice: %d", code)
+	}
+}
+
+// Review items are listed in the inbox and judged on their own page: an
+// incident needs a reason.
+func TestReviews(t *testing.T) {
+	f := newFixture(t)
+	f.broker.reviews = []broker.Review{{ID: "r-1", Principal: principal.Principal{Sub: "agent-ops"}, Action: "tools.call",
+		Server: "systemd", Name: "restart_unit", Args: map[string]any{"unit": "nginx.service"}, DecisionID: "d-1",
+		Outcome: "ok", Ran: time.Now(), Created: time.Now(), Expires: time.Now().Add(time.Hour)}}
+	c := f.browser(t)
+	_, body, _ := get(t, c, f.srv.URL+"/approvals/")
+	if !strings.Contains(body, "<h2>Reviews</h2>") || !strings.Contains(body, "systemd/restart_unit") || !strings.Contains(body, `href="/approvals/reviews/r-1"`) {
+		t.Fatalf("inbox:\n%s", body)
+	}
+	code, body, _ := get(t, c, f.srv.URL+"/approvals/reviews/r-1")
+	if code != http.StatusOK || !strings.Contains(body, "nginx.service") || !strings.Contains(body, "decision d-1") {
+		t.Fatalf("review page: %d %s", code, body)
+	}
+	csrf := csrfOf(t, body)
+	if code, _ := post(t, c, f.srv.URL+"/approvals/reviews/r-1", url.Values{"verdict": {"ok"}}, nil); code != http.StatusForbidden {
+		t.Fatalf("without the CSRF token: %d", code)
+	}
+	if code, body := post(t, c, f.srv.URL+"/approvals/reviews/r-1", url.Values{"verdict": {"incident"}, "csrf": {csrf}}, nil); code != http.StatusBadRequest ||
+		!strings.Contains(body, "an incident needs a reason") {
+		t.Fatalf("incident without a reason: %d %s", code, body)
+	}
+	code, body = post(t, c, f.srv.URL+"/approvals/reviews/r-1", url.Values{"verdict": {"incident"}, "reason": {"wrong unit"}, "csrf": {csrf}}, nil)
+	if code != http.StatusOK || !strings.Contains(body, "reviewed r-1: incident") {
+		t.Fatalf("incident: %d %s", code, body)
+	}
+	if len(f.broker.verdicts) != 1 || f.broker.verdicts[0] != "r-1 incident wrong unit via page by jack" {
+		t.Fatalf("verdicts %v", f.broker.verdicts)
+	}
+	if code, _, _ := get(t, c, f.srv.URL+"/approvals/reviews/r-2"); code != http.StatusNotFound {
+		t.Fatalf("unknown review: %d", code)
 	}
 }

@@ -54,6 +54,10 @@ request.principal.transport
 request.principal.uid
 request.server
 request.servers
+review
+review.decision_id
+review.id
+review.outcome
 session
 session.client
 session.client.name

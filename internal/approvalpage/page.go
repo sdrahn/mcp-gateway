@@ -51,6 +51,10 @@ type Broker interface {
 	// Notices to the approver (POST /v1/notices on the control socket).
 	ListNotices(ctx context.Context, a broker.Approver) []broker.Notice
 	DismissNotice(ctx context.Context, a broker.Approver, id string) error
+	// Reviews of calls that ran (obligation "review").
+	ListReviews(ctx context.Context, a broker.Approver) []broker.Review
+	GetReview(ctx context.Context, a broker.Approver, id string) (broker.Review, error)
+	Judge(ctx context.Context, a broker.Approver, id, verdict, reason, via string) (broker.Review, error)
 }
 
 // IDTokens validates the identity provider's ID tokens (authn.OAuth).
@@ -231,6 +235,8 @@ func (pg *Page) Handler() http.Handler {
 	mux.HandleFunc("POST /approvals/{id}", pg.decide)
 	mux.HandleFunc("POST /approvals/grants/{id}/revoke", pg.revoke)
 	mux.HandleFunc("POST /approvals/notices/{id}/dismiss", pg.dismiss)
+	mux.HandleFunc("GET /approvals/reviews/{id}", pg.showReview)
+	mux.HandleFunc("POST /approvals/reviews/{id}", pg.judge)
 	pg.apiRoutes(mux)
 	mux.HandleFunc("/approvals/", func(w http.ResponseWriter, r *http.Request) {
 		pg.page(w, http.StatusNotFound, "Not found", "There is no such page.", nil)
@@ -604,11 +610,13 @@ func (pg *Page) inbox(w http.ResponseWriter, r *http.Request) {
 	pending := pg.Broker.ListPending(r.Context(), s.Approver)
 	grants := pg.Broker.ListGrants(r.Context(), s.Approver)
 	notices := pg.Broker.ListNotices(r.Context(), s.Approver)
+	reviews := pg.Broker.ListReviews(r.Context(), s.Approver)
 	pg.mu.Lock()
 	done := s.done
 	s.done = ""
 	pg.mu.Unlock()
-	pg.render(w, http.StatusOK, inboxTmpl, map[string]any{"S": s, "Pending": pending, "Grants": grants, "Notices": notices, "Msg": done})
+	pg.render(w, http.StatusOK, inboxTmpl, map[string]any{"S": s, "Pending": pending, "Grants": grants, "Notices": notices,
+		"Reviews": reviews, "Msg": done})
 }
 
 func (pg *Page) show(w http.ResponseWriter, r *http.Request) {
@@ -672,6 +680,48 @@ func (pg *Page) revoke(w http.ResponseWriter, r *http.Request) {
 	}
 	pg.flash(s, "revoked "+id)
 	http.Redirect(w, r, "/approvals/", http.StatusSeeOther)
+}
+
+// showReview shows a review item and the verdict form.
+func (pg *Page) showReview(w http.ResponseWriter, r *http.Request) {
+	s := pg.signedIn(w, r)
+	if s == nil {
+		return
+	}
+	rv, err := pg.Broker.GetReview(r.Context(), s.Approver, r.PathValue("id"))
+	if err != nil {
+		pg.page(w, http.StatusNotFound, "No such review", "This review is unknown, expired, or not yours to give.", s)
+		return
+	}
+	args := ""
+	if rv.Args != nil {
+		b, _ := json.MarshalIndent(rv.Args, "", "  ")
+		args = string(b)
+	}
+	pg.render(w, http.StatusOK, reviewTmpl, map[string]any{"S": s, "R": rv, "Args": args})
+}
+
+// judge records the signed-in approver's verdict on a review item.
+func (pg *Page) judge(w http.ResponseWriter, r *http.Request) {
+	s := pg.checkPost(w, r)
+	if s == nil {
+		return
+	}
+	id := r.PathValue("id")
+	verdict := r.PostFormValue("verdict")
+	_, err := pg.Broker.Judge(r.Context(), s.Approver, id, verdict, r.PostFormValue("reason"), Via)
+	switch {
+	case errors.Is(err, broker.ErrNotFound):
+		pg.page(w, http.StatusNotFound, "No such review", "This review is unknown, expired, or not yours to give; nothing was recorded.", s)
+	case errors.Is(err, broker.ErrBadVerdict):
+		pg.page(w, http.StatusBadRequest, "Refused", strings.TrimPrefix(err.Error(), "broker: invalid verdict: ")+"; nothing was recorded.", s)
+	case err != nil:
+		pg.Log.Warn("approval page: reviewing", "id", id, "err", err)
+		pg.page(w, http.StatusInternalServerError, "Error", "Recording the verdict failed.", s)
+	default:
+		pg.flash(s, "reviewed "+id+": "+verdict)
+		http.Redirect(w, r, "/approvals/", http.StatusSeeOther)
+	}
 }
 
 // dismiss hides a notice from the signed-in approver.

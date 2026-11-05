@@ -717,6 +717,37 @@ curl -s --unix-socket /run/mcp-gateway/control.sock -X POST http://localhost/v1/
   (`/var/lib/mcp-gateway/notices.json`), at most 1000 (the oldest go).
   Each post is audited (`mcp-notice`: chapter 11).
 
+## Reviews
+
+A call that policy lets an agent make without asking anyone can still be
+judged afterwards: policy marks it with the obligation `review: true`
+(on a permission, chapter 6, or by a module's rule `review_wanted`,
+chapter 12, which can mark a sample of an agent's calls). Once the call
+ran, the gateway keeps a **review item**: the call as an approval shows
+it (principal, server, tool, client, the arguments where the audit
+obligation is `full`), when it ran, its outcome (`ok`, `tool_error`,
+`error`, `cancelled`, `timeout`, as in its `mcp-result` record) and what
+allowed it (the decision id, the approval or grant if any).
+
+- **Who reviews:** whoever may decide on that call as an approval (rule
+  `allow`, with the call as `input.request` and `input.review` naming
+  the item), so the server's approvers and the agent's owners. Judging
+  your own call fine where only `self` lets you needs your password over
+  the control socket, as approving your own request does ("Approving
+  your own request: your password", above); judging it an incident does
+  not.
+- **Verdicts:** `ok`, or `incident` (it should not have run) with a
+  reason. A later verdict replaces the earlier one; each is audited
+  (`mcp-review`, chapter 11).
+- **Where:** the gateway's approval page lists the items (Reviews) and
+  judges them on `/approvals/reviews/{id}`; `mcp-gateway-admin reviews`
+  lists them (without a verdict; `--all` with) and judges them
+  (`reviews ok ID`, `reviews incident ID --reason TEXT`), also with
+  `--gateway`; the control API has `GET /v1/reviews` and
+  `POST /v1/reviews/{id}`, and the event stream `"type": "review"`.
+- Items are kept for **7 days**, with or without a verdict, also across
+  restarts (`/var/lib/mcp-gateway/reviews.json`), at most 5000.
+
 ## Scripting approvals
 
 `mcp-gateway-admin approvals` and `grants` with `--json` (and

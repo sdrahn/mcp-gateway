@@ -29,6 +29,8 @@ type approvalsAPI struct {
 	decisions []map[string]string // id, decision, scope, via
 	revoked   []string            // id?query
 	events    []string            // data lines of /v1/events
+	reviews   []broker.Review
+	verdicts  []map[string]string // id, verdict, reason, via
 }
 
 func newApprovalsAPI(t *testing.T) *approvalsAPI {
@@ -81,6 +83,35 @@ func newApprovalsAPI(t *testing.T) *approvalsAPI {
 		}
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"error":"no such approval"}`))
+	})
+	api.reviews = []broker.Review{
+		{ID: "r-5c1d0e9f", Principal: alice, Action: "tools.call", Server: "systemd", Name: "restart_unit",
+			Args: map[string]any{"unit": "nginx.service"}, DecisionID: "d-42", Outcome: "ok",
+			Ran: fixtureNow.Add(-time.Hour), Expires: fixtureNow.Add(24 * time.Hour)},
+		{ID: "r-77aa0b1c", Principal: alice, Action: "tools.call", Server: "zypp", Name: "patch", DecisionID: "d-43",
+			Outcome: "tool_error", Ran: fixtureNow.Add(-2 * time.Hour), Expires: fixtureNow.Add(24 * time.Hour),
+			Verdict: &broker.Verdict{Verdict: "incident", Reason: "patched prod", By: "bob", At: fixtureNow.Add(-time.Hour)}},
+	}
+	mux.HandleFunc("GET /v1/reviews", func(w http.ResponseWriter, _ *http.Request) {
+		api.mu.Lock()
+		defer api.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(api.reviews)
+	})
+	mux.HandleFunc("POST /v1/reviews/{id}", func(w http.ResponseWriter, r *http.Request) {
+		api.mu.Lock()
+		defer api.mu.Unlock()
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		for _, rv := range api.reviews {
+			if rv.ID == r.PathValue("id") {
+				body["id"] = rv.ID
+				api.verdicts = append(api.verdicts, body)
+				_ = json.NewEncoder(w).Encode(rv)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"no such review"}`))
 	})
 	mux.HandleFunc("GET /v1/grants", func(w http.ResponseWriter, _ *http.Request) {
 		api.mu.Lock()
@@ -323,5 +354,41 @@ func TestPickScope(t *testing.T) {
 		if got, ok := pickScope(c.offered, c.asked); got != c.want || ok != c.ok {
 			t.Errorf("%v %q: %q %v", c.offered, c.asked, got, ok)
 		}
+	}
+}
+
+func TestReviews(t *testing.T) {
+	api := newApprovalsAPI(t)
+	// Without --all, the items without a verdict.
+	rc, out, errs := runApprovalsCmd(t, api, "", "reviews")
+	if rc != 0 || !strings.Contains(out, "systemd/restart_unit") || strings.Contains(out, "zypp/patch") {
+		t.Fatalf("list: %d %s %s", rc, out, errs)
+	}
+	if rc, out, _ := runApprovalsCmd(t, api, "", "reviews", "--all"); rc != 0 || !strings.Contains(out, "incident (bob)") {
+		t.Fatalf("--all: %d %s", rc, out)
+	}
+	if rc, out, _ := runApprovalsCmd(t, api, "", "reviews", "show", "r-5c"); rc != 0 || !strings.Contains(out, "nginx.service") ||
+		!strings.Contains(out, "d-42") {
+		t.Fatalf("show: %d %s", rc, out)
+	}
+	if rc, _, errs := runApprovalsCmd(t, api, "", "reviews", "incident", "r-5c"); rc != exitUsage || !strings.Contains(errs, "needs a reason") {
+		t.Fatalf("incident without a reason: %d %s", rc, errs)
+	}
+	if rc, out, errs := runApprovalsCmd(t, api, "", "reviews", "incident", "r-5c", "--reason", "wrong unit"); rc != 0 ||
+		!strings.Contains(out, "reviewed r-5c") || !strings.Contains(out, "incident") {
+		t.Fatalf("incident: %d %s %s", rc, out, errs)
+	}
+	if rc, _, errs := runApprovalsCmd(t, api, "", "reviews", "ok", "r-77"); rc != 0 {
+		t.Fatalf("ok: %d %s", rc, errs)
+	}
+	var got []string
+	for _, v := range api.verdicts {
+		got = append(got, v["id"]+" "+v["verdict"]+" "+v["reason"]+" "+v["via"])
+	}
+	if strings.Join(got, "|") != "r-5c1d0e9f incident wrong unit cli|r-77aa0b1c ok  cli" {
+		t.Fatalf("verdicts %v", got)
+	}
+	if rc, _, errs := runApprovalsCmd(t, api, "", "reviews", "ok", "r-00"); rc != exitRefused || !strings.Contains(errs, "r-00") {
+		t.Fatalf("unknown: %d %s", rc, errs)
 	}
 }

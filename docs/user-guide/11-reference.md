@@ -284,6 +284,23 @@ one after a question (`DELETE /v1/grants/{id}?via=cli`); chapter 7,
 "Scopes and grants". Flags `--yes`, `--json` and `--socket` as for
 `clients`. Exit status as for `clients` ("no such grant").
 
+### mcp-gateway-admin reviews
+
+```
+mcp-gateway-admin reviews [--all] [options]
+mcp-gateway-admin reviews show ID [options]
+mcp-gateway-admin reviews ok ID [options]
+mcp-gateway-admin reviews incident ID --reason TEXT [options]
+```
+
+Lists the calls marked for review that you may review (`GET
+/v1/reviews`; without `--all`, those without a verdict), shows one, or
+records a verdict (`POST /v1/reviews/{id}`, `via: cli`); chapter 7,
+"Reviews". `ok` on your own call that only `self` lets you review asks
+for your password in the terminal. Flags `--json`, `--socket` and
+`--gateway` as for `approvals`. Exit status as for `grants` ("no such
+review"); 2 for an incident without `--reason`.
+
 ### mcp-gateway-admin config
 
 ```
@@ -535,7 +552,10 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `POST /v1/notices` | post a notice (chapter 7, "Notices"): `{"principal", "servers", "severity": "info"\|"warning", "title", "text"}`; returns the notice (`201`): `{"id", "principal": {"sub", "uid"}, "servers", "severity", "title", "text", "posted_by", "created", "expires"}`; `400` with what is wrong; `403` unless the caller is root or `data.mcp.approvals.post_notice` allows them |
 | `GET /v1/notices` | the unexpired notices the caller may read and has not dismissed, oldest first |
 | `POST /v1/notices/{id}/dismiss` | hide a notice for the caller; `204`; `404` if unknown or not the caller's to read |
-| `GET /v1/events` | server-sent events (`event: approval`) for the approvals the caller may decide on and the notices they may read: first all pending and all notices, then changes; `data` is `{"type": "pending"\|"resolved"\|"notice"\|"notice-closed", "id", "new", "pending", "notice", "url"}`; `notice-closed` when a notice expired or the caller dismissed it |
+| `GET /v1/reviews` | the review items the caller may review (chapter 7, "Reviews"), oldest first: `{"id", "principal", "action", "server", "name", "args", "decision_id", "approval_id", "grant", "outcome", "error", "ran", "duration_ms", "created", "expires", "verdict": {"verdict", "reason", "by", "at", "via"}}`; `args` only with the obligation `audit: "full"` |
+| `GET /v1/reviews/{id}` | one item; `404` if unknown or not the caller's to review |
+| `POST /v1/reviews/{id}` | `{"verdict": "ok"\|"incident", "reason", "via": "cockpit"\|"cli"}`; returns the item with the verdict (`200`), which replaces an earlier one; `400` for an incident without a reason; `403` with `"code": "password_required"` for `ok` on the caller's own call that only `self` lets them review, without their password |
+| `GET /v1/events` | server-sent events (`event: approval`) for the approvals the caller may decide on, the notices they may read and the review items they may review: first all of them, then changes; `data` is `{"type": "pending"\|"resolved"\|"notice"\|"notice-closed"\|"review"\|"review-closed", "id", "new", "pending", "notice", "review", "url"}`; `notice-closed` when a notice expired or the caller dismissed it; `review` for a new item and for a new verdict, `review-closed` when it expired |
 
 Errors are `{"error": "…"}` with a matching status, and `"code"` for
 those a client handles: `"password_required"` (403) refuses approving
@@ -620,6 +640,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 |---|---|---|
 | `mcp-gateway-start` | the gateway started | |
 | `mcp-decision` | a request was denied (`res=failed`), or any decision on a privileged server | `session`, `principal`, `action`, `server`, `target`, `reason`, `decision_id`; for privileged servers also `privileged=yes` and `grant` |
+| `mcp-review` | a verdict on a review item (`res=success` ok, `failed` incident) | `id`, `decision_id`, `sub`, `server`, `name`, `verdict`, `reason`, `by`; `issuer` for one signed in on the approval page; `via` as for `mcp-approval` |
 | `mcp-notice` | a notice was posted (chapter 7, "Notices") | `id`, `by`, `principal`, `servers`, `severity`, `title`, `notify` (the notify rules' recipients, `user:`/`group:` names) |
 | `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel`; `via`: `page` on the gateway's approval page, `remote-cli` from `mcp-gateway-admin --gateway`, `webhook` on a webhook's callback, `cockpit`, `cli` or `api` when decided through the control API and the caller named it |
 | `mcp-approver-sign-in` | an approver signed in on the gateway's approval page (`res=success`), or a sign-in failed after the identity provider answered (`res=failed`); or signed in on another host (`approvals login --gateway`) | `principal`, `issuer`, `via` (`page`, `remote-cli`), `reason` |
@@ -660,7 +681,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/etc/mcp-gateway/bundle/` | `policy.tar.gz`, `verify.pem`, `signing.pem` |
 | `/usr/share/mcp-gateway/opa/` | OPA drop-ins: `signed-bundle.conf`, `bundle-server.conf`, `decision-logs.conf`; examples `opa-config.yaml.example`, `decision-logs.yaml.example` |
 | `/usr/share/mcp-gateway/mcs/` | libvirt drop-ins: `virtqemud.conf`, `libvirtd.conf` |
-| `/var/lib/mcp-gateway/` | `grants.json`, `pending.json`, `notices.json`, `audit.key`, `principals.json` |
+| `/var/lib/mcp-gateway/` | `grants.json`, `pending.json`, `notices.json`, `reviews.json`, `audit.key`, `principals.json` |
 | `/var/lib/mcp-gateway/tokens/` | principals' tokens for servers with `sign_in` (`tokens.json`, encrypted) and their key (`tokens.key`); 0700, `mcpgw_token_t` |
 | `/run/mcp-gateway/mcp.sock` | MCP socket |
 | `/run/mcp-gateway/control.sock` | control API |
@@ -733,6 +754,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | "once" grant | 1 min (15 min if decided with no call waiting) | no |
 | "session" grant | session end, at most 8 h | no |
 | notice | 7 days; at most 1000 | no |
+| review item | 7 days; at most 5000 | no |
 | duration grant | at most 30 days | `approval_scopes` (role data) |
 | SSE replay buffer | 256 events per stream, 5 min | no |
 | sign-in, from the link to the callback | 10 min | `sign_in.timeout` |

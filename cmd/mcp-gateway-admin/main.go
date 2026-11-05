@@ -27,6 +27,7 @@ var commands = []command{
 	{"tasks", "list the agents' tasks, or cancel one (tasks cancel ID)", runTasks},
 	{"approvals", "list, show and decide pending approvals (approvals approve ID), or watch them", runApprovals},
 	{"grants", "list the grants approvals left, or revoke one (grants revoke ID)", runGrants},
+	{"reviews", "list and judge the calls policy marked for review after they ran (reviews ok ID)", runReviews},
 	{"config", "show the settings in force and where they come from, or change one (config set KEY VALUE)", runConfig},
 	{"policy", "convert role data from JSON to YAML (policy convert)", runPolicy},
 	{"inspect", "start an MCP server, list its tools, draft a definition and roles, check role data", tool("inspect")},

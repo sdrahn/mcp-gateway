@@ -1262,6 +1262,16 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 			r.ProgressToken = tokenText(t.progress.token)
 		}
 		s.r.Audit.Result(r)
+		if ob != nil && ob.Review && s.r.Broker != nil {
+			// Marked for review by its approvers (obligation "review").
+			item := broker.Review{Principal: p, Action: t.action, Server: t.server, Name: t.resource.Name,
+				DecisionID: decisionID, ApprovalID: approvalID, GrantID: grantID, Outcome: r.Outcome, Error: r.Error,
+				Ran: started.UTC(), DurationMS: r.Duration.Milliseconds()}
+			if ob.FullAudit {
+				item.Args = in.Args
+			}
+			s.r.Broker.AddReview(item)
+		}
 	}
 	send := func() (json.RawMessage, bool, *jsonrpc.Error) {
 		resp, err := u.request(ctx, s, m.Method, params)

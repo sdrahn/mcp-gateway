@@ -154,6 +154,9 @@ type Obligations struct {
 	// Reidentify names the arguments in which the gateway replaces
 	// pseudonyms by the original values before forwarding the call.
 	Reidentify StringList `json:"reidentify,omitempty"`
+	// Review marks a tool call for review by its approvers after it ran
+	// (a review item, internal/broker/reviews.go).
+	Review bool `json:"review,omitempty"`
 }
 
 // Decision is the policy decision document (docs/architecture.md, section

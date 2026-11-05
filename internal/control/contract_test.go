@@ -29,6 +29,8 @@ func TestContract(t *testing.T) {
 		"events.txt":           approvalEvent{},
 		"notice-post.txt":      noticeRequest{},
 		"notices.txt":          []broker.Notice{},
+		"reviews.txt":          []broker.Review{},
+		"review-verdict.txt":   verdictRequest{},
 		"error.txt":            errorResponse{},
 	} {
 		t.Run(file, func(t *testing.T) { contract.Check(t, "testdata/contract/"+file, v) })

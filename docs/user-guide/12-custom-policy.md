@@ -270,7 +270,14 @@ principal's `sub` and `iss`, their `uid` or `null` for a remote one);
 for `manage_session` it has `session` (`{"sub", "iss", "uid",
 "transport", "endpoint", "servers", "client": {"name", "version"}}`:
 the endpoint is a server or `all`, `servers` its servers, and the
-client's name and version are its own claim). `notify` gets `request` without `approver`. Filter and approval inputs
+client's name and version are its own claim). `notify` gets `request` without `approver`.
+For a notice (chapter 7, "Notices"), `allow` and `notify` get a
+`request` of its principal (`{"sub", "uid"}`) on one of its servers in
+turn, with `"action": "notice"` and `servers` all of them, and `notice`
+(`{"principal", "servers", "severity", "title"}`); `post_notice` gets
+`approver` and `notice`. For a review item (chapter 7, "Reviews"),
+`allow` and `allow_without_self` get the call it was as `request` and
+`review` (`{"id", "decision_id", "outcome"}`). Filter and approval inputs
 have `version` too.
 `root` may always decide, whatever the policy says.
 
@@ -298,6 +305,8 @@ several definitions:
 | `mcp.authz.perms` | set | adds permissions (objects as in the role data) |
 | `mcp.approvals.allow`, `manage_grant`, `manage_instance`, `manage_task`, `manage_session` | boolean | lets more approvers act |
 | `mcp.approvals.notify` | set | mails more people |
+| `mcp.approvals.post_notice` | boolean | lets more accounts post notices (chapter 7, "Notices") |
+| `mcp.authz.review_wanted` | boolean | marks more allowed calls for review after they ran (obligation `review`, chapter 7, "Reviews"), e.g. a sample of an agent's calls |
 | `mcp.log.mask` | set | removes more from the decision log |
 
 In a listing (`mcp.filter`), roles and permissions are worked out once
