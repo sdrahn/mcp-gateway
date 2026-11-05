@@ -493,7 +493,8 @@ tasks** on it (`data.mcp.approvals.manage_task`), who may **see and end
 the clients** using it (`data.mcp.approvals.manage_session`: the rules of
 every server of the client's endpoint), who may **see and end sign-ins**
 to a server with `sign_in` (`data.mcp.approvals.manage_sign_in`,
-chapter 4), and whom approval **e-mail** goes to (chapter 7). Approvers are identified by the kernel on the
+chapter 4), who **reads notices** about a principal and whom approval
+and notice **e-mail** goes to (chapter 7). Approvers are identified by the kernel on the
 control socket, never by what an agent says. An agent that runs commands
 as the requesting user is that user to the kernel, though: approving
 where only `self` allows it therefore asks for the user's password

@@ -127,6 +127,9 @@ type Server struct {
 	Log     *slog.Logger
 	// Identify maps peer credentials to an approver; defaults to NSS.
 	Identify func(transport.PeerCred) (broker.Approver, error)
+	// LookupPrincipal resolves a notice's principal to its local account
+	// (nil: NSS).
+	LookupPrincipal func(name string) principal.Principal
 	// RestartPending, if set, tells whether the gateway's program was
 	// replaced (the package does not restart it on update).
 	RestartPending func() bool
@@ -243,6 +246,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/sign-ins/{server}", s.with(s.signOut))
 	mux.HandleFunc("GET /v1/policy", s.with(s.policy))
 	mux.HandleFunc("POST /v1/policy/whatif", s.with(s.whatIf))
+	mux.HandleFunc("POST /v1/notices", s.with(s.postNotice))
+	mux.HandleFunc("GET /v1/notices", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+		writeJSON(w, http.StatusOK, s.Broker.ListNotices(r.Context(), a))
+	}))
+	mux.HandleFunc("POST /v1/notices/{id}/dismiss", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+		if err := s.Broker.DismissNotice(r.Context(), a, r.PathValue("id")); err != nil {
+			writeError(w, http.StatusNotFound, "no such notice")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
 	mux.HandleFunc("GET /v1/events", s.with(s.events))
 	mux.HandleFunc("GET /v1/metrics", s.with(s.metrics))
 	return mux
@@ -768,11 +782,62 @@ var eventKeepAlive = 25 * time.Second
 
 // approvalEvent is one event of GET /v1/events.
 type approvalEvent struct {
-	Type    string          `json:"type"` // "pending" or "resolved"
+	// Type is "pending" or "resolved" (approvals), "notice" or
+	// "notice-closed" (notices: expired, or dismissed by the caller).
+	Type    string          `json:"type"`
 	ID      string          `json:"id"`
 	New     bool            `json:"new,omitempty"`
 	Pending *broker.Pending `json:"pending,omitempty"`
+	Notice  *broker.Notice  `json:"notice,omitempty"`
 	URL     string          `json:"url,omitempty"` // the approval page
+}
+
+// noticeRequest is the body of POST /v1/notices.
+type noticeRequest struct {
+	Principal string   `json:"principal"`
+	Servers   []string `json:"servers"`
+	Severity  string   `json:"severity"`
+	Title     string   `json:"title"`
+	Text      string   `json:"text"`
+}
+
+// postNotice posts a notice to the approvers of a principal: root, or
+// whom post_notice allows.
+func (s *Server) postNotice(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+	var body noticeRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	// The principal as approver rules see it: its local account's uid,
+	// if it has one ("self").
+	p := broker.NoticePrincipal{Sub: body.Principal}
+	if body.Principal != "" {
+		p.UID = s.lookup(body.Principal).UID
+	}
+	n, err := s.Broker.PostNotice(r.Context(), a, broker.Notice{Principal: p, Servers: body.Servers,
+		Severity: body.Severity, Title: body.Title, Text: body.Text})
+	switch {
+	case errors.Is(err, broker.ErrForbidden):
+		writeError(w, http.StatusForbidden, "not allowed to post notices")
+	case errors.Is(err, broker.ErrBadNotice):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusCreated, n)
+	}
+}
+
+// lookup resolves a principal's local account (LookupPrincipal, by
+// default NSS).
+func (s *Server) lookup(name string) principal.Principal {
+	if s.LookupPrincipal != nil {
+		return s.LookupPrincipal(name)
+	}
+	return lookupPrincipal(name)
 }
 
 // events streams the approvals the caller may decide on as server-sent
@@ -807,6 +872,12 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a broker.Approve
 			return
 		}
 	}
+	for _, n := range s.Broker.ListNotices(r.Context(), a) {
+		sent[n.ID] = true
+		if !write(approvalEvent{Type: "notice", ID: n.ID, Notice: &n, URL: s.Broker.NoticesURL()}) {
+			return
+		}
+	}
 	flusher.Flush()
 	ping := time.NewTicker(eventKeepAlive)
 	defer ping.Stop()
@@ -820,6 +891,16 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a broker.Approve
 					return
 				}
 			case ev.Type == "resolved" && sent[ev.ID]:
+				delete(sent, ev.ID)
+				if !write(approvalEvent{Type: ev.Type, ID: ev.ID}) {
+					return
+				}
+			case ev.Type == "notice" && ev.Notice != nil && s.Broker.MayReadNotice(r.Context(), a, *ev.Notice):
+				sent[ev.ID] = true
+				if !write(approvalEvent{Type: ev.Type, ID: ev.ID, New: ev.New, Notice: ev.Notice, URL: s.Broker.NoticesURL()}) {
+					return
+				}
+			case ev.Type == "notice-closed" && sent[ev.ID] && (ev.Reader == "" || ev.Reader == a.ReaderKey()):
 				delete(sent, ev.ID)
 				if !write(approvalEvent{Type: ev.Type, ID: ev.ID}) {
 					return

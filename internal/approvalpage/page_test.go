@@ -160,6 +160,9 @@ type fakeBroker struct {
 	revoked  []string
 	seen     []broker.Approver
 	subs     []chan broker.Event
+	notices  []broker.Notice
+	// dismissed are "<notice id> by <approver>"
+	dismissed []string
 }
 
 func (b *fakeBroker) may(a broker.Approver) bool {
@@ -250,6 +253,36 @@ func (b *fakeBroker) MayApprove(_ context.Context, a broker.Approver, _ broker.P
 }
 
 func (b *fakeBroker) ApprovalURL(id string) string { return "https://gw/approvals/" + id }
+
+func (b *fakeBroker) ListNotices(_ context.Context, a broker.Approver) []broker.Notice {
+	if !b.may(a) {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []broker.Notice
+	for _, n := range b.notices {
+		if !contains(b.dismissed, n.ID+" by "+a.ReaderKey()) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func (b *fakeBroker) DismissNotice(_ context.Context, a broker.Approver, id string) error {
+	if !b.may(a) {
+		return broker.ErrNotFound
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, n := range b.notices {
+		if n.ID == id {
+			b.dismissed = append(b.dismissed, id+" by "+a.ReaderKey())
+			return nil
+		}
+	}
+	return broker.ErrNotFound
+}
 
 func contains(s []string, v string) bool {
 	for _, x := range s {
@@ -716,5 +749,36 @@ func TestSignOut(t *testing.T) {
 		if want := []string{"", "login", ""}; !slices.Equal(f.idp.prompts, want) {
 			t.Errorf("end session %v: prompts %q, want %q", endSession, f.idp.prompts, want)
 		}
+	}
+}
+
+// Notices to the approver are listed in the inbox, their text as text,
+// until the approver dismisses them (for themself).
+func TestNotices(t *testing.T) {
+	f := newFixture(t)
+	f.broker.notices = []broker.Notice{{ID: "n-1", Principal: broker.NoticePrincipal{Sub: "agent-patch-pilot"}, Servers: []string{"zypp"},
+		Severity: broker.SeverityWarning, Title: "patch-errata demoted", Text: "Override rate 7.1 % above 5.0 %.\n<b>back</b> to supervised.",
+		PostedBy: "root", Created: time.Now(), Expires: time.Now().Add(time.Hour)}}
+	c := f.browser(t)
+	_, body, _ := get(t, c, f.srv.URL+"/approvals/")
+	for _, want := range []string{"<h2>Notices</h2>", "Warning: patch-errata demoted", "About agent-patch-pilot on zypp", "from root",
+		"Override rate 7.1 % above 5.0 %.\n&lt;b&gt;back&lt;/b&gt; to supervised.", `action="/approvals/notices/n-1/dismiss"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("inbox lacks %q:\n%s", want, body)
+		}
+	}
+	csrf := csrfOf(t, body)
+	if code, _ := post(t, c, f.srv.URL+"/approvals/notices/n-1/dismiss", url.Values{}, nil); code != http.StatusForbidden {
+		t.Fatalf("dismissed without the CSRF token: %d", code)
+	}
+	code, body := post(t, c, f.srv.URL+"/approvals/notices/n-1/dismiss", url.Values{"csrf": {csrf}}, nil)
+	if code != http.StatusOK || !strings.Contains(body, "dismissed notice n-1") || strings.Contains(body, "patch-errata demoted") {
+		t.Fatalf("dismiss: %d %s", code, body)
+	}
+	if len(f.broker.dismissed) != 1 || !strings.HasPrefix(f.broker.dismissed[0], "n-1 by remote:") {
+		t.Fatalf("dismissed %v", f.broker.dismissed)
+	}
+	if code, _ := post(t, c, f.srv.URL+"/approvals/notices/n-2/dismiss", url.Values{"csrf": {csrf}}, nil); code != http.StatusNotFound {
+		t.Fatalf("unknown notice: %d", code)
 	}
 }

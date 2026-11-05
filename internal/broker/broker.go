@@ -93,6 +93,8 @@ type Options struct {
 	// PendingFile persists pending url and oob approvals, so they survive
 	// the waiting call and restarts ("" = memory only).
 	PendingFile string
+	// NoticesFile persists notices ("" = memory only).
+	NoticesFile string
 	// URLTemplate is the approval page URL with "{id}" for the approval
 	// id; empty disables the url channel.
 	URLTemplate string
@@ -139,6 +141,8 @@ type Broker struct {
 	// declined are approvals denied while no call waited for them, for
 	// the next attempt of the same request (TakeDenial); not persisted.
 	declined []declinedRequest
+	// notices to approvers (notices.go)
+	notices map[string]*storedNotice
 }
 
 // declinedRequest is a request denied while no call waited.
@@ -147,17 +151,22 @@ type declinedRequest struct {
 	until time.Time
 }
 
-// Event is a change of the pending approvals, for subscribers (the control
-// API's event stream, e-mail notifications).
+// Event is a change of the pending approvals or the notices, for
+// subscribers (the control API's event stream, e-mail notifications).
 type Event struct {
 	// Type is "pending" (an approval appeared, was taken over by a new
 	// attempt, or lost its waiting call) or "resolved" (decided, timed
-	// out, declined, expired).
+	// out, declined, expired); "notice" (posted) or "notice-closed"
+	// (expired, or dismissed by Reader).
 	Type string `json:"type"`
 	ID   string `json:"id"`
-	// New marks the first announcement of an approval.
+	// New marks the first announcement of an approval or notice.
 	New     bool     `json:"new,omitempty"`
 	Pending *Pending `json:"pending,omitempty"` // a copy, for "pending"
+	Notice  *Notice  `json:"notice,omitempty"`  // a copy, for "notice"
+	// Reader is who dismissed a notice (notice-closed for them only);
+	// "" for all.
+	Reader string `json:"-"`
 }
 
 // Subscribe returns a channel of pending approval events and a function
@@ -291,6 +300,9 @@ func New(opts Options) (*Broker, error) {
 	}
 	b.store = store
 	if err := b.loadPending(); err != nil {
+		return nil, err
+	}
+	if err := b.loadNotices(); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -732,6 +744,9 @@ type ApproverInput struct {
 	// Session is a client's session, or an agent of 2026-07-28 (roadmap
 	// step 34).
 	Session *SessionTarget `json:"session,omitempty"`
+	// Notice is a notice to post or read (notices.go); with a notice,
+	// Request is a request of its principal on one of its servers.
+	Notice *NoticeTarget `json:"notice,omitempty"`
 }
 
 // SessionTarget is a client of the gateway, as approver rules see it: its
@@ -763,6 +778,8 @@ type ApprovalTarget struct {
 	Server    string              `json:"server"`
 	Name      string              `json:"name"`
 	Action    string              `json:"action"`
+	// Servers, for a notice (action "notice"): all the servers it names.
+	Servers []string `json:"servers,omitempty"`
 }
 
 // Target returns the call p is about.

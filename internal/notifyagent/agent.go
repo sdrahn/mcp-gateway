@@ -1,7 +1,8 @@
 // Package notifyagent is the desktop side of the out-of-band approval push
 // channel: it follows the gateway's event stream (GET /v1/events on the
 // control socket, as the logged-in user) and shows a desktop notification
-// for every approval the user may decide on. The notification's action
+// for every approval the user may decide on, and every notice to the
+// user as an approver of its principal. The notification's action
 // opens the approval page; approving itself happens there, not from the
 // notification, which any program in the user's session could click.
 package notifyagent
@@ -79,7 +80,20 @@ type event struct {
 		Expires time.Time `json:"expires"`
 		Waiting bool      `json:"waiting"`
 	} `json:"pending"`
+	Notice *struct {
+		Principal struct {
+			Sub string `json:"sub"`
+		} `json:"principal"`
+		Servers  []string `json:"servers"`
+		Severity string   `json:"severity"`
+		Title    string   `json:"title"`
+		Text     string   `json:"text"`
+		PostedBy string   `json:"posted_by"`
+	} `json:"notice"`
 }
+
+// maxNoticeBody bounds the text of a notice shown in a notification.
+const maxNoticeBody = 500
 
 // Run follows the event stream until ctx ends, reconnecting while the
 // gateway is unavailable. It returns ErrNoAccess if the user may not use
@@ -182,7 +196,31 @@ func (a *Agent) handle(ev event) {
 		}
 		a.shown[ev.ID] = id
 		a.urls[id] = a.pageURL(ev)
-	case ev.Type == "resolved":
+	case ev.Type == "notice" && ev.Notice != nil:
+		n := ev.Notice
+		summary := "Notice: " + n.Title
+		if n.Severity == "warning" {
+			summary = "Warning: " + n.Title
+		}
+		body := "About " + n.Principal.Sub
+		if len(n.Servers) > 0 {
+			body += " on " + strings.Join(n.Servers, ", ")
+		}
+		body += " (from " + n.PostedBy + ")."
+		if text := strings.TrimSpace(n.Text); text != "" {
+			if len(text) > maxNoticeBody {
+				text = strings.ToValidUTF8(text[:maxNoticeBody], "") + "…"
+			}
+			body += "\n" + text
+		}
+		id, err := a.Notifier.Show(Notification{Summary: summary, Body: body, Replaces: a.shown[ev.ID]})
+		if err != nil {
+			a.Log.Warn("showing notification failed", "err", err)
+			return
+		}
+		a.shown[ev.ID] = id
+		a.urls[id] = ev.URL // the approval page's list, if there is one
+	case ev.Type == "resolved", ev.Type == "notice-closed":
 		if id, ok := a.shown[ev.ID]; ok {
 			delete(a.shown, ev.ID)
 			delete(a.urls, id)

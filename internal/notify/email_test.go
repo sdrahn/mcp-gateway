@@ -290,3 +290,57 @@ func TestEmailConfigure(t *testing.T) {
 		t.Fatal("mail sent without smtp")
 	}
 }
+
+// serverPolicy names a recipient per server of a request.
+type serverPolicy map[string][]string
+
+func (f serverPolicy) Strings(_ context.Context, _ string, input any) ([]string, error) {
+	return f[input.(broker.ApproverInput).Request.Server], nil
+}
+
+// A notice is mailed once, to the recipients of a request of its
+// principal on each of its servers; its text line by line, with no
+// header from it.
+func TestNoticeMail(t *testing.T) {
+	type mail struct {
+		to  []string
+		msg string
+	}
+	sent := make(chan mail, 4)
+	e, _ := NewEmail(config.Email{SMTP: "x:25", From: "gw@x", To: "{user}@example.com"},
+		serverPolicy{"zypp": {"user:pat", "user:olga"}, "fs": {"user:olga"}}, nil)
+	e.Send = func(_ context.Context, to []string, msg []byte) error { sent <- mail{to, string(msg)}; return nil }
+	e.NoticesURL = func() string { return "https://gw.example.com/approvals/" }
+	events := make(chan broker.Event, 4)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go e.Run(ctx, events)
+	n := broker.Notice{ID: "n-1", Principal: broker.NoticePrincipal{Sub: "agent-patch-pilot"}, Servers: []string{"fs", "zypp"},
+		Severity: broker.SeverityWarning, Title: "patch-errata demoted\r\nBcc: x@evil", Text: "Override rate 7.1 %\nback to supervised.",
+		PostedBy: "root"}
+	events <- broker.Event{Type: "notice", ID: n.ID, New: true, Notice: &n}
+	events <- broker.Event{Type: "notice-closed", ID: n.ID}
+	var m mail
+	select {
+	case m = <-sent:
+	case <-time.After(3 * time.Second):
+		t.Fatal("no mail")
+	}
+	if strings.Join(m.to, ",") != "olga@example.com,pat@example.com" {
+		t.Fatalf("to %v", m.to)
+	}
+	for _, want := range []string{"Subject: [mcp-gateway] Warning: patch-errata demoted", "root posted a notice for the approvers of agent-patch-pilot",
+		"Servers:    fs, zypp", "Override rate 7.1 %\r\nback to supervised.", "https://gw.example.com/approvals/", "asks for no decision"} {
+		if !strings.Contains(m.msg, want) {
+			t.Errorf("mail lacks %q:\n%s", want, m.msg)
+		}
+	}
+	if strings.Contains(m.msg, "\r\nBcc:") {
+		t.Errorf("header injection through the title:\n%s", m.msg)
+	}
+	select {
+	case m := <-sent:
+		t.Fatalf("extra mail to %v", m.to)
+	case <-time.After(100 * time.Millisecond):
+	}
+}

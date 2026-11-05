@@ -70,8 +70,8 @@ be reachable by the person using the agent.
 
 With the HTTPS listener for remote agents (chapter 5, "Remote agents (HTTPS)"),
 the gateway serves an approval page of its own: `/approvals/` lists the
-approvals the signed-in approver may decide and the grants they may
-revoke, `/approvals/{id}` shows one approval (the call, for whom, the
+notices for the signed-in approver ("Notices", below), the approvals
+they may decide and the grants they may revoke, `/approvals/{id}` shows one approval (the call, for whom, the
 agent's client as it names itself, the arguments, the scopes) to approve
 or deny. Approvers sign in with the identity provider the gateway
 already takes tokens from (OpenID Connect, authorization code with
@@ -559,6 +559,8 @@ Approvers learn about pending approvals from:
   told at once", above): the tool error says what to ask an approver for;
 - **desktop notifications** (`mcp-gateway-desktop`);
 - **e-mail** (configured in the gateway);
+- **notices** from a trusted local service, which ask for no decision
+  ("Notices", below);
 - **webhooks** (above): a chat, a ticket system or one inbox for many
   gateways, which may also decide on a signed callback.
 
@@ -663,6 +665,57 @@ systemctl reload mcp-gateway.service    # or wait 10 s: notifications are reload
 
 Delivery failures are logged (`journalctl -u mcp-gateway`) and do not
 affect the approval.
+
+## Notices
+
+A trusted local service can tell the approvers of a principal something
+that asks for no decision: an evaluator that set an agent's task category
+back to supervised, say. It posts a notice on the control socket:
+
+```bash
+curl -s --unix-socket /run/mcp-gateway/control.sock -X POST http://localhost/v1/notices -d '{
+  "principal": "agent-patch-pilot", "servers": ["zypp"], "severity": "warning",
+  "title": "patch-errata demoted",
+  "text": "Override rate 7.1 % above 5.0 %: back to supervised."}'
+```
+
+- **Who may post:** root; others only as the approver policy's rule
+  `data.mcp.approvals.post_notice` allows (none by default). For a
+  service account, add a module to the approver policy (chapter 12):
+
+  ```rego
+  package mcp.approvals
+
+  import rego.v1
+
+  post_notice if input.approver.name == "custos"
+  ```
+
+  It sees `input.approver` and `input.notice` (`principal`, `servers`,
+  `severity`, `title`). Signed in on the approval page, nobody posts.
+- **The notice:** a `title` (one line, at most 200 bytes), a `text`
+  (plain text, at most 4000 bytes), a `severity` (`info`, the default,
+  or `warning`), the `principal` it is about and the `servers` it is
+  about (optional). Control characters other than line breaks are
+  refused.
+- **Who reads it:** the approvers of a request of the principal on one
+  of its servers, by the same rule `allow` that decides who may decide
+  on that principal's calls there (with no servers, the `default`
+  rules). The rule sees `input.request` as for a pending request, with
+  `action: "notice"`, `server` one of the notice's servers in turn and
+  `servers` all of them, and `input.notice`; so a rule your policy adds
+  for an agent's owners covers its notices too.
+- **Where:** the e-mail recipients of such a request get one mail
+  (`notify` rules, as above); the event stream `GET /v1/events` has it
+  (`"type": "notice"`), so `mcp-gateway-notify` shows a desktop
+  notification; the gateway's approval page lists it above the pending
+  approvals; `GET /v1/notices` lists it.
+- **Dismissing** hides a notice for the reader only, on the approval
+  page or with `POST /v1/notices/{id}/dismiss`; the desktop notification
+  goes too.
+- Notices are kept for **7 days**, also across restarts
+  (`/var/lib/mcp-gateway/notices.json`), at most 1000 (the oldest go).
+  Each post is audited (`mcp-notice`: chapter 11).
 
 ## Scripting approvals
 

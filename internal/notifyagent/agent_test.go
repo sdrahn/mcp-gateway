@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 type fakeNotifier struct {
@@ -201,4 +203,34 @@ func TestEscapeMarkup(t *testing.T) {
 	if got := EscapeMarkup(`<b>x</b> & "y"`); got != "&lt;b&gt;x&lt;/b&gt; &amp; &#34;y&#34;" {
 		t.Fatalf("got %q", got)
 	}
+}
+
+// A notice is shown, its action opens the page's list, and it goes when
+// it is dismissed or expires (notice-closed).
+func TestAgentNotice(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "control.sock")
+	g := startGateway(t, sock, http.StatusOK)
+	defer g.stop()
+	n := newFakeNotifier()
+	opened := make(chan string, 4)
+	a := &Agent{Socket: sock, Notifier: n, Open: func(u string) error { opened <- u; return nil }}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.Run(ctx) }()
+
+	long := strings.Repeat("ä", 400)
+	g.events <- `{"type":"notice","id":"n-1","new":true,"url":"https://gw.example.com/approvals/","notice":{"principal":{"sub":"agent-patch-pilot"},` +
+		`"servers":["zypp"],"severity":"warning","title":"patch-errata demoted","text":"` + long + `","posted_by":"root"}}`
+	waitFor(t, "notification", func() bool { return len(n.snapshot()) == 1 })
+	shown := n.snapshot()[1]
+	if shown.Summary != "Warning: patch-errata demoted" || !strings.HasPrefix(shown.Body, "About agent-patch-pilot on zypp (from root).\n") ||
+		!strings.HasSuffix(shown.Body, "…") || !utf8.ValidString(shown.Body) || len(shown.Body) > maxNoticeBody+100 {
+		t.Fatalf("shown %+v", shown)
+	}
+	n.actions <- 1
+	if u := <-opened; u != "https://gw.example.com/approvals/" {
+		t.Fatalf("opened %q", u)
+	}
+	g.events <- `{"type":"notice-closed","id":"n-1"}`
+	waitFor(t, "close", func() bool { return len(n.snapshot()) == 0 })
 }

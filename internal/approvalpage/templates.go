@@ -68,6 +68,8 @@ button, a.button { font: inherit; display: inline-block; padding: 0.3rem 0.9rem;
 button.secondary { background: transparent; color: var(--accent); }
 button.danger { border-color: var(--danger); background: transparent; color: var(--danger); }
 form.inline { display: inline; margin: 0; }
+.notice.warning { border-left: 3px solid var(--danger); }
+.notice .text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0.5rem 0; }
 fieldset { border: 0; padding: 0; margin: 0.75rem 0 0; }
 label { margin-right: 1rem; }
 @media (max-width: 600px) {
@@ -104,6 +106,12 @@ var pageTmpl = template.Must(template.New("page").Funcs(funcs).Parse(layout + `{
 
 var inboxTmpl = template.Must(template.New("inbox").Funcs(funcs).Parse(layout + `{{template "top" .}}
 {{if .Msg}}<p class="note">Done: {{.Msg}}</p>{{end}}
+{{if .Notices}}<h2>Notices</h2>
+{{range .Notices}}<div class="card notice{{if eq .Severity "warning"}} warning{{end}}"><div><b>{{if eq .Severity "warning"}}Warning: {{end}}{{.Title}}</b></div>
+<div class="muted">About {{.Principal.Sub}}{{if .Servers}} on {{join .Servers ", "}}{{end}} · from {{.PostedBy}} · {{clock .Created}} · until {{clock .Expires}}</div>
+{{if .Text}}<p class="text">{{.Text}}</p>{{end}}
+<form class="inline" method="post" action="/approvals/notices/{{.ID}}/dismiss"><input type="hidden" name="csrf" value="{{$.S.CSRF}}"><button class="secondary">Dismiss</button></form></div>
+{{end}}{{end}}
 <h2>Pending approvals</h2>
 {{if .Pending}}<table><tr><th>Call</th><th>For</th><th>Client</th><th>Since</th><th>Open until</th><th></th></tr>
 {{range .Pending}}<tr><td>{{.Server}}/{{.Name}}</td><td>{{.Principal.Sub}}</td><td>{{.Principal.Client.Name}} {{.Principal.Client.Version}}</td>

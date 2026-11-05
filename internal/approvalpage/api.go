@@ -67,6 +67,16 @@ func (pg *Page) apiRoutes(mux *http.ServeMux) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
+	mux.HandleFunc("GET /approvals/api/v1/notices", pg.api(func(w http.ResponseWriter, r *http.Request, a broker.Approver, _ time.Time) {
+		writeJSON(w, http.StatusOK, pg.Broker.ListNotices(r.Context(), a))
+	}))
+	mux.HandleFunc("POST /approvals/api/v1/notices/{id}/dismiss", pg.api(func(w http.ResponseWriter, r *http.Request, a broker.Approver, _ time.Time) {
+		if err := pg.Broker.DismissNotice(r.Context(), a, r.PathValue("id")); err != nil {
+			apiError(w, http.StatusNotFound, "no such notice")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
 	mux.HandleFunc("GET /approvals/api/v1/events", pg.api(pg.apiEvents))
 	mux.HandleFunc("/approvals/api/", func(w http.ResponseWriter, _ *http.Request) {
 		apiError(w, http.StatusNotFound, "no such endpoint")
