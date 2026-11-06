@@ -344,6 +344,9 @@ func (e *Email) Message(p broker.Pending) []byte {
 		line("  Client:     %s %s (self-reported)", p.Principal.Client.Name, p.Principal.Client.Version)
 	}
 	line("  Call:       %s %s/%s", p.Action, p.Server, p.Name)
+	if p.OverRate != "" {
+		line("  Asked:      the rate %s was reached (the call runs once if approved)", p.OverRate)
+	}
 	if e.config().IncludeArgs && len(p.Args) > 0 {
 		args, _ := json.MarshalIndent(p.Args, "              ", "  ")
 		fmt.Fprintf(&b, "  Arguments:  %s\r\n", strings.ReplaceAll(string(args), "\n", "\r\n"))

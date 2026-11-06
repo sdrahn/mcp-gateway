@@ -409,3 +409,12 @@ func TestApprovalsShowProposal(t *testing.T) {
 		t.Fatalf("without a proposal: %s", out)
 	}
 }
+
+// "approvals show" names the rate an approval was asked over.
+func TestApprovalsShowOverRate(t *testing.T) {
+	api := newApprovalsAPI(t)
+	api.pending[0].OverRate = "20/h"
+	if rc, out, _ := runApprovalsCmd(t, api, "", "approvals", "show", "a-7f3e9"); rc != 0 || !strings.Contains(out, "Over rate  20/h reached") {
+		t.Fatalf("%d\n%s", rc, out)
+	}
+}

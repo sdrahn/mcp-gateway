@@ -119,6 +119,12 @@
             { "type": "array", "items": { "$ref": "#/definitions/rate" } }
           ]
         },
+        "approval_over_rate": {
+          "oneOf": [
+            { "$ref": "#/definitions/rate" },
+            { "type": "array", "items": { "$ref": "#/definitions/rate" } }
+          ]
+        },
         "arg_constraints": {
           "type": "object",
           "additionalProperties": { "$ref": "#/definitions/stringOrList" }

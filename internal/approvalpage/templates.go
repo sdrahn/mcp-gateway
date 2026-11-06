@@ -150,6 +150,7 @@ var showTmpl = template.Must(template.New("show").Funcs(funcs).Parse(layout + `{
 <dt>Open until</dt><dd>{{clock .P.Expires}}</dd>
 <dt>Waiting</dt><dd>{{if .P.Waiting}}yes, the call waits{{else}}no: the agent's next attempt finds the decision{{end}}</dd>
 {{if .P.Prompt}}<dt>Request</dt><dd>{{.P.Prompt}}</dd>{{end}}
+{{if .P.OverRate}}<dt>Asked because</dt><dd>the rate {{.P.OverRate}} was reached: approved, this call runs once</dd>{{end}}
 </dl></div>
 {{template "proposal" .P.Proposal}}
 <h2>Arguments</h2>

@@ -368,3 +368,13 @@ func TestEmailProposal(t *testing.T) {
 		t.Errorf("the proposal comes before the gateway's facts:\n%s", msg)
 	}
 }
+
+// An approval over a rate says so in its mail.
+func TestEmailOverRate(t *testing.T) {
+	e, _ := NewEmail(config.Email{SMTP: "x:25", From: "gw@x", To: "{user}"}, fakePolicy{"user:alice"}, nil)
+	p := pending()
+	p.OverRate = "20/h"
+	if msg := string(e.Message(p)); !strings.Contains(msg, "the rate 20/h was reached") {
+		t.Fatalf("mail:\n%s", msg)
+	}
+}

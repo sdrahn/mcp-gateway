@@ -162,3 +162,39 @@ func TestLimiterSweep(t *testing.T) {
 		t.Errorf("after a sweep: old kept %v, recent kept %v", old, recent)
 	}
 }
+
+// Exceeded names the rate reached and records nothing then; within the
+// rates it records the event as Allow does.
+func TestLimiterExceeded(t *testing.T) {
+	l := NewLimiter()
+	now := time.Unix(1000, 0)
+	l.now = func() time.Time { return now }
+	rates := []Rate{{N: 5, Per: time.Hour}, {N: 2, Per: time.Minute}}
+	for i := range 2 {
+		if r, over := l.Exceeded("k", rates); over {
+			t.Fatalf("call %d over %v", i, r)
+		}
+	}
+	r, over := l.Exceeded("k", rates)
+	if !over || r.String() != "2/m" {
+		t.Fatalf("third: %v %v", r, over)
+	}
+	now = now.Add(time.Minute)
+	if _, over := l.Exceeded("k", rates); over {
+		t.Fatal("not counted when over: the minute is free again")
+	}
+	if (Rate{N: 20, Per: time.Hour}).String() != "20/h" || (Rate{N: 3, Per: time.Second}).String() != "3/s" {
+		t.Fatal("String")
+	}
+}
+
+func TestApprovalOverRateObligation(t *testing.T) {
+	c, err := (&Obligations{ApprovalOverRate: StringList{"20/h", "2/m"}}).Compile()
+	if err != nil || len(c.OverRates) != 2 || c.OverRates[1].String() != "2/m" || len(c.Rates) != 0 {
+		t.Fatalf("%+v %v", c, err)
+	}
+	if _, err := (&Obligations{ApprovalOverRate: StringList{"20 per hour"}}).Compile(); err == nil ||
+		!strings.Contains(err.Error(), "approval_over_rate") {
+		t.Fatalf("invalid rate: %v", err)
+	}
+}

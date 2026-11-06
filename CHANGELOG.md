@@ -9,6 +9,14 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- The obligation `approval_over_rate` (chapter 6, "Obligations"): rates
+  counted as `rate_limit`'s, but a call over one waits for an approval
+  instead of being denied: out of band, scope `once`, its prompt and
+  item naming the rate (`over_rate`). Approved, the call runs and is not
+  counted. With `rate_limit` too, that is the hard cap and denies first.
+  The decision record and `mcp-approval` carry `over_rate`. The shipped
+  policy merges it from matching permissions as it merges `rate_limit`;
+  an older gateway ignores the key.
 - A history of the clients and agents that used the gateway (chapter 8,
   "Clients"): Cockpit's Clients tab lists those connected at some time in
   a time frame (the last hour, 24 hours, 7 or 30 days, or a range), with

@@ -279,6 +279,17 @@ func (s *Session) decideModern(ctx context.Context, t *callTarget, decisionID st
 		in.Grants = in.Grants[:len(in.Grants)-1]
 	}
 	dec, grantID := s.withOnce(ctx, &in, r)
+	if grantID == nil {
+		// Over an approval_over_rate rate: an approval (overrate.go). A
+		// later round of a call waiting for one checks the rate again; if
+		// the call fits now, its approval is no longer asked for.
+		waiting := st.Approval != "" && dec.Effect == pep.Allow &&
+			dec.Obligations != nil && len(dec.Obligations.ApprovalOverRate) > 0
+		dec = s.overRate(t, dec, waiting)
+		if waiting && dec.Effect == pep.Allow {
+			s.r.Broker.Withdraw(st.Approval, p)
+		}
+	}
 	if dec.Effect != pep.Ask {
 		return dec, grantID, in, nil
 	}

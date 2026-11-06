@@ -42,11 +42,20 @@ type Rate struct {
 	Per time.Duration
 }
 
+// String writes r as policy does: "20/h".
+func (r Rate) String() string {
+	unit := map[time.Duration]string{time.Second: "s", time.Minute: "m", time.Hour: "h"}[r.Per]
+	return strconv.Itoa(r.N) + "/" + unit
+}
+
 // Compiled are obligations ready to be enforced.
 type Compiled struct {
 	Redact         []*regexp.Regexp
 	MaxOutputBytes int64
 	Rates          []Rate
+	// OverRates are the rates over which a call asks for an approval
+	// (approval_over_rate).
+	OverRates      []Rate
 	ArgConstraints map[string][]*regexp.Regexp
 	FullAudit      bool
 	// Pseudo is nil when nothing is to be pseudonymized.
@@ -81,6 +90,13 @@ func (o *Obligations) Compile() (*Compiled, error) {
 		}
 		c.Rates = append(c.Rates, rate)
 	}
+	for _, r := range o.ApprovalOverRate {
+		rate, err := parseRate("approval_over_rate", r)
+		if err != nil {
+			return nil, err
+		}
+		c.OverRates = append(c.OverRates, rate)
+	}
 	for name, patterns := range o.ArgConstraints {
 		for _, p := range patterns {
 			re, err := regexp.Compile(p)
@@ -113,15 +129,18 @@ func (o *Obligations) Compile() (*Compiled, error) {
 }
 
 // ParseRate parses "N/s", "N/m" or "N/h".
-func ParseRate(s string) (Rate, error) {
+func ParseRate(s string) (Rate, error) { return parseRate("rate_limit", s) }
+
+// parseRate parses a rate of the obligation name.
+func parseRate(name, s string) (Rate, error) {
 	n, unit, ok := strings.Cut(s, "/")
 	count, err := strconv.Atoi(n)
 	if !ok || err != nil || count <= 0 {
-		return Rate{}, fmt.Errorf("obligation rate_limit %q: want N/s, N/m or N/h", s)
+		return Rate{}, fmt.Errorf("obligation %s %q: want N/s, N/m or N/h", name, s)
 	}
 	per := map[string]time.Duration{"s": time.Second, "m": time.Minute, "h": time.Hour}[unit]
 	if per == 0 {
-		return Rate{}, fmt.Errorf("obligation rate_limit %q: want N/s, N/m or N/h", s)
+		return Rate{}, fmt.Errorf("obligation %s %q: want N/s, N/m or N/h", name, s)
 	}
 	return Rate{N: count, Per: per}, nil
 }
@@ -220,8 +239,15 @@ func NewLimiter() *Limiter {
 
 // Allow records an event for key if every rate still permits it.
 func (l *Limiter) Allow(key string, rates []Rate) bool {
+	_, over := l.Exceeded(key, rates)
+	return !over
+}
+
+// Exceeded records an event for key if every rate still permits it; else
+// it returns the first rate reached, and records nothing.
+func (l *Limiter) Exceeded(key string, rates []Rate) (Rate, bool) {
 	if len(rates) == 0 {
-		return true
+		return Rate{}, false
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -249,11 +275,11 @@ func (l *Limiter) Allow(key string, rates []Rate) bool {
 		}
 		if n >= r.N {
 			l.events[key] = kept
-			return false
+			return r, true
 		}
 	}
 	l.events[key] = append(kept, now)
-	return true
+	return Rate{}, false
 }
 
 // sweep drops the keys whose last event is older than any window, so

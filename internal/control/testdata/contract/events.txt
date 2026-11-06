@@ -22,6 +22,7 @@ pending.created
 pending.expires
 pending.id
 pending.name
+pending.over_rate
 pending.principal
 pending.principal.cert
 pending.principal.cert.dns
