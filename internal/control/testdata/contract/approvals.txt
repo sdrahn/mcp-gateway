@@ -7,6 +7,7 @@
 [].expires
 [].id
 [].name
+[].over_rate
 [].principal
 [].principal.cert
 [].principal.cert.dns

@@ -216,7 +216,7 @@ delivery differently, test `input.phase == "delivery"`.
 | `reason` | free text; shown to the agent (`mcp-gateway: <reason>`) and in the audit record |
 | `outside_scopes` | `true` for a denial because the request lies outside the ceiling of the token's scopes; the audit record notes it |
 | `required_scopes` | with `outside_scopes`: the scopes whose ceilings would allow the request, narrower ones first; over HTTPS the gateway asks for the first (`insufficient_scope`) |
-| `obligations` | as in chapter 6: `redact_output`, `max_output_bytes`, `rate_limit`, `arg_constraints`, `audit`, `pseudonymize` (`{"detect": [...], "patterns": {...}, "fields": {...}}`), `reidentify` (argument names); a malformed obligation makes the decision invalid (deny) |
+| `obligations` | as in chapter 6: `redact_output`, `max_output_bytes`, `rate_limit`, `approval_over_rate`, `arg_constraints`, `audit`, `pseudonymize` (`{"detect": [...], "patterns": {...}, "fields": {...}}`), `reidentify` (argument names); a malformed obligation makes the decision invalid (deny) |
 | `ask.channel` | `form`, `url` or `oob`; required with `ask` |
 | `ask.prompt` | the question shown to the approver |
 | `ask.scopes` | what the approver may choose: `once`, `session`, or durations like `30m`, `1h`, `24h` (at most 30 days); default `["once"]` |

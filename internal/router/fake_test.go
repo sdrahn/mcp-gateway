@@ -121,6 +121,8 @@ var testObligations = map[string]pep.Obligations{
 	"read_failing_full":  {Audit: "full"},
 	"read_reviewed":      {Review: true},
 	"read_reviewed_full": {Review: true, Audit: "full"},
+	"read_overrate":      {ApprovalOverRate: pep.StringList{"2/m"}},
+	"read_overcap":       {RateLimit: pep.StringList{"2/m"}, ApprovalOverRate: pep.StringList{"5/m"}},
 	"read_broken":        {RedactOutput: []string{"("}},
 	"read_customer":      {Pseudonymize: customerSpec},
 	"update_customer":    {Pseudonymize: customerSpec, Reidentify: pep.StringList{"id", "note"}},

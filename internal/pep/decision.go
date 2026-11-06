@@ -134,6 +134,10 @@ type AskSpec struct {
 	// Fallback is the channel used when the client cannot do Channel, or
 	// "deny".
 	Fallback string `json:"fallback,omitempty"`
+	// OverRate is the rate whose being reached raised this approval
+	// (obligation approval_over_rate). Set by the gateway, never by
+	// policy.
+	OverRate string `json:"-"`
 }
 
 // Obligations are extra conditions attached to an allow; see
@@ -147,6 +151,10 @@ type Obligations struct {
 	// RateLimit are limits like "30/m" (per s, m or h), each applied per
 	// principal and target. Policy may return a single string or a list.
 	RateLimit StringList `json:"rate_limit,omitempty"`
+	// ApprovalOverRate are rates counted as RateLimit's: a call over one
+	// of them waits for an approval (out of band, scope "once") instead
+	// of being denied; an approved one is not counted.
+	ApprovalOverRate StringList `json:"approval_over_rate,omitempty"`
 	// ArgConstraints are regular expressions per argument (a string or a
 	// list; all must match); the argument must be present and a string.
 	ArgConstraints map[string]StringList `json:"arg_constraints,omitempty"`

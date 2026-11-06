@@ -571,7 +571,9 @@ with `/v1` kept for one more minor release.
 **Approval** fields: `id`, `channel`, `principal` (as policy sees it:
 `sub`, `iss`, `uid`, `groups`, `home`, `transport`, `selinux`,
 `client`, `session_id`, `cert`), `action`, `server`, `name`, `args`,
-`prompt`, `scopes`, `created`, `expires`, `waiting`, and `proposal` if
+`prompt`, `scopes`, `created`, `expires`, `waiting`, `over_rate` (the
+rate of the obligation `approval_over_rate` whose being reached asked for
+it, chapter 6), and `proposal` if
 the call came with one: the client's account of it, `{"summary",
 "impact", "steps", "context", "warnings", "client_supplied": true}`
 (chapter 7, "The agent's account of a call"). Review items have
@@ -601,6 +603,7 @@ Decision records (journal of `mcp-gateway.service`, `"audit": true`):
 | `args_hmac` | HMAC-SHA256 of the arguments (key: `/var/lib/mcp-gateway/audit.key`) |
 | `args` | the arguments, instead of `args_hmac`, with the obligation `audit: "full"` |
 | `reidentified` | number of pseudonyms replaced by original values in the arguments (obligation `reidentify`); `args`/`args_hmac` then describe the arguments as forwarded |
+| `over_rate` | the rate (obligation `approval_over_rate`) the call reached, which asked for an approval |
 | `proposal_digest` | SHA-256 of the client's proposal for the call, if it sent one (chapter 7, "The agent's account of a call") |
 | `proposal` | the proposal itself, only with the obligation `audit: "full"` |
 
@@ -652,7 +655,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcp-decision` | a request was denied (`res=failed`), or any decision on a privileged server | `session`, `principal`, `action`, `server`, `target`, `reason`, `decision_id`; for privileged servers also `privileged=yes` and `grant` |
 | `mcp-review` | a verdict on a review item (`res=success` ok, `failed` incident) | `id`, `decision_id`, `sub`, `server`, `name`, `verdict`, `reason`, `by`; `issuer` for one signed in on the approval page; `via` as for `mcp-approval` |
 | `mcp-notice` | a notice was posted (chapter 7, "Notices") | `id`, `by`, `principal`, `servers`, `severity`, `title`, `notify` (the notify rules' recipients, `user:`/`group:` names) |
-| `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel`; `proposal_digest`, the digest of the client's proposal the approver was shown, if any; `via`: `page` on the gateway's approval page, `remote-cli` from `mcp-gateway-admin --gateway`, `webhook` on a webhook's callback, `cockpit`, `cli` or `api` when decided through the control API and the caller named it |
+| `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel`; `proposal_digest`, the digest of the client's proposal the approver was shown, if any; `over_rate`, the rate reached, for an approval asked over a rate; `via`: `page` on the gateway's approval page, `remote-cli` from `mcp-gateway-admin --gateway`, `webhook` on a webhook's callback, `cockpit`, `cli` or `api` when decided through the control API and the caller named it |
 | `mcp-approver-sign-in` | an approver signed in on the gateway's approval page (`res=success`), or a sign-in failed after the identity provider answered (`res=failed`); or signed in on another host (`approvals login --gateway`) | `principal`, `issuer`, `via` (`page`, `remote-cli`), `reason` |
 | `mcp-webhook-callback` | a webhook's receiver called back with a decision, validly signed (`res=success` taken; `failed` refused: replayed, an approver the rules do not allow, a scope not offered, …; unsigned or stale callbacks are not audited) | `webhook`, `approver` (as the callback names them), `id`, `reason` |
 | `mcp-grant-revoke` | a grant was revoked | `id`, `by`, `principal`, `server`, `target`; `via` as for `mcp-approval` |

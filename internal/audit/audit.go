@@ -50,6 +50,9 @@ type Record struct {
 	// with FullArgs, as the arguments are.
 	ProposalDigest string
 	Proposal       any
+	// OverRate is the rate (obligation approval_over_rate) the call
+	// reached, which asked for an approval.
+	OverRate string
 }
 
 // KernelSender delivers messages to the kernel audit subsystem.
@@ -120,6 +123,9 @@ func (a *Logger) Log(r Record) {
 	}
 	if r.OutsideScopes {
 		attrs = append(attrs, "outside_scopes", true)
+	}
+	if r.OverRate != "" {
+		attrs = append(attrs, "over_rate", r.OverRate)
 	}
 	if r.ProposalDigest != "" {
 		attrs = append(attrs, "proposal_digest", r.ProposalDigest)

@@ -269,7 +269,7 @@ duration_scopes := [d[1] | some d in sort({[time.parse_duration_ns(s), s] |
 ask_scopes := array.concat(first_scopes, duration_scopes)
 
 # Obligations of all matching (non-deny) permissions, merged: redaction
-# patterns, rate limits and argument constraints add up (every constraint
+# patterns, rate limits (approval_over_rate too) and argument constraints add up (every constraint
 # must hold), the smallest output limit wins, and "full" audit wins.
 applicable contains p if {
 	some p in matching
@@ -277,7 +277,7 @@ applicable contains p if {
 }
 
 obligation_sets[key] := vs if {
-	some key in {"redact_output", "rate_limit"}
+	some key in {"redact_output", "rate_limit", "approval_over_rate"}
 	vs := {v |
 		some p in applicable
 		some v in as_list(object.get(p, ["obligations", key], []))

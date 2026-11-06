@@ -236,9 +236,12 @@ type Pending struct {
 	// Proposal is the client's account of the call (its claim, marked
 	// client_supplied), if it sent one.
 	Proposal *proposal.Proposal `json:"proposal,omitempty"`
-	Scopes   []string           `json:"scopes"`
-	Created  time.Time          `json:"created"`
-	Expires  time.Time          `json:"expires"`
+	// OverRate is the rate whose being reached asks for this approval
+	// (obligation approval_over_rate), if that is why.
+	OverRate string    `json:"over_rate,omitempty"`
+	Scopes   []string  `json:"scopes"`
+	Created  time.Time `json:"created"`
+	Expires  time.Time `json:"expires"`
 	// Waiting tells whether a call waits for the decision. An approval
 	// whose call went away (the client left, the gateway restarted) stays
 	// pending until it expires; deciding it stores the grant for the
@@ -506,7 +509,7 @@ func (b *Broker) viaForm(ctx context.Context, el Elicitor, in pep.Input, ask pep
 // grant, nil if declined.
 func (b *Broker) formAnswer(in pep.Input, ask pep.AskSpec, res ElicitResult) (*pep.Grant, error) {
 	if res.Action != "accept" {
-		b.auditApproval("", false, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, "", pep.ChannelForm, "", in.Proposal)
+		b.auditApproval("", false, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, "", pep.ChannelForm, "", in.Proposal, ask.OverRate)
 		return nil, nil
 	}
 	scope, _ := res.Content["scope"].(string)
@@ -514,7 +517,7 @@ func (b *Broker) formAnswer(in pep.Input, ask pep.AskSpec, res ElicitResult) (*p
 	// recorded as the principal's own.
 	g, err := b.grant(in.Principal, in.Resource.Server, in.Resource.Name, scope, ask.Scopes, in.Principal.Sub, pep.ChannelForm, "")
 	if err == nil {
-		b.auditApproval(g.ID, true, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, scope, pep.ChannelForm, "", in.Proposal)
+		b.auditApproval(g.ID, true, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, scope, pep.ChannelForm, "", in.Proposal, ask.OverRate)
 	}
 	return g, err
 }
@@ -668,6 +671,7 @@ func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel, waitin
 		if p.result == nil && sameRequest(p, in) {
 			p.Principal, p.Scopes, p.Channel, p.Prompt = in.Principal, ask.Scopes, c, ask.Prompt
 			p.Proposal = in.Proposal // the new attempt's account
+			p.OverRate = ask.OverRate
 			p.Expires = now.Add(ttl)
 			p.result = result
 			p.Waiting = waiting
@@ -688,6 +692,7 @@ func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel, waitin
 		Name:      in.Resource.Name,
 		Args:      in.Args,
 		Proposal:  in.Proposal,
+		OverRate:  ask.OverRate,
 		Prompt:    ask.Prompt,
 		Scopes:    ask.Scopes,
 		Created:   now,
@@ -1066,7 +1071,7 @@ func (b *Broker) ResolveVia(ctx context.Context, a Approver, id string, approve 
 	}
 	metrics.ApprovalsDecided.Inc(decision)
 	b.log.Info("approval resolved", "id", id, "approved", approve, "by", a.Name, "scope", scope, "waiting", c.result != nil, "via", via)
-	b.auditApproval(id, approve, c.Principal, c.Server, c.Name, a.Name, scope, c.Channel, via, c.Proposal)
+	b.auditApproval(id, approve, c.Principal, c.Server, c.Name, a.Name, scope, c.Channel, via, c.Proposal, c.OverRate)
 	if c.result != nil {
 		c.result <- g
 	}
@@ -1174,7 +1179,7 @@ func (b *Broker) RevokeGrantVia(ctx context.Context, a Approver, id, via string)
 
 // auditApproval records an approval decision; declines are recorded as
 // failed.
-func (b *Broker) auditApproval(id string, approved bool, p principal.Principal, server, name, by, scope string, c pep.Channel, via string, pr *proposal.Proposal) {
+func (b *Broker) auditApproval(id string, approved bool, p principal.Principal, server, name, by, scope string, c pep.Channel, via string, pr *proposal.Proposal, overRate string) {
 	if !approved {
 		scope = ""
 	}
@@ -1189,6 +1194,9 @@ func (b *Broker) auditApproval(id string, approved bool, p principal.Principal, 
 		// What the approver was shown besides the call (the client's
 		// proposal), as a digest.
 		fields["proposal_digest"] = d
+	}
+	if overRate != "" {
+		fields["over_rate"] = overRate
 	}
 	b.opts.Audit.Event("mcp-approval", approved, fields)
 }

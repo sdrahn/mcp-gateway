@@ -1008,6 +1008,11 @@ type callTarget struct {
 	// proposal is the client's account of a tools/call, if it sent one
 	// (proposal.Key in _meta, which is not forwarded).
 	proposal *proposal.Proposal
+	// overRate is the rate (approval_over_rate) the call reached, which
+	// asked for its approval; ratesCounted, that its rates were applied
+	// with the decision (overrate.go).
+	overRate     string
+	ratesCounted bool
 }
 
 func (s *Session) target(method string, params map[string]json.RawMessage) (*callTarget, *jsonrpc.Error) {
@@ -1188,7 +1193,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	if dec.Effect == pep.Allow {
 		if err := ob.CheckArgs(t.args); err != nil {
 			dec = pep.Decision{Effect: pep.Deny, Reason: err.Error()}
-		} else if !round.laterServerRound() && !s.r.limiter.Allow(rateKey(p, t), ob.Rates) {
+		} else if !t.ratesCounted && !round.laterServerRound() && !s.r.limiter.Allow(rateKey(p, t), ob.Rates) {
 			// (A server's input rounds are one call.)
 			dec = pep.Decision{Effect: pep.Deny, Reason: "rate limit exceeded"}
 		}
@@ -1197,7 +1202,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		Name: t.resource.Name, Effect: string(dec.Effect), Reason: dec.Reason, GrantID: grantID,
 		DecisionID: decisionID, Args: t.args, FullArgs: ob != nil && ob.FullAudit, Reidentified: nReidentified,
 		Privileged: s.r.privileged(t.server), Scopes: p.Scopes, OutsideScopes: dec.OutsideScopes,
-		ProposalDigest: t.proposal.Digest(), Proposal: proposalRecord(t.proposal)})
+		ProposalDigest: t.proposal.Digest(), Proposal: proposalRecord(t.proposal), OverRate: t.overRate})
 	if dec.Effect != pep.Allow {
 		if dec.OutsideScopes {
 			return s.scopeDenial(ctx, m.Method, dec)
@@ -1447,6 +1452,7 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 		s.r.Broker.ReturnOnce(once)
 		in.Grants = in.Grants[:len(in.Grants)-1]
 	}
+	dec = s.overRate(t, dec, false)
 	if dec.Effect != pep.Ask {
 		return dec, nil, in
 	}

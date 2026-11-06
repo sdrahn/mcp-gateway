@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/audit"
+	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/proposal"
 )
 
@@ -46,6 +47,32 @@ func TestApprovalProposal(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(k.msgs) != 1 || !strings.Contains(k.msgs[0], "op=mcp-approval") || !strings.Contains(k.msgs[0], "proposal_digest="+pr.Digest()) {
+		t.Fatalf("audit %v", k.msgs)
+	}
+}
+
+// An approval asked over a rate (approval_over_rate) carries the rate, and
+// so does its audit record.
+func TestApprovalOverRateRecorded(t *testing.T) {
+	k := &kernelLog{}
+	b := newBroker(t, func(o *Options) { o.Audit = audit.New(io.Discard, audit.Options{Kernel: k}) })
+	ask := pep.AskSpec{Channel: pep.ChannelOOB, Prompt: "Rate 2/m reached", Scopes: []string{"once"}, OverRate: "2/m"}
+	go func() { _, _ = b.Approve(context.Background(), &fakeElicitor{}, input(), ask) }()
+	var p Pending
+	for i := 0; i < 200 && p.ID == ""; i++ {
+		if ps := b.ListPending(context.Background(), admin); len(ps) > 0 {
+			p = ps[0]
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	data, _ := json.Marshal(p)
+	if p.OverRate != "2/m" || !strings.Contains(string(data), `"over_rate":"2/m"`) {
+		t.Fatalf("pending %s", data)
+	}
+	if _, err := b.Resolve(context.Background(), admin, p.ID, true, "once"); err != nil {
+		t.Fatal(err)
+	}
+	if len(k.msgs) != 1 || !strings.Contains(k.msgs[0], "over_rate=2/m") {
 		t.Fatalf("audit %v", k.msgs)
 	}
 }

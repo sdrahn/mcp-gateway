@@ -253,6 +253,7 @@ Obligations attach conditions to an allowed call:
 | `redact_output` | regular expressions (a string or a list); matches in any string of the result are replaced by `[redacted]` |
 | `max_output_bytes` | a larger result is withheld; the agent gets "output withheld: …" |
 | `rate_limit` | `N/s`, `N/m` or `N/h` (a string or a list); per principal, server and tool, sliding window; excess calls are denied ("rate limit exceeded"); counted in the gateway's memory, so a restart starts the windows afresh |
+| `approval_over_rate` | rates as for `rate_limit`, counted the same way: within them the call runs (and is counted); over one, it is not denied but **waits for an approval**, out of band and for this call only (scope `once`: a grant for a session or a time would lift the rate), whose prompt names the rate reached ("Rate 20/h reached for …"). Approved, the call runs and is not counted; declined or timed out, it is denied. With `rate_limit` too, `rate_limit` is the hard cap and denies first |
 | `arg_constraints` | argument name → regular expressions the (string) argument must all match, otherwise the call is denied |
 | `audit: "full"` | the audit record contains the arguments verbatim instead of a keyed digest, and OPA's decision log keeps them |
 | `pseudonymize` | replace personal or confidential values in the result by per-session pseudonyms such as `[EMAIL_1]`, see [Pseudonymization](#pseudonymization) |
@@ -260,7 +261,8 @@ Obligations attach conditions to an allowed call:
 | `review: true` | the tool call becomes a review item for its approvers once it ran (chapter 7, "Reviews"); a policy module can mark calls too, with its own rule `review_wanted` (chapter 12) |
 
 When several matching permissions carry obligations, they are merged:
-redaction patterns, rate limits and argument constraints add up (all
+redaction patterns, rate limits (`rate_limit` and `approval_over_rate`)
+and argument constraints add up (all
 apply), the smallest `max_output_bytes` wins, and `audit: "full"` and
 `review: true` win.
 Pseudonymization detectors, patterns and field rules add up, and so do

@@ -452,6 +452,9 @@ func printApproval(w io.Writer, p broker.Pending) {
 	row("Client", orDash(strings.TrimSpace(p.Principal.Client.Name+" "+p.Principal.Client.Version)))
 	row("Asked via", string(p.Channel))
 	row("Scopes", strings.Join(p.Scopes, ", "))
+	if p.OverRate != "" {
+		row("Over rate", p.OverRate+" reached: approved, this call runs (and is not counted)")
+	}
 	row("Since", clock(p.Created)+" ("+ago(p.Created)+")")
 	row("Expires", clock(p.Expires)+" ("+until(p.Expires)+")")
 	if p.Waiting {
