@@ -70,6 +70,9 @@ button.danger { border-color: var(--danger); background: transparent; color: var
 form.inline { display: inline; margin: 0; }
 .notice.warning { border-left: 3px solid var(--danger); }
 .notice .text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0.5rem 0; }
+.proposal { border-left: 3px solid var(--muted); }
+.proposal .text { white-space: pre-wrap; }
+.proposal .warning { color: var(--danger); margin: 0 0 0.5rem; }
 fieldset { border: 0; padding: 0; margin: 0.75rem 0 0; }
 label { margin-right: 1rem; }
 @media (max-width: 600px) {
@@ -100,7 +103,14 @@ const layout = `{{define "top"}}<!doctype html>
 <h1>{{.Title}}</h1>
 {{end}}
 {{define "bottom"}}</main></body></html>
-{{end}}`
+{{end}}
+{{define "proposal"}}{{with .}}<h2>The agent's account <span class="muted">(its own claim, not checked by the gateway)</span></h2>
+<div class="card proposal">{{range .Warnings}}<p class="warning">Warning from the agent: {{.}}</p>{{end}}<dl>
+<dt>Summary</dt><dd>{{.Summary}}</dd>
+{{if .Impact}}<dt>Impact</dt><dd class="text">{{.Impact}}</dd>{{end}}
+{{if .Steps}}<dt>Steps</dt><dd><ol>{{range .Steps}}<li>{{.}}</li>{{end}}</ol></dd>{{end}}
+{{range $k, $v := .Context}}<dt>{{$k}}</dt><dd>{{$v}}</dd>{{end}}
+</dl></div>{{end}}{{end}}`
 
 var pageTmpl = template.Must(template.New("page").Funcs(funcs).Parse(layout + `{{template "top" .}}<div class="card"><p>{{.Text}}</p>{{if .S}}<p><a href="/approvals/">Back to the approvals</a></p>{{end}}</div>{{template "bottom" .}}`))
 
@@ -141,6 +151,7 @@ var showTmpl = template.Must(template.New("show").Funcs(funcs).Parse(layout + `{
 <dt>Waiting</dt><dd>{{if .P.Waiting}}yes, the call waits{{else}}no: the agent's next attempt finds the decision{{end}}</dd>
 {{if .P.Prompt}}<dt>Request</dt><dd>{{.P.Prompt}}</dd>{{end}}
 </dl></div>
+{{template "proposal" .P.Proposal}}
 <h2>Arguments</h2>
 {{if .Args}}<div class="card"><pre>{{.Args}}</pre></div>{{else}}<p class="muted">Not shown (none, or the policy hides them).</p>{{end}}
 <form method="post" action="/approvals/{{.P.ID}}">
@@ -161,6 +172,7 @@ var reviewTmpl = template.Must(template.New("review").Funcs(funcs).Parse(layout 
 <dt>Review until</dt><dd>{{clock .R.Expires}}</dd>
 {{if .R.Verdict}}<dt>Verdict</dt><dd>{{.R.Verdict.Verdict}} by {{.R.Verdict.By}}, {{clock .R.Verdict.At}}{{if .R.Verdict.Reason}}: {{.R.Verdict.Reason}}{{end}}</dd>{{end}}
 </dl></div>
+{{template "proposal" .R.Proposal}}
 <h2>Arguments</h2>
 {{if .Args}}<div class="card"><pre>{{.Args}}</pre></div>{{else}}<p class="muted">Not recorded (the policy's audit keeps only a digest).</p>{{end}}
 <form method="post" action="/approvals/reviews/{{.R.ID}}">

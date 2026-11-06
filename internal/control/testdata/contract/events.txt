@@ -43,6 +43,13 @@ pending.principal.sub
 pending.principal.transport
 pending.principal.uid
 pending.prompt
+pending.proposal
+pending.proposal.client_supplied
+pending.proposal.context
+pending.proposal.impact
+pending.proposal.steps
+pending.proposal.summary
+pending.proposal.warnings
 pending.scopes
 pending.server
 pending.waiting
@@ -79,6 +86,13 @@ review.principal.session_id
 review.principal.sub
 review.principal.transport
 review.principal.uid
+review.proposal
+review.proposal.client_supplied
+review.proposal.context
+review.proposal.impact
+review.proposal.steps
+review.proposal.summary
+review.proposal.warnings
 review.ran
 review.server
 review.verdict

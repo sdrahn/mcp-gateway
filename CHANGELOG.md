@@ -7,6 +7,21 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- The agent's account of a call, shown with its approval (chapter 7, "The
+  agent's account of a call"): a client may send a proposal with a
+  `tools/call`, in `_meta` under `io.github.sdrahn.mcp-gateway/proposal`
+  (summary, impact, steps, context, warnings; plain text, bounded). The
+  gateway shows it with the approval the call raises, on the approval
+  page, in Cockpit, `mcp-gateway-admin approvals show`, the mail, the
+  desktop notification, `GET /v1/approvals` and the event stream, and
+  with the call's review item, marked as the client's claim. It is never
+  forwarded to the server, policy never sees it, and the decision and
+  `mcp-approval` records carry its digest (`proposal_digest`). A
+  malformed or oversized proposal is dropped, not the call
+  (`mcp-proposal-dropped`).
+
 ## v1.14.0 — 2026-11-05
 
 What a deployment that lets agents act on their own needs from the

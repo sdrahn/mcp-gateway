@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"mime"
 	"net"
 	"net/smtp"
@@ -349,6 +350,31 @@ func (e *Email) Message(p broker.Pending) []byte {
 	}
 	line("  Times out:  %s", p.Expires.Local().Format(time.RFC1123))
 	line("")
+	if pr := p.Proposal; pr != nil {
+		// The client's account, set apart from the gateway's facts above.
+		line("The agent's own account of the call (its claim, not checked by the gateway):")
+		line("")
+		line("  Summary:    %s", pr.Summary)
+		if pr.Impact != "" {
+			for i, l := range strings.Split(pr.Impact, "\n") {
+				if i == 0 {
+					line("  Impact:     %s", l)
+				} else {
+					line("              %s", l)
+				}
+			}
+		}
+		for i, s := range pr.Steps {
+			line("  Step %d:     %s", i+1, s)
+		}
+		for _, k := range slices.Sorted(maps.Keys(pr.Context)) {
+			line("  %s: %s", k, pr.Context[k])
+		}
+		for _, w := range pr.Warnings {
+			line("  WARNING:    %s", w)
+		}
+		line("")
+	}
 	if u := e.URL(p.ID); u != "" {
 		line("Decide on the approval page: %s", u)
 	} else {

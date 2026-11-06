@@ -207,4 +207,5 @@ func printReview(w io.Writer, r broker.Review) {
 	} else {
 		say(w, "Arguments: not recorded (the policy's audit keeps a digest)")
 	}
+	printProposal(w, r.Proposal)
 }

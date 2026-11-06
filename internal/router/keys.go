@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/sdrahn/mcp-gateway/internal/proposal"
 )
 
 // Policy decides on parameters as the gateway decodes them, with exact
@@ -20,7 +22,7 @@ import (
 var paramKeys = map[string][]string{
 	"":      {"name", "arguments", "uri", "ref", "argument", "context", "_meta", "cursor"},
 	"ref":   {"type", "name", "uri"},
-	"_meta": {"progressToken"},
+	"_meta": {"progressToken", proposal.Key},
 }
 
 // checkParamKeys refuses keys of params (and of its ref and _meta) that

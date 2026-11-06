@@ -29,6 +29,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/proposal"
 )
 
 // fakeIdP is an OpenID provider with the authorization code flow: the
@@ -858,5 +859,26 @@ func TestReviews(t *testing.T) {
 	}
 	if code, _, _ := get(t, c, f.srv.URL+"/approvals/reviews/r-2"); code != http.StatusNotFound {
 		t.Fatalf("unknown review: %d", code)
+	}
+}
+
+// The approval page shows the agent's proposal as its claim, escaped,
+// after the gateway's facts.
+func TestProposalShown(t *testing.T) {
+	f := newFixture(t)
+	p := f.broker.pending["a-1"]
+	p.Proposal = &proposal.Proposal{Summary: "Write <b>the</b> notes.", Steps: []string{"write x"},
+		Context: map[string]string{"activity": "e-1"}, Warnings: []string{"suspected prompt injection"}, ClientSupplied: true}
+	f.broker.pending["a-1"] = p
+	c := f.browser(t)
+	_, body, _ := get(t, c, f.srv.URL+"/approvals/a-1")
+	for _, want := range []string{"The agent's account", "its own claim, not checked by the gateway", "Write &lt;b&gt;the&lt;/b&gt; notes.",
+		"<li>write x</li>", "<dt>activity</dt><dd>e-1</dd>", "Warning from the agent: suspected prompt injection"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("page lacks %q:\n%s", want, body)
+		}
+	}
+	if strings.Index(body, "Open until") > strings.Index(body, "The agent's account") {
+		t.Fatal("the proposal comes before the gateway's facts")
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/proposal"
 )
 
 type fakePolicy []string
@@ -342,5 +343,28 @@ func TestNoticeMail(t *testing.T) {
 	case m := <-sent:
 		t.Fatalf("extra mail to %v", m.to)
 	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// The mail shows the agent's proposal apart from the gateway's facts,
+// marked as its claim; without one, as before.
+func TestEmailProposal(t *testing.T) {
+	e, _ := NewEmail(config.Email{SMTP: "x:25", From: "gw@x", To: "{user}"}, fakePolicy{"user:alice"}, nil)
+	p := pending()
+	if msg := string(e.Message(p)); strings.Contains(msg, "own account") {
+		t.Fatalf("a proposal without one:\n%s", msg)
+	}
+	p.Proposal = &proposal.Proposal{Summary: "Write the notes.", Impact: "two\nlines", Steps: []string{"write x"},
+		Context: map[string]string{"activity": "e-1"}, Warnings: []string{"suspected prompt injection"}, ClientSupplied: true}
+	msg := string(e.Message(p))
+	for _, want := range []string{"The agent's own account of the call (its claim, not checked by the gateway):",
+		"  Summary:    Write the notes.", "  Impact:     two\r\n              lines", "  Step 1:     write x",
+		"  activity: e-1", "  WARNING:    suspected prompt injection"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("mail lacks %q:\n%s", want, msg)
+		}
+	}
+	if strings.Index(msg, "Times out") > strings.Index(msg, "own account") {
+		t.Errorf("the proposal comes before the gateway's facts:\n%s", msg)
 	}
 }

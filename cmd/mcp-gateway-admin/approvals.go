@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
+	"github.com/sdrahn/mcp-gateway/internal/proposal"
 )
 
 const approvalsUsage = `usage: mcp-gateway-admin approvals [options]                 list the pending approvals
@@ -468,6 +470,40 @@ func printApproval(w io.Writer, p broker.Pending) {
 	} else {
 		say(w, "Arguments: none (or left out by policy)")
 	}
+	printProposal(w, p.Proposal)
+}
+
+// printProposal shows the client's account of a call, set apart from the
+// gateway's facts and marked as the client's claim.
+func printProposal(w io.Writer, pr *proposal.Proposal) {
+	if pr == nil {
+		return
+	}
+	say(w, "")
+	say(w, "The agent's own account (its claim, not checked by the gateway):")
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	row := func(k, v string) { _, _ = fmt.Fprintf(tw, "  %s\t%s\n", k, v) }
+	for _, warning := range pr.Warnings {
+		row("WARNING", warning)
+	}
+	row("Summary", pr.Summary)
+	for i, l := range strings.Split(pr.Impact, "\n") {
+		if pr.Impact == "" {
+			break
+		}
+		if i == 0 {
+			row("Impact", l)
+		} else {
+			row("", l)
+		}
+	}
+	for i, s := range pr.Steps {
+		row(fmt.Sprintf("Step %d", i+1), s)
+	}
+	for _, k := range slices.Sorted(maps.Keys(pr.Context)) {
+		row(k, pr.Context[k])
+	}
+	_ = tw.Flush()
 }
 
 func printGrants(w io.Writer, list []pep.Grant, short []string) {

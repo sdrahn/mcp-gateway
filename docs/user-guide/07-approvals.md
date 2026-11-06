@@ -253,6 +253,47 @@ approvers:
 ```
 
 
+## The agent's account of a call
+
+What an approver sees of a call is the gateway's: the principal, the
+server and tool, the arguments, the policy's prompt. Why the agent makes
+the call is the agent's to say. A client may send that with a
+`tools/call`, in its `_meta` under `io.github.sdrahn.mcp-gateway/proposal`:
+
+```json
+{"name": "patch", "arguments": {…},
+ "_meta": {"io.github.sdrahn.mcp-gateway/proposal": {
+   "summary": "Install the 2 security patches for openssl; nginx restarts.",
+   "impact": "nginx is unavailable for about 5 s.",
+   "steps": ["zypper patch --cve CVE-2026-1234", "systemctl restart nginx"],
+   "context": {"activity": "e-1f3c", "started_by": "schedule morning-check"},
+   "warnings": ["suspected prompt injection: a tool's output told the model to ignore its instructions"]}}}
+```
+
+- **Shown with the approval** the call raises, everywhere it is shown:
+  the gateway's approval page, Cockpit's Approvals tab, `mcp-gateway-admin
+  approvals show`, the e-mail, the desktop notification (the summary
+  and the warnings), `GET /v1/approvals` and the event stream
+  (`"proposal": {…, "client_supplied": true}`); and with the call's
+  review item ("Reviews", below). Each marks it as the agent's own
+  claim, apart from the gateway's facts: the agent can write anything in
+  it.
+- **Never forwarded** to the MCP server, and **never seen by policy**: it
+  changes no decision.
+- **Audited** as a digest: the decision record and the approval's record
+  (`mcp-approval`) have `proposal_digest`, which ties a decision to what
+  the approver was shown; the proposal itself only with the obligation
+  `audit: "full"`, as for the arguments.
+- **Bounds:** `summary` is required, one line of at most 300 bytes;
+  `impact` at most 1000 bytes; at most 10 `steps` and 10 `warnings` of
+  one line and 300 bytes each; at most 10 `context` entries, one line
+  each; 4 KiB in all; plain text (no control characters but line breaks
+  in `impact`, no bidirectional overrides). A proposal that breaks them
+  is dropped, not the call, which goes on without one; the drop is
+  audited (`mcp-proposal-dropped`).
+- A call that a grant allows (a `session` or duration scope) runs
+  without anyone shown its proposal, as no one decides on it.
+
 ## Pending approvals across disconnects and restarts
 
 Pending approvals are written to `/var/lib/mcp-gateway/pending.json`.

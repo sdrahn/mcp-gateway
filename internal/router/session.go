@@ -24,6 +24,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/jsonrpc"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/proposal"
 	"github.com/sdrahn/mcp-gateway/internal/pseudo"
 	"github.com/sdrahn/mcp-gateway/internal/signin"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
@@ -995,6 +996,9 @@ type callTarget struct {
 	rewrite func(params map[string]json.RawMessage)
 	// progress is the progress the client asked for, if it did.
 	progress *clientProgress
+	// proposal is the client's account of a tools/call, if it sent one
+	// (proposal.Key in _meta, which is not forwarded).
+	proposal *proposal.Proposal
 }
 
 func (s *Session) target(method string, params map[string]json.RawMessage) (*callTarget, *jsonrpc.Error) {
@@ -1139,6 +1143,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	if t.progress != nil {
 		ctx = context.WithValue(ctx, progressTokenKey{}, t.progress.token)
 	}
+	s.takeProposal(m.Method, t, params)
 
 	decisionID := newDecisionID()
 	var dec pep.Decision
@@ -1182,7 +1187,8 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	s.r.Audit.Log(audit.Record{Session: p.SessionID, Sub: p.Sub, Action: t.action, Server: t.server,
 		Name: t.resource.Name, Effect: string(dec.Effect), Reason: dec.Reason, GrantID: grantID,
 		DecisionID: decisionID, Args: t.args, FullArgs: ob != nil && ob.FullAudit, Reidentified: nReidentified,
-		Privileged: s.r.privileged(t.server), Scopes: p.Scopes, OutsideScopes: dec.OutsideScopes})
+		Privileged: s.r.privileged(t.server), Scopes: p.Scopes, OutsideScopes: dec.OutsideScopes,
+		ProposalDigest: t.proposal.Digest(), Proposal: proposalRecord(t.proposal)})
 	if dec.Effect != pep.Allow {
 		if dec.OutsideScopes {
 			return s.scopeDenial(ctx, m.Method, dec)
@@ -1266,7 +1272,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 			// Marked for review by its approvers (obligation "review").
 			item := broker.Review{Principal: p, Action: t.action, Server: t.server, Name: t.resource.Name,
 				DecisionID: decisionID, ApprovalID: approvalID, GrantID: grantID, Outcome: r.Outcome, Error: r.Error,
-				Ran: started.UTC(), DurationMS: r.Duration.Milliseconds()}
+				Ran: started.UTC(), DurationMS: r.Duration.Milliseconds(), Proposal: t.proposal}
 			if ob.FullAudit {
 				item.Args = in.Args
 			}
@@ -1413,6 +1419,7 @@ func (s *Session) decide(ctx context.Context, t *callTarget, decisionID string) 
 		Args:      t.args,
 		Grants:    s.r.Broker.Grants(p, t.resource.Server, t.resource.Name),
 		Context:   s.policyContext(decisionID),
+		Proposal:  t.proposal,
 	}
 	in.Resource.Privileged = s.r.privileged(t.resource.Server)
 	// A "once" grant from an approval decided while no call was waiting

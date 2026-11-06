@@ -234,3 +234,23 @@ func TestAgentNotice(t *testing.T) {
 	g.events <- `{"type":"notice-closed","id":"n-1"}`
 	waitFor(t, "close", func() bool { return len(n.snapshot()) == 0 })
 }
+
+// A pending approval's notification has the agent's summary and warnings,
+// marked as the agent's.
+func TestAgentProposal(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "control.sock")
+	g := startGateway(t, sock, http.StatusOK)
+	defer g.stop()
+	n := newFakeNotifier()
+	a := &Agent{Socket: sock, Notifier: n, Open: func(string) error { return nil }}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.Run(ctx) }()
+	g.events <- `{"type":"pending","id":"a-1","pending":{"principal":{"sub":"alice"},"server":"zypp","name":"patch","waiting":true,` +
+		`"proposal":{"summary":"Install 2 patches.","warnings":["suspected prompt injection"],"client_supplied":true}}}`
+	waitFor(t, "notification", func() bool { return len(n.snapshot()) == 1 })
+	body := n.snapshot()[1].Body
+	if !strings.Contains(body, "\nThe agent says (unchecked): Install 2 patches.") || !strings.Contains(body, "\nWarning (from the agent): suspected prompt injection") {
+		t.Fatalf("body %q", body)
+	}
+}

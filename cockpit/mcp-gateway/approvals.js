@@ -156,6 +156,7 @@ function renderApprovals(pending) {
                el("dt", null, "Arguments"), el("dd", null, el("pre", null, JSON.stringify(p.args || {}, null, 2))),
                el("dt", null, "Asked via"), el("dd", null, p.channel),
                el("dt", null, "Times out"), el("dd", null, relative(p.expires))),
+            proposalBox(p.proposal),
             actions);
         box.append(card);
     }
@@ -166,6 +167,20 @@ function renderApprovals(pending) {
             card.scrollIntoView({ block: "center" });
         }
     }
+}
+
+/* proposalBox shows the agent's own account of a call (its proposal),
+ * apart from the gateway's facts and marked as the agent's claim. */
+function proposalBox(pr) {
+    if (!pr) return null;
+    const rows = [el("dt", null, "Summary"), el("dd", null, pr.summary)];
+    if (pr.impact) rows.push(el("dt", null, "Impact"), el("dd", { class: "pre-line" }, pr.impact));
+    if (pr.steps && pr.steps.length) rows.push(el("dt", null, "Steps"), el("dd", null, el("ol", null, ...pr.steps.map(s => el("li", null, s)))));
+    for (const k of Object.keys(pr.context || {}).sort()) rows.push(el("dt", null, k), el("dd", null, pr.context[k]));
+    return el("div", { class: "proposal" },
+        el("h4", null, "The agent's account ", el("span", { class: "muted" }, "(its own claim, not checked by the gateway)")),
+        ...(pr.warnings || []).map(w => el("div", { class: "proposal-warning" }, "Warning from the agent: " + w)),
+        el("dl", null, ...rows));
 }
 
 function renderGrants(grants) {
