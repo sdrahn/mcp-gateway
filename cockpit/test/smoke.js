@@ -117,6 +117,26 @@ function site() {
     await page.waitForFunction(() => !document.querySelector("#clients").textContent.includes("kit 0.121.1"));
     check((await page.evaluate(() => __calls)).some(c => c[0] === "DELETE" && c[1] === "/v1/sessions/s1"), "end a client");
     check(await page.textContent("#tabs button[data-tab=clients] .count") === "2", "the clients count follows an End");
+    await page.waitForSelector("#client-history tbody tr td");
+    const history = await page.textContent("#client-history");
+    check(history.includes("agent-patch-pilot via unix") && history.includes("custos-worker 0.4") && history.includes("2026-07-28 (no session)") &&
+          history.includes("now (active") && history.includes("connected") && history.includes("ended by root (control API)") &&
+          history.includes("12"), "the clients' history, connected ones and ended ones");
+    const historyGets = () => page.evaluate(() => __calls.filter(c => c[0] === "GET" && c[1].startsWith("/v1/sessions/history?")).map(c => c[1]));
+    const window24 = new URLSearchParams((await historyGets())[0].split("?")[1]);
+    check(Math.abs(new Date(window24.get("until")) - new Date(window24.get("since")) - 86400000) < 2000 &&
+          !window24.get("since").includes("."), "the last 24 hours by default, in RFC 3339");
+    await page.selectOption("#history-filter select[name=window]", "604800");
+    await page.waitForFunction(() => __calls.filter(c => c[1].startsWith("/v1/sessions/history?")).length >= 2);
+    const window7 = new URLSearchParams((await historyGets()).pop().split("?")[1]);
+    check(Math.abs(new Date(window7.get("until")) - new Date(window7.get("since")) - 7 * 86400000) < 2000, "another time frame");
+    check(!(await page.isVisible("#history-range")), "no range fields for a preset frame");
+    await page.selectOption("#history-filter select[name=window]", "custom");
+    check(await page.isVisible("#history-range"), "a custom range");
+    await page.fill("#history-filter input[name=text]", "patch-pilot");
+    await page.click("#history-filter button");
+    await page.waitForFunction(() => !document.querySelector("#client-history").textContent.includes("bob"));
+    check((await page.textContent("#client-history")).includes("agent-patch-pilot"), "the history filtered by user");
     await page.click("#tabs button[data-tab=tasks]");
     await page.waitForSelector("#tasks tbody tr td");
     const tasksText = await page.textContent("#tasks");

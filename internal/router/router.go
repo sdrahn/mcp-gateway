@@ -93,10 +93,17 @@ type Router struct {
 	// Off, such requests are served as before (a server/discover probe
 	// is unknown, and the agent falls back to initialize).
 	ModernAgents bool
+	// HistoryFile keeps the clients' history across restarts ("" =
+	// memory only); HistoryRetention is how long an ended client is kept
+	// (0: 30 days).
+	HistoryFile      string
+	HistoryRetention time.Duration
 
-	once      sync.Once
-	sealer    *sealer
-	agentMu   sync.Mutex
+	once    sync.Once
+	sealer  *sealer
+	agentMu sync.Mutex
+	// hist is the clients' history (history.go).
+	hist      history
 	agents    agentRegistry
 	registry  atomic.Pointer[map[string]*config.Backend] // the definitions in force (SetBackends)
 	reloadMu  sync.Mutex

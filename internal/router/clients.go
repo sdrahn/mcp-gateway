@@ -60,6 +60,8 @@ type agentClient struct {
 	requests, streams int
 	// end cancels the requests and streams in flight, by request.
 	end map[*bool]func()
+	// record is its history record (history.go).
+	record string
 }
 
 // Sessions lists the clients: the initialized sessions and the agents
@@ -134,8 +136,14 @@ func (r *Router) agentSeen(s *Session, stream bool, end func()) (done func()) {
 	if c == nil {
 		sum := sha256.Sum256([]byte(key))
 		c = &agentClient{id: "agent-" + hex.EncodeToString(sum[:8]), principal: p, first: now, end: map[*bool]func(){}}
+		c.record = agentRecordID(c.id)
 		r.agents.clients[key] = c
+		r.historyOpen(SessionInfo{ID: c.record, Kind: "agent", Sub: p.Sub, Issuer: p.Issuer, UID: p.UID,
+			Transport: p.Transport, Endpoint: endpointLabel(ep), Servers: slices.Clone(ep.order), Client: p.Client,
+			Requested: modernVersion, Protocol: modernVersion, Started: now, LastActive: now})
 	}
+	s.agentRecord = c.record
+	r.historyTouch(c.record, now, false)
 	token := new(bool)
 	c.end[token] = end
 	c.endpoint, c.servers, c.last = endpointLabel(ep), slices.Clone(ep.order), now
@@ -191,6 +199,7 @@ func (r *Router) EndSession(id, by string) error {
 				for _, end := range c.end {
 					ends = append(ends, end)
 				}
+				r.markEnded(c.record, by)
 			}
 		}
 		r.agentMu.Unlock()
@@ -214,6 +223,7 @@ func (r *Router) EndSession(id, by string) error {
 		if victim == nil {
 			return ErrNoSession
 		}
+		r.markEnded(id, by)
 		_ = victim.client.Close()
 	}
 	r.Log.Info("session ended", "session", id, "kind", info.Kind, "sub", info.Sub, "client", info.Client.Name, "by", by)
@@ -238,6 +248,7 @@ func (r *Router) pruneAgentClients(now time.Time) {
 		busy := c.requests > 0 || c.streams > 0
 		if !busy && now.Sub(c.last) > agentSeenFor {
 			delete(r.agents.clients, k)
+			r.historyClose(c.record, c.last, EndNotSeen, "")
 			continue
 		}
 		pk := principalKey(c.principal)
@@ -257,6 +268,7 @@ func (r *Router) pruneAgentClients(now time.Time) {
 			}
 			if c := r.agents.clients[k]; c.requests == 0 && c.streams == 0 {
 				delete(r.agents.clients, k)
+				r.historyClose(c.record, c.last, EndNotSeen, "")
 				n--
 			}
 		}

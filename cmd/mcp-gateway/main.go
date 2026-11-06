@@ -364,6 +364,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		NoRequestTimeout:         gw.Agents.NoRequestTimeout,
 		NoWait:                   gw.Approvals.NoWait,
 		RemoteApprovals:          remoteApprovals(gw),
+		HistoryFile:              filepath.Join(gw.StateDir, "clients.json"),
 		ModernAgents:             true,
 	}
 	if signIns != nil {

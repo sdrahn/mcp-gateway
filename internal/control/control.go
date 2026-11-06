@@ -240,6 +240,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/instances/{id}", s.with(s.stopInstance))
 	mux.HandleFunc("GET /v1/tasks", s.with(s.tasks))
 	mux.HandleFunc("GET /v1/sessions", s.with(s.sessions))
+	mux.HandleFunc("GET /v1/sessions/history", s.with(s.sessionHistory))
 	mux.HandleFunc("DELETE /v1/sessions/{id}", s.with(s.endSession))
 	mux.HandleFunc("POST /v1/tasks/{id}/cancel", s.with(s.cancelTask))
 	mux.HandleFunc("GET /v1/sign-ins", s.with(s.signIns))
@@ -582,6 +583,50 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request, a broker.Appro
 	if s.Sessions != nil {
 		for _, c := range s.Sessions.Sessions() {
 			if s.Broker.MayManageSession(r.Context(), a, sessionTarget(c)) {
+				out = append(out, c)
+			}
+		}
+	}
+	slices.Reverse(out)
+	writeJSON(w, http.StatusOK, out)
+}
+
+// History lists the clients connected between two times (router.Router
+// implements it).
+type History interface {
+	History(since, until time.Time) []router.ClientRecord
+}
+
+// defaultHistoryWindow is the history's time frame without ?since.
+const defaultHistoryWindow = 24 * time.Hour
+
+// sessionHistory lists the clients connected at some time in
+// [since, until] (RFC 3339; default the last 24 hours) that the caller may
+// manage, as for the clients connected now (manage_session), newest
+// first.
+func (s *Server) sessionHistory(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+	until := time.Now()
+	since := until.Add(-defaultHistoryWindow)
+	for name, t := range map[string]*time.Time{"since": &since, "until": &until} {
+		v := r.URL.Query().Get(name)
+		if v == "" {
+			continue
+		}
+		parsed, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, name+": want a time as 2026-11-06T08:00:00Z (RFC 3339)")
+			return
+		}
+		*t = parsed
+	}
+	if until.Before(since) {
+		writeError(w, http.StatusBadRequest, "until is before since")
+		return
+	}
+	out := []router.ClientRecord{}
+	if h, ok := s.Sessions.(History); ok {
+		for _, c := range h.History(since, until) {
+			if s.Broker.MayManageSession(r.Context(), a, sessionTarget(c.SessionInfo)) {
 				out = append(out, c)
 			}
 		}

@@ -51,6 +51,14 @@
         "/v1/whoami": () => ({ name: "carol", uid: 1003 }),
         "/v1/tasks": () => tasks,
         "/v1/sessions": () => sessions,
+        "/v1/sessions/history": () => [
+            { id: "agent-9-1a", kind: "agent", sub: "agent-patch-pilot", transport: "unix", endpoint: "zypp", servers: ["zypp"],
+              client: { name: "custos-worker", version: "0.4" }, protocol: "2026-07-28",
+              started: new Date(Date.now() - 600000).toISOString(), last_active: new Date(Date.now() - 60000).toISOString(), calls: 4 },
+            { id: "s-old", kind: "session", sub: "bob", transport: "unix", endpoint: "all", servers: ["fs"],
+              client: { name: "kit", version: "0.121.1" }, protocol: "2025-06-18",
+              started: new Date(Date.now() - 7200000).toISOString(), last_active: new Date(Date.now() - 3700000).toISOString(),
+              ended: new Date(Date.now() - 3600000).toISOString(), end: "ended", ended_by: "root (control API)", calls: 12 }],
         "/v1/status": () => query.has("reload")
             ? { restart_pending: false, config_error: "/etc/mcp-gateway/gateway.yaml: yaml: line 3: did not find expected key",
                 restart_needed: ["socket_group"] }
@@ -103,7 +111,7 @@
         addEventListener(ev, f) { (listeners[ev] = listeners[ev] || []).push(f); },
         http() {
             return {
-                get(path) { log.push(["GET", path]); return Promise.resolve(JSON.stringify(routes[path]())); },
+                get(path) { log.push(["GET", path]); return Promise.resolve(JSON.stringify(routes[path.split("?")[0]](path))); },
                 post(path, body) {
                     log.push(["POST", path, body]);
                     if (path === "/v1/policy/whatif") {

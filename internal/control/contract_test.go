@@ -22,6 +22,7 @@ func TestContract(t *testing.T) {
 		"servers.txt":          []serverInfo{},
 		"tasks.txt":            []router.TaskInfo{},
 		"sessions.txt":         []router.SessionInfo{},
+		"session-history.txt":  []router.ClientRecord{},
 		"policy.txt":           policyResponse{},
 		"sign-ins.txt":         signInsResponse{},
 		"sign-out.txt":         signOutResponse{},

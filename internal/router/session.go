@@ -90,6 +90,9 @@ type Session struct {
 	// clientCaps are the request's, agentLevel its log level.
 	modern     bool
 	agentLevel string
+	// agentRecord is the history record of the agent of 2026-07-28 this
+	// request session serves (history.go).
+	agentRecord string
 	// listening is the stream of a modern agent's subscriptions/listen
 	// (listen.go).
 	listening *agentListen
@@ -139,6 +142,7 @@ func (s *Session) Run(ctx context.Context, first *jsonrpc.Message) error {
 	s.ctx = ctx
 	defer func() {
 		s.r.unregister(s)
+		s.r.historyClose(s.principal.SessionID, time.Now(), EndDisconnected, "")
 		cancel()
 		_ = s.client.Close()
 		s.release()
@@ -627,6 +631,11 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 		// is logged by discover).
 		s.log.Info("session initialized", "client", p.ClientInfo.Name, "client_version", p.ClientInfo.Version,
 			"requested", p.ProtocolVersion, "protocol", v, "capped", capped)
+		ep := s.endpoint()
+		pr := s.snapshotPrincipal()
+		s.r.historyOpen(SessionInfo{ID: pr.SessionID, Kind: "session", Sub: pr.Sub, Issuer: pr.Issuer, UID: pr.UID,
+			Transport: pr.Transport, Endpoint: endpointLabel(ep), Servers: slices.Clone(ep.order), Client: pr.Client,
+			Requested: p.ProtocolVersion, Protocol: v, Capped: capped, Started: s.started, LastActive: time.Now()})
 	}
 	if !s.endpoint().aggregated {
 		server := s.endpoint().order[0]
@@ -1268,6 +1277,7 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 			r.ProgressToken = tokenText(t.progress.token)
 		}
 		s.r.Audit.Result(r)
+		s.r.historyTouch(s.historyID(), time.Now(), true)
 		if ob != nil && ob.Review && s.r.Broker != nil {
 			// Marked for review by its approvers (obligation "review").
 			item := broker.Review{Principal: p, Action: t.action, Server: t.server, Name: t.resource.Name,
