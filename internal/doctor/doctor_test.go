@@ -625,6 +625,21 @@ func TestApprovalReach(t *testing.T) {
 	}
 }
 
+// A server that sees the host's network is named, with what it sees.
+func TestNetworkViews(t *testing.T) {
+	bs := map[string]*config.Backend{
+		"obs":   {Name: "obs", NetworkView: config.NetworkViewHost},
+		"plain": {Name: "plain", NetworkView: config.NetworkViewNone},
+		"net":   {Name: "net", Network: true},
+	}
+	rs := NetworkViews(bs)
+	Identify(rs)
+	if len(rs) != 1 || rs[0].Check != "network view obs" || rs[0].Status != OK || rs[0].ID != "network-view" || rs[0].Subject != "obs" ||
+		!strings.Contains(rs[0].Summary, "network_view: host") {
+		t.Fatalf("%+v", rs)
+	}
+}
+
 func TestLiteralSecrets(t *testing.T) {
 	backends := map[string]*config.Backend{
 		"clean": {Name: "clean", URL: "https://x/", Headers: map[string]string{"Authorization": "Bearer ${CREDENTIAL:tok}", "Accept": "application/json"},

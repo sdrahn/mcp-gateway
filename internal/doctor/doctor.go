@@ -90,6 +90,7 @@ var checkIDs = map[string]string{
 var checkPrefixes = []struct{ prefix, id string }{
 	{"SELinux type ", "selinux-type"},
 	{"approver group ", "approver-group"},
+	{"network view ", "network-view"},
 	{"SELinux ", "selinux-denials"},
 	{"polkit ", "polkit"},
 	{"program ", "program"},
@@ -711,6 +712,22 @@ func LiteralSecrets(backends map[string]*config.Backend) []Result {
 			Details: []string{
 				"server definitions are readable by every local user, and the unit's command line and environment by more than the server;",
 				"move each into a credential (credentials: [name], the file in /etc/mcp-gateway/credentials) and name it as ${CREDENTIAL:name} in headers, or read $CREDENTIALS_DIRECTORY/name in the server (user guide, chapter 9, \"Secrets\")"}})
+	}
+	return out
+}
+
+// NetworkViews notes the servers that see the host's network without
+// using it (network_view: host): their instances read the host's
+// interfaces, addresses, routes and sockets through netlink, which a
+// reviewer of the definition should know; they send no IP traffic.
+func NetworkViews(backends map[string]*config.Backend) []Result {
+	var out []Result
+	for _, name := range sortedKeys(backends) {
+		if b := backends[name]; b.NetworkView == config.NetworkViewHost && !b.Network {
+			out = append(out, Result{Check: "network view " + name, Status: OK,
+				Summary: "sees the host's network (network_view: host): interfaces, addresses, routes and sockets, through netlink; no IP traffic",
+				Details: []string{"the host's network namespace, AF_UNIX and AF_NETLINK sockets only, IPAddressDeny=any (user guide, chapter 4)"}})
+		}
 	}
 	return out
 }

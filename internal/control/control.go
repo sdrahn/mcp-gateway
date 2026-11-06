@@ -386,8 +386,10 @@ type serverInfo struct {
 	SELinuxType string           `json:"selinux_type"`
 	Isolation   config.Isolation `json:"isolation"`
 	Network     bool             `json:"network"`
-	RunAs       string           `json:"run_as"`
-	Privileged  bool             `json:"privileged,omitempty"`
+	// NetworkView is network_view: "none" or "host".
+	NetworkView string `json:"network_view"`
+	RunAs       string `json:"run_as"`
+	Privileged  bool   `json:"privileged,omitempty"`
 	// Capabilities are those the server's instances keep
 	// (sandbox.capabilities).
 	Capabilities []string `json:"capabilities,omitempty"`
@@ -422,7 +424,7 @@ func (s *Server) servers(w http.ResponseWriter, r *http.Request, a broker.Approv
 			insts = []router.InstanceInfo{}
 		}
 		out = append(out, serverInfo{Name: name, SELinuxType: b.SELinuxType, Isolation: b.Isolation,
-			Network: b.Network, RunAs: b.RunAs, Privileged: b.Privileged, Capabilities: b.Sandbox.Capabilities, SignIn: b.SignIn != nil,
+			Network: b.Network, NetworkView: b.NetworkView, RunAs: b.RunAs, Privileged: b.Privileged, Capabilities: b.Sandbox.Capabilities, SignIn: b.SignIn != nil,
 			Landlock: b.Landlock != nil, Instances: insts})
 	}
 	for name, insts := range byServer {

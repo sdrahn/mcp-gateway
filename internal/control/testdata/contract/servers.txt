@@ -21,6 +21,7 @@
 [].landlock
 [].name
 [].network
+[].network_view
 [].privileged
 [].removed
 [].run_as

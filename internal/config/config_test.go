@@ -396,32 +396,53 @@ func TestBackendContexts(t *testing.T) {
 	}
 }
 
+// network_view: host, without network (Custos R7); none by default.
+func TestBackendNetworkView(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "obs.yaml", "name: obs\ncommand: [/usr/bin/obs]\nnetwork_view: host\n")
+	writeFile(t, dir, "plain.yaml", "name: plain\ncommand: [/usr/bin/plain]\n")
+	bs, err := LoadBackends(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := bs["obs"]; b == nil || b.NetworkView != NetworkViewHost || b.Network {
+		t.Fatalf("obs %+v", bs["obs"])
+	}
+	if b := bs["plain"]; b == nil || b.NetworkView != NetworkViewNone {
+		t.Fatalf("plain %+v", bs["plain"])
+	}
+}
+
 func TestLoadBackendsErrors(t *testing.T) {
 	tests := map[string][]string{
-		"bad name":         {"name: Bad_Name\ncommand: [/usr/bin/a]\n"},
-		"relative command": {"name: a\ncommand: [a]\n"},
-		"empty command":    {"name: a\n"},
-		"bad selinux type": {"name: a\ncommand: [/usr/bin/a]\nselinux_type: unconfined_t\n"},
-		"bad isolation":    {"name: a\ncommand: [/usr/bin/a]\nisolation: global\n"},
-		"bad discovery":    {"name: a\ncommand: [/usr/bin/a]\ndiscovery: cached\n"},
-		"contexts alone":   {"name: a\ncommand: [/usr/bin/a]\ncontexts: true\n"},
-		"context setting":  {"name: a\ncommand: [/usr/bin/a]\nisolation: context\n"},
-		"bad protect_home": {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  protect_home: maybe\n"},
-		"bad cred name":    {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"../x\"]\n"},
-		"relative cred":    {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"db:secrets/db\"]\n"},
-		"unclean cred":     {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"db:/etc/../root/x\"]\n"},
-		"dup cred":         {"name: a\ncommand: [/usr/bin/a]\ncredentials: [db, \"db:/x\"]\n"},
-		"relative rw path": {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [var/lib/a]\n"},
-		"unclean rw path":  {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [/var/lib/a/../mcp-gateway]\n"},
-		"rw gateway state": {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [/var/lib/mcp-gateway/x]\n"},
-		"rw above gateway": {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [/etc]\n"},
-		"rw root":          {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [/]\n"},
-		"absolute state":   {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  state_directory: /var/lib/a\n"},
-		"dotdot state":     {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  state_directory: a/../../etc\n"},
-		"gateway state":    {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  state_directory: mcp-gateway\n"},
-		"duplicate":        {"name: a\ncommand: [/usr/bin/a]\n", "name: a\ncommand: [/usr/bin/b]\n"},
-		"privileged user":  {"name: a\ncommand: [/usr/bin/a]\nprivileged: true\n"},
-		"privileged rw":    {"name: a\ncommand: [/usr/bin/a]\nprivileged: true\nrun_as: root\nsandbox:\n  read_write_paths: [/srv]\n"},
+		"bad name":          {"name: Bad_Name\ncommand: [/usr/bin/a]\n"},
+		"relative command":  {"name: a\ncommand: [a]\n"},
+		"empty command":     {"name: a\n"},
+		"bad selinux type":  {"name: a\ncommand: [/usr/bin/a]\nselinux_type: unconfined_t\n"},
+		"bad isolation":     {"name: a\ncommand: [/usr/bin/a]\nisolation: global\n"},
+		"bad discovery":     {"name: a\ncommand: [/usr/bin/a]\ndiscovery: cached\n"},
+		"contexts alone":    {"name: a\ncommand: [/usr/bin/a]\ncontexts: true\n"},
+		"view with network": {"name: a\ncommand: [/usr/bin/a]\nnetwork: true\nnetwork_view: host\n"},
+		"unknown view":      {"name: a\ncommand: [/usr/bin/a]\nnetwork_view: all\n"},
+		"view of url":       {"name: a\nurl: https://example.com/mcp\nnetwork_view: host\n"},
+		"privileged view":   {"name: a\ncommand: [/usr/bin/a]\nprivileged: true\nrun_as: root\nnetwork_view: host\n"},
+		"context setting":   {"name: a\ncommand: [/usr/bin/a]\nisolation: context\n"},
+		"bad protect_home":  {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  protect_home: maybe\n"},
+		"bad cred name":     {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"../x\"]\n"},
+		"relative cred":     {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"db:secrets/db\"]\n"},
+		"unclean cred":      {"name: a\ncommand: [/usr/bin/a]\ncredentials: [\"db:/etc/../root/x\"]\n"},
+		"dup cred":          {"name: a\ncommand: [/usr/bin/a]\ncredentials: [db, \"db:/x\"]\n"},
+		"relative rw path":  {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [var/lib/a]\n"},
+		"unclean rw path":   {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [/var/lib/a/../mcp-gateway]\n"},
+		"rw gateway state":  {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [/var/lib/mcp-gateway/x]\n"},
+		"rw above gateway":  {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [/etc]\n"},
+		"rw root":           {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_write_paths: [/]\n"},
+		"absolute state":    {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  state_directory: /var/lib/a\n"},
+		"dotdot state":      {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  state_directory: a/../../etc\n"},
+		"gateway state":     {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  state_directory: mcp-gateway\n"},
+		"duplicate":         {"name: a\ncommand: [/usr/bin/a]\n", "name: a\ncommand: [/usr/bin/b]\n"},
+		"privileged user":   {"name: a\ncommand: [/usr/bin/a]\nprivileged: true\n"},
+		"privileged rw":     {"name: a\ncommand: [/usr/bin/a]\nprivileged: true\nrun_as: root\nsandbox:\n  read_write_paths: [/srv]\n"},
 	}
 	for name, files := range tests {
 		t.Run(name, func(t *testing.T) {

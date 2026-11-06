@@ -576,8 +576,8 @@ Approvers learn about pending approvals without watching the inbox:
   ProtectHome=read-only      # relaxed per backend
   PrivateTmp=yes
   PrivateDevices=yes
-  PrivateNetwork=yes         # unless backend needs network
-  RestrictAddressFamilies=AF_UNIX
+  PrivateNetwork=yes         # unless backend needs network (or network_view: host)
+  RestrictAddressFamilies=AF_UNIX  # network_view: host adds AF_NETLINK and IPAddressDeny=any
   ProtectKernelTunables=yes, ProtectKernelModules=yes, ProtectKernelLogs=yes
   ProtectControlGroups=yes, ProtectClock=yes, ProtectHostname=yes
   LockPersonality=yes, RestrictRealtime=yes, RestrictSUIDSGID=yes

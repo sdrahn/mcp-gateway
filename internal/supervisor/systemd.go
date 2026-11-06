@@ -247,7 +247,7 @@ func sandboxProperties(b *config.Backend, prop func(string, any) sddbus.Property
 		prop("ProtectHome", protectHome),
 		prop("PrivateTmp", true),
 		prop("PrivateDevices", true),
-		prop("PrivateNetwork", !b.Network),
+		prop("PrivateNetwork", privateNetwork(b)),
 		prop("ProtectKernelTunables", true),
 		prop("ProtectKernelModules", true),
 		prop("ProtectControlGroups", true),
@@ -279,12 +279,26 @@ func sandboxProperties(b *config.Backend, prop func(string, any) sddbus.Property
 		props = append(props, prop("ReadWritePaths", b.Sandbox.ReadWritePaths))
 	}
 	if !b.Network {
+		families := []string{"AF_UNIX"}
+		if b.NetworkView == config.NetworkViewHost {
+			// The host's network to look at (netlink: interfaces,
+			// routes, sockets), none to use: no IP socket, and no
+			// address to send to should one be inherited.
+			families = append(families, "AF_NETLINK")
+			props = append(props, prop("IPAddressDeny", []ipAddress{ipEntry(net.IPv4zero, 0), ipEntry(net.IPv6zero, 0)}))
+		}
 		props = append(props, prop("RestrictAddressFamilies", struct {
 			Allow    bool
 			Families []string
-		}{true, []string{"AF_UNIX"}}))
+		}{true, families}))
 	}
 	return props
+}
+
+// privateNetwork: whether an instance of b gets a network namespace of
+// its own (none of the host's network, network_view: none).
+func privateNetwork(b *config.Backend) bool {
+	return !b.Network && b.NetworkView != config.NetworkViewHost
 }
 
 // Start implements Launcher.
