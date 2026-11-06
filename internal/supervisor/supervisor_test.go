@@ -133,6 +133,54 @@ func propMap(t *testing.T, s *Systemd, b *config.Backend, p principal.Principal,
 	return m
 }
 
+// network_view: host keeps the host's network namespace, to look at
+// through netlink, and still no IP traffic (Custos R7).
+func TestSystemdNetworkViewHost(t *testing.T) {
+	s := &Systemd{}
+	b := &config.Backend{Name: "obs", Command: []string{"/usr/bin/obs"}, SELinuxType: "mcpsrv_obs_t",
+		RunAs: "principal", NetworkView: config.NetworkViewNone, Sandbox: config.Sandbox{ProtectHome: "yes"}}
+	families := func(m map[string]any) []string {
+		v, ok := m["RestrictAddressFamilies"].(struct {
+			Allow    bool
+			Families []string
+		})
+		if !ok || !v.Allow {
+			t.Fatalf("RestrictAddressFamilies %#v", m["RestrictAddressFamilies"])
+		}
+		return v.Families
+	}
+	m := propMap(t, s, b, alice(), "c3,c7")
+	if m["PrivateNetwork"] != true || !slices.Equal(families(m), []string{"AF_UNIX"}) {
+		t.Errorf("none: PrivateNetwork %v, families %v", m["PrivateNetwork"], families(m))
+	}
+	if _, ok := m["IPAddressDeny"]; ok {
+		t.Error("none: unexpected IPAddressDeny")
+	}
+
+	b.NetworkView = config.NetworkViewHost
+	m = propMap(t, s, b, alice(), "c3,c7")
+	if m["PrivateNetwork"] != false {
+		t.Errorf("host: PrivateNetwork %v", m["PrivateNetwork"])
+	}
+	if f := families(m); !slices.Equal(f, []string{"AF_UNIX", "AF_NETLINK"}) {
+		t.Errorf("host: families %v", f)
+	}
+	deny, _ := m["IPAddressDeny"].([]ipAddress)
+	if len(deny) != 2 || deny[0].Family != 2 || deny[0].PrefixLen != 0 || deny[1].Family != 10 || deny[1].PrefixLen != 0 {
+		t.Errorf("host: IPAddressDeny %v, want any", m["IPAddressDeny"])
+	}
+	if _, ok := m["IPAddressAllow"]; ok {
+		t.Error("host: unexpected IPAddressAllow")
+	}
+	// The rest of the sandbox as without it.
+	for k, want := range map[string]any{"NoNewPrivileges": true, "ProtectSystem": "strict", "PrivateDevices": true,
+		"ProtectHome": "yes", "CapabilityBoundingSet": uint64(0)} {
+		if m[k] != want {
+			t.Errorf("host: %s = %v, want %v", k, m[k], want)
+		}
+	}
+}
+
 func TestSystemdProperties(t *testing.T) {
 	s := &Systemd{}
 	b := &config.Backend{Name: "fs", Command: []string{"/usr/bin/fs"}, SELinuxType: "mcpsrv_fs_t",

@@ -512,9 +512,14 @@ type Backend struct {
 	// gateway_new_context and gateway_end_context, and an argument
 	// gateway_context on the server's tools that runs a call in the
 	// context's own instance.
-	Contexts bool   `yaml:"contexts"`
-	Network  bool   `yaml:"network"`
-	RunAs    string `yaml:"run_as"`
+	Contexts bool `yaml:"contexts"`
+	Network  bool `yaml:"network"`
+	// NetworkView, without network, is what the instance sees of the
+	// network: "none" (a private network namespace) or "host" (the
+	// host's interfaces, routes and sockets, read through netlink, with
+	// no IP traffic: AF_UNIX and AF_NETLINK only, IPAddressDeny=any).
+	NetworkView string `yaml:"network_view"`
+	RunAs       string `yaml:"run_as"`
 	// Discovery is "shared" (tool, prompt and resource template lists
 	// come from a gateway-owned instance without any user's identity and
 	// are cached, so listing does not start instances for every user) or
@@ -625,6 +630,12 @@ const (
 const (
 	DiscoveryShared   = "shared"
 	DiscoveryInstance = "instance"
+)
+
+// Network views (Backend.NetworkView).
+const (
+	NetworkViewNone = "none"
+	NetworkViewHost = "host"
 )
 
 // Sandbox holds per-backend relaxations of the default systemd sandbox.
@@ -1338,6 +1349,9 @@ func (b *Backend) setDefaults() {
 	if b.RunAs == "" {
 		b.RunAs = DefaultRunAs
 	}
+	if b.NetworkView == "" {
+		b.NetworkView = NetworkViewNone
+	}
 	if b.Discovery == "" {
 		b.Discovery = DiscoveryShared
 	}
@@ -1401,6 +1415,21 @@ func (b *Backend) Validate() error {
 	case DiscoveryShared, DiscoveryInstance:
 	default:
 		return fmt.Errorf("discovery: unknown value %q", b.Discovery)
+	}
+	switch b.NetworkView {
+	case "", NetworkViewNone:
+	case NetworkViewHost:
+		if b.URL != "" {
+			return errors.New("network_view: host is not for a url server (its connector has network access)")
+		}
+		if b.Network {
+			return errors.New("network_view: host is only for a server without network (network: true sees the host's network already)")
+		}
+		if b.Privileged {
+			return errors.New("network_view: host is not for a privileged backend")
+		}
+	default:
+		return fmt.Errorf("network_view: unknown value %q (none or host)", b.NetworkView)
 	}
 	if err := b.Sandbox.validate(); err != nil {
 		return err

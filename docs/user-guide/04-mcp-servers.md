@@ -309,6 +309,7 @@ Server names must be unique across all files.
 | `isolation` | `principal` | `principal`: one instance per principal, shared by that principal's sessions. `session`: a new instance per session; agents of MCP 2026-07-28 have no session and share one instance per principal, as with `principal`, unless `contexts` gives them their own. |
 | `contexts` | `false` | with `isolation: session`: agents of MCP 2026-07-28 may open contexts, each with an instance of its own. See [Contexts](#contexts-for-agents-without-sessions) |
 | `network` | `false` | allow network access. Without it, the instance has a private network namespace and only unix sockets. |
+| `network_view` | `none` | without `network`: what the instance sees of the host's network. `none`: a private network namespace. `host`: the host's interfaces, addresses, routes and sockets, read through netlink, but no IP traffic (unix and netlink sockets only, `IPAddressDeny=any`); for servers that report on the network, such as `ip address` or `ss`. Refused with `network: true`, `url` or `privileged`. See [Seeing the host's network](#seeing-the-hosts-network) |
 | `run_as` | `principal` (`dynamic` with `url`) | whom the instance runs as: `principal` (the local user; remote users without a local account get a throwaway dynamic user), `dynamic` (always a throwaway dynamic user), or the name of a system account |
 | `discovery` | `shared` (`instance` with `sign_in`) | where tool and prompt lists come from: `shared` (one gateway-owned instance per server, cached; listing starts no per-user instances), `instance` (each principal's own instance, for servers whose tools depend on the user) |
 | `credentials` | none | secrets handed to the server by systemd, see [Secrets](#secrets) |
@@ -449,13 +450,52 @@ Each instance runs as a transient systemd service named
   `@system-service` system call set only, protected
   kernel tunables, modules, logs, clock, hostname and control groups,
   `UMask=0077`; without `network: true` a private network namespace and
-  only `AF_UNIX` sockets;
+  only `AF_UNIX` sockets (with `network_view: host`, the host's network
+  namespace, `AF_UNIX` and `AF_NETLINK` sockets and `IPAddressDeny=any`,
+  below);
 - **limits**: 512 MiB memory, 64 tasks, 8 hours runtime;
 - with SELinux: the definition's domain and a unique **MCS category
   pair**, so instances running as the same account (for example dynamic
   users of different remote principals) cannot touch each other;
 - with `landlock`: the instance's trees and ports, enforced by the kernel
   ("Landlock" above).
+
+### Seeing the host's network
+
+A server without `network` runs in a network namespace of its own, with
+only a loopback interface: a server that reports on the host's network
+(its interfaces and addresses, routes, listening sockets) would report
+on that empty namespace. `network_view: host` keeps such a server in the
+host's network namespace, to look at, not to use:
+
+```yaml
+name: netinfo
+command: ["/usr/libexec/mcp-servers/mcp-server-netinfo"]
+selinux_type: mcpsrv_netinfo_t
+network: false
+network_view: host
+```
+
+- no `PrivateNetwork`: `ip -brief address`, `ip route show` and
+  `ss -tulnH` in the instance see the host's interfaces, routes and
+  sockets;
+- `RestrictAddressFamilies=AF_UNIX AF_NETLINK`: netlink to read them, no
+  IP socket (`socket(AF_INET, …)` fails with "Address family not
+  supported"), and so no traffic, nor packet sockets to sniff with;
+- `IPAddressDeny=any`: no packet to or from any address even through an
+  IP socket the instance did not open itself;
+- the rest of the sandbox as without `network`. A netlink socket reads
+  the network's state; changing it (adding an address, a route) needs
+  `CAP_NET_ADMIN`, which the instance does not have.
+
+The server's SELinux domain must allow its netlink sockets
+(`netlink_route_socket`, and `netlink_tcpdiag_socket` for `ss`), as its
+own policy module does; `mcpsrv_generic_t` does not. `network_view:
+host` is refused with `network: true` (which sees the host's network
+already), with `url` and with `privileged`, and an unknown value is
+refused too, by `mcp-gateway --check` and by a reload. The doctor names
+each server that sees the host's network ("network view *name*"), and
+`GET /v1/servers` and Cockpit show it (`network_view`).
 
 ### Writable paths and state
 
