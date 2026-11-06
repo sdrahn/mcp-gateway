@@ -2477,7 +2477,7 @@ nv_refused() { ! mcp-gateway --check >/root/vmtest/nv-check.txt 2>&1 && grep -qF
 check "network_view: host with network: true is refused by --check" nv_refused
 check "... and by systemctl reload" reload_fails
 sed -i -e 's/^network: true$/network: false/' -e 's/^network_view: host$/network_view: all/' /etc/mcp-gateway/servers.d/fsnet.yaml
-nv_unknown() { ! mcp-gateway --check >/root/vmtest/nv-check.txt 2>&1 && grep -qF 'network_view: unknown value "all"' /root/vmtest/nv-check.txt; }
+nv_unknown() { ! mcp-gateway --check >/root/vmtest/nv-check.txt 2>&1 && grep -qE 'network_view: unknown value \\?"all\\?"' /root/vmtest/nv-check.txt; }
 check "an unknown network_view is refused" nv_unknown
 rm -f /etc/mcp-gateway/servers.d/fsnet.yaml
 check "systemctl reload succeeds without it" systemctl reload mcp-gateway.service
