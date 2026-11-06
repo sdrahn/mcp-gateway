@@ -91,6 +91,34 @@
                     <tbody></tbody>
                 </table>
             </section>
+            <section>
+                <h2>History</h2>
+                <p class="muted">The clients connected at some time in the time frame, those
+                connected now too, with the tool calls the gateway forwarded for each and how
+                it ended. Kept for 30 days.</p>
+                <form id="history-filter" class="inline">
+                    <select name="window" aria-label="Time frame">
+                        <option value="3600">Last hour</option>
+                        <option value="86400" selected>Last 24 hours</option>
+                        <option value="604800">Last 7 days</option>
+                        <option value="2592000">Last 30 days</option>
+                        <option value="custom">From … to …</option>
+                    </select>
+                    <span id="history-range" hidden>
+                        <input type="datetime-local" name="since" aria-label="From">
+                        <input type="datetime-local" name="until" aria-label="To">
+                    </span>
+                    <input name="text" placeholder="Filter (user, client, endpoint)" aria-label="Filter">
+                    <button type="submit" class="secondary">Show</button>
+                </form>
+                <table id="client-history">
+                    <thead>
+                        <tr><th>User</th><th>Client</th><th>Protocol</th><th>Endpoint</th>
+                            <th>From</th><th>Until</th><th>Tool calls</th><th>Ended</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </section>
         </div>
 
         <div id="tab-tasks" class="tab" hidden>

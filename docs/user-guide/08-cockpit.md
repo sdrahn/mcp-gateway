@@ -127,6 +127,18 @@ out, change their roles (Policy tab). Ending a client is audited
 (`mcp-session-ended`). Without Cockpit, `mcp-gateway-admin clients`
 lists and ends clients the same way (chapter 10, "Clients and tasks").
 
+**History** lists the clients connected at some time in a time frame
+(the last hour, 24 hours, 7 or 30 days, or from … to …), those
+connected now too, with the same rule for whom you see: the user, the
+client, the MCP version, the endpoint, from when until when, the tool
+calls the gateway forwarded for it, and how it ended: it disconnected
+(or the gateway stopped it), it was ended (by whom), an agent of
+2026-07-28 was not seen for an hour (it ended at its last request), or
+the gateway stopped while it was connected. The filter narrows the list
+by user, client or endpoint. The gateway keeps the history for 30 days,
+across restarts (`/var/lib/mcp-gateway/clients.json`); an agent of
+2026-07-28 that comes back after an hour is a new entry.
+
 ## Tasks
 
 The tab lists the calls agents run as tasks (chapter 5, "Long calls:

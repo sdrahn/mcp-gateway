@@ -543,6 +543,7 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `GET /v1/tasks` | the agents' tasks the caller may manage (`data.mcp.approvals.manage_task`), newest first: `{"id", "server", "tool", "sub", "iss", "uid", "transport", "status", "status_message", "created", "updated", "ended", "delivered"}`; `status` is `working`, `input_required`, `completed`, `failed` or `cancelled`; `delivered` tells that the agent fetched the result |
 | `POST /v1/tasks/{id}/cancel` | cancel a running task: its call is cancelled at the server, as by its agent; `204`; `409` if it has ended; `404` if unknown or not the caller's to manage |
 | `GET /v1/sessions` | the clients the caller may manage (`data.mcp.approvals.manage_session`), newest first: `{"id", "kind", "sub", "iss", "uid", "transport", "endpoint", "servers", "client": {"name", "version"}, "requested", "protocol", "capped", "started", "last_active", "instances", "streams", "requests"}`. `kind` is `session` (MCP up to 2025-11-25: `requested` is the version the client asked for at `initialize`, `protocol` the one it got, `capped` the `agents.max_version` that lowered it, `instances` the ids of the instances it uses) or `agent` (2026-07-28, which has no session: one entry per principal, endpoint and client, listed for an hour after its last request, at most `limits.sessions_per_principal` per principal; `streams` and `requests` are its open `subscriptions/listen` streams and requests in flight). `endpoint` is a server or `all`; the client's name and version are its own claim |
+| `GET /v1/sessions/history` | `?since=…&until=…` (RFC 3339, e.g. `2026-11-06T08:00:00Z`; default the last 24 hours): the clients connected at some time in that frame that the caller may manage, connected ones too, newest first: the fields of `GET /v1/sessions` (an agent's `id` is its client id with a suffix, one per visit) and `ended` (absent while connected), `end` (`disconnected`, `ended`, `not seen`, `gateway stopped`), `ended_by`, `calls` (tool calls forwarded); kept 30 days; `400` for a bad time |
 | `DELETE /v1/sessions/{id}` | end a client: a session as if its client had gone (its calls are cancelled at their servers, a privileged server's instance runs until its call ends; its streams close; its session grants and instances go; an HTTP client gets `404` for the session id and starts a new session), an agent of 2026-07-28 by ending its open streams and requests in flight, which get the error "mcp-gateway: ended by an administrator"; `204`; `404` if unknown or not the caller's to manage. It keeps nobody out: the client may connect again |
 | `GET /v1/sign-ins` | `{"sign_ins": [{"server", "resource", "principal": {"sub", "iss", "uid", "transport"}, "since", "expiry", "scope", "refreshable"}], "pending": [{"server", "url", "expires"}]}`: the sign-ins to servers with `sign_in` the caller may see and end (`data.mcp.approvals.manage_sign_in`), never tokens; and the caller's own sign-ins waiting for them to open `url` (chapter 4, "Signing in for each user") |
 | `DELETE /v1/sign-ins/{server}` | sign the caller out of the server, or with `?principal=<sub>` (and `transport`, `iss`) another principal the approver rules allow; deletes the tokens, revokes them at the authorization server if it offers that, stops the principal's instances; `200 {"signed_out": n, "revoked": m}` (`m` of them revoked at the authorization server, the others' tokens only deleted); `404` if there is none |
@@ -690,7 +691,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/etc/mcp-gateway/bundle/` | `policy.tar.gz`, `verify.pem`, `signing.pem` |
 | `/usr/share/mcp-gateway/opa/` | OPA drop-ins: `signed-bundle.conf`, `bundle-server.conf`, `decision-logs.conf`; examples `opa-config.yaml.example`, `decision-logs.yaml.example` |
 | `/usr/share/mcp-gateway/mcs/` | libvirt drop-ins: `virtqemud.conf`, `libvirtd.conf` |
-| `/var/lib/mcp-gateway/` | `grants.json`, `pending.json`, `notices.json`, `reviews.json`, `audit.key`, `principals.json` |
+| `/var/lib/mcp-gateway/` | `grants.json`, `pending.json`, `notices.json`, `reviews.json`, `clients.json` (the clients' history), `audit.key`, `principals.json` |
 | `/var/lib/mcp-gateway/tokens/` | principals' tokens for servers with `sign_in` (`tokens.json`, encrypted) and their key (`tokens.key`); 0700, `mcpgw_token_t` |
 | `/run/mcp-gateway/mcp.sock` | MCP socket |
 | `/run/mcp-gateway/control.sock` | control API |
@@ -764,6 +765,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | "session" grant | session end, at most 8 h | no |
 | notice | 7 days; at most 1000 | no |
 | review item | 7 days; at most 5000 | no |
+| clients' history | 30 days; at most 10,000 entries | no |
 | duration grant | at most 30 days | `approval_scopes` (role data) |
 | SSE replay buffer | 256 events per stream, 5 min | no |
 | sign-in, from the link to the callback | 10 min | `sign_in.timeout` |

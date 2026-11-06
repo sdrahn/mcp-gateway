@@ -9,6 +9,14 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- A history of the clients and agents that used the gateway (chapter 8,
+  "Clients"): Cockpit's Clients tab lists those connected at some time in
+  a time frame (the last hour, 24 hours, 7 or 30 days, or a range), with
+  the tool calls the gateway forwarded for each and how it ended (it
+  disconnected, was ended and by whom, an agent was not seen for an hour,
+  the gateway stopped). From `GET /v1/sessions/history?since=&until=`,
+  which shows the caller whom `manage_session` lets them see. Kept for 30
+  days in `/var/lib/mcp-gateway/clients.json`.
 - The agent's account of a call, shown with its approval (chapter 7, "The
   agent's account of a call"): a client may send a proposal with a
   `tools/call`, in `_meta` under `io.github.sdrahn.mcp-gateway/proposal`
