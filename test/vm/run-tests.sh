@@ -2424,6 +2424,68 @@ jq '.roles.tester.permissions |= map(select(.server != "fsctx"))' /etc/mcp-gatew
 cx_gone() { ! control alice GET /v1/servers | jq -e '.[] | select(.name == "fsctx" and (.removed | not))' >/dev/null; }
 check "fsctx is removed again" eventually 40 cx_gone
 
+section "Network view"
+# network_view: host (Custos R7): an instance without network in the
+# host's network namespace, to look at it, with no IP traffic: unix and
+# netlink sockets only, IPAddressDeny=any. The fs server stands in for a
+# server that reports on the network (its domain has no netlink rules):
+# what counts is the namespace and the unit's properties.
+jq '.roles.tester.permissions += [{"server": "fsnet", "tool": "read_*"}]' \
+	/etc/mcp-gateway/policy/rbac/data.yaml >/root/nv-data.json &&
+	cat /root/nv-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
+sed 's/^name: fs$/name: fsnet/' /usr/share/mcp-gateway/servers.d/fs-demo.yaml >/etc/mcp-gateway/servers.d/fsnet.yaml
+printf 'network_view: host\n' >>/etc/mcp-gateway/servers.d/fsnet.yaml
+restorecon /etc/mcp-gateway/servers.d/fsnet.yaml
+check "mcp-gateway --check accepts network_view: host" mcp-gateway --check
+check "systemctl reload takes it" systemctl reload mcp-gateway.service
+nv_works() {
+	out=$(runuser -u alice -- /usr/local/bin/mcpcall --server fsnet --method tools/call \
+		--params '{"name":"read_file","arguments":{"path":"/home/alice/secret.txt"}}' 2>&1)
+	grep -qF "alice secret" <<<"$out"
+}
+check "a server with network_view: host serves a call" eventually 40 nv_works
+nv_unit=$(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-fsnet-*' | awk 'NR == 1 {print $1}')
+nv_pid=$(systemctl show -p MainPID --value "${nv_unit:-none}" 2>/dev/null)
+echo "  unit ${nv_unit:-none}, pid ${nv_pid:-none}"
+check "... its instance is in the host's network namespace" \
+	bash -c '[ -n "$1" ] && [ "$1" != 0 ] && [ "$(readlink /proc/$1/ns/net)" = "$(readlink /proc/1/ns/net)" ]' _ "$nv_pid"
+nv_show() { systemctl show -p "$1" --value "$nv_unit"; }
+echo "  RestrictAddressFamilies=$(nv_show RestrictAddressFamilies) IPAddressDeny=$(nv_show IPAddressDeny) PrivateNetwork=$(nv_show PrivateNetwork)"
+nv_families() { local f; f=" $(nv_show RestrictAddressFamilies) "; [[ $f == *" AF_UNIX "* && $f == *" AF_NETLINK "* && $f != *AF_INET* && $f != *AF_PACKET* ]]; }
+check "... with unix and netlink sockets only" nv_families
+nv_deny_any() { nv_show IPAddressDeny | grep -qE '0\.0\.0\.0/0|any'; }
+check "... no IP traffic (IPAddressDeny=any)" nv_deny_any
+check "... and no private network" test "$(nv_show PrivateNetwork)" = no
+nv_host_links() {
+	# What it sees through netlink: the host's interfaces, not only lo.
+	nsenter -t "$nv_pid" -n ip -brief link | grep -qv '^lo '
+}
+check "... which shows the host's interfaces" nv_host_links
+nv_servers() { control alice GET /v1/servers | jq -e '.[] | select(.name == "fsnet") | .network_view == "host"' >/dev/null; }
+check "GET /v1/servers shows network_view" nv_servers
+nv_doctor() { mcp-gateway-admin doctor --no-start --server fsnet 2>&1 | grep -qE "^OK +network view fsnet: sees the host's network"; }
+check "the doctor names the server" nv_doctor
+# The other servers keep a namespace of their own.
+fs_pid=$(instance_pid alice)
+if [ -n "$fs_pid" ]; then
+	check "an fs instance has a network namespace of its own" \
+		bash -c '[ "$(readlink /proc/$1/ns/net)" != "$(readlink /proc/1/ns/net)" ]' _ "$fs_pid"
+fi
+# With network: true, and an unknown value, refused.
+sed -i 's/^network: false$/network: true/' /etc/mcp-gateway/servers.d/fsnet.yaml
+nv_refused() { ! mcp-gateway --check >/root/vmtest/nv-check.txt 2>&1 && grep -qF "network_view: host is only for a server without network" /root/vmtest/nv-check.txt; }
+check "network_view: host with network: true is refused by --check" nv_refused
+check "... and by systemctl reload" reload_fails
+sed -i -e 's/^network: true$/network: false/' -e 's/^network_view: host$/network_view: all/' /etc/mcp-gateway/servers.d/fsnet.yaml
+nv_unknown() { ! mcp-gateway --check >/root/vmtest/nv-check.txt 2>&1 && grep -qF 'network_view: unknown value "all"' /root/vmtest/nv-check.txt; }
+check "an unknown network_view is refused" nv_unknown
+rm -f /etc/mcp-gateway/servers.d/fsnet.yaml
+check "systemctl reload succeeds without it" systemctl reload mcp-gateway.service
+jq '.roles.tester.permissions |= map(select(.server != "fsnet"))' /etc/mcp-gateway/policy/rbac/data.yaml >/root/nv-data.json &&
+	cat /root/nv-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
+nv_gone() { ! control alice GET /v1/servers | jq -e '.[] | select(.name == "fsnet" and (.removed | not))' >/dev/null; }
+check "fsnet is removed again" eventually 40 nv_gone
+
 section "Limits"
 # The limits per principal (decision D14), lowered with mcp-gateway-admin
 # config set while the gateway runs: a session, an instance and a task

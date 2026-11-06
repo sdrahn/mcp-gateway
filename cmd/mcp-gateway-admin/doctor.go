@@ -203,6 +203,7 @@ func (d *doctorRun) run(configPath string) []doctor.Result {
 	add(d.selinux()...)
 	add(doctor.LandlockSuspects(d.backends, d.failed, d.denials, d.denialsRead)...)
 	add(doctor.LiteralSecrets(d.selected())...)
+	add(doctor.NetworkViews(d.selected())...)
 	if supervisor.SELinuxEnabled() {
 		add(doctor.SELinuxTypes(d.selected(), supervisor.ContextValid)...)
 		helpers := doctor.TypedPrograms

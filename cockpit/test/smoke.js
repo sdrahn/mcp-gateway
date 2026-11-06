@@ -100,6 +100,7 @@ function site() {
     check((await page.textContent("pre.log")).includes("Landlock rules (landlock in its definition) are the likely cause"),
           "a refused access under Landlock names the rules");
     check((await page.textContent("#servers .card:first-child")).includes("· Landlock"), "a server under Landlock says so");
+    check((await page.textContent("#servers")).includes("no network, sees the host's"), "a server with network_view: host says so");
     // Clients and Tasks are tabs of their own, with counts on the tabs.
     check(!(await page.isVisible("#clients")) && !(await page.isVisible("#tasks")), "servers tab holds no clients or tasks");
     await page.waitForFunction(() => document.querySelector("#tabs button[data-tab=clients] .count").textContent === "3");

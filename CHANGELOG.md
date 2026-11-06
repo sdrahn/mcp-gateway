@@ -9,6 +9,16 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- The definition key `network_view` (chapter 4, "Seeing the host's
+  network"): with `host`, a server without `network` runs in the host's
+  network namespace, to read its interfaces, addresses, routes and
+  sockets through netlink, with no IP traffic (`AF_UNIX` and
+  `AF_NETLINK` sockets only, `IPAddressDeny=any`); the rest of the
+  sandbox stays. `none`, the default, keeps the private network
+  namespace. Refused with `network: true`, `url` or `privileged`, and
+  for an unknown value, by `--check` and by a reload. Shown by the
+  doctor ("network view *name*"), `GET /v1/servers` (`network_view`)
+  and Cockpit.
 - The obligation `approval_over_rate` (chapter 6, "Obligations"): rates
   counted as `rate_limit`'s, but a call over one waits for an approval
   instead of being denied: out of band, scope `once`, its prompt and

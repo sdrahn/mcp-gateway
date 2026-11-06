@@ -285,7 +285,8 @@ func TestServersAndInstances(t *testing.T) {
 		{ID: "i-zypp", Server: "zypp", Unit: "mcp-zypp-3.service", Sub: "alice", UID: &alice, Privileged: true, Busy: true},
 	}}
 	backends := map[string]*config.Backend{
-		"fs":   {Name: "fs", SELinuxType: "mcpsrv_fs_t", Isolation: config.IsolationPrincipal, RunAs: "principal", Command: []string{"/secret", "--token=x"}},
+		"fs": {Name: "fs", SELinuxType: "mcpsrv_fs_t", Isolation: config.IsolationPrincipal, RunAs: "principal", Command: []string{"/secret", "--token=x"},
+			NetworkView: config.NetworkViewHost},
 		"git":  {Name: "git", SELinuxType: "mcpsrv_git_t", Network: true},
 		"zypp": {Name: "zypp", SELinuxType: "mcpsrv_zypp_t", RunAs: "root", Privileged: true},
 	}
@@ -302,6 +303,9 @@ func TestServersAndInstances(t *testing.T) {
 	}
 	if len(got[0].Instances) != 1 || got[0].Instances[0].ID != "i-alice" {
 		t.Fatalf("alice sees instances %+v", got[0].Instances)
+	}
+	if got[0].NetworkView != "host" || !strings.Contains(rec.Body.String(), `"network_view":"host"`) {
+		t.Fatalf("network_view of fs: %+v", got[0])
 	}
 	if strings.Contains(rec.Body.String(), "secret") {
 		t.Fatal("command line exposed")
