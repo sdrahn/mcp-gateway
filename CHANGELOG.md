@@ -5,10 +5,37 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.15.0 — 2026-11-06
+
+What an approver sees and when an agent is asked, for Custos 0.4 and any
+policy: the agent's own account of a call (its proposal) goes with the
+approval, marked as its claim; over a rate a promoted agent is asked
+again instead of stopped (the obligation `approval_over_rate`); and
+Cockpit shows which clients and agents used the gateway over a chosen
+time frame.
+
+Upgrading from 1.14.x needs no changes to server definitions, role data
+or custom policies; the SELinux modules do not change. The clients'
+history is kept in `/var/lib/mcp-gateway/clients.json`, starting with
+the update. A `_meta` key of a call that differs from
+`io.github.sdrahn.mcp-gateway/proposal` only in case is now refused, as
+a case variant of `progressToken` already is. After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not.
 
 ### Added
 
+- The agent's account of a call, shown with its approval (chapter 7, "The
+  agent's account of a call"): a client may send a proposal with a
+  `tools/call`, in `_meta` under `io.github.sdrahn.mcp-gateway/proposal`
+  (summary, impact, steps, context, warnings; plain text, bounded). The
+  gateway shows it with the approval the call raises, on the approval
+  page, in Cockpit, `mcp-gateway-admin approvals show`, the mail, the
+  desktop notification, `GET /v1/approvals` and the event stream, and
+  with the call's review item, marked as the client's claim. It is never
+  forwarded to the server, policy never sees it, and the decision and
+  `mcp-approval` records carry its digest (`proposal_digest`). A
+  malformed or oversized proposal is dropped, not the call
+  (`mcp-proposal-dropped`).
 - The obligation `approval_over_rate` (chapter 6, "Obligations"): rates
   counted as `rate_limit`'s, but a call over one waits for an approval
   instead of being denied: out of band, scope `once`, its prompt and
@@ -25,18 +52,6 @@ minor release (with a warning) and removed in the next.
   the gateway stopped). From `GET /v1/sessions/history?since=&until=`,
   which shows the caller whom `manage_session` lets them see. Kept for 30
   days in `/var/lib/mcp-gateway/clients.json`.
-- The agent's account of a call, shown with its approval (chapter 7, "The
-  agent's account of a call"): a client may send a proposal with a
-  `tools/call`, in `_meta` under `io.github.sdrahn.mcp-gateway/proposal`
-  (summary, impact, steps, context, warnings; plain text, bounded). The
-  gateway shows it with the approval the call raises, on the approval
-  page, in Cockpit, `mcp-gateway-admin approvals show`, the mail, the
-  desktop notification, `GET /v1/approvals` and the event stream, and
-  with the call's review item, marked as the client's claim. It is never
-  forwarded to the server, policy never sees it, and the decision and
-  `mcp-approval` records carry its digest (`proposal_digest`). A
-  malformed or oversized proposal is dropped, not the call
-  (`mcp-proposal-dropped`).
 
 ## v1.14.0 — 2026-11-05
 
