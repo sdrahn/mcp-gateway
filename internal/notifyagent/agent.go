@@ -79,6 +79,11 @@ type event struct {
 		Prompt  string    `json:"prompt"`
 		Expires time.Time `json:"expires"`
 		Waiting bool      `json:"waiting"`
+		// Proposal is the agent's own account of the call (its claim).
+		Proposal *struct {
+			Summary  string   `json:"summary"`
+			Warnings []string `json:"warnings"`
+		} `json:"proposal"`
 	} `json:"pending"`
 	Notice *struct {
 		Principal struct {
@@ -181,6 +186,12 @@ func (a *Agent) handle(ev event) {
 		body := fmt.Sprintf("%s wants to run %s on %s.", who, p.Name, p.Server)
 		if p.Principal.Client.Name != "" {
 			body += "\nClient: " + p.Principal.Client.Name
+		}
+		if pr := p.Proposal; pr != nil && pr.Summary != "" {
+			body += "\nThe agent says (unchecked): " + pr.Summary
+			for _, w := range pr.Warnings {
+				body += "\nWarning (from the agent): " + w
+			}
 		}
 		if !p.Waiting {
 			body += "\nThe agent is no longer waiting; approving lets its next attempt through."

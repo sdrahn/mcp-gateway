@@ -12,6 +12,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/proposal"
 )
 
 // Reviews: a tool call that policy marked with the obligation "review"
@@ -48,6 +49,9 @@ type Review struct {
 	// Args are the call's arguments where the policy's audit obligation
 	// records them ("full"); absent otherwise.
 	Args map[string]any `json:"args,omitempty"`
+	// Proposal is the client's account of the call (its claim), if it
+	// sent one.
+	Proposal *proposal.Proposal `json:"proposal,omitempty"`
 	// What allowed it: the decision, and the approval and grant if any.
 	DecisionID string `json:"decision_id"`
 	ApprovalID string `json:"approval_id,omitempty"`

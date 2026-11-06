@@ -19,6 +19,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/metrics"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/proposal"
 )
 
 // Grant lifetimes.
@@ -232,9 +233,12 @@ type Pending struct {
 	Name      string              `json:"name"`
 	Args      map[string]any      `json:"args,omitempty"`
 	Prompt    string              `json:"prompt"`
-	Scopes    []string            `json:"scopes"`
-	Created   time.Time           `json:"created"`
-	Expires   time.Time           `json:"expires"`
+	// Proposal is the client's account of the call (its claim, marked
+	// client_supplied), if it sent one.
+	Proposal *proposal.Proposal `json:"proposal,omitempty"`
+	Scopes   []string           `json:"scopes"`
+	Created  time.Time          `json:"created"`
+	Expires  time.Time          `json:"expires"`
 	// Waiting tells whether a call waits for the decision. An approval
 	// whose call went away (the client left, the gateway restarted) stays
 	// pending until it expires; deciding it stores the grant for the
@@ -502,7 +506,7 @@ func (b *Broker) viaForm(ctx context.Context, el Elicitor, in pep.Input, ask pep
 // grant, nil if declined.
 func (b *Broker) formAnswer(in pep.Input, ask pep.AskSpec, res ElicitResult) (*pep.Grant, error) {
 	if res.Action != "accept" {
-		b.auditApproval("", false, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, "", pep.ChannelForm, "")
+		b.auditApproval("", false, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, "", pep.ChannelForm, "", in.Proposal)
 		return nil, nil
 	}
 	scope, _ := res.Content["scope"].(string)
@@ -510,7 +514,7 @@ func (b *Broker) formAnswer(in pep.Input, ask pep.AskSpec, res ElicitResult) (*p
 	// recorded as the principal's own.
 	g, err := b.grant(in.Principal, in.Resource.Server, in.Resource.Name, scope, ask.Scopes, in.Principal.Sub, pep.ChannelForm, "")
 	if err == nil {
-		b.auditApproval(g.ID, true, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, scope, pep.ChannelForm, "")
+		b.auditApproval(g.ID, true, in.Principal, in.Resource.Server, in.Resource.Name, in.Principal.Sub, scope, pep.ChannelForm, "", in.Proposal)
 	}
 	return g, err
 }
@@ -663,6 +667,7 @@ func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel, waitin
 	for _, p := range b.pending {
 		if p.result == nil && sameRequest(p, in) {
 			p.Principal, p.Scopes, p.Channel, p.Prompt = in.Principal, ask.Scopes, c, ask.Prompt
+			p.Proposal = in.Proposal // the new attempt's account
 			p.Expires = now.Add(ttl)
 			p.result = result
 			p.Waiting = waiting
@@ -682,6 +687,7 @@ func (b *Broker) addPending(in pep.Input, ask pep.AskSpec, c pep.Channel, waitin
 		Server:    in.Resource.Server,
 		Name:      in.Resource.Name,
 		Args:      in.Args,
+		Proposal:  in.Proposal,
 		Prompt:    ask.Prompt,
 		Scopes:    ask.Scopes,
 		Created:   now,
@@ -1060,7 +1066,7 @@ func (b *Broker) ResolveVia(ctx context.Context, a Approver, id string, approve 
 	}
 	metrics.ApprovalsDecided.Inc(decision)
 	b.log.Info("approval resolved", "id", id, "approved", approve, "by", a.Name, "scope", scope, "waiting", c.result != nil, "via", via)
-	b.auditApproval(id, approve, c.Principal, c.Server, c.Name, a.Name, scope, c.Channel, via)
+	b.auditApproval(id, approve, c.Principal, c.Server, c.Name, a.Name, scope, c.Channel, via, c.Proposal)
 	if c.result != nil {
 		c.result <- g
 	}
@@ -1168,7 +1174,7 @@ func (b *Broker) RevokeGrantVia(ctx context.Context, a Approver, id, via string)
 
 // auditApproval records an approval decision; declines are recorded as
 // failed.
-func (b *Broker) auditApproval(id string, approved bool, p principal.Principal, server, name, by, scope string, c pep.Channel, via string) {
+func (b *Broker) auditApproval(id string, approved bool, p principal.Principal, server, name, by, scope string, c pep.Channel, via string, pr *proposal.Proposal) {
 	if !approved {
 		scope = ""
 	}
@@ -1178,6 +1184,11 @@ func (b *Broker) auditApproval(id string, approved bool, p principal.Principal, 
 	}
 	if via != "" {
 		fields["via"] = via
+	}
+	if d := pr.Digest(); d != "" {
+		// What the approver was shown besides the call (the client's
+		// proposal), as a digest.
+		fields["proposal_digest"] = d
 	}
 	b.opts.Audit.Event("mcp-approval", approved, fields)
 }

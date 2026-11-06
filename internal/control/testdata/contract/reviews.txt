@@ -30,6 +30,13 @@
 [].principal.sub
 [].principal.transport
 [].principal.uid
+[].proposal
+[].proposal.client_supplied
+[].proposal.context
+[].proposal.impact
+[].proposal.steps
+[].proposal.summary
+[].proposal.warnings
 [].ran
 [].server
 [].verdict

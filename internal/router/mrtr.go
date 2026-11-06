@@ -261,6 +261,7 @@ func (s *Session) decideModern(ctx context.Context, t *callTarget, decisionID st
 		Args:      t.args,
 		Grants:    s.r.Broker.Grants(p, t.resource.Server, t.resource.Name),
 		Context:   s.policyContext(decisionID),
+		Proposal:  t.proposal,
 	}
 	in.Resource.Privileged = s.r.privileged(t.resource.Server)
 	var st agentState

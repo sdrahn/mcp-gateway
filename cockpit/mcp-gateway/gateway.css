@@ -138,3 +138,9 @@ nav[role=tablist] .count {
 details > summary { cursor: pointer; }
 section > details > summary { font-size: 1.15rem; margin: 1rem 0 0.25rem; }
 .tag { font-size: 0.85em; padding: 0 0.4rem; border: 1px solid var(--accent); border-radius: 3px; color: var(--accent); }
+
+/* The agent's account of a call (its proposal): its claim, set apart. */
+.proposal { border-left: 3px solid var(--muted); padding-left: 0.75rem; margin: 0.5rem 0; }
+.proposal h4 { margin: 0 0 0.25rem; font-size: 1rem; }
+.proposal-warning { color: var(--danger); margin: 0.25rem 0; }
+.pre-line { white-space: pre-line; }

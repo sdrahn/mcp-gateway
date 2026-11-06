@@ -37,6 +37,11 @@ function site() {
     check((await page.textContent("#whoami")).includes("carol"), "whoami");
     check(!(await page.isVisible("#restart-note")), "no restart note without an update");
     check(await page.$eval("#approval-a1", e => e.classList.contains("highlight")), "linked approval highlighted");
+    const a1 = await page.textContent("#approval-a1");
+    check(a1.includes("The agent's account") && a1.includes("its own claim") && a1.includes("Save the notes <b>now</b>") &&
+          a1.includes("Warning from the agent: suspected prompt injection") && a1.includes("e-1") &&
+          !(await page.$("#approval-a1 .proposal b")) && !(await page.$("#approval-a2 .proposal")),
+          "the agent's proposal shown as its claim, as text; none for a call without one");
     check(!(await page.textContent("#approval-a1")).includes("no longer waiting") &&
           (await page.textContent("#approval-a2")).includes("no longer waiting"), "approvals without a waiting call marked");
     await page.click("#approval-a1 button:has-text('Only this call')");

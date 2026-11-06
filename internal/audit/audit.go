@@ -45,6 +45,11 @@ type Record struct {
 	// marks a denial by their ceiling (docs/architecture.md, section 6.7).
 	Scopes        []string
 	OutsideScopes bool
+	// ProposalDigest is the digest of the client's proposal for the call
+	// (proposal.Digest); Proposal, the proposal itself, is recorded only
+	// with FullArgs, as the arguments are.
+	ProposalDigest string
+	Proposal       any
 }
 
 // KernelSender delivers messages to the kernel audit subsystem.
@@ -115,6 +120,12 @@ func (a *Logger) Log(r Record) {
 	}
 	if r.OutsideScopes {
 		attrs = append(attrs, "outside_scopes", true)
+	}
+	if r.ProposalDigest != "" {
+		attrs = append(attrs, "proposal_digest", r.ProposalDigest)
+		if r.FullArgs && r.Proposal != nil {
+			attrs = append(attrs, "proposal", r.Proposal)
+		}
 	}
 	a.l.Info("mcp", attrs...)
 	if r.Effect == "deny" || r.Privileged {

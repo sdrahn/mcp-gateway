@@ -9,6 +9,7 @@ package pep
 import (
 	"context"
 	"fmt"
+	"github.com/sdrahn/mcp-gateway/internal/proposal"
 
 	"github.com/sdrahn/mcp-gateway/internal/metrics"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
@@ -117,6 +118,9 @@ type Input struct {
 	// goes to the principal (decision D20), on the call's input with the
 	// principal as it is then; empty when it decides the call itself.
 	Phase string `json:"phase,omitempty"`
+	// Proposal is the client's account of the call, for the approval it
+	// raises. Never part of the policy input: a client can say anything.
+	Proposal *proposal.Proposal `json:"-"`
 }
 
 // PhaseDelivery is Input.Phase of a decision on delivering a result.

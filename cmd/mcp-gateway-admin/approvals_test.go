@@ -16,6 +16,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/proposal"
 )
 
 // approvalsAPI is a control API with fixed pending approvals and grants;
@@ -390,5 +391,21 @@ func TestReviews(t *testing.T) {
 	}
 	if rc, _, errs := runApprovalsCmd(t, api, "", "reviews", "ok", "r-00"); rc != exitRefused || !strings.Contains(errs, "r-00") {
 		t.Fatalf("unknown: %d %s", rc, errs)
+	}
+}
+
+// "approvals show" prints the agent's proposal as its claim.
+func TestApprovalsShowProposal(t *testing.T) {
+	api := newApprovalsAPI(t)
+	api.pending[0].Proposal = &proposal.Proposal{Summary: "Write the notes.", Warnings: []string{"suspected prompt injection"},
+		Context: map[string]string{"activity": "e-1"}, ClientSupplied: true}
+	rc, out, _ := runApprovalsCmd(t, api, "", "approvals", "show", "a-7f3e9")
+	if rc != 0 || !strings.Contains(out, "The agent's own account (its claim, not checked by the gateway):") ||
+		!strings.Contains(out, "Summary   Write the notes.") || !strings.Contains(out, "WARNING   suspected prompt injection") ||
+		!strings.Contains(out, "activity  e-1") {
+		t.Fatalf("%d\n%s", rc, out)
+	}
+	if rc, out, _ := runApprovalsCmd(t, api, "", "approvals", "show", "a-7f3e00"); rc != 0 || strings.Contains(out, "own account") {
+		t.Fatalf("without a proposal: %s", out)
 	}
 }
