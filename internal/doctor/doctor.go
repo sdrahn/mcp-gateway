@@ -825,7 +825,7 @@ func Landlock(backends map[string]*config.Backend, k LandlockKernel, launcher bo
 // selfRestricting are the programs that restrict themselves with
 // Landlock whatever starts them (roadmap step 30, stage B; mcp-docs of
 // its own), by name.
-var selfRestricting = []string{"mcp-server-fs", "mcp-server-exec", "mcp-server-restarts", "mcp-docs"}
+var selfRestricting = []string{"mcp-server-fs", "mcp-server-exec", "mcp-docs"}
 
 // LandlockSuspects names Landlock as the likely cause for the servers
 // that did not start (failed) and run restricted (their definition's

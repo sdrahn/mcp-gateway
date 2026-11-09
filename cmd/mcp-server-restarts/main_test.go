@@ -142,6 +142,33 @@ func TestScanNothing(t *testing.T) {
 	}
 }
 
+// The kernels come from the rpm database where it lists them: the unit
+// hides /usr/lib/modules (ProtectKernelModules=).
+func TestKernelsFromRPM(t *testing.T) {
+	s := &scanner{modules: filepath.Join(t.TempDir(), "hidden"),
+		kernelFiles: func(context.Context) []string {
+			return []string{
+				"/usr/lib/modules/6.12.0-160000.9-default",
+				"/usr/lib/modules/6.12.0-160000.9-default/vmlinuz",
+				"/usr/lib/modules/6.12.0-160000.9-default/kernel/fs/x.ko.zst",
+				"/usr/lib/modules/6.12.0-160000.10-default/vmlinuz",
+				"/usr/lib/modules/6.12.0-160000.10-default/System.map",
+				"/usr/share/doc/kernel/README",
+				"",
+			}
+		}}
+	if got := s.kernels(context.Background()); !slices.Equal(got, []string{"6.12.0-160000.9-default", "6.12.0-160000.10-default"}) {
+		t.Errorf("kernels %v", got)
+	}
+	// Nothing from rpm: the directory, where visible.
+	s.kernelFiles = func(context.Context) []string { return nil }
+	s.modules = t.TempDir()
+	write(t, filepath.Join(s.modules, "6.12.0-1-default", "vmlinuz"), "")
+	if got := s.kernels(context.Background()); !slices.Equal(got, []string{"6.12.0-1-default"}) {
+		t.Errorf("from the directory: %v", got)
+	}
+}
+
 func TestVercmp(t *testing.T) {
 	for _, c := range []struct {
 		a, b string

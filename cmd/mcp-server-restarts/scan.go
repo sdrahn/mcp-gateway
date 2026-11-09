@@ -68,6 +68,9 @@ type scanner struct {
 	// owner returns the package owning path, "" for none.
 	owner func(ctx context.Context, path string) string
 	user  func(uid string) string
+	// kernelFiles lists the files of the installed kernel packages
+	// (the rpm database), nil if it cannot.
+	kernelFiles func(ctx context.Context) []string
 }
 
 // Paths the scanner reads on the host.
@@ -80,7 +83,7 @@ const (
 
 func newScanner() *scanner {
 	return &scanner{proc: procDir, modules: modulesDir, rebootFlag: RebootFlag, self: os.Getpid(),
-		release: kernelRelease, owner: rpmOwner, user: userName}
+		release: kernelRelease, owner: rpmOwner, user: userName, kernelFiles: rpmKernelFiles}
 }
 
 // maxFiles bounds the deleted files looked up in the rpm database per
@@ -94,7 +97,7 @@ func (s *scanner) scan(ctx context.Context) Report {
 		r.RebootNeededSince = fi.ModTime().UTC().Format(time.RFC3339)
 	}
 	r.RunningKernel = s.release()
-	r.InstalledKernels = s.kernels()
+	r.InstalledKernels = s.kernels(ctx)
 	if n := len(r.InstalledKernels); n > 0 && r.InstalledKernels[n-1] != r.RunningKernel {
 		r.NewerKernel = r.RunningKernel == "" || vercmp(r.InstalledKernels[n-1], r.RunningKernel) > 0
 	}
@@ -273,21 +276,46 @@ func unitOf(cgroup string) string {
 	return ""
 }
 
-// kernels are the releases below modules with a kernel image, oldest
-// first.
-func (s *scanner) kernels() []string {
-	entries, _ := os.ReadDir(s.modules)
-	out := []string{}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		for _, img := range []string{"vmlinuz", "Image", "vmlinux.gz", "vmlinux"} {
-			if _, err := os.Stat(filepath.Join(s.modules, e.Name(), img)); err == nil {
-				out = append(out, e.Name())
-				break
+// kernelImages are the names of a kernel image in its modules directory.
+var kernelImages = []string{"vmlinuz", "Image", "vmlinux.gz", "vmlinux"}
+
+// kernels are the installed kernels' releases, oldest first: from the
+// files of the kernel packages in the rpm database
+// (/usr/lib/modules/<release>/vmlinuz), as the unit hides /usr/lib/modules
+// itself (ProtectKernelModules=); else, where it is visible, the
+// directories there with a kernel image.
+func (s *scanner) kernels(ctx context.Context) []string {
+	set := map[string]bool{}
+	if s.kernelFiles != nil {
+		prefix := strings.TrimSuffix(modulesDir, "/") + "/"
+		for _, f := range s.kernelFiles(ctx) {
+			rest, ok := strings.CutPrefix(f, prefix)
+			if !ok {
+				continue
+			}
+			release, img, ok := strings.Cut(rest, "/")
+			if ok && release != "" && slices.Contains(kernelImages, img) {
+				set[release] = true
 			}
 		}
+	}
+	if len(set) == 0 {
+		entries, _ := os.ReadDir(s.modules)
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			for _, img := range kernelImages {
+				if _, err := os.Stat(filepath.Join(s.modules, e.Name(), img)); err == nil {
+					set[e.Name()] = true
+					break
+				}
+			}
+		}
+	}
+	out := []string{}
+	for k := range set {
+		out = append(out, k)
 	}
 	slices.SortFunc(out, vercmp)
 	return out
@@ -362,6 +390,19 @@ func rpmOwner(ctx context.Context, path string) string {
 		return ""
 	}
 	return name
+}
+
+// rpmKernelFiles are the files of the packages that provide
+// multiversion(kernel): the kernels (kernel-default, kernel-64kb, ...),
+// each with its modules directory and image.
+func rpmKernelFiles(ctx context.Context) []string {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, rpmProgram, "-q", "--whatprovides", "multiversion(kernel)", "--qf", "[%{FILENAMES}\\n]").Output()
+	if err != nil {
+		return nil
+	}
+	return strings.Split(string(out), "\n")
 }
 
 func userName(uid string) string {

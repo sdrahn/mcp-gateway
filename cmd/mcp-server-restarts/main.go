@@ -20,7 +20,6 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sdrahn/mcp-gateway/internal/landlock"
 	"github.com/sdrahn/mcp-gateway/internal/mcpserver"
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
@@ -30,17 +29,14 @@ const (
 	toolName   = "pending_restarts"
 )
 
-// restrict is landlock.Self in the program, nil in tests that call run.
-var restrict func(landlock.Rules) (landlock.Result, error)
-
-// landlockRules: besides landlock.Base (the system's configuration and
-// programs, /proc, /sys; the rpm database and the kernels are below
-// /usr), the reboot flag and the rpm database's old place. Nothing is
-// written.
-var landlockRules = landlock.Rules{Read: []string{"/run", "/var/lib/rpm"}}
+// The server does not restrict itself with Landlock, as the other
+// servers of this project do: Landlock refuses a restricted process
+// ptrace access to every process outside its own domain, and reading a
+// process's memory map is such an access (PTRACE_MODE_READ), the very
+// thing this server is for. The sandbox, the capability set and the
+// SELinux domain confine it.
 
 func main() {
-	restrict = landlock.Self
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, newScanner()))
 }
 
@@ -67,15 +63,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, sc *scanner) 
 		fs.Usage()
 		return 2
 	}
-	ll := "not restricted"
-	if restrict != nil {
-		res, err := restrict(landlockRules)
-		if err != nil {
-			_, _ = fmt.Fprintln(stderr, serverName+":", err)
-			return 1
-		}
-		ll = res.String()
-	}
 	if *once {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
@@ -85,7 +72,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, sc *scanner) 
 		return 0
 	}
 	// A log line on stderr, which goes to the journal.
-	_, _ = fmt.Fprintf(stderr, "%s: ready; %s\n", serverName, ll)
+	_, _ = fmt.Fprintf(stderr, "%s: ready\n", serverName)
 	s := &server{scan: sc}
 	if err := mcpserver.New(s.handle, stdout).Serve(stdin, 1<<20); err != nil {
 		_, _ = fmt.Fprintln(stderr, serverName+":", err)

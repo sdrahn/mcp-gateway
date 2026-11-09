@@ -2567,8 +2567,11 @@ echo "  instance: ${pr_instance:-none} $(label "${pr_instance:-1}") user $(proc_
 check "pending restarts: the instance runs in mcpsrv_restarts_t" has_type "$(label "${pr_instance:-1}")" mcpsrv_restarts_t
 check "pending restarts: ... as a throwaway account, not root" bash -c '[ -n "$1" ] && [ "$(ps -o user= -p "$1" | tr -d " ")" != root ]' _ "$pr_instance"
 check "pending restarts: ... with CAP_SYS_PTRACE only" grep -q '^CapEff:[[:space:]]*0000000000080000$' "/proc/${pr_instance:-1}/status"
-check "pending restarts: the server restricts itself (Landlock)" \
-	bash -c "journalctl -q --no-pager -u 'mcp-restarts-*' -o cat | grep -q 'mcp-server-restarts: ready; Landlock ABI'"
+# The unit hides /usr/lib/modules (ProtectKernelModules=): the installed
+# kernels come from the rpm database.
+check "pending restarts: the running kernel is among the installed ones" \
+	bash -c 'grep -qE "installed: [^\n]*$2" <<<"$1"' _ "$out" "$(uname -r | sed 's/[.]/[.]/g')"
+check "pending restarts: every process's map is read" bash -c '! grep -qF "could not be read" <<<"$1"' _ "$out"
 stool bob restarts pending_restarts '{}'
 check "pending restarts: not for bob, who holds no role for it" failed_without "Running kernel"
 rm -f /run/reboot-needed /etc/mcp-gateway/servers.d/restarts.yaml

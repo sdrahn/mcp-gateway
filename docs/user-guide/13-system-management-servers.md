@@ -729,7 +729,7 @@ server `restarts` with one tool, `pending_restarts`:
 |---|---|
 | the services (`services`: unit, process ids, packages) and processes (`processes`: pid, command, user, unit, deleted files, packages) that still use files an update replaced or removed, below `/usr`, `/lib`, `/lib64`, `/bin`, `/sbin`, `/opt` or `/etc` | each process's memory map (`/proc/<pid>/maps`, files marked deleted), its control group and the rpm database (`rpm -qf`: the package that owns a file at that path now) |
 | whether an update waits for a reboot (`reboot_needed`, `reboot_needed_since`) | `/run/reboot-needed` |
-| the running kernel, the installed ones and whether a newer one is installed (`running_kernel`, `installed_kernels`, `newer_kernel_installed`) | `uname -r`; the kernel images below `/usr/lib/modules` |
+| the running kernel, the installed ones and whether a newer one is installed (`running_kernel`, `installed_kernels`, `newer_kernel_installed`) | `uname -r`; the kernel packages in the rpm database (their images, `/usr/lib/modules/<release>/vmlinuz`: the sandbox hides that directory itself) |
 
 The tool takes no arguments, changes nothing (`readOnlyHint`) and
 answers as text and in `structuredContent`; `processes whose memory
@@ -744,8 +744,10 @@ own commands (the server `exec`, chapter 4) never get. The server holds
 that capability and nothing else: a throwaway account, the sandbox of an
 ordinary server without network, its own domain `mcpsrv_restarts_t`
 (which may read every process's state in `/proc` but not its memory, run
-`rpm -q`, see whether a file in `/run` exists and list the kernels), and
-Landlock. Since a definition that names a capability is accepted only
+`rpm -q` and see whether a file in `/run` exists). Unlike the gateway's
+other servers it does not restrict itself with Landlock: Landlock
+refuses a restricted process access to the memory maps of every process
+outside its own ruleset, which is all this server reads. Since a definition that names a capability is accepted only
 in `/etc/mcp-gateway/servers.d`, the package ships it as a profile; link
 it to offer the server:
 

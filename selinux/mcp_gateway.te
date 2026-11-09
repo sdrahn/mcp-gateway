@@ -296,10 +296,12 @@ optional_policy(`
 # map for files an update deleted (CAP_SYS_PTRACE, which its definition
 # names, and the ptrace read check, which SELinux makes a file read of
 # the process's domain), asks rpm which package owns such a file now,
-# sees whether /run/reboot-needed exists and lists the kernels below
-# /usr/lib/modules. It writes nothing.
+# and which kernels are installed (rpm -q), and sees whether
+# /run/reboot-needed exists. It writes nothing.
 mcp_gateway_backend_template(restarts)
+# cap_userns: for a process in a user namespace of its own.
 allow mcpsrv_restarts_t self:capability sys_ptrace;
+allow mcpsrv_restarts_t self:cap_userns sys_ptrace;
 domain_read_all_domains_state(mcpsrv_restarts_t)
 files_read_usr_files(mcpsrv_restarts_t)
 auth_use_nsswitch(mcpsrv_restarts_t)
@@ -310,11 +312,6 @@ ifdef(`rpm_read_db',`
 # rpm runs in this domain (rpm -qf), not in its own.
 ifdef(`rpm_exec',`
 	rpm_exec(mcpsrv_restarts_t)
-')
-optional_policy(`
-	gen_require(`type modules_object_t;')
-	list_dirs_pattern(mcpsrv_restarts_t, modules_object_t, modules_object_t)
-	getattr_files_pattern(mcpsrv_restarts_t, modules_object_t, modules_object_t)
 ')
 # A process's memory (/proc/<pid>/mem) needs process ptrace, not
 # granted. Its environment is the same file read as its map: the program
