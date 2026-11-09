@@ -35,7 +35,7 @@ DESTDIR     ?=
 LDFLAGS := -X github.com/sdrahn/mcp-gateway/internal/version.Version=$(VERSION) \
 	-X github.com/sdrahn/mcp-gateway/internal/version.LibexecDir=$(LIBEXECDIR)
 
-BINARIES := bin/mcp-gateway bin/mcp-gateway-admin bin/mcp-gateway-tools bin/mcp-connect bin/mcp-gateway-notify bin/mcp-server-fs bin/mcp-server-exec bin/mcp-http-connector bin/mcp-oauth-helper bin/mcp-landlock bin/mcp-policy-render
+BINARIES := bin/mcp-gateway bin/mcp-gateway-admin bin/mcp-gateway-tools bin/mcp-connect bin/mcp-gateway-notify bin/mcp-server-fs bin/mcp-server-exec bin/mcp-server-restarts bin/mcp-http-connector bin/mcp-oauth-helper bin/mcp-landlock bin/mcp-policy-render
 
 # The functional tests (test/vm/run-tests.sh), their test client and
 # privileged test server, packaged as mcp-gateway-tests (openQA).
@@ -46,7 +46,7 @@ TESTBINARIES := bin/tests/mcpcall bin/tests/privsrv
 PROFILES := systemd firewalld zypp suseconnect snapper podman
 
 .PHONY: all build test vet lint fmt-check policy-check policy-test selinux check \
-	install install-gateway install-tools install-selinux install-cockpit install-desktop install-fs-server install-demo install-exec-server \
+	install install-gateway install-tools install-selinux install-cockpit install-desktop install-fs-server install-demo install-exec-server install-restarts-server \
 	install-profiles build-tests install-tests clean
 
 all: build
@@ -234,6 +234,18 @@ install-exec-server:
 	install -d $(DESTDIR)$(SYSCONFDIR)/mcp-gateway/exec.d
 	install -Dm0644 packaging/exec-server/exec-roles.yaml \
 		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/exec/data.yaml
+
+# The pending-restarts server: its definition is a profile the
+# administrator links into /etc/mcp-gateway/servers.d (it names a
+# capability, which only that directory may).
+install-restarts-server:
+	install -Dm0755 bin/mcp-server-restarts $(DESTDIR)$(LIBEXECDIR)/mcp-servers/mcp-server-restarts
+	install -d $(DESTDIR)$(DATADIR)/mcp-gateway/profiles
+	sed -e 's|@LIBEXECDIR@|$(LIBEXECDIR)|g' -e 's|@DATADIR@|$(DATADIR)|g' packaging/restarts-server/restarts.yaml.in \
+		>$(DESTDIR)$(DATADIR)/mcp-gateway/profiles/restarts.yaml
+	chmod 0644 $(DESTDIR)$(DATADIR)/mcp-gateway/profiles/restarts.yaml
+	install -Dm0644 packaging/restarts-server/restarts-roles.yaml \
+		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/restarts/data.yaml
 
 clean:
 	rm -rf bin selinux/tmp selinux/*.pp $(PROFILES:%=selinux/mcp_%.if)

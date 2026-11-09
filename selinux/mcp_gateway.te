@@ -291,6 +291,39 @@ optional_policy(`
 	dontaudit mcpsrv_exec_t init_var_run_t:file getattr;
 ')
 
+# What an update left waiting (the server restarts, cmd/mcp-server-restarts,
+# package mcp-gateway-restarts-server): it reads every process's memory
+# map for files an update deleted (CAP_SYS_PTRACE, which its definition
+# names, and the ptrace read check, which SELinux makes a file read of
+# the process's domain), asks rpm which package owns such a file now,
+# sees whether /run/reboot-needed exists and lists the kernels below
+# /usr/lib/modules. It writes nothing.
+mcp_gateway_backend_template(restarts)
+allow mcpsrv_restarts_t self:capability sys_ptrace;
+domain_read_all_domains_state(mcpsrv_restarts_t)
+files_read_usr_files(mcpsrv_restarts_t)
+auth_use_nsswitch(mcpsrv_restarts_t)
+ifdef(`files_getattr_all_runtime_files',`
+	files_getattr_all_runtime_files(mcpsrv_restarts_t)
+',`
+	files_getattr_all_pids(mcpsrv_restarts_t)
+')
+ifdef(`rpm_read_db',`
+	rpm_read_db(mcpsrv_restarts_t)
+')
+# rpm runs in this domain (rpm -qf), not in its own.
+ifdef(`rpm_exec',`
+	rpm_exec(mcpsrv_restarts_t)
+')
+optional_policy(`
+	gen_require(`type modules_object_t;')
+	list_dirs_pattern(mcpsrv_restarts_t, modules_object_t, modules_object_t)
+	getattr_files_pattern(mcpsrv_restarts_t, modules_object_t, modules_object_t)
+')
+# A process's memory (/proc/<pid>/mem) needs process ptrace, not
+# granted. Its environment is the same file read as its map: the program
+# reads maps, status, comm, cmdline and cgroup only.
+
 # The gateway diagnostics (the server gateway-admin, mcp-gateway-admin
 # serve): root without capabilities, reading only. It reads the
 # configuration, the state directory, the journal and the audit log, file

@@ -1,0 +1,11 @@
+# The role of the server restarts (package mcp-gateway-restarts-server),
+# installed as /usr/share/mcp-gateway/policy/mcp/profiles/restarts/data.yaml.
+# Bind users or groups to it in the role data.
+
+version: 1
+roles:
+  restarts-reader:
+    description: 'restarts: see what an update left waiting (services to restart, a pending reboot, the kernels); reads only'
+    permissions:
+      - server: restarts
+        tool: pending_restarts

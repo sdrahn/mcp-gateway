@@ -34,6 +34,7 @@ zypper install mcp-gateway-cockpit    # optional: web console page
 zypper install mcp-gateway-desktop    # optional: desktop notifications
 zypper install mcp-gateway-fs-server  # optional: file server "fs", docs server "gateway-docs"
 zypper install mcp-gateway-exec-server  # optional: command server "exec" (chapter 4)
+zypper install mcp-gateway-restarts-server  # optional: server "restarts", pending restarts after an update (chapter 13)
 zypper install mcp-gateway-tools      # optional: inspect, profile, review for adding servers (chapter 4)
 zypper install mcp-gateway-profile-systemd  # optional: setup of a system management server (chapter 13)
 ```
@@ -193,7 +194,7 @@ firewall-cmd --permanent --add-port=8443/tcp && firewall-cmd --reload
 ```bash
 git clone https://github.com/sdrahn/mcp-gateway.git && cd mcp-gateway
 make build                       # bin/: mcp-gateway, mcp-gateway-admin, mcp-gateway-tools, mcp-connect,
-                                 #       mcp-gateway-notify, mcp-server-fs, mcp-server-exec
+                                 #       mcp-gateway-notify, mcp-server-fs, mcp-server-exec, mcp-server-restarts
 sudo make install install-selinux install-cockpit install-desktop install-demo \
      PREFIX=/usr SYSCONFDIR=/etc DISTCONFDIR=/usr/etc
 sudo systemd-sysusers /usr/lib/sysusers.d/mcp-gateway.conf

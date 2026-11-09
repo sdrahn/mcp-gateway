@@ -621,6 +621,8 @@ var TypedPrograms = []string{
 	"/usr/libexec/mcp-servers/mcp-server-exec",
 	"/usr/lib/mcp-servers/mcp-server-fs",
 	"/usr/libexec/mcp-servers/mcp-server-fs",
+	"/usr/lib/mcp-servers/mcp-server-restarts",
+	"/usr/libexec/mcp-servers/mcp-server-restarts",
 	"/usr/libexec/mcp-server-zypp/zypp-mcp-tool",
 	"/usr/bin/mcp-docs",
 }
@@ -823,7 +825,7 @@ func Landlock(backends map[string]*config.Backend, k LandlockKernel, launcher bo
 // selfRestricting are the programs that restrict themselves with
 // Landlock whatever starts them (roadmap step 30, stage B; mcp-docs of
 // its own), by name.
-var selfRestricting = []string{"mcp-server-fs", "mcp-server-exec", "mcp-docs"}
+var selfRestricting = []string{"mcp-server-fs", "mcp-server-exec", "mcp-server-restarts", "mcp-docs"}
 
 // LandlockSuspects names Landlock as the likely cause for the servers
 // that did not start (failed) and run restricted (their definition's

@@ -709,7 +709,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `/usr/share/polkit-1/actions/io.github.sdrahn.mcp-gateway.policy` | the action users authenticate for (`auth_self`) to approve their own requests over the control socket |
 | `/usr/share/cockpit/mcp-gateway/` | Cockpit page |
 | `/etc/xdg/autostart/mcp-gateway-notify.desktop` | desktop agent autostart |
-| `/usr/libexec/mcp-servers/` | conventional place for MCP server programs; `mcp-server-fs`, `mcp-server-exec` |
+| `/usr/libexec/mcp-servers/` | conventional place for MCP server programs; `mcp-server-fs`, `mcp-server-exec`, `mcp-server-restarts` |
 | `/usr/share/mcp-gateway/docs/` | this documentation (server `gateway-docs`) |
 
 ## SELinux
@@ -718,7 +718,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 |---|---|
 | `mcpgw_t`, `mcpgw_exec_t` | gateway |
 | `mcpopa_t`, `mcpopa_exec_t` | OPA |
-| `mcpsrv_generic_t`, `mcpsrv_fs_t`, `mcpsrv_docs_t`, `mcpsrv_exec_t`, `mcpsrv_<name>_t` | MCP server instances (chapter 9, "SELinux") |
+| `mcpsrv_generic_t`, `mcpsrv_fs_t`, `mcpsrv_docs_t`, `mcpsrv_exec_t`, `mcpsrv_restarts_t`, `mcpsrv_<name>_t` | MCP server instances (chapter 9, "SELinux") |
 | `mcpsrv_http_t`, `mcpsrv_http_exec_t` | `mcp-http-connector`, the instances of servers defined with `url` |
 | `mcpsrv_oauth_t`, `mcpsrv_oauth_exec_t` | `mcp-oauth-helper`, the requests of principals' sign-ins to servers with `sign_in` |
 | `mcp_landlock_exec_t` | `mcp-landlock`, an entry point of every server domain |

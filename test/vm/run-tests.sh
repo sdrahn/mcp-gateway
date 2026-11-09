@@ -283,7 +283,7 @@ section "Install"
 # The packages are installed (CI: test/vm/prepare.sh; openQA: from the
 # product's repositories); the gateway has not run yet, or is stopped
 # here so that its start is the tests'.
-for p in mcp-gateway mcp-gateway-selinux mcp-gateway-fs-server mcp-gateway-exec-server mcp-gateway-tools \
+for p in mcp-gateway mcp-gateway-selinux mcp-gateway-fs-server mcp-gateway-exec-server mcp-gateway-restarts-server mcp-gateway-tools \
 	mcp-gateway-tests jq curl rpm-build selinux-policy-devel; do
 	rpm -q "$p" >/dev/null 2>&1 || die "package $p is not installed"
 done
@@ -2517,6 +2517,66 @@ jq '.roles.tester.permissions |= map(select(.server != "fsnet"))' /etc/mcp-gatew
 	cat /root/nv-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 nv_gone() { ! control alice GET /v1/servers | jq -e '.[] | select(.name == "fsnet" and (.removed | not))' >/dev/null; }
 check "fsnet is removed again" eventually 40 nv_gone
+
+section "Pending restarts"
+# The server restarts (Custos #345, R-b): what an update left waiting.
+# Two test services preload a copy of a library; the copy one of them
+# uses is replaced as an update replaces files (a new file renamed over
+# the old). The tool lists that service, not the other, and changes
+# nothing.
+pr_lib=/usr/lib64/vmtest-restarts
+mkdir -p "$pr_lib"
+pr_src=$(ls /usr/lib64/libz.so.1 /lib64/libz.so.1 2>/dev/null | head -1)
+cp "$pr_src" "$pr_lib/libvmtest-a.so.1"
+cp "$pr_src" "$pr_lib/libvmtest-b.so.1"
+restorecon -R "$pr_lib"
+for x in a b; do
+	systemd-run --quiet --unit="vmtest-restart-$x" -E "LD_PRELOAD=$pr_lib/libvmtest-$x.so.1" /usr/bin/sleep infinity
+done
+pr_main() { systemctl show -p MainPID --value "vmtest-restart-$1.service"; }
+pr_a=$(pr_main a)
+pr_b=$(pr_main b)
+pr_maps() { grep -c "$pr_lib/libvmtest-$1.so.1" "/proc/$2/maps"; }
+check "pending restarts: the test services use their libraries" bash -c '[ "$1" -gt 0 ] && [ "$2" -gt 0 ]' _ "$(pr_maps a "$pr_a")" "$(pr_maps b "$pr_b")"
+# The update: a new file renamed over the old one.
+cp "$pr_src" "$pr_lib/.libvmtest-a.new" && mv -f "$pr_lib/.libvmtest-a.new" "$pr_lib/libvmtest-a.so.1"
+check "pending restarts: the replaced library is deleted for the service that uses it" grep -q "$pr_lib/libvmtest-a.so.1 (deleted)" "/proc/$pr_a/maps"
+# The server's definition names a capability: only the administrator's
+# directory may, by linking the shipped profile.
+ln -sf /usr/share/mcp-gateway/profiles/restarts.yaml /etc/mcp-gateway/servers.d/restarts.yaml
+jq '.bindings.users.alice += ["restarts-reader"]' /etc/mcp-gateway/policy/rbac/data.yaml >/root/vmtest/pr-data.json &&
+	cat /root/vmtest/pr-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
+check "pending restarts: the definition and the role are accepted" mcp-gateway --check
+check "pending restarts: systemctl reload takes them" systemctl reload mcp-gateway.service
+touch /run/reboot-needed
+pr_call() { stool alice restarts pending_restarts '{}'; }
+pr_listed() { pr_call && succeeded_with "vmtest-restart-a.service"; }
+check "pending restarts: the service using the replaced library is listed" eventually 40 pr_listed
+echo "$out" | head -20 | sed 's/^/  /'
+check "pending restarts: ... not the one whose library is unchanged" bash -c '! grep -qF "vmtest-restart-b.service" <<<"$1"' _ "$out"
+check "pending restarts: the reboot flag is reported" succeeded_with "A reboot is pending"
+check "pending restarts: the running kernel is reported" succeeded_with "Running kernel: $(uname -r)"
+check "pending restarts: the tool changes nothing" \
+	bash -c '[ "$(systemctl show -p MainPID --value vmtest-restart-a.service)" = "$1" ] && [ "$(systemctl show -p MainPID --value vmtest-restart-b.service)" = "$2" ] && test -e /run/reboot-needed' _ "$pr_a" "$pr_b"
+pr_instance=""
+for unit in $(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-restarts-*' | awk '{print $1}'); do
+	pid=$(systemctl show -p MainPID --value "$unit")
+	[ "$pid" != 0 ] && [ "$(proc_user "$pid")" != root ] && pr_instance=$pid
+done
+echo "  instance: ${pr_instance:-none} $(label "${pr_instance:-1}") user $(proc_user "${pr_instance:-1}")"
+check "pending restarts: the instance runs in mcpsrv_restarts_t" has_type "$(label "${pr_instance:-1}")" mcpsrv_restarts_t
+check "pending restarts: ... as a throwaway account, not root" bash -c '[ -n "$1" ] && [ "$(ps -o user= -p "$1" | tr -d " ")" != root ]' _ "$pr_instance"
+check "pending restarts: ... with CAP_SYS_PTRACE only" grep -q '^CapEff:[[:space:]]*0000000000080000$' "/proc/${pr_instance:-1}/status"
+check "pending restarts: the server restricts itself (Landlock)" \
+	bash -c "journalctl -q --no-pager -u 'mcp-restarts-*' -o cat | grep -q 'mcp-server-restarts: ready; Landlock ABI'"
+stool bob restarts pending_restarts '{}'
+check "pending restarts: not for bob, who holds no role for it" failed_without "Running kernel"
+rm -f /run/reboot-needed /etc/mcp-gateway/servers.d/restarts.yaml
+systemctl stop vmtest-restart-a.service vmtest-restart-b.service
+rm -rf "$pr_lib"
+jq '.bindings.users.alice -= ["restarts-reader"]' /etc/mcp-gateway/policy/rbac/data.yaml >/root/vmtest/pr-data.json &&
+	cat /root/vmtest/pr-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
+check "pending restarts: systemctl reload drops the server again" systemctl reload mcp-gateway.service
 
 section "Limits"
 # The limits per principal (decision D14), lowered with mcp-gateway-admin

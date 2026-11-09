@@ -1,0 +1,21 @@
+# The pending-restarts server (package mcp-gateway-restarts-server): one
+# tool, pending_restarts, that reads what an update left waiting (the
+# services and processes that still use files an update replaced, as
+# zypper ps -s lists them; /run/reboot-needed; the running and installed
+# kernels). It changes nothing and takes no arguments.
+#
+# Reading other users' memory maps needs CAP_SYS_PTRACE, and only the
+# administrator's directory may name a capability: to offer the server,
+#   ln -s @DATADIR@/mcp-gateway/profiles/restarts.yaml \
+#         /etc/mcp-gateway/servers.d/restarts.yaml
+# and give the users the role restarts-reader (user guide, chapter 13).
+version: 1
+name: restarts
+command: ["@LIBEXECDIR@/mcp-servers/mcp-server-restarts"]
+selinux_type: mcpsrv_restarts_t
+# A throwaway account: the capability is all it needs, not root.
+run_as: dynamic
+network: false
+sandbox:
+  protect_home: "yes"
+  capabilities: [CAP_SYS_PTRACE]

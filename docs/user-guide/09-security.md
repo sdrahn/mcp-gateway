@@ -38,6 +38,7 @@ their own domains:
 | `mcpsrv_fs_t` | the file server (`mcp-server-fs`) | additionally user home content (read/write); `~/.config`, `~/.cache`, `~/.local/share` with `mcpsrv_fs_manage_xdg`; never `~/.ssh`, `~/.gnupg` or browser profiles (chapter 4, "A file server on the user's home") |
 | `mcpsrv_docs_t` | the documentation server `gateway-docs` | read `/usr`, nothing of the users' |
 | `mcpsrv_exec_t` | the command server `exec` | run the allowed commands; read system state |
+| `mcpsrv_restarts_t` | the server `restarts` (chapter 13, "Pending restarts after an update") | with `CAP_SYS_PTRACE`, read every process's state in `/proc` (not its memory); run `rpm -q`; see whether a file in `/run` exists; list the kernels |
 | `mcpsrv_http_t` | servers defined with `url` (`mcp-http-connector`) | connect to HTTP ports (any port with `mcpsrv_http_connect_any`), of the server's addresses only (`IPAddressAllow=`); read the CA certificates |
 | `mcpsrv_admin_t` | the diagnostics server `gateway-admin` | read the configuration, state, journal, audit log and file labels; change nothing |
 | `mcpsrv_systemd_t`, `mcpsrv_firewalld_t`, `mcpsrv_zypp_t`, `mcpsrv_suseconnect_t`, `mcpsrv_snapper_t` | the system management servers (chapter 13) | talk to their system service over D-Bus |
