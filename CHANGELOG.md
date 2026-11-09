@@ -5,7 +5,23 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.16.0 — 2026-11-09
+
+What an update left waiting, for Custos's update status and any agent:
+the commands of the server `exec` see whether an update waits for a
+reboot (`/run/reboot-needed`), and the new server `restarts` lists,
+read-only, the services that still run code an update replaced, with
+the reboot flag and the kernels.
+
+Upgrading from 1.15.x needs no changes to server definitions, role data
+or custom policies. The SELinux module `mcp_gateway` adds the domain
+`mcpsrv_restarts_t` and lets `mcpsrv_exec_t` see whether a file in
+`/run` exists. The server `restarts` is a new, optional package; on a
+transactional system, install it in the same transaction as the update
+of `mcp-gateway-selinux`, or reboot in between (chapter 2), and link its
+profile into `/etc/mcp-gateway/servers.d` to offer it (chapter 13).
+After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not.
 
 ### Added
 
