@@ -275,6 +275,15 @@ optional_policy(`
 	list_dirs_pattern(mcpsrv_exec_t, systemd_logind_sessions_t, systemd_logind_sessions_t)
 	read_files_pattern(mcpsrv_exec_t, systemd_logind_sessions_t, systemd_logind_sessions_t)
 ')
+# A command may see whether a file in /run exists (stat, test -e), as
+# the flag /run/reboot-needed that zypper and transactional-update leave
+# after an update that needs a reboot; reading one needs a rule of its
+# own.
+ifdef(`files_getattr_all_runtime_files',`
+	files_getattr_all_runtime_files(mcpsrv_exec_t)
+',`
+	files_getattr_all_pids(mcpsrv_exec_t)
+')
 # df looks at every mount, also the files the sandbox masks /proc/kmsg
 # and the like with; it does without them.
 optional_policy(`

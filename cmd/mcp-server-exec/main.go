@@ -89,6 +89,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		for _, w := range warns {
 			_, _ = fmt.Fprintln(stdout, "warning:", w)
 		}
+		writeHostPaths(stdout, landlockRules(cmds))
 		_, _ = fmt.Fprintf(stdout, "%d commands\n", len(cmds))
 		return 0
 	}

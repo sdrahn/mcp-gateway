@@ -7,6 +7,16 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Exec commands see whether an update waits for a reboot (chapter 4,
+  "What a command sees of the host"): the domain `mcpsrv_exec_t` may
+  see whether a file in `/run` exists (`stat`, `test -e`, not read it),
+  so the flag `/run/reboot-needed` that zypper and transactional-update
+  leave is seen, also when it appears after the instance started. The
+  example command `reboot_needed` shows it, and `mcp-server-exec
+  --check` ends with the host's trees the commands see (Custos #345).
+
 ## v1.15.0 — 2026-11-06
 
 What an approver sees and when an agent is asked, for Custos 0.4 and any

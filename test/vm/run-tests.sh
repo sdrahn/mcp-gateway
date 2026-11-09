@@ -356,6 +356,7 @@ commands:
   user_name: {argv: [/usr/bin/id, -un], read_only: true}
   slow: {argv: [/usr/bin/sleep, "30"], timeout: 1s}
   wait: {argv: [/usr/bin/sleep, "120"], timeout: 150s}
+  run_write: {argv: [/usr/bin/touch, /run/vmtest-exec-write]}
 CMDS
 restorecon -R /etc/mcp-gateway/exec.d
 check "mcp-server-exec --check accepts the commands" /usr/libexec/mcp-servers/mcp-server-exec --check
@@ -560,6 +561,37 @@ stool alice exec package_version '{"package":"mcp-gateway"}'
 check "exec: package_version" succeeded_with "mcp-gateway-$(rpm -q --qf '%{VERSION}' mcp-gateway)"
 stool alice exec user_name '{}'
 check "exec: commands run as the calling user" succeeded_with "alice"
+# /run is the host's, read-only and current: the flag of an update that
+# waits for a reboot is seen once it exists, by the instance already
+# running (Custos #345, R-a).
+rm -f /run/reboot-needed
+stool alice exec reboot_needed '{}'
+check "exec: no /run/reboot-needed, none seen" bash -c 'grep -qF "No such file or directory" <<<"$1" && ! grep -qF "Permission denied" <<<"$1"' _ "$out"
+# exec_instance <user>: the main pid of <user>'s exec instance.
+exec_instance() {
+	local unit pid
+	for unit in $(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-exec-*' | awk '{print $1}'); do
+		pid=$(systemctl show -p MainPID --value "$unit")
+		[ "$(proc_user "$pid")" = "$1" ] && echo "$pid"
+	done
+}
+rn_pid=$(exec_instance alice)
+touch /run/reboot-needed
+echo "  $(ls -Z /run/reboot-needed); by its file context: $(matchpathcon -n /run/reboot-needed 2>/dev/null)"
+stool alice exec reboot_needed '{}'
+check "exec: /run/reboot-needed created after the instance started is seen" succeeded_with "/run/reboot-needed: since"
+# zypper and transactional-update may leave it with the label of /run's
+# file context; seen with that too.
+restorecon /run/reboot-needed
+stool alice exec reboot_needed '{}'
+check "exec: ... also with its file context's label" succeeded_with "/run/reboot-needed: since"
+rn_pid_after=$(exec_instance alice)
+check "exec: ... by the instance already running" test -n "$rn_pid" -a "$rn_pid" = "$rn_pid_after"
+rm -f /run/reboot-needed
+stool alice exec run_write '{}'
+check "exec: a command cannot write to /run" bash -c 'grep -qE "Read-only file system|Permission denied" <<<"$1" && test ! -e /run/vmtest-exec-write' _ "$out"
+out=$(/usr/libexec/mcp-servers/mcp-server-exec --check 2>&1)
+check "mcp-server-exec --check says which host paths the commands see" grep -qE '^  read: .*/run' <<<"$out"
 stool alice exec echo_word '{"word":"a; id"}'
 check "exec: a value outside its pattern is refused" tool_error_with "does not match"
 stool alice exec echo_word '{"word":"-n"}'

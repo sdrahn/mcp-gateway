@@ -1297,6 +1297,36 @@ copy of the definition that writes it. The journal line at start says
 what the kernel applied (`mcp-server-exec: 2 commands from
 /etc/mcp-gateway/exec.d; Landlock ABI 6, scoped`).
 
+#### What a command sees of the host
+
+`mcp-server-exec --check` ends with the host's trees the commands see,
+for the command files as they are:
+
+```
+host paths the commands see (Landlock):
+  read:  /etc /proc /run /sys /var
+  run:   /bin /lib /lib64 /sbin /usr
+  write: /dev/full /dev/null /dev/random /dev/shm /dev/urandom /dev/zero /tmp /var/tmp
+  the unit keeps the host's file system read-only (ProtectSystem=strict), /tmp and /dev private;
+  /run is the host's, read-only and current (e.g. /run/reboot-needed); SELinux (mcpsrv_exec_t) may refuse more
+```
+
+- The host's file system, read-only: what a command writes outside its
+  private `/tmp` fails ("Read-only file system"); home directories as
+  the definition's `sandbox.protect_home` says (`read-only`).
+- `/run` is the host's own, read-only, and current: a file created
+  there after the instance started is seen at the next call. The
+  domain lets a command see whether a file in `/run` exists (`stat`,
+  `test -e`), not read it: the flag `/run/reboot-needed`, which zypper
+  and transactional-update leave after an update that needs a reboot
+  (glibc, systemd, a kernel), is seen; the shipped example
+  `reboot_needed` shows it ("No such file or directory" when no update
+  waits for one).
+- Other users' processes: `/proc` shows them, but not their memory maps
+  or open files, which need privileges the user lacks. Which services
+  still run old programs after an update (`zypper ps -s`) is not for an
+  exec command.
+
 Commands run with the calling user's rights and the domain's: they read
 `/etc`, `/usr`, system state, mounts and the rpm database, and change
 nothing beyond what the user may. For a command that needs more (another
