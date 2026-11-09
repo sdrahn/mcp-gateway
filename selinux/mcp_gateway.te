@@ -279,11 +279,11 @@ optional_policy(`
 # the flag /run/reboot-needed that zypper and transactional-update leave
 # after an update that needs a reboot; reading one needs a rule of its
 # own.
-ifdef(`files_getattr_all_runtime_files',`
-	files_getattr_all_runtime_files(mcpsrv_exec_t)
-',`
-	files_getattr_all_pids(mcpsrv_exec_t)
-')
+# The flag has /run's own type, var_run_t, as written and by its file
+# context (neither reference policy nor openSUSE's has an interface for
+# getattr alone).
+gen_require(`type var_run_t;')
+allow mcpsrv_exec_t var_run_t:file getattr;
 # df looks at every mount, also the files the sandbox masks /proc/kmsg
 # and the like with; it does without them.
 optional_policy(`
@@ -303,11 +303,7 @@ allow mcpsrv_restarts_t self:capability sys_ptrace;
 domain_read_all_domains_state(mcpsrv_restarts_t)
 files_read_usr_files(mcpsrv_restarts_t)
 auth_use_nsswitch(mcpsrv_restarts_t)
-ifdef(`files_getattr_all_runtime_files',`
-	files_getattr_all_runtime_files(mcpsrv_restarts_t)
-',`
-	files_getattr_all_pids(mcpsrv_restarts_t)
-')
+allow mcpsrv_restarts_t var_run_t:file getattr;
 ifdef(`rpm_read_db',`
 	rpm_read_db(mcpsrv_restarts_t)
 ')
