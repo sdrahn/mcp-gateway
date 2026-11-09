@@ -36,6 +36,10 @@ commands:
     argv: [/usr/bin/df, -h]
     read_only: true
     timeout: 15s
+  reboot_needed:
+    description: Whether an update waits for a reboot (/run/reboot-needed, left by zypper and transactional-update); "No such file" if none does
+    argv: [/usr/bin/stat, -c, "%n: since %y", /run/reboot-needed]
+    read_only: true
   package_version:
     description: The installed version of a package (rpm -q)
     argv: [/usr/bin/rpm, -q, "{package}"]

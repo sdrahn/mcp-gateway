@@ -131,6 +131,23 @@ patterns and passed without a shell, with a timeout and an output
 limit, run as the calling user in its own SELinux domain. The shipped
 role exec-operator runs the commands with approval.
 
+%package restarts-server
+Summary:        Pending-restarts MCP server for mcp-gateway
+Group:          System/Management
+Requires:       %{name} = %{version}
+Requires:       rpm
+
+%description restarts-server
+mcp-server-restarts, an MCP server for mcp-gateway with one read-only
+tool, pending_restarts: the services and processes that still use files
+an update replaced or removed (as zypper ps -s lists them), with the
+packages that own those files now; whether an update waits for a reboot
+(/run/reboot-needed); and the running and installed kernels. It reads
+other users' memory maps with CAP_SYS_PTRACE in its own SELinux domain,
+so its definition is a profile the administrator links into
+/etc/mcp-gateway/servers.d; the shipped role restarts-reader lets users
+call the tool.
+
 %package tools
 Summary:        Commands to onboard MCP servers for mcp-gateway
 Group:          System/Management
@@ -152,6 +169,7 @@ Group:          Development/Tools/Other
 Requires:       %{name} = %{version}
 Requires:       %{name}-exec-server = %{version}
 Requires:       %{name}-fs-server = %{version}
+Requires:       %{name}-restarts-server = %{version}
 Requires:       %{name}-selinux = %{version}
 Requires:       %{name}-tools = %{version}
 # What the tests run: the kernel audit log, SELinux tools and policy
@@ -291,7 +309,7 @@ make selinux
 %sysusers_generate_pre profiles/snapper/sysusers.conf %{name}-profile-snapper %{name}-profile-snapper.conf
 
 %install
-%make_install install install-tools install-tests install-selinux install-cockpit install-desktop install-fs-server install-exec-server install-profiles \
+%make_install install install-tools install-tests install-selinux install-cockpit install-desktop install-fs-server install-exec-server install-restarts-server install-profiles \
     PREFIX=%{_prefix} BINDIR=%{_bindir} SBINDIR=%{_sbindir} LIBEXECDIR=%{_libexecdir} \
     DATADIR=%{_datadir} SYSCONFDIR=%{_sysconfdir} DISTCONFDIR=%{_distconfdir} \
     UNITDIR=%{_unitdir} SYSUSERSDIR=%{_sysusersdir} TMPFILESDIR=%{_tmpfilesdir} \
@@ -452,6 +470,13 @@ fi
 %{_datadir}/mcp-gateway/exec
 %{_datadir}/mcp-gateway/policy/mcp/profiles/exec
 %dir %{_sysconfdir}/mcp-gateway/exec.d
+
+%files restarts-server
+%dir %{_libexecdir}/mcp-servers
+%{_libexecdir}/mcp-servers/mcp-server-restarts
+%dir %{_datadir}/mcp-gateway/profiles
+%{_datadir}/mcp-gateway/profiles/restarts.yaml
+%{_datadir}/mcp-gateway/policy/mcp/profiles/restarts
 
 %files tools
 %dir %{_libexecdir}/mcp-gateway

@@ -7,6 +7,26 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Exec commands see whether an update waits for a reboot (chapter 4,
+  "What a command sees of the host"): the domain `mcpsrv_exec_t` may
+  see whether a file in `/run` exists (`stat`, `test -e`, not read it),
+  so the flag `/run/reboot-needed` that zypper and transactional-update
+  leave is seen, also when it appears after the instance started. The
+  example command `reboot_needed` shows it, and `mcp-server-exec
+  --check` ends with the host's trees the commands see (Custos #345).
+- The server `restarts`, package `mcp-gateway-restarts-server` (chapter
+  13, "Pending restarts after an update"): one read-only tool without
+  arguments, `pending_restarts`, lists the services and processes that
+  still use files an update replaced or removed (as `zypper ps -s`),
+  with the packages that own those files now; whether an update waits
+  for a reboot (`/run/reboot-needed`); and the running and installed
+  kernels. It holds `CAP_SYS_PTRACE` and nothing else, as a throwaway
+  account in its own domain `mcpsrv_restarts_t`, so its definition is a
+  profile to link into `/etc/mcp-gateway/servers.d`; the role
+  `restarts-reader` names the tool (Custos #345).
+
 ## v1.15.0 — 2026-11-06
 
 What an approver sees and when an agent is asked, for Custos 0.4 and any

@@ -55,6 +55,7 @@ checkout.
 | `cockpit/` | Cockpit page (approvals and grants, servers and instances, role bindings, audit records) and its smoke test |
 | `cmd/mcp-server-fs/` | the file server (package `mcp-gateway-fs-server`) |
 | `cmd/mcp-server-exec/` | the command server for commands an administrator allows (package `mcp-gateway-exec-server`) |
+| `cmd/mcp-server-restarts/` | the server `restarts`: what an update left waiting (package `mcp-gateway-restarts-server`) |
 | `examples/` | running the gateway from a checkout (`examples/dev`) |
 | `e2e/` | end-to-end tests: OPA + gateway + mcp-connect or an HTTPS client with a test IdP + the file server |
 | `test/` | reference-client compatibility suite (`clients/`: Go, Python, TypeScript), compatibility with earlier releases' files (`compat/`), VM tests on Leap 16 and Tumbleweed (`vm/`) |
@@ -75,7 +76,7 @@ files (`selinux-policy-devel` on openSUSE/SLES and Fedora,
 `selinux-policy-dev` on Debian/Ubuntu) plus `checkpolicy`.
 
 ```bash
-make build      # bin/mcp-gateway, bin/mcp-gateway-admin, bin/mcp-gateway-tools, bin/mcp-connect, bin/mcp-gateway-notify, bin/mcp-server-fs, bin/mcp-server-exec
+make build      # bin/mcp-gateway, bin/mcp-gateway-admin, bin/mcp-gateway-tools, bin/mcp-connect, bin/mcp-gateway-notify, bin/mcp-server-fs, bin/mcp-server-exec, bin/mcp-server-restarts
 make check      # gofmt/opa fmt, go vet, go test (incl. e2e if opa is found), opa check, opa test
 make lint       # golangci-lint
 make selinux    # selinux/mcp_gateway.pp

@@ -8,6 +8,7 @@
 /mcp-http-connector
 /mcp-oauth-helper
 /mcp-server-exec
+/mcp-server-restarts
 /mcp-server-fs
 /selinux/tmp/
 /selinux/*.pp

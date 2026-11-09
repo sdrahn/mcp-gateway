@@ -275,12 +275,47 @@ optional_policy(`
 	list_dirs_pattern(mcpsrv_exec_t, systemd_logind_sessions_t, systemd_logind_sessions_t)
 	read_files_pattern(mcpsrv_exec_t, systemd_logind_sessions_t, systemd_logind_sessions_t)
 ')
+# A command may see whether a file in /run exists (stat, test -e), as
+# the flag /run/reboot-needed that zypper and transactional-update leave
+# after an update that needs a reboot; reading one needs a rule of its
+# own.
+# The flag has /run's own type, var_run_t, as written and by its file
+# context (neither reference policy nor openSUSE's has an interface for
+# getattr alone).
+gen_require(`type var_run_t;')
+allow mcpsrv_exec_t var_run_t:file getattr;
 # df looks at every mount, also the files the sandbox masks /proc/kmsg
 # and the like with; it does without them.
 optional_policy(`
 	gen_require(`type init_var_run_t;')
 	dontaudit mcpsrv_exec_t init_var_run_t:file getattr;
 ')
+
+# What an update left waiting (the server restarts, cmd/mcp-server-restarts,
+# package mcp-gateway-restarts-server): it reads every process's memory
+# map for files an update deleted (CAP_SYS_PTRACE, which its definition
+# names, and the ptrace read check, which SELinux makes a file read of
+# the process's domain), asks rpm which package owns such a file now,
+# and which kernels are installed (rpm -q), and sees whether
+# /run/reboot-needed exists. It writes nothing.
+mcp_gateway_backend_template(restarts)
+# cap_userns: for a process in a user namespace of its own.
+allow mcpsrv_restarts_t self:capability sys_ptrace;
+allow mcpsrv_restarts_t self:cap_userns sys_ptrace;
+domain_read_all_domains_state(mcpsrv_restarts_t)
+files_read_usr_files(mcpsrv_restarts_t)
+auth_use_nsswitch(mcpsrv_restarts_t)
+allow mcpsrv_restarts_t var_run_t:file getattr;
+ifdef(`rpm_read_db',`
+	rpm_read_db(mcpsrv_restarts_t)
+')
+# rpm runs in this domain (rpm -qf), not in its own.
+ifdef(`rpm_exec',`
+	rpm_exec(mcpsrv_restarts_t)
+')
+# A process's memory (/proc/<pid>/mem) needs process ptrace, not
+# granted. Its environment is the same file read as its map: the program
+# reads maps, status, comm, cmdline and cgroup only.
 
 # The gateway diagnostics (the server gateway-admin, mcp-gateway-admin
 # serve): root without capabilities, reading only. It reads the

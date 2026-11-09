@@ -289,7 +289,9 @@ func TestCheckAndStart(t *testing.T) {
 	}
 	var out, errb bytes.Buffer
 	if rc := run([]string{"--check", "--commands", good}, nil, &out, &errb); rc != 0 ||
-		!strings.Contains(out.String(), "get_time\t/bin/date") || !strings.Contains(out.String(), "warning: get_time") {
+		!strings.Contains(out.String(), "get_time\t/bin/date") || !strings.Contains(out.String(), "warning: get_time") ||
+		!strings.Contains(out.String(), "host paths the commands see") || !strings.Contains(out.String(), "/run ") ||
+		!strings.Contains(out.String(), "/run/reboot-needed") {
 		t.Errorf("check: rc %d\n%s%s", rc, out.String(), errb.String())
 	}
 	bad := filepath.Join(dir, "bad.yaml")

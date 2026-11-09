@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -102,4 +104,38 @@ func sorted(set map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// writeHostPaths says which of the host's trees the commands see (for
+// --check): those Landlock lets them read, run and write, the server's
+// own with landlock.Base. The unit keeps the host's file system
+// read-only (ProtectSystem=strict) but for /tmp and /dev, which are
+// private, and the home directories as the definition says; /run is the
+// host's, read-only and as it is now (a flag such as /run/reboot-needed
+// created later is seen). SELinux (mcpsrv_exec_t) may refuse more.
+func writeHostPaths(w io.Writer, cmds landlock.Rules) {
+	merge := func(a, b []string) string {
+		set := map[string]bool{}
+		for _, p := range append(append([]string{}, a...), b...) {
+			set[p] = true
+		}
+		var out []string
+	next:
+		for _, p := range sorted(set) {
+			// Below a tree already listed: nothing to add.
+			for _, t := range out {
+				if strings.HasPrefix(p, strings.TrimSuffix(t, "/")+"/") {
+					continue next
+				}
+			}
+			out = append(out, p)
+		}
+		return strings.Join(out, " ")
+	}
+	_, _ = fmt.Fprintln(w, "host paths the commands see (Landlock):")
+	_, _ = fmt.Fprintln(w, "  read: ", merge(landlock.Base.Read, cmds.Read))
+	_, _ = fmt.Fprintln(w, "  run:  ", merge(landlock.Base.Exec, cmds.Exec))
+	_, _ = fmt.Fprintln(w, "  write:", merge(landlock.Base.Write, cmds.Write))
+	_, _ = fmt.Fprintln(w, "  the unit keeps the host's file system read-only (ProtectSystem=strict), /tmp and /dev private;")
+	_, _ = fmt.Fprintln(w, "  /run is the host's, read-only and current (e.g. /run/reboot-needed); SELinux (mcpsrv_exec_t) may refuse more")
 }

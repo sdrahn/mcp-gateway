@@ -1,4 +1,4 @@
-# 13. System management servers (systemd, firewalld, zypp, suseconnect, snapper, podman)
+# 13. System management servers (systemd, firewalld, zypp, suseconnect, snapper, podman, restarts)
 
 MCP servers that manage the host itself, such as `systemd-mcp`,
 `firewalld-mcp` and `mcp-server-snapper`, differ from servers that work
@@ -714,6 +714,74 @@ approvers:
   (chapter 7).
 - Do not also bind these users to `admin`: its permissions allow every
   call and nothing would ask.
+
+## Pending restarts after an update
+
+An update replaces programs and libraries on disk, but a service that
+was already running keeps the old ones until it restarts, and some
+updates (glibc, systemd, a kernel) want a reboot. `zypper ps -s` lists
+the former, and zypper and transactional-update leave the flag
+`/run/reboot-needed` for the latter. The package
+`mcp-gateway-restarts-server` offers both to agents, read-only, as the
+server `restarts` with one tool, `pending_restarts`:
+
+| What it returns | From |
+|---|---|
+| the services (`services`: unit, process ids, packages) and processes (`processes`: pid, command, user, unit, deleted files, packages) that still use files an update replaced or removed, below `/usr`, `/lib`, `/lib64`, `/bin`, `/sbin`, `/opt` or `/etc` | each process's memory map (`/proc/<pid>/maps`, files marked deleted), its control group and the rpm database (`rpm -qf`: the package that owns a file at that path now) |
+| whether an update waits for a reboot (`reboot_needed`, `reboot_needed_since`) | `/run/reboot-needed` |
+| the running kernel, the installed ones and whether a newer one is installed (`running_kernel`, `installed_kernels`, `newer_kernel_installed`) | `uname -r`; the kernel packages in the rpm database (their images, `/usr/lib/modules/<release>/vmlinuz`: the sandbox hides that directory itself) |
+
+The tool takes no arguments, changes nothing (`readOnlyHint`) and
+answers as text and in `structuredContent`; `processes whose memory
+maps could not be read` (`unreadable`) says when the list may be
+incomplete. A deleted temporary file, shared memory or a user's own
+file is no update's doing and is not listed. Restarting a service or
+rebooting is for other tools (the systemd server, with approval) or the
+administrator.
+
+Reading other users' memory maps needs `CAP_SYS_PTRACE`, which an agent's
+own commands (the server `exec`, chapter 4) never get. The server holds
+that capability and nothing else: a throwaway account, the sandbox of an
+ordinary server without network, its own domain `mcpsrv_restarts_t`
+(which may read every process's state in `/proc` but not its memory, run
+`rpm -q` and see whether a file in `/run` exists). Unlike the gateway's
+other servers it does not restrict itself with Landlock: Landlock
+refuses a restricted process access to the memory maps of every process
+outside its own ruleset, which is all this server reads. Since a definition that names a capability is accepted only
+in `/etc/mcp-gateway/servers.d`, the package ships it as a profile; link
+it to offer the server:
+
+```bash
+zypper install mcp-gateway-restarts-server
+ln -s /usr/share/mcp-gateway/profiles/restarts.yaml /etc/mcp-gateway/servers.d/restarts.yaml
+```
+
+```yaml
+# /usr/share/mcp-gateway/profiles/restarts.yaml
+name: restarts
+command: ["/usr/libexec/mcp-servers/mcp-server-restarts"]
+selinux_type: mcpsrv_restarts_t
+run_as: dynamic
+network: false
+sandbox:
+  protect_home: "yes"
+  capabilities: [CAP_SYS_PTRACE]
+```
+
+The gateway treats a server with a capability as a privileged one
+(chapter 4, "Servers with a capability"): every decision goes to the
+kernel audit log, and only a permission naming server and tool exactly
+allows a call without approval. That is what the shipped role
+`restarts-reader` does; bind it, or name the tool so in a role of your
+own:
+
+```json
+{"server": "restarts", "tool": "pending_restarts"}
+```
+
+A permission with a wildcard (`"tool": "*"`, `"server": "*"`) lets the
+call through only with an approval. `mcp-server-restarts --once`, as
+root, prints what the tool would return.
 
 ## Checking and troubleshooting
 

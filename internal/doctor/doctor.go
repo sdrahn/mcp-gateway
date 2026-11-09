@@ -621,6 +621,8 @@ var TypedPrograms = []string{
 	"/usr/libexec/mcp-servers/mcp-server-exec",
 	"/usr/lib/mcp-servers/mcp-server-fs",
 	"/usr/libexec/mcp-servers/mcp-server-fs",
+	"/usr/lib/mcp-servers/mcp-server-restarts",
+	"/usr/libexec/mcp-servers/mcp-server-restarts",
 	"/usr/libexec/mcp-server-zypp/zypp-mcp-tool",
 	"/usr/bin/mcp-docs",
 }
