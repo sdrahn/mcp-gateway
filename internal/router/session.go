@@ -1694,6 +1694,7 @@ func (s *Session) backendInit(ctx context.Context, server string) (initResult, e
 		// Not offered to it (pool.acquire), though the shared discovery
 		// instance, which has a home, would answer.
 		if err := notOffered(b, s.snapshotPrincipal()); err != nil {
+			s.log.Info("server not offered to the principal", "server", server, "reason", err.Error())
 			return initResult{}, err
 		}
 	}
