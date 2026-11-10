@@ -1306,7 +1306,7 @@ END
 		stool alice podman container_list '{}'
 		check "podman: alice, with her socket, is unaffected" test "$rc" = 0
 		check "doctor: names the server's requires" \
-			sh -c 'mcp-gateway-admin doctor --no-start --server podman 2>&1 | grep -qE "^OK +requires podman: offered only to principals for whom /run/user/\$\{UID\}/podman/podman.sock exists"'
+			sh -c 'mcp-gateway-admin doctor --no-start --server podman 2>&1 | grep -E "^OK +requires podman:" | grep -qF "offered only to principals for whom /run/user/\${UID}/podman/podman.sock exists"'
 		jq '.bindings.users.bob -= ["podman-reader"]' /etc/mcp-gateway/policy/rbac/data.yaml >/root/vmtest/pm-data.json &&
 			cat /root/vmtest/pm-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 	fi
@@ -1860,7 +1860,7 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	check "... exec runs for it" bash -c 'jq -e ".result.isError == false" <<<"$1" >/dev/null && grep -qF remote <<<"$1"' _ "$hl_body"
 	hl_no_home_logged() {
 		journalctl -u mcp-gateway.service -o cat --since "@$hl_since" |
-			grep -F "server not offered to a principal without a home" | grep -q 'server=fs'
+			grep -F "server not offered to the principal" | grep -F 'server=fs' | grep -qF "works in the user's home directory"
 	}
 	check "... the gateway says why" hl_no_home_logged
 	jq 'del(.bindings.users.zed)' /etc/mcp-gateway/policy/rbac/data.yaml >/root/hl-data.json &&
