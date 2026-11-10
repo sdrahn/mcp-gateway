@@ -388,8 +388,11 @@ type serverInfo struct {
 	Network     bool             `json:"network"`
 	// NetworkView is network_view: "none" or "host".
 	NetworkView string `json:"network_view"`
-	RunAs       string `json:"run_as"`
-	Privileged  bool   `json:"privileged,omitempty"`
+	// Requires are the paths that must exist for a principal
+	// (requires).
+	Requires   []string `json:"requires,omitempty"`
+	RunAs      string   `json:"run_as"`
+	Privileged bool     `json:"privileged,omitempty"`
 	// Capabilities are those the server's instances keep
 	// (sandbox.capabilities).
 	Capabilities []string `json:"capabilities,omitempty"`
@@ -424,7 +427,7 @@ func (s *Server) servers(w http.ResponseWriter, r *http.Request, a broker.Approv
 			insts = []router.InstanceInfo{}
 		}
 		out = append(out, serverInfo{Name: name, SELinuxType: b.SELinuxType, Isolation: b.Isolation,
-			Network: b.Network, NetworkView: b.NetworkView, RunAs: b.RunAs, Privileged: b.Privileged, Capabilities: b.Sandbox.Capabilities, SignIn: b.SignIn != nil,
+			Network: b.Network, NetworkView: b.NetworkView, Requires: b.Requires, RunAs: b.RunAs, Privileged: b.Privileged, Capabilities: b.Sandbox.Capabilities, SignIn: b.SignIn != nil,
 			Landlock: b.Landlock != nil, Instances: insts})
 	}
 	for name, insts := range byServer {

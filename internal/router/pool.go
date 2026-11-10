@@ -264,10 +264,10 @@ func isolation(b *config.Backend, p principal.Principal) config.Isolation {
 // acquire returns a running instance of b for p and a function that must
 // be called when the caller no longer needs it.
 func (p *pool) acquire(ctx context.Context, b *config.Backend, pr principal.Principal) (*upstream, func(), error) {
-	if pr.Home == "" && b.NeedsHome() {
-		// Its ${HOME} would be empty, which the server would take for its
-		// working directory ("/").
-		return nil, nil, &NoHomeError{Server: b.Name}
+	// Its ${HOME} would be empty, which the server would take for its
+	// working directory ("/"); or a path it requires is missing.
+	if err := notOffered(b, pr); err != nil {
+		return nil, nil, err
 	}
 	key := instanceKey(b, pr)
 	for {

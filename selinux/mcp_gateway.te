@@ -453,6 +453,17 @@ allow mcpgw_t { mcpgw_etc_t usr_t cert_t }:dir watch;
 # The role data as OPA loads it (mcp-policy-render): watched, for the
 # policy's fingerprint after a change (policywatch.go).
 mcp_gateway_search_runtime(mcpgw_t)
+# A definition's requires (the user's Podman socket below
+# /run/user/UID): whether a user's runtime directory exists. Below it, the
+# directory's mode (0700) refuses the gateway first.
+optional_policy(`
+	gen_require(`type user_runtime_root_t;')
+	allow mcpgw_t user_runtime_root_t:dir search_dir_perms;
+')
+optional_policy(`
+	gen_require(`type user_tmp_t;')
+	allow mcpgw_t user_tmp_t:dir search_dir_perms;
+')
 list_dirs_pattern(mcpgw_t, mcpopa_rbac_t, mcpopa_rbac_t)
 allow mcpgw_t mcpopa_rbac_t:dir watch;
 manage_files_pattern(mcpgw_t, mcpgw_var_lib_t, mcpgw_var_lib_t)

@@ -320,9 +320,18 @@ and sees no one else's.
   otherwise).
 - The server talks to the socket only (`--podman-impl=api`, in the
   definition): its own fallback runs the `podman` program, which cannot
-  work rootless in the instance's sandbox. Without the user's socket the
-  server stops at its start ("podman implementation \"api\" not
-  available"), and the user's agent sees the server unavailable.
+  work rootless in the instance's sandbox, and the server stops at its
+  start without the user's socket ("podman implementation \"api\" not
+  available"). So the definition requires it (`requires:
+  ["/run/user/${UID}/podman/podman.sock"]`, chapter 4): to a principal
+  without it, such as an agent's account that never logs in or a user
+  who has not enabled `podman.socket`, the server is not offered. Its
+  tools are left out of the lists, a call is refused with "server podman
+  needs /run/user/UID/podman/podman.sock, which does not exist", and no
+  instance is started, so no unit fails. The gateway sees the users'
+  runtime directories but not into them: for a user whose `/run/user/UID`
+  exists (logged in, or lingering) without the socket, the instance still
+  starts and stops as before.
 - What it lists is the same for everyone, but it starts only where the
   user's socket is, so its tools are listed from each user's own
   instance (`discovery: instance`), and `mcp-gateway-admin doctor` does
@@ -804,7 +813,8 @@ journalctl -u 'mcp-systemd-*' -u 'mcp-firewalld-*' -u 'mcp-snapper-*' -b
 | Symptom | Cause | Fix |
 |---|---|---|
 | `unchecked`: "backend instance exited", the server's journal shows only systemd's start and exit messages | the server may not reach the system bus (and cannot even log why) | dedicated SELinux domain, as above; `semodule -DB` shows the hidden denials |
-| podman: the server is unavailable, its journal shows "podman implementation \"api\" not available" | the user's Podman socket is not there (`/run/user/UID/podman/podman.sock`) | as the user, `systemctl --user enable --now podman.socket`; `loginctl enable-linger` the user |
+| podman: the server is unavailable, its journal shows "podman implementation \"api\" not available" | the user's Podman socket is not there (`/run/user/UID/podman/podman.sock`), though the user's runtime directory is | as the user, `systemctl --user enable --now podman.socket`; `loginctl enable-linger` the user |
+| podman: not listed; a call answers "server podman needs /run/user/UID/podman/podman.sock, which does not exist" | the user has no runtime directory (never logged in, no lingering), as an agent's account: the server is not offered to it (`requires`) | for a user who should have it, as above; for an agent, nothing to do |
 | podman: pulls fail with "failed to stat file /run/containers/UID/auth.json: permission denied" | before 1.1.1 the instance had no `XDG_RUNTIME_DIR`, and Podman's library looked for credentials in `/run/containers`, which rootful Podman makes root's | update; or, on 1.1.0, a copy of the definition in `/etc/mcp-gateway/servers.d/podman.yaml` with `env:` `XDG_RUNTIME_DIR: /run/user/UID` (the user's uid) |
 | `status=229/SELINUX_CONTEXT` | the definition names a domain whose module is not installed | install the module, or remove `selinux_type` |
 | "invalid message from backend … parse error" | the server writes non-MCP output to stdout | its option for logging to stderr or a file |

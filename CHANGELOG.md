@@ -5,6 +5,27 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Added
+
+- The definition key `requires` (chapter 4, "Servers some principals
+  cannot use"): paths that must exist for a principal (`${UID}`,
+  `${USER}`), outside home directories. To a principal for whom one does
+  not, the server is not offered: left out of its lists, its calls
+  refused naming the missing path, no instance started and none failed.
+  The podman setup requires the user's Podman socket, so agents' accounts
+  that never log in no longer start an instance that fails on every
+  listing (#348). `GET /v1/servers` shows `requires`, and the doctor
+  names such servers ("requires *name*").
+
+### Changed
+
+- The gateway's unit gives it empty home directories
+  (`ProtectHome=tmpfs`, was `yes`) and `/run/user` read-only, so that it
+  sees whether a user's runtime directory exists; inside one, the
+  user's own (0700), it sees nothing.
+
 ## v1.16.0 — 2026-11-09
 
 What an update left waiting, for Custos's update status and any agent:
