@@ -5,7 +5,19 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.16.1 — 2026-11-10
+
+A server is no longer started for principals it cannot work for: the
+podman setup is offered only to users whose Podman socket exists, so
+agents' accounts that never log in no longer leave a failed
+`mcp-podman-*` unit on every listing (#348).
+
+Upgrading from 1.16.0 needs no changes to server definitions, role data
+or custom policies; a definition may now use `requires`. The gateway's
+unit changes (`ProtectHome=tmpfs` and `/run/user` read-only), and the
+SELinux module `mcp_gateway` lets the gateway search `/run/user`. After
+the update, restart the gateway (`systemctl restart
+mcp-gateway.service`); the package does not.
 
 ### Added
 
