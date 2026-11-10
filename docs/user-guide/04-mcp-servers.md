@@ -310,6 +310,7 @@ Server names must be unique across all files.
 | `contexts` | `false` | with `isolation: session`: agents of MCP 2026-07-28 may open contexts, each with an instance of its own. See [Contexts](#contexts-for-agents-without-sessions) |
 | `network` | `false` | allow network access. Without it, the instance has a private network namespace and only unix sockets. |
 | `network_view` | `none` | without `network`: what the instance sees of the host's network. `none`: a private network namespace. `host`: the host's interfaces, addresses, routes and sockets, read through netlink, but no IP traffic (unix and netlink sockets only, `IPAddressDeny=any`); for servers that report on the network, such as `ip address` or `ss`. Refused with `network: true`, `url` or `privileged`. See [Seeing the host's network](#seeing-the-hosts-network) |
+| `requires` | none | paths that must exist for a principal (`${USER}` and `${UID}` are its own), outside home directories, such as the user's Podman socket `/run/user/${UID}/podman/podman.sock`; up to 8. Where one does not, the server is not offered to that principal. See [Servers some principals cannot use](#servers-some-principals-cannot-use) |
 | `run_as` | `principal` (`dynamic` with `url`) | whom the instance runs as: `principal` (the local user; remote users without a local account get a throwaway dynamic user), `dynamic` (always a throwaway dynamic user), or the name of a system account |
 | `discovery` | `shared` (`instance` with `sign_in`) | where tool and prompt lists come from: `shared` (one gateway-owned instance per server, cached; listing starts no per-user instances), `instance` (each principal's own instance, for servers whose tools depend on the user) |
 | `credentials` | none | secrets handed to the server by systemd, see [Secrets](#secrets) |
@@ -496,6 +497,42 @@ already), with `url` and with `privileged`, and an unknown value is
 refused too, by `mcp-gateway --check` and by a reload. The doctor names
 each server that sees the host's network ("network view *name*"), and
 `GET /v1/servers` and Cockpit show it (`network_view`).
+
+### Servers some principals cannot use
+
+Some servers can only work for a principal who has something of their
+own: a server that works in the home needs a home (a remote principal
+without a local account has none), and the podman server needs the
+user's Podman socket, which an agent's account that never logs in does
+not have. Started for such a principal, the instance would fail, a
+failed unit in `systemctl --failed` on every listing. The gateway does
+not start one:
+
+- A definition whose command, environment or Landlock trees name
+  `${HOME}` is not offered to a principal without a home.
+- A definition with `requires` is not offered to a principal for whom
+  one of its paths does not exist:
+
+  ```yaml
+  requires: ["/run/user/${UID}/podman/podman.sock"]
+  ```
+
+Not offered means: the server's tools, prompts and resources are left
+out of the principal's lists; a call, or a session at the server's own
+endpoint, is refused with the reason ("server podman needs
+/run/user/1001/podman/podman.sock, which does not exist"); no instance
+is started, and nothing is counted as a failure. The gateway looks at
+each listing, so a path that appears later (the user enables
+`podman.socket`) is seen at once. A path naming `${UID}` does not exist
+for a principal without a local account.
+
+The gateway looks as its own account: it sees no home directory (a path
+there is refused in the definition) and `/run/user` read-only, where
+each user's directory is the user's alone (0700). So it sees whether a
+user's runtime directory exists, which is what tells an account that
+never logs in, but not what is inside it: a path below a directory it
+cannot enter counts as present, and the instance tells. `mcp-gateway-admin
+doctor` names each server with `requires`.
 
 ### Writable paths and state
 

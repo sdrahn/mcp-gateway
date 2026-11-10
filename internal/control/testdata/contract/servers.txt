@@ -24,6 +24,7 @@
 [].network_view
 [].privileged
 [].removed
+[].requires
 [].run_as
 [].selinux_type
 [].sign_in

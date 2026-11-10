@@ -640,6 +640,21 @@ func TestNetworkViews(t *testing.T) {
 	}
 }
 
+// A server with requires is named with its paths: not offered to some
+// principals by design.
+func TestRequires(t *testing.T) {
+	bs := map[string]*config.Backend{
+		"podman": {Name: "podman", Requires: []string{"/run/user/${UID}/podman/podman.sock"}},
+		"fs":     {Name: "fs"},
+	}
+	rs := Requires(bs)
+	Identify(rs)
+	if len(rs) != 1 || rs[0].Check != "requires podman" || rs[0].Status != OK || rs[0].ID != "requires" || rs[0].Subject != "podman" ||
+		!strings.Contains(rs[0].Summary, "/run/user/${UID}/podman/podman.sock exists") {
+		t.Fatalf("%+v", rs)
+	}
+}
+
 func TestLiteralSecrets(t *testing.T) {
 	backends := map[string]*config.Backend{
 		"clean": {Name: "clean", URL: "https://x/", Headers: map[string]string{"Authorization": "Bearer ${CREDENTIAL:tok}", "Accept": "application/json"},
