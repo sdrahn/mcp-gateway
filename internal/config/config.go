@@ -519,7 +519,16 @@ type Backend struct {
 	// host's interfaces, routes and sockets, read through netlink, with
 	// no IP traffic: AF_UNIX and AF_NETLINK only, IPAddressDeny=any).
 	NetworkView string `yaml:"network_view"`
-	RunAs       string `yaml:"run_as"`
+	// Requires are paths that must exist for a principal before the
+	// server is offered to it (${HOME}, ${USER} and ${UID} are the
+	// principal's), such as the user's Podman socket: where one does not
+	// exist, the server is left out of the principal's lists and its
+	// calls are refused, and no instance is started. The gateway looks as
+	// its own account, which sees no home directory (so a path there is
+	// refused) and /run/user read-only: a path below a directory it
+	// cannot enter counts as present.
+	Requires []string `yaml:"requires"`
+	RunAs    string   `yaml:"run_as"`
 	// Discovery is "shared" (tool, prompt and resource template lists
 	// come from a gateway-owned instance without any user's identity and
 	// are cached, so listing does not start instances for every user) or
@@ -1318,6 +1327,36 @@ func (b *Backend) NeedsHome() bool {
 	return b.Landlock != nil && (names(b.Landlock.Read) || names(b.Landlock.Write) || names(b.Landlock.Exec))
 }
 
+// maxRequires bounds requires (each is looked at for every listing).
+const maxRequires = 8
+
+// below reports whether path is dir or below it.
+func below(path, dir string) bool {
+	return path == dir || strings.HasPrefix(path, dir+"/")
+}
+
+// validateRequires: absolute, clean paths, naming no variable but the
+// principal's, outside the homes (which the gateway does not see).
+func (b *Backend) validateRequires() error {
+	if len(b.Requires) > maxRequires {
+		return fmt.Errorf("requires: more than %d paths", maxRequires)
+	}
+	vars := strings.NewReplacer("${HOME}", "/home/x", "${USER}", "x", "${UID}", "1")
+	for _, p := range b.Requires {
+		plain := vars.Replace(p)
+		switch {
+		case strings.Contains(plain, "$"):
+			return fmt.Errorf("requires: %q: only ${HOME}, ${USER} and ${UID} may be named", p)
+		case !filepath.IsAbs(plain) || filepath.Clean(plain) != plain:
+			return fmt.Errorf("requires: %q is not an absolute, clean path", p)
+		case strings.Contains(p, "${HOME}") || below(plain, "/home") || below(plain, "/root"):
+			// The gateway's unit gives it empty homes (ProtectHome=tmpfs).
+			return fmt.Errorf("requires: %q: the gateway cannot see into home directories; name a path outside them, such as one below /run/user/${UID}", p)
+		}
+	}
+	return nil
+}
+
 // ApplyDefaults fills in the defaults of a definition built in code (a
 // file's are filled in by LoadBackends).
 func (b *Backend) ApplyDefaults() { b.setDefaults() }
@@ -1415,6 +1454,9 @@ func (b *Backend) Validate() error {
 	case DiscoveryShared, DiscoveryInstance:
 	default:
 		return fmt.Errorf("discovery: unknown value %q", b.Discovery)
+	}
+	if err := b.validateRequires(); err != nil {
+		return err
 	}
 	switch b.NetworkView {
 	case "", NetworkViewNone:

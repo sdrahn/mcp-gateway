@@ -407,9 +407,8 @@ func (s *Session) upstreamOnce(ctx context.Context, name string) (*upstream, err
 		s.r.refused(s.snapshotPrincipal(), limit)
 		return nil, err
 	}
-	var home *NoHomeError
-	if errors.As(err, &home) {
-		s.log.Info("server not offered to a principal without a home", "server", name)
+	if isNotOffered(err) {
+		s.log.Info("server not offered to the principal", "server", name, "reason", err.Error())
 		return nil, err
 	}
 	if err != nil {
@@ -921,9 +920,10 @@ func (s *Session) fetchList(ctx context.Context, server, method string, spec lis
 		}
 		return nil, nil
 	}
-	if b := s.endpoint().backends[server]; b != nil && b.NeedsHome() && s.snapshotPrincipal().Home == "" {
+	if b := s.endpoint().backends[server]; b != nil && notOffered(b, s.snapshotPrincipal()) != nil {
 		// A server working in the home offers nothing to a principal
-		// without one (pool.acquire refuses its instances).
+		// without one, nor one whose required paths are missing
+		// (pool.acquire refuses its instances).
 		return nil, nil
 	}
 	if b := s.endpoint().backends[server]; b != nil && b.Discovery == config.DiscoveryShared && sharedMethods[method] {
@@ -1560,9 +1560,8 @@ func unavailable(err error) *jsonrpc.Error {
 	if errors.As(err, &limit) {
 		return rpcError(jsonrpc.CodeInternalError, "mcp-gateway: "+limit.Error())
 	}
-	var home *NoHomeError
-	if errors.As(err, &home) {
-		return rpcError(jsonrpc.CodeInternalError, "mcp-gateway: "+home.Error())
+	if isNotOffered(err) {
+		return rpcError(jsonrpc.CodeInternalError, "mcp-gateway: "+err.Error())
 	}
 	var b *BackoffError
 	if errors.As(err, &b) {
@@ -1691,10 +1690,13 @@ func (s *Session) exposeContents(server string, result json.RawMessage) json.Raw
 // instance's, so that initializing does not start the principal's
 // instance, else the principal's instance's.
 func (s *Session) backendInit(ctx context.Context, server string) (initResult, error) {
-	if b := s.endpoint().backends[server]; b != nil && b.NeedsHome() && s.snapshotPrincipal().Home == "" {
+	if b := s.endpoint().backends[server]; b != nil {
 		// Not offered to it (pool.acquire), though the shared discovery
 		// instance, which has a home, would answer.
-		return initResult{}, &NoHomeError{Server: server}
+		if err := notOffered(b, s.snapshotPrincipal()); err != nil {
+			s.log.Info("server not offered to the principal", "server", server, "reason", err.Error())
+			return initResult{}, err
+		}
 	}
 	if b := s.endpoint().backends[server]; b != nil && b.Discovery == config.DiscoveryShared {
 		init, err := s.r.sharedInit(ctx, b)

@@ -91,6 +91,7 @@ var checkPrefixes = []struct{ prefix, id string }{
 	{"SELinux type ", "selinux-type"},
 	{"approver group ", "approver-group"},
 	{"network view ", "network-view"},
+	{"requires ", "requires"},
 	{"SELinux ", "selinux-denials"},
 	{"polkit ", "polkit"},
 	{"program ", "program"},
@@ -714,6 +715,21 @@ func LiteralSecrets(backends map[string]*config.Backend) []Result {
 			Details: []string{
 				"server definitions are readable by every local user, and the unit's command line and environment by more than the server;",
 				"move each into a credential (credentials: [name], the file in /etc/mcp-gateway/credentials) and name it as ${CREDENTIAL:name} in headers, or read $CREDENTIALS_DIRECTORY/name in the server (user guide, chapter 9, \"Secrets\")"}})
+	}
+	return out
+}
+
+// Requires notes the servers offered only to principals for whom some
+// paths exist (requires): to the others they are not offered, which is
+// expected, not a fault.
+func Requires(backends map[string]*config.Backend) []Result {
+	var out []Result
+	for _, name := range sortedKeys(backends) {
+		if b := backends[name]; len(b.Requires) > 0 {
+			out = append(out, Result{Check: "requires " + name, Status: OK,
+				Summary: "offered only to principals for whom " + strings.Join(b.Requires, ", ") + " exists",
+				Details: []string{"to the others the server is left out of the lists and its calls are refused, naming the missing path; no instance is started (user guide, chapter 4)"}})
+		}
 	}
 	return out
 }

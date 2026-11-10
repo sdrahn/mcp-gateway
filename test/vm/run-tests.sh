@@ -1280,6 +1280,36 @@ END
 		bash -c 'grep -q "busybox" <<<"$1" && grep -q "vmtest-image" <<<"$1"' _ "$out"
 	# Asked of alice's Podman service itself, through her socket.
 	check "podman: the images are alice's own" bash -c "podman --url unix:///run/user/$alice_uid/podman/podman.sock images --format '{{.Repository}}' | grep -q vmtest-image"
+	# bob has no Podman: like an agent's account, he never logs in, so he
+	# has no runtime directory. The definition requires the socket
+	# (#348): the server is not offered to him, and no instance starts.
+	bob_uid=$(id -u bob)
+	if [ -d "/run/user/$bob_uid" ]; then
+		skip "podman: bob has a runtime directory here; not offered checks need one without"
+	else
+		pm_since=$(date +%s)
+		jq '.bindings.users.bob += ["podman-reader"]' /etc/mcp-gateway/policy/rbac/data.yaml >/root/vmtest/pm-data.json &&
+			cat /root/vmtest/pm-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
+		pm_bob_role() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/bindings/users/bob | jq -e '.result | index("podman-reader")' >/dev/null; }
+		eventually 20 pm_bob_role
+		out=$(runuser -u bob -- /usr/local/bin/mcpcall --method tools/list --params '{}' 2>&1)
+		check "podman: not listed for bob, who has no Podman socket" bash -c '! grep -qF "podman__" <<<"$1" && grep -qF "fs__" <<<"$1"' _ "$out"
+		stool bob podman container_list '{}'
+		check "podman: bob's call is refused, naming the missing socket" \
+			grep -qF "server podman needs /run/user/$bob_uid/podman/podman.sock, which does not exist" <<<"$out"
+		pm_no_instance() {
+			! journalctl --since "@$pm_since" --no-pager -o cat | grep -E "mcp-podman-.*(Main process exited|Failed with result)|podman implementation" >/dev/null
+		}
+		check "podman: no instance started or failed for bob" pm_no_instance
+		check "podman: the gateway says why" \
+			bash -c 'journalctl -u mcp-gateway.service --since "@$1" -o cat | grep -F "server not offered to the principal" | grep -qF "podman.sock, which does not exist"' _ "$pm_since"
+		stool alice podman container_list '{}'
+		check "podman: alice, with her socket, is unaffected" test "$rc" = 0
+		check "doctor: names the server's requires" \
+			sh -c 'mcp-gateway-admin doctor --no-start --server podman 2>&1 | grep -E "^OK +requires podman:" | grep -qF "offered only to principals for whom /run/user/\${UID}/podman/podman.sock exists"'
+		jq '.bindings.users.bob -= ["podman-reader"]' /etc/mcp-gateway/policy/rbac/data.yaml >/root/vmtest/pm-data.json &&
+			cat /root/vmtest/pm-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
+	fi
 
 	# The setups' rulesets (step 30): the servers above ran under them.
 	for s in systemd firewalld zypp podman; do
@@ -1830,7 +1860,7 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	check "... exec runs for it" bash -c 'jq -e ".result.isError == false" <<<"$1" >/dev/null && grep -qF remote <<<"$1"' _ "$hl_body"
 	hl_no_home_logged() {
 		journalctl -u mcp-gateway.service -o cat --since "@$hl_since" |
-			grep -F "server not offered to a principal without a home" | grep -q 'server=fs'
+			grep -F "server not offered to the principal" | grep -F 'server=fs' | grep -qF "works in the user's home directory"
 	}
 	check "... the gateway says why" hl_no_home_logged
 	jq 'del(.bindings.users.zed)' /etc/mcp-gateway/policy/rbac/data.yaml >/root/hl-data.json &&

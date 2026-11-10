@@ -67,6 +67,9 @@ func CheckUser(b *config.Backend, p principal.Principal) error {
 	return nil
 }
 
+// ExpandVars is expandVars, for the router's requires.
+func ExpandVars(s string, p principal.Principal) string { return expandVars(s, p) }
+
 // expandVars substitutes ${HOME}, ${USER} and ${UID} (the principal's)
 // in s and leaves every other ${...} untouched. ${UID} is empty for a
 // principal without a local account; environment and landlockRules leave

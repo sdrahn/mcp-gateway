@@ -24,6 +24,11 @@ env:
 # The tools are the same for everyone, but the server starts only where
 # the user's Podman socket is: lists come from the user's own instance.
 discovery: instance
+# Offered only to users with their Podman service running: for anyone
+# else (an agent's account that never logs in, a user without
+# podman.socket) the server is left out and no instance is started,
+# which would only fail.
+requires: ["/run/user/${UID}/podman/podman.sock"]
 # Landlock (a second wall, chapter 4): the system's configuration and
 # programs, the user's home for image_build's build context and for
 # credentials kept there (--authfile), and the user's runtime directory

@@ -44,7 +44,12 @@ StateDirectoryMode=0700
 
 NoNewPrivileges=yes
 ProtectSystem=strict
-ProtectHome=yes
+# Homes empty to the gateway; /run/user as it is, read-only, so that a
+# definition's requires can see whether a user's runtime directory (the
+# user's Podman socket) exists. The directories in it are each user's
+# own (0700): the gateway sees their names.
+ProtectHome=tmpfs
+BindReadOnlyPaths=-/run/user
 PrivateTmp=yes
 PrivateDevices=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK

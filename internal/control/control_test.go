@@ -287,7 +287,7 @@ func TestServersAndInstances(t *testing.T) {
 	backends := map[string]*config.Backend{
 		"fs": {Name: "fs", SELinuxType: "mcpsrv_fs_t", Isolation: config.IsolationPrincipal, RunAs: "principal", Command: []string{"/secret", "--token=x"},
 			NetworkView: config.NetworkViewHost},
-		"git":  {Name: "git", SELinuxType: "mcpsrv_git_t", Network: true},
+		"git":  {Name: "git", SELinuxType: "mcpsrv_git_t", Network: true, Requires: []string{"/run/user/${UID}/git.sock"}},
 		"zypp": {Name: "zypp", SELinuxType: "mcpsrv_zypp_t", RunAs: "root", Privileged: true},
 	}
 	s.Backends = func() map[string]*config.Backend { return backends }
@@ -303,6 +303,9 @@ func TestServersAndInstances(t *testing.T) {
 	}
 	if len(got[0].Instances) != 1 || got[0].Instances[0].ID != "i-alice" {
 		t.Fatalf("alice sees instances %+v", got[0].Instances)
+	}
+	if len(got[1].Requires) != 1 || got[1].Requires[0] != "/run/user/${UID}/git.sock" {
+		t.Fatalf("requires of git: %+v", got[1])
 	}
 	if got[0].NetworkView != "host" || !strings.Contains(rec.Body.String(), `"network_view":"host"`) {
 		t.Fatalf("network_view of fs: %+v", got[0])
