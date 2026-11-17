@@ -7,6 +7,14 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Fixed
+
+- `mcp-gateway-tools` requires `selinux-policy-devel` only where
+  `selinux-policy-targeted` is installed, as the main package does with
+  `mcp-gateway-selinux`. It used to pull the policy toolchain onto hosts
+  without the targeted policy, where `profile`, the only command that
+  needs it, does not run.
+
 ## v1.16.1 — 2026-11-10
 
 A server is no longer started for principals it cannot work for: the

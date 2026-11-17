@@ -152,8 +152,11 @@ call the tool.
 Summary:        Commands to onboard MCP servers for mcp-gateway
 Group:          System/Management
 Requires:       %{name} = %{version}
-# profile builds the policy module it drafts and reads the audit log.
-Requires:       selinux-policy-devel
+# profile builds the policy module it drafts and reads the audit log, on
+# hosts with SELinux only (elsewhere it refuses to run); inspect and
+# review need neither. Unconditional, it pulled the policy toolchain onto
+# hosts without the targeted policy.
+Requires:       (selinux-policy-devel if selinux-policy-%{selinuxtype})
 Recommends:     audit
 
 %description tools
