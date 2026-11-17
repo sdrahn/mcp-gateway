@@ -2,8 +2,14 @@
 # before the package can enter openSUSE:Factory / SLE (bsc request, see
 # packaging/suse/README.md). Until then, keep builds in devel/home
 # projects passing.
+# rpmlint up to Leap 16.0 and Tumbleweed (CI) names the checks so:
 addFilter("polkit-untracked-privilege")
 addFilter("polkit-unauthorized-rules")
+# SLES 16.1's rpmlint names them so (badness 10000 each, over the
+# threshold of 999 without the filters). Each rpmlint reports the other's
+# names as unused-rpmlintrc-filter, at badness 1.
+addFilter("polkit-user-privilege")
+addFilter("polkit-file-unauthorized")
 # The package creates its system users through sysusers.
 addFilter("non-standard-uid")
 addFilter("non-standard-gid")

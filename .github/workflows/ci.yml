@@ -218,7 +218,9 @@ jobs:
         # On OBS the .changes file provides the changelog; here it is empty.
         run: |
           { cat packaging/suse/mcp-gateway-rpmlintrc; echo 'addFilter("no-changelogname-tag")'; } >/tmp/rpmlintrc
-          rpmlint -r /tmp/rpmlintrc ~/rpmbuild/RPMS/*/*.rpm
+          # The rpmlintrc filters the checks of several rpmlint versions
+          # (names changed in SLES 16.1's): each finds some unused.
+          rpmlint --ignore-unused-rpmlintrc -r /tmp/rpmlintrc ~/rpmbuild/RPMS/*/*.rpm
       - name: Install and smoke-test
         run: |
           # opa is a runtime dependency only; not needed for this test.

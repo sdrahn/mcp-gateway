@@ -9,6 +9,9 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
+- The OBS build on SLES 16.1 aborted in rpmlint: its polkit checks have
+  new names (`polkit-user-privilege`, `polkit-file-unauthorized`), which
+  `mcp-gateway-rpmlintrc` now filters as it filters the old ones.
 - `mcp-gateway-tools` requires `selinux-policy-devel` only where
   `selinux-policy-targeted` is installed, as the main package does with
   `mcp-gateway-selinux`. It used to pull the policy toolchain onto hosts
