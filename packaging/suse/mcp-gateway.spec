@@ -63,8 +63,11 @@ Recommends:     selinux-tools
 # %%selinux_requires asks for the build's selinux-policy version and
 # release, so a build against a rebuild or maintenance update of the same
 # policy version cannot be installed on a host without that update. The
-# module needs the policy version only: drop the release.
-%{?_selinux_policy_version:%global _selinux_policy_version %(echo '%{_selinux_policy_version}' | cut -d- -f1)}
+# module needs the policy version only: drop the release. SUSE's
+# version carries a git snapshot as well (20260826+git190.1d6a6b164),
+# which a newer build of the same policy raises without a release to
+# hosts: keep the date alone (>= 20260826).
+%{?_selinux_policy_version:%global _selinux_policy_version %(echo '%{_selinux_policy_version}' | sed 's/[-+].*//')}
 %{?selinux_requires}
 
 %description selinux

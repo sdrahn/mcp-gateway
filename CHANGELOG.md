@@ -9,6 +9,11 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
+- `mcp-gateway-selinux` requires `selinux-policy` by its date only
+  (`>= 20260826`), where it required the build's version with its git
+  snapshot (`>= 20260826+git190.1d6a6b164`): a build against a newer
+  snapshot of the same policy, not yet released to hosts, could not be
+  installed.
 - `mcp-gateway-tools` requires `selinux-policy-devel` only where
   `selinux-policy-targeted` is installed, as the main package does with
   `mcp-gateway-selinux`. It used to pull the policy toolchain onto hosts
