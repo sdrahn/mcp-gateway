@@ -2629,7 +2629,11 @@ if [ -b /dev/nvme0n1 ] && { command -v mkfs.btrfs >/dev/null || zypper -n in --n
 	restorecon "$st_mnt"
 	st_fsid=$(findmnt -n -o UUID "$st_mnt")
 fi
-ls -Zd "$st_mnt" 2>&1 | sed 's/^/  /'
+# The server opens every mounted btrfs: the snapper section's own (on a
+# loop device) has an unlabelled root until it is labelled as any mount
+# point is.
+mountpoint -q /mnt/vmtest && restorecon /mnt/vmtest
+ls -Zd "$st_mnt" /mnt/vmtest 2>&1 | sed 's/^/  /'
 ls /sys/fs/btrfs/"${st_fsid:-none}"/devinfo/*/error_stats 2>&1 | sed 's/^/  /'
 # st_text: the text of the last call's result.
 st_text() { jq -r '.content[0].text // empty' <<<"$out" 2>/dev/null; }
