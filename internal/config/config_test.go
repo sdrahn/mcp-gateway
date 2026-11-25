@@ -427,6 +427,25 @@ func TestBackendRequires(t *testing.T) {
 	}
 }
 
+// sandbox.read_devices makes a server elevated: accepted in the
+// administrator's directory only.
+func TestReadDevices(t *testing.T) {
+	vendor, admin := t.TempDir(), t.TempDir()
+	def := "name: disks\ncommand: [/usr/bin/d]\nrun_as: dynamic\nsandbox:\n  read_devices: [block-sd, block-blkext]\n"
+	writeFile(t, admin, "disks.yaml", def)
+	bs, err := LoadBackends(vendor, admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := bs["disks"]; !slices.Equal(b.Sandbox.ReadDevices, []string{"block-sd", "block-blkext"}) || !b.Elevated() {
+		t.Fatalf("%+v", b)
+	}
+	writeFile(t, vendor, "disks2.yaml", strings.Replace(def, "name: disks", "name: disks2", 1))
+	if _, err := LoadBackends(vendor, admin); err == nil || !strings.Contains(err.Error(), "sandbox.read_devices: only allowed in") {
+		t.Errorf("from the vendor directory: %v", err)
+	}
+}
+
 func TestLoadBackendsErrors(t *testing.T) {
 	tests := map[string][]string{
 		"bad name":             {"name: Bad_Name\ncommand: [/usr/bin/a]\n"},
@@ -442,6 +461,8 @@ func TestLoadBackendsErrors(t *testing.T) {
 		"unclean requires":     {"name: a\ncommand: [/usr/bin/a]\nrequires: [\"/run/user/${UID}/../x\"]\n"},
 		"other variable":       {"name: a\ncommand: [/usr/bin/a]\nrequires: [\"/run/${XDG}/x\"]\n"},
 		"many requires":        {"name: a\ncommand: [/usr/bin/a]\nrequires: [/a, /b, /c, /d, /e, /f, /g, /h, /i]\n"},
+		"bad device class":     {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_devices: [/dev/sda]\n"},
+		"device twice":         {"name: a\ncommand: [/usr/bin/a]\nsandbox:\n  read_devices: [block-sd, block-sd]\n"},
 		"requires in home":     {"name: a\ncommand: [/usr/bin/a]\nrequires: [\"${HOME}/.config/a\"]\n"},
 		"requires below /home": {"name: a\ncommand: [/usr/bin/a]\nrequires: [\"/home/${USER}/a\"]\n"},
 		"view of url":          {"name: a\nurl: https://example.com/mcp\nnetwork_view: host\n"},

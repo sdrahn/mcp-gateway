@@ -396,6 +396,9 @@ type serverInfo struct {
 	// Capabilities are those the server's instances keep
 	// (sandbox.capabilities).
 	Capabilities []string `json:"capabilities,omitempty"`
+	// ReadDevices are the device classes its instances read
+	// (sandbox.read_devices).
+	ReadDevices []string `json:"read_devices,omitempty"`
 	// SignIn marks a server each principal signs in to (sign_in).
 	SignIn bool `json:"sign_in,omitempty"`
 	// Landlock marks a server whose definition restricts its instances
@@ -427,7 +430,7 @@ func (s *Server) servers(w http.ResponseWriter, r *http.Request, a broker.Approv
 			insts = []router.InstanceInfo{}
 		}
 		out = append(out, serverInfo{Name: name, SELinuxType: b.SELinuxType, Isolation: b.Isolation,
-			Network: b.Network, NetworkView: b.NetworkView, Requires: b.Requires, RunAs: b.RunAs, Privileged: b.Privileged, Capabilities: b.Sandbox.Capabilities, SignIn: b.SignIn != nil,
+			Network: b.Network, NetworkView: b.NetworkView, Requires: b.Requires, RunAs: b.RunAs, Privileged: b.Privileged, Capabilities: b.Sandbox.Capabilities, ReadDevices: b.Sandbox.ReadDevices, SignIn: b.SignIn != nil,
 			Landlock: b.Landlock != nil, Instances: insts})
 	}
 	for name, insts := range byServer {

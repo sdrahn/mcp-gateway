@@ -846,13 +846,21 @@ func watchMCS(ctx context.Context, log *slog.Logger, auditLog *audit.Logger, sd 
 }
 
 // warnElevated logs a server with rights beyond the sandbox: privileged,
-// or with capabilities.
+// with capabilities, or reading devices.
 func warnElevated(log *slog.Logger, name string, b *config.Backend) {
-	switch {
-	case b.Privileged:
+	if b.Privileged {
 		log.Warn("privileged server: runs as root without sandbox; every call is decided by policy and approval", "server", name)
-	case len(b.Sandbox.Capabilities) > 0:
-		log.Warn("server with capabilities: runs in the sandbox with "+strings.Join(b.Sandbox.Capabilities, ", ")+"; every call is decided by policy and approval as for a privileged server", "server", name)
+		return
+	}
+	var rights []string
+	if len(b.Sandbox.Capabilities) > 0 {
+		rights = append(rights, strings.Join(b.Sandbox.Capabilities, ", "))
+	}
+	if len(b.Sandbox.ReadDevices) > 0 {
+		rights = append(rights, "read access to the devices "+strings.Join(b.Sandbox.ReadDevices, ", "))
+	}
+	if len(rights) > 0 {
+		log.Warn("server with capabilities: runs in the sandbox with "+strings.Join(rights, " and ")+"; every call is decided by policy and approval as for a privileged server", "server", name)
 	}
 }
 

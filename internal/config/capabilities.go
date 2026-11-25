@@ -79,9 +79,9 @@ func (s *Sandbox) CapabilityMask() uint64 {
 }
 
 // Elevated reports whether the backend holds rights beyond the sandbox:
-// privileged, or with capabilities. Calls to such a server are approved
+// privileged, with capabilities, or reading devices. Calls to such a server are approved
 // as those to privileged servers are, audited in full, and an instance
 // is not stopped while a call runs (docs/architecture.md, section 5.7.1).
 func (b *Backend) Elevated() bool {
-	return b.Privileged || len(b.Sandbox.Capabilities) > 0
+	return b.Privileged || len(b.Sandbox.Capabilities) > 0 || len(b.Sandbox.ReadDevices) > 0
 }

@@ -23,6 +23,7 @@
 [].network
 [].network_view
 [].privileged
+[].read_devices
 [].removed
 [].requires
 [].run_as

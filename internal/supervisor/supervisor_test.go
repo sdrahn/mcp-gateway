@@ -181,6 +181,25 @@ func TestSystemdNetworkViewHost(t *testing.T) {
 	}
 }
 
+// sandbox.read_devices: the host's /dev with a device cgroup that allows
+// the classes named, read only.
+func TestSystemdReadDevices(t *testing.T) {
+	s := &Systemd{}
+	b := &config.Backend{Name: "storage", Command: []string{"/usr/bin/s"}, SELinuxType: "mcpsrv_storage_t", RunAs: "dynamic",
+		Sandbox: config.Sandbox{ProtectHome: "yes", ReadDevices: []string{"block-sd", "block-blkext"}}}
+	m := propMap(t, s, b, alice(), "c3,c7")
+	allow, _ := m["DeviceAllow"].([]struct{ Path, Perms string })
+	if m["PrivateDevices"] != false || m["DevicePolicy"] != "closed" || len(allow) != 2 ||
+		allow[0] != (struct{ Path, Perms string }{"block-sd", "r"}) || allow[1] != (struct{ Path, Perms string }{"block-blkext", "r"}) {
+		t.Errorf("PrivateDevices %v DevicePolicy %v DeviceAllow %v", m["PrivateDevices"], m["DevicePolicy"], m["DeviceAllow"])
+	}
+	b.Sandbox.ReadDevices = nil
+	m = propMap(t, s, b, alice(), "c3,c7")
+	if _, ok := m["DeviceAllow"]; ok || m["PrivateDevices"] != true {
+		t.Errorf("without read_devices: %v %v", m["PrivateDevices"], m["DeviceAllow"])
+	}
+}
+
 func TestSystemdProperties(t *testing.T) {
 	s := &Systemd{}
 	b := &config.Backend{Name: "fs", Command: []string{"/usr/bin/fs"}, SELinuxType: "mcpsrv_fs_t",
