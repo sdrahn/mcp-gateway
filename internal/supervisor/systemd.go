@@ -246,7 +246,7 @@ func sandboxProperties(b *config.Backend, prop func(string, any) sddbus.Property
 		prop("InaccessiblePaths", []string{"-/run/systemd/transient"}),
 		prop("ProtectHome", protectHome),
 		prop("PrivateTmp", true),
-		prop("PrivateDevices", true),
+		prop("PrivateDevices", len(b.Sandbox.ReadDevices) == 0),
 		prop("PrivateNetwork", privateNetwork(b)),
 		prop("ProtectKernelTunables", true),
 		prop("ProtectKernelModules", true),
@@ -277,6 +277,15 @@ func sandboxProperties(b *config.Backend, prop func(string, any) sddbus.Property
 	}
 	if len(b.Sandbox.ReadWritePaths) > 0 {
 		props = append(props, prop("ReadWritePaths", b.Sandbox.ReadWritePaths))
+	}
+	if len(b.Sandbox.ReadDevices) > 0 {
+		// The host's /dev, but a device cgroup: the standard pseudo
+		// devices and the classes named, read only.
+		allow := make([]struct{ Path, Perms string }, 0, len(b.Sandbox.ReadDevices))
+		for _, d := range b.Sandbox.ReadDevices {
+			allow = append(allow, struct{ Path, Perms string }{d, "r"})
+		}
+		props = append(props, prop("DevicePolicy", "closed"), prop("DeviceAllow", allow))
 	}
 	if !b.Network {
 		families := []string{"AF_UNIX"}

@@ -142,6 +142,7 @@ func TestGatewayServerRoles(t *testing.T) {
 		"gateway-admin": {filepath.Join("admin", "gateway-admin-roles.yaml"), "gateway-admin"},
 		"exec":          {filepath.Join("exec-server", "exec-roles.yaml"), "exec-operator"},
 		"restarts":      {filepath.Join("restarts-server", "restarts-roles.yaml"), "restarts-reader"},
+		"storage":       {filepath.Join("storage-server", "storage-roles.yaml"), "storage-reader"},
 	} {
 		_, data, _, err := policydata.Read(filepath.Join("..", "packaging", tc.file))
 		if err != nil {

@@ -151,6 +151,22 @@ so its definition is a profile the administrator links into
 /etc/mcp-gateway/servers.d; the shipped role restarts-reader lets users
 call the tool.
 
+%package storage-server
+Summary:        Storage health MCP server for mcp-gateway
+Group:          System/Management
+Requires:       %{name} = %{version}
+
+%description storage-server
+mcp-server-storage, an MCP server for mcp-gateway with four read-only
+tools: the block devices, the SMART health of an NVMe or SATA disk, the
+error counters of the mounted btrfs file systems and their last scrub.
+Every call reads the devices itself (no smartd); it resets no counter,
+starts no scrub or self-test and writes to no device. It needs
+CAP_SYS_ADMIN, CAP_SYS_RAWIO and CAP_DAC_READ_SEARCH and read access to
+the disks in its own SELinux domain, so its definition is a profile the
+administrator links into /etc/mcp-gateway/servers.d; the shipped role
+storage-reader lets users call the tools.
+
 %package tools
 Summary:        Commands to onboard MCP servers for mcp-gateway
 Group:          System/Management
@@ -176,6 +192,7 @@ Requires:       %{name} = %{version}
 Requires:       %{name}-exec-server = %{version}
 Requires:       %{name}-fs-server = %{version}
 Requires:       %{name}-restarts-server = %{version}
+Requires:       %{name}-storage-server = %{version}
 Requires:       %{name}-selinux = %{version}
 Requires:       %{name}-tools = %{version}
 # What the tests run: the kernel audit log, SELinux tools and policy
@@ -315,7 +332,7 @@ make selinux
 %sysusers_generate_pre profiles/snapper/sysusers.conf %{name}-profile-snapper %{name}-profile-snapper.conf
 
 %install
-%make_install install install-tools install-tests install-selinux install-cockpit install-desktop install-fs-server install-exec-server install-restarts-server install-profiles \
+%make_install install install-tools install-tests install-selinux install-cockpit install-desktop install-fs-server install-exec-server install-restarts-server install-storage-server install-profiles \
     PREFIX=%{_prefix} BINDIR=%{_bindir} SBINDIR=%{_sbindir} LIBEXECDIR=%{_libexecdir} \
     DATADIR=%{_datadir} SYSCONFDIR=%{_sysconfdir} DISTCONFDIR=%{_distconfdir} \
     UNITDIR=%{_unitdir} SYSUSERSDIR=%{_sysusersdir} TMPFILESDIR=%{_tmpfilesdir} \
@@ -483,6 +500,13 @@ fi
 %dir %{_datadir}/mcp-gateway/profiles
 %{_datadir}/mcp-gateway/profiles/restarts.yaml
 %{_datadir}/mcp-gateway/policy/mcp/profiles/restarts
+
+%files storage-server
+%dir %{_libexecdir}/mcp-servers
+%{_libexecdir}/mcp-servers/mcp-server-storage
+%dir %{_datadir}/mcp-gateway/profiles
+%{_datadir}/mcp-gateway/profiles/storage.yaml
+%{_datadir}/mcp-gateway/policy/mcp/profiles/storage
 
 %files tools
 %dir %{_libexecdir}/mcp-gateway

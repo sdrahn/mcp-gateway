@@ -1,4 +1,4 @@
-# 13. System management servers (systemd, firewalld, zypp, suseconnect, snapper, podman, restarts)
+# 13. System management servers (systemd, firewalld, zypp, suseconnect, snapper, podman, restarts, storage)
 
 MCP servers that manage the host itself, such as `systemd-mcp`,
 `firewalld-mcp` and `mcp-server-snapper`, differ from servers that work
@@ -791,6 +791,76 @@ own:
 A permission with a wildcard (`"tool": "*"`, `"server": "*"`) lets the
 call through only with an approval. `mcp-server-restarts --once`, as
 root, prints what the tool would return.
+
+## Storage health
+
+Whether a disk is wearing out, and whether btrfs has seen errors on it:
+the package `mcp-gateway-storage-server` offers this to agents,
+read-only, as the server `storage`. Every call reads the devices itself,
+once (smartd need not run, and its state is not used); nothing resets a
+counter, starts a scrub or a self-test, or writes to a disk.
+
+| Tool | Arguments | What it returns |
+|---|---|---|
+| `storage_devices` | none | the disks (`/sys/class/block`, no partitions, `ram` or `zram`): name, transport (`nvme`, `sata`, `usb`, `scsi`, `virtio`, `dm`, `md`, `loop`), model, serial, firmware, size, rotational, and whether `device_health` can read a health log (`health`, else `health_note`) |
+| `device_health` | `device`: a name `storage_devices` lists, `nvme<N>n<M>` or `sd<x>` (no path, no partition) | a verdict (`ok`, `warning`, `failing`) with its reasons and the thresholds used; for an NVMe namespace the controller's SMART / Health log (critical warnings, temperature, spare, percentage used, media errors, unsafe shutdowns, power-on hours); for a SATA disk the drive's own SMART status (`smart_status_passed`) and its attribute table with thresholds |
+| `btrfs_device_stats` | none | for each mounted btrfs, each device's error counters (write, read, flush, corruption, generation), from `/sys/fs/btrfs/<fsid>/devinfo/<devid>/error_stats` or the kernel's `GET_DEV_STATS` (never with its reset flag), with a verdict: corruption or generation errors fail, I/O errors warn |
+| `btrfs_scrub_status` | none | for each mounted btrfs, whether a scrub runs and the last one btrfs-progs recorded (`/var/lib/btrfs/scrub.status.<fsid>`): start, duration, finished or canceled, bytes, errors found and corrected; uncorrectable errors fail, other errors, a canceled scrub or none recorded warn |
+
+The verdicts:
+
+- **NVMe**: failing when the controller reports the spare below its
+  threshold, reliability degraded or the media read-only; warning on
+  its other critical warnings, any media and data integrity error, or
+  from 90% of the rated endurance used.
+- **SATA**: failing when the drive's SMART status says a threshold is
+  exceeded, or a pre-failure attribute is at its threshold; warning
+  when another attribute is, or when sectors were reallocated (5), are
+  pending (197) or uncorrectable (198), or errors were reported (187).
+
+Disks behind USB bridges, SAS disks and virtual disks have no health
+log the server reads (`health_note` says why); `smartctl -x` as root
+covers more of them. Starting a scrub (`btrfs scrub start`) or a
+self-test is for the administrator, or a tool of your own with approval.
+
+Reading a health log needs rights an agent's own commands never get:
+`CAP_SYS_ADMIN` (NVMe Get Log Page, the btrfs ioctls), `CAP_SYS_RAWIO`
+(ATA pass-through) and `CAP_DAC_READ_SEARCH` (to open a disk, mode 0660
+root:disk, for reading: unlike the group `disk` it grants no write), and
+read access to the disks, which the sandbox of a server hides
+(`PrivateDevices=`). The definition names them, with
+`sandbox.read_devices` (chapter 4, "Servers with a capability"): the
+instance sees SCSI/SATA disks and NVMe namespaces, and the kernel's
+device control refuses it any write to them. It runs as a throwaway
+account without network in its own domain `mcpsrv_storage_t`, which may
+read sysfs, the disks (`fixed_disk_device_t`) and `/var/lib/btrfs`, and
+send ioctls to the directories file systems are mounted on. Like
+`restarts`, it does not restrict itself with Landlock, which allows
+ioctls on a device only together with writing to it.
+
+```bash
+zypper install mcp-gateway-storage-server
+ln -s /usr/share/mcp-gateway/profiles/storage.yaml /etc/mcp-gateway/servers.d/storage.yaml
+```
+
+```yaml
+# /usr/share/mcp-gateway/profiles/storage.yaml
+name: storage
+command: ["/usr/libexec/mcp-servers/mcp-server-storage"]
+selinux_type: mcpsrv_storage_t
+run_as: dynamic
+network: false
+sandbox:
+  protect_home: "yes"
+  capabilities: [CAP_SYS_ADMIN, CAP_SYS_RAWIO, CAP_DAC_READ_SEARCH]
+  read_devices: [block-sd, block-blkext]
+```
+
+As for `restarts`, only a permission naming server and tool exactly
+allows a call without approval; the shipped role `storage-reader` names
+the four tools. A wildcard lets a call through only with an approval.
+`mcp-server-storage --once devices` (or `health=nvme0n1`,
+`btrfs-stats`, `btrfs-scrub`), as root, prints what a tool would return.
 
 ## Checking and troubleshooting
 

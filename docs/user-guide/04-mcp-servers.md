@@ -320,6 +320,7 @@ Server names must be unique across all files.
 | `sandbox.read_write_paths` | none | existing absolute paths the instance may write despite `ProtectSystem=strict` (systemd `ReadWritePaths=`); paths of the gateway itself, and directories containing them, are refused |
 | `sandbox.state_directory` | none | a directory below `/var/lib` (a relative name, e.g. `my-server`) that systemd creates for the instance, owned by its user, mode 0700, writable and kept across instances (systemd `StateDirectory=`) |
 | `sandbox.capabilities` | none | Linux capabilities the instance keeps, e.g. `[CAP_SYS_ADMIN]` (names as in capabilities(7)), for a server that needs one right but not the rights of a root service; the rest of the sandbox stays. Accepted only in `/etc/mcp-gateway/servers.d`. See [Servers with a capability](#servers-with-a-capability). |
+| `sandbox.read_devices` | none | Device classes the instance may read, e.g. `[block-sd, block-blkext]` (names as in `/proc/devices`, prefixed `block-` or `char-`): instead of a private `/dev` (`PrivateDevices=`) it sees the host's, and the kernel's device control allows reading those classes only (`DevicePolicy=closed`, `DeviceAllow=<class> r`). Accepted only in `/etc/mcp-gateway/servers.d`; not with `privileged` or `url`. See [Servers with a capability](#servers-with-a-capability). |
 | `privileged` | `false` | run without the sandbox, with the rights of a root service, for servers that change the system as a whole (package installation); needs `run_as: root` and is accepted only in `/etc/mcp-gateway/servers.d`. See [Privileged servers](#privileged-servers). |
 
 Example with everything:
@@ -847,6 +848,17 @@ sandbox:
   while a call runs). `mcp-gateway --check` and the start log warn about
   the server with its capabilities; the servers list
   (`"capabilities"`) and Cockpit show them.
+- **Reading devices** (`sandbox.read_devices`): a server that reads
+  disks, such as the server `storage` (chapter 13, "Storage health"),
+  names the device classes. The instance then sees the host's `/dev`
+  instead of a private one, but the kernel's device control lets it
+  open only those classes, and only for reading: any write, `mknod` or
+  other device is refused (systemd `DevicePolicy=closed` with
+  `DeviceAllow=<class> r`). Its domain still needs the SELinux rights to
+  read the device type. The rules above apply as for a capability: the
+  administrator's directory only, treated as a privileged server, not
+  with `privileged` (which sees every device) or `url`; the servers list
+  shows `"read_devices"`.
 
 ## Servers that speak HTTP
 

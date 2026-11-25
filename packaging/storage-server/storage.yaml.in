@@ -1,0 +1,26 @@
+# The storage health server (package mcp-gateway-storage-server): four
+# read-only tools, storage_devices, device_health (NVMe and SATA SMART),
+# btrfs_device_stats and btrfs_scrub_status. Each call reads the devices
+# itself (no smartd); it resets no counter, starts no scrub or self-test
+# and writes to no device.
+#
+# The health logs need capabilities (CAP_SYS_ADMIN for NVMe and the btrfs
+# ioctls, CAP_SYS_RAWIO for ATA pass-through, CAP_DAC_READ_SEARCH to open
+# the disks for reading) and read access to the disks, which only the
+# administrator's directory may grant: to offer the server,
+#   ln -s @DATADIR@/mcp-gateway/profiles/storage.yaml \
+#         /etc/mcp-gateway/servers.d/storage.yaml
+# and give the users the role storage-reader (user guide, chapter 13).
+version: 1
+name: storage
+command: ["@LIBEXECDIR@/mcp-servers/mcp-server-storage"]
+selinux_type: mcpsrv_storage_t
+# A throwaway account: the capabilities are all it needs, not root.
+run_as: dynamic
+network: false
+sandbox:
+  protect_home: "yes"
+  capabilities: [CAP_SYS_ADMIN, CAP_SYS_RAWIO, CAP_DAC_READ_SEARCH]
+  # SATA/SCSI disks and NVMe namespaces, read only (the device cgroup
+  # refuses any write).
+  read_devices: [block-sd, block-blkext]

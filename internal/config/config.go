@@ -664,7 +664,19 @@ type Sandbox struct {
 	// Only the administrator's directory may define a server with
 	// capabilities, as a privileged one.
 	Capabilities []string `yaml:"capabilities"`
+	// ReadDevices are device classes the instance may open for reading
+	// only, as /proc/devices names them with their type ("block-sd",
+	// "block-blkext" for NVMe namespaces): the instance gets the host's
+	// /dev (no PrivateDevices=) with a device cgroup that allows those, read
+	// only, and the standard pseudo devices (DevicePolicy=closed,
+	// DeviceAllow=CLASS r). Only the administrator's directory may define
+	// a server with it, as one with capabilities.
+	ReadDevices []string `yaml:"read_devices"`
 }
+
+// deviceClass is a device class as systemd's DeviceAllow= names one:
+// block- or char- and a driver name from /proc/devices.
+var deviceClass = regexp.MustCompile(`^(block|char)-[a-z0-9][a-z0-9_-]{0,31}$`)
 
 // stateDirectory is a relative path of plain names, as StateDirectory=
 // takes it.
@@ -682,6 +694,14 @@ var gatewayPaths = []string{
 func (s *Sandbox) validate() error {
 	if err := s.validateCapabilities(); err != nil {
 		return err
+	}
+	for i, d := range s.ReadDevices {
+		if !deviceClass.MatchString(d) {
+			return fmt.Errorf("sandbox.read_devices: %q is not a device class such as block-sd or block-blkext (/proc/devices)", d)
+		}
+		if slices.Contains(s.ReadDevices[:i], d) {
+			return fmt.Errorf("sandbox.read_devices: %s is named twice", d)
+		}
 	}
 	switch s.ProtectHome {
 	case "yes", "read-only", "read-write":
@@ -1232,8 +1252,12 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 		}
 		if b.Elevated() && (len(dirs) == 0 || filepath.Dir(p) != filepath.Clean(dirs[len(dirs)-1])) {
 			key := "privileged"
-			if !b.Privileged {
+			switch {
+			case b.Privileged:
+			case len(b.Sandbox.Capabilities) > 0:
 				key = "sandbox.capabilities"
+			default:
+				key = "sandbox.read_devices"
 			}
 			return nil, fmt.Errorf("%s: %s: only allowed in %s", p, key, dirs[len(dirs)-1])
 		}
@@ -1486,9 +1510,15 @@ func (b *Backend) Validate() error {
 		if len(b.Sandbox.Capabilities) > 0 {
 			return errors.New("sandbox.capabilities: has no effect on a privileged backend, which has all of them")
 		}
+		if len(b.Sandbox.ReadDevices) > 0 {
+			return errors.New("sandbox.read_devices: has no effect on a privileged backend, which sees every device")
+		}
 	}
 	if len(b.Sandbox.Capabilities) > 0 && b.URL != "" {
 		return errors.New("sandbox.capabilities: not for a url server (its connector needs none)")
+	}
+	if len(b.Sandbox.ReadDevices) > 0 && b.URL != "" {
+		return errors.New("sandbox.read_devices: not for a url server (its connector needs none)")
 	}
 	if _, err := b.ParseCredentials(); err != nil {
 		return err

@@ -223,7 +223,8 @@ jobs:
         run: |
           # opa is a runtime dependency only; not needed for this test.
           rpm -ivh --nodeps ~/rpmbuild/RPMS/x86_64/mcp-gateway-[0-9]*.rpm ~/rpmbuild/RPMS/x86_64/mcp-gateway-fs-server-*.rpm \
-            ~/rpmbuild/RPMS/x86_64/mcp-gateway-exec-server-*.rpm ~/rpmbuild/RPMS/x86_64/mcp-gateway-restarts-server-*.rpm
+            ~/rpmbuild/RPMS/x86_64/mcp-gateway-exec-server-*.rpm ~/rpmbuild/RPMS/x86_64/mcp-gateway-restarts-server-*.rpm \
+            ~/rpmbuild/RPMS/x86_64/mcp-gateway-storage-server-*.rpm
           getent passwd mcp-gateway mcp-opa
           getent group mcp-users
           mcp-gateway --version
@@ -242,6 +243,9 @@ jobs:
           /usr/libexec/mcp-servers/mcp-server-restarts --version
           test -f /usr/share/mcp-gateway/profiles/restarts.yaml
           test -f /usr/share/mcp-gateway/policy/mcp/profiles/restarts/data.yaml
+          /usr/libexec/mcp-servers/mcp-server-storage --version
+          test -f /usr/share/mcp-gateway/profiles/storage.yaml
+          test -f /usr/share/mcp-gateway/policy/mcp/profiles/storage/data.yaml
           test -d /etc/mcp-gateway/exec.d
           test -f /usr/share/mcp-gateway/policy/mcp/profiles/gateway-admin/data.yaml
           # The default role data is the package's; none in /etc.

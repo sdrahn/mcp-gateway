@@ -57,6 +57,7 @@ For an agent, which server to ask:
 | Writing Rego: the policy's inputs and decisions, adding to or replacing the shipped logic, testing | [12. Custom policy](user-guide/12-custom-policy.md) |
 | systemd, firewalld, zypp, suseconnect and snapper servers: setup packages, accounts, polkit, roles | [13. System management servers](user-guide/13-system-management-servers.md) |
 | services that still run old code after an update, a pending reboot (server `restarts`) | [13, "Pending restarts after an update"](user-guide/13-system-management-servers.md#pending-restarts-after-an-update) |
+| disk health (NVMe and SATA SMART), btrfs error counters and scrubs (server `storage`) | [13, "Storage health"](user-guide/13-system-management-servers.md#storage-health) |
 | Slow starts or timeouts, a small host (Raspberry Pi), many users: what to measure, which settings to change | [14. Tuning](user-guide/14-tuning.md) |
 | Setting up Keycloak for the gateway, or for several gateways: the container, the realm, the clients, scopes and mappers, each gateway's configuration | [15. Keycloak](user-guide/15-keycloak.md) |
 | Why something is designed the way it is | [architecture.md, "9. Decisions"](architecture.md#9-decisions) |

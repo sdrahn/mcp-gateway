@@ -43,5 +43,6 @@ else
 fi
 rpm -Uvh --nodeps "$dir"/rpms/mcp-gateway-[0-9]*.rpm "$dir"/rpms/mcp-gateway-selinux-*.rpm \
 	"$dir"/rpms/mcp-gateway-fs-server-*.rpm "$dir"/rpms/mcp-gateway-exec-server-*.rpm "$dir"/rpms/mcp-gateway-restarts-server-*.rpm \
+	"$dir"/rpms/mcp-gateway-storage-server-*.rpm \
 	"$dir"/rpms/mcp-gateway-tools-*.rpm "$dir"/rpms/mcp-gateway-tests-*.rpm ||
 	die "installing the packages failed"
