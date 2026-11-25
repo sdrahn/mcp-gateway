@@ -228,6 +228,7 @@ journal_since_start_has() {
 	journalctl -u mcp-gateway.service -o cat --since "@$since" | grep -qF -- "$1"
 }
 has_capabilities() { ! grep -q '^CapEff:[[:space:]]*0000000000000000' "/proc/$1/status"; }
+has_no_capabilities() { ! has_capabilities "$1"; }
 not_installed() { ! rpm -q "$1" >/dev/null 2>&1; }
 # auditd writes the records asynchronously: wait for them a little.
 privileged_audited() {
@@ -1359,7 +1360,7 @@ END
 		sr_pid=$(systemctl show -p MainPID --value "$unit")
 	done
 	check "snapper (root, sandbox): the instance runs as root" test "$(proc_user "${sr_pid:-0}")" = root
-	check "snapper (root, sandbox): ... without capabilities" bash -c "! has_capabilities ${sr_pid:-0}"
+	check "snapper (root, sandbox): ... without capabilities" has_no_capabilities "${sr_pid:-0}"
 	out=$(runuser -u alice -- /usr/local/bin/mcpcall --server snapper --method tools/list --params '{}' 2>&1)
 	rc=$?
 	check "snapper (root, sandbox): rollback's description has the tool note" \
@@ -2261,7 +2262,8 @@ call chan --method tools/list --params '{}'
 check "two channels for one tool: chan's listing shows the tools" \
 	bash -c '[ "$1" = 0 ] && grep -qF "\"write_file\"" <<<"$2" && grep -qF "\"list_allowed_directories\"" <<<"$2"' _ "$rc" "$out"
 ch_failed() { journalctl -u mcp-gateway.service -o cat --since "@$ch_since" | grep -F 'sub=chan' | grep -qF 'filtering failed'; }
-check "... and the gateway hid nothing (no \"filtering failed\")" bash -c '! "$@"' _ ch_failed
+ch_hid_nothing() { ! ch_failed; }
+check "... and the gateway hid nothing (no \"filtering failed\")" ch_hid_nothing
 out=$(runuser -u chan -- timeout 30 /usr/local/bin/mcpcall --client kit --server fs --method tools/call \
 	--params '{"name":"write_file","arguments":{"path":"/home/chan/x.txt","content":"x"}}' 2>&1)
 echo "  [chan as kit] ${out:0:300}"
