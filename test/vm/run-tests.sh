@@ -2620,8 +2620,19 @@ section "Storage health"
 uname -r | sed 's/^/  kernel /'
 ls -l /dev/nvme0 /dev/nvme0n1 /dev/sda 2>&1 | sed 's/^/  /'
 ls -Z /dev/nvme0n1 /dev/sda 2>&1 | sed 's/^/  /'
-st_fsid=$(findmnt -n -o FSTYPE / | grep -qx btrfs && btrfs filesystem show / 2>/dev/null | sed -n 's/.*uuid: //p' | head -1)
+# A btrfs of its own on the NVMe namespace, whatever the root file
+# system (the counters and the scrub are those of a real device).
+st_mnt=/mnt/vmtest-storage
+st_fsid=""
+if [ -b /dev/nvme0n1 ] && { command -v mkfs.btrfs >/dev/null || zypper -n in --no-recommends btrfsprogs >/dev/null; } &&
+	mkfs.btrfs -q -f /dev/nvme0n1 && mkdir -p "$st_mnt" && mount /dev/nvme0n1 "$st_mnt"; then
+	restorecon "$st_mnt"
+	st_fsid=$(findmnt -n -o UUID "$st_mnt")
+fi
+ls -Zd "$st_mnt" 2>&1 | sed 's/^/  /'
 ls /sys/fs/btrfs/"${st_fsid:-none}"/devinfo/*/error_stats 2>&1 | sed 's/^/  /'
+# st_text: the text of the last call's result.
+st_text() { jq -r '.content[0].text // empty' <<<"$out" 2>/dev/null; }
 st_since=$(date +%s)
 ln -sf /usr/share/mcp-gateway/profiles/storage.yaml /etc/mcp-gateway/servers.d/storage.yaml
 check "storage: the definition is accepted" mcp-gateway --check
@@ -2647,13 +2658,14 @@ check "storage: the role is in force" eventually 20 st_role
 
 # With storage-reader: no approval (the calls below would wait for one
 # and fail without an approver).
-st_before=$(btrfs device stats / 2>/dev/null)
 stool alice storage storage_devices '{}'
 check "storage: with storage-reader, storage_devices runs without an approval" succeeded_with "vda: virtio"
-st_devices=$out
-check "storage: ... and lists no partition" bash -c '! grep -qE "^(vda|nvme0n1p)[0-9]+:" <<<"$1"' _ "$st_devices"
+st_devices=$(st_text)
+echo "$st_devices" | grep -v '^loop' | sed 's/^/  /'
+check "storage: ... and lists the disks" grep -q '^vda: virtio' <<<"$st_devices"
+check "storage: ... and no partition" bash -c '! grep -qE "^vda[0-9]+:" <<<"$1"' _ "$st_devices"
 if [ -b /dev/nvme0n1 ]; then
-	check "storage: the NVMe namespace is listed with a health log" bash -c 'grep -q "^nvme0n1: nvme .*health available" <<<"$1"' _ "$st_devices"
+	check "storage: the NVMe namespace is listed with a health log" grep -q '^nvme0n1: nvme .*health available' <<<"$st_devices"
 	stool alice storage device_health '{"device":"nvme0n1"}'
 	check "storage: device_health reports the NVMe namespace" succeeded_with "nvme0n1 (nvme"
 	check "... with its SMART / Health log" bash -c 'grep -q "\"power_on_hours\"" <<<"$1" && grep -q "\"temperature_celsius\"" <<<"$1"' _ "$out"
@@ -2676,18 +2688,20 @@ check "storage: device_health refuses a device that is not there" st_refused nvm
 check "storage: device_health refuses a path" st_refused /dev/vda "not an NVMe namespace"
 check "storage: device_health refuses a partition" st_refused vda1 "not an NVMe namespace"
 if [ -n "$st_fsid" ]; then
+	st_before=$(btrfs device stats "$st_mnt" 2>/dev/null)
 	stool alice storage btrfs_device_stats '{}'
-	check "storage: btrfs_device_stats reports the root file system" succeeded_with "/ devid 1 "
+	check "storage: btrfs_device_stats reports the test file system" grep -qE "^$st_mnt devid 1 /dev/nvme0n1: ok" <<<"$(st_text)"
 	check "... from sysfs (error_stats)" bash -c 'grep -q "\"source\":\"sysfs\"" <<<"$1"' _ "$out"
-	check "... judged ok" bash -c 'grep -qE "^/ devid 1 [^:]*: ok" <<<"$1"' _ "$out"
 	stool alice storage btrfs_scrub_status '{}'
-	check "storage: btrfs_scrub_status reports the root file system" succeeded_with "/: "
-	timeout 600 btrfs scrub start -B -q / >/dev/null 2>&1
+	check "storage: btrfs_scrub_status: none recorded yet" grep -qE "^$st_mnt: warning: .*no scrub recorded" <<<"$(st_text)"
+	timeout 300 btrfs scrub start -B -q "$st_mnt" >/dev/null 2>&1
+	ls -Z /var/lib/btrfs 2>&1 | sed 's/^/  /'
 	stool alice storage btrfs_scrub_status '{}'
-	check "storage: ... and the scrub just run, finished" bash -c 'grep -q "^/: ok, last scrub " <<<"$1" && grep -q "\"finished\":true" <<<"$1"' _ "$out"
-	check "storage: the counters are not reset" test "$(btrfs device stats / 2>/dev/null)" = "$st_before"
+	check "storage: ... then the scrub just run, finished" bash -c 'grep -qE "^$2: ok, last scrub " <<<"$1"' _ "$(st_text)" "$st_mnt"
+	check "... read from btrfs-progs' status file" bash -c 'grep -q "\"finished\":true" <<<"$1"' _ "$out"
+	check "storage: the counters are not reset" test "$(btrfs device stats "$st_mnt" 2>/dev/null)" = "$st_before"
 else
-	skip "storage: the root file system is not btrfs"
+	skip "storage: no btrfs on the NVMe namespace (no NVMe namespace or no btrfsprogs)"
 fi
 st_instance=""
 for unit in $(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-storage-*' | awk '{print $1}'); do
@@ -2708,6 +2722,7 @@ check "storage: no SELinux denial for the server" st_no_denials
 stool bob storage storage_devices '{}'
 check "storage: not for bob, who holds no role for it" failed_without "vda: virtio"
 rm -f /etc/mcp-gateway/servers.d/storage.yaml
+umount "$st_mnt" 2>/dev/null
 jq '.bindings.users.alice -= ["storage-reader"]' /etc/mcp-gateway/policy/rbac/data.yaml >/root/vmtest/st-data.json &&
 	cat /root/vmtest/st-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 check "storage: systemctl reload drops the server again" systemctl reload mcp-gateway.service
