@@ -2611,6 +2611,107 @@ jq '.bindings.users.alice -= ["restarts-reader"]' /etc/mcp-gateway/policy/rbac/d
 	cat /root/vmtest/pr-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 check "pending restarts: systemctl reload drops the server again" systemctl reload mcp-gateway.service
 
+section "Storage health"
+# The server storage (Custos, #354): the disks, their SMART health, btrfs
+# error counters and the last scrub, read only, each call reading the
+# devices itself (no smartd). run-vm.sh gives the VM an NVMe namespace and
+# a SATA disk on AHCI; elsewhere (openQA) the checks of a device that is
+# not there are skipped.
+uname -r | sed 's/^/  kernel /'
+ls -l /dev/nvme0 /dev/nvme0n1 /dev/sda 2>&1 | sed 's/^/  /'
+ls -Z /dev/nvme0n1 /dev/sda 2>&1 | sed 's/^/  /'
+st_fsid=$(findmnt -n -o FSTYPE / | grep -qx btrfs && btrfs filesystem show / 2>/dev/null | sed -n 's/.*uuid: //p' | head -1)
+ls /sys/fs/btrfs/"${st_fsid:-none}"/devinfo/*/error_stats 2>&1 | sed 's/^/  /'
+st_since=$(date +%s)
+ln -sf /usr/share/mcp-gateway/profiles/storage.yaml /etc/mcp-gateway/servers.d/storage.yaml
+check "storage: the definition is accepted" mcp-gateway --check
+check "storage: systemctl reload takes it" systemctl reload mcp-gateway.service
+
+# Without storage-reader, through a wildcard of alice's role tester: the
+# server is elevated (capabilities, disks), so the call asks.
+jq '.roles.tester.permissions += [{"server": "storage", "tool": "*"}]' /etc/mcp-gateway/policy/rbac/data.yaml >/root/vmtest/st-data.json &&
+	cat /root/vmtest/st-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
+st_wild() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/roles/tester/permissions |
+	jq -e '.result | any(.server == "storage")' >/dev/null; }
+check "storage: the wildcard is in force" eventually 20 st_wild
+stool_approved alice storage storage_devices '{}' >/root/vmtest/st-wild.log
+sed 's/^/  /' /root/vmtest/st-wild.log | cut -c1-200
+check "storage: without storage-reader a call waits for an approval" grep -q 'approval: a-' /root/vmtest/st-wild.log
+check "... and runs after it" test "$rc" = 0
+jq '.roles.tester.permissions -= [{"server": "storage", "tool": "*"}] | .bindings.users.alice += ["storage-reader"]' \
+	/etc/mcp-gateway/policy/rbac/data.yaml >/root/vmtest/st-data.json &&
+	cat /root/vmtest/st-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
+st_role() { curl -s --unix-socket /run/mcp-gateway/opa.sock http://opa/v1/data/mcp/rbac/bindings/users/alice |
+	jq -e '.result | index("storage-reader")' >/dev/null; }
+check "storage: the role is in force" eventually 20 st_role
+
+# With storage-reader: no approval (the calls below would wait for one
+# and fail without an approver).
+st_before=$(btrfs device stats / 2>/dev/null)
+stool alice storage storage_devices '{}'
+check "storage: with storage-reader, storage_devices runs without an approval" succeeded_with "vda: virtio"
+st_devices=$out
+check "storage: ... and lists no partition" bash -c '! grep -qE "^(vda|nvme0n1p)[0-9]+:" <<<"$1"' _ "$st_devices"
+if [ -b /dev/nvme0n1 ]; then
+	check "storage: the NVMe namespace is listed with a health log" bash -c 'grep -q "^nvme0n1: nvme .*health available" <<<"$1"' _ "$st_devices"
+	stool alice storage device_health '{"device":"nvme0n1"}'
+	check "storage: device_health reports the NVMe namespace" succeeded_with "nvme0n1 (nvme"
+	check "... with its SMART / Health log" bash -c 'grep -q "\"power_on_hours\"" <<<"$1" && grep -q "\"temperature_celsius\"" <<<"$1"' _ "$out"
+	check "... judged ok" succeeded_with "): ok"
+else
+	skip "storage: no NVMe namespace (run-vm.sh adds one)"
+fi
+if [ -b /dev/sda ] && grep -q "^sda: sata" <<<"$st_devices"; then
+	stool alice storage device_health '{"device":"sda"}'
+	check "storage: device_health reports the SATA disk" succeeded_with "sda (sata"
+	check "... with the drive's own SMART status" bash -c 'grep -q "\"smart_status_passed\":true" <<<"$1"' _ "$out"
+else
+	skip "storage: no SATA disk (run-vm.sh adds one on AHCI)"
+fi
+st_refused() { # st_refused <device> <message>
+	stool alice storage device_health "{\"device\":\"$1\"}"
+	grep -q '"isError":true' <<<"$out" && grep -qF -- "$2" <<<"$out"
+}
+check "storage: device_health refuses a device that is not there" st_refused nvme9n9 "not on this host"
+check "storage: device_health refuses a path" st_refused /dev/vda "not an NVMe namespace"
+check "storage: device_health refuses a partition" st_refused vda1 "not an NVMe namespace"
+if [ -n "$st_fsid" ]; then
+	stool alice storage btrfs_device_stats '{}'
+	check "storage: btrfs_device_stats reports the root file system" succeeded_with "/ devid 1 "
+	check "... from sysfs (error_stats)" bash -c 'grep -q "\"source\":\"sysfs\"" <<<"$1"' _ "$out"
+	check "... judged ok" bash -c 'grep -qE "^/ devid 1 [^:]*: ok" <<<"$1"' _ "$out"
+	stool alice storage btrfs_scrub_status '{}'
+	check "storage: btrfs_scrub_status reports the root file system" succeeded_with "/: "
+	timeout 600 btrfs scrub start -B -q / >/dev/null 2>&1
+	stool alice storage btrfs_scrub_status '{}'
+	check "storage: ... and the scrub just run, finished" bash -c 'grep -q "^/: ok, last scrub " <<<"$1" && grep -q "\"finished\":true" <<<"$1"' _ "$out"
+	check "storage: the counters are not reset" test "$(btrfs device stats / 2>/dev/null)" = "$st_before"
+else
+	skip "storage: the root file system is not btrfs"
+fi
+st_instance=""
+for unit in $(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-storage-*' | awk '{print $1}'); do
+	pid=$(systemctl show -p MainPID --value "$unit")
+	[ "$pid" != 0 ] && [ "$(proc_user "$pid")" != root ] && st_instance=$pid st_unit=$unit
+done
+echo "  instance: ${st_instance:-none} $(label "${st_instance:-1}") user $(proc_user "${st_instance:-1}")"
+systemctl show -p DevicePolicy -p DeviceAllow -p PrivateDevices "${st_unit:-none}" | sed 's/^/  /'
+check "storage: the instance runs in mcpsrv_storage_t" has_type "$(label "${st_instance:-1}")" mcpsrv_storage_t
+check "storage: ... as a throwaway account, not root" bash -c '[ -n "$1" ] && [ "$(ps -o user= -p "$1" | tr -d " ")" != root ]' _ "$st_instance"
+# CAP_DAC_READ_SEARCH (2), CAP_SYS_RAWIO (17), CAP_SYS_ADMIN (21).
+check "storage: ... with its three capabilities only" grep -q '^CapEff:[[:space:]]*0000000000220004$' "/proc/${st_instance:-1}/status"
+check "storage: ... and read-only access to the disks" bash -c 'grep -qx "DevicePolicy=closed" <<<"$1" && grep -q "block-sd r" <<<"$1" && grep -q "block-blkext r" <<<"$1"' _ \
+	"$(systemctl show -p DevicePolicy -p DeviceAllow "${st_unit:-none}")"
+st_no_denials() { ! since=$st_since audit_since AVC | grep -q 'scontext=[^ ]*:mcpsrv_storage_t:'; }
+since=$st_since audit_since AVC | grep 'mcpsrv_storage_t' | sed -E 's/^.*avc: //' | sort -u | head -20 | sed 's/^/  /'
+check "storage: no SELinux denial for the server" st_no_denials
+stool bob storage storage_devices '{}'
+check "storage: not for bob, who holds no role for it" failed_without "vda: virtio"
+rm -f /etc/mcp-gateway/servers.d/storage.yaml
+jq '.bindings.users.alice -= ["storage-reader"]' /etc/mcp-gateway/policy/rbac/data.yaml >/root/vmtest/st-data.json &&
+	cat /root/vmtest/st-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
+check "storage: systemctl reload drops the server again" systemctl reload mcp-gateway.service
+
 section "Limits"
 # The limits per principal (decision D14), lowered with mcp-gateway-admin
 # config set while the gateway runs: a session, an instance and a task

@@ -79,6 +79,10 @@ else
 	download_image
 fi
 qemu-img create -q -f qcow2 -b "$work/base.qcow2" -F qcow2 "$work/disk.qcow2" 20G
+# Two empty disks with a health log for the storage server: an NVMe
+# namespace and a SATA disk on AHCI (QEMU answers SMART for both).
+qemu-img create -q -f raw "$work/nvme.img" 1G
+qemu-img create -q -f raw "$work/sata.img" 1G
 
 ssh-keygen -q -t ed25519 -N '' -f "$work/key" <<<y >/dev/null
 cat >"$work/user-data" <<EOF
@@ -104,6 +108,8 @@ log "booting the VM"
 qemu-system-x86_64 -enable-kvm -cpu host -smp 2 -m 4096 \
 	-drive file="$work/disk.qcow2",if=virtio \
 	-drive file="$work/seed.img",if=virtio,format=raw \
+	-drive if=none,id=nv0,file="$work/nvme.img",format=raw -device nvme,serial=test0,drive=nv0 \
+	-device ahci,id=ahci -drive if=none,id=sd0,file="$work/sata.img",format=raw -device ide-hd,drive=sd0,bus=ahci.0 \
 	-nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:$port-:22 \
 	-display none -serial file:"$work/console.log" \
 	-pidfile "$work/qemu.pid" -daemonize

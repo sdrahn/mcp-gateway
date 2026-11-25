@@ -7,6 +7,24 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- The server `storage`, package `mcp-gateway-storage-server` (chapter
+  13, "Storage health"): four read-only tools, `storage_devices`,
+  `device_health` (NVMe SMART / Health log, SATA SMART status and
+  attributes, with a verdict), `btrfs_device_stats` and
+  `btrfs_scrub_status`. Every call reads the devices itself; smartd is
+  not needed. It resets no counter, starts no scrub or self-test and
+  writes to no disk. Its definition is a profile to link into
+  `/etc/mcp-gateway/servers.d`; the shipped role `storage-reader`
+  allows the tools. The SELinux module `mcp_gateway` adds the domain
+  `mcpsrv_storage_t` (#354).
+- The definition key `sandbox.read_devices` (chapter 4, "Servers with a
+  capability"): device classes an instance may read, instead of a
+  private `/dev`; the kernel's device control refuses writes. Accepted
+  in `/etc/mcp-gateway/servers.d` only; the server is treated as a
+  privileged one. `GET /v1/servers` shows it.
+
 ### Fixed
 
 - `mcp-gateway-tools` requires `selinux-policy-devel` only where

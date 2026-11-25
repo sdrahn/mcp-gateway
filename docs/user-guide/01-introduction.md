@@ -83,6 +83,7 @@ mcp-gateway sits between agents and MCP servers:
 | `mcp-server-fs` | `mcp-gateway-fs-server` | An MCP server for files on the user's home directory (server `fs`): read, list, search, write, edit (chapter 4); also serves this documentation to agents (server `gateway-docs`, chapter 10). |
 | `mcp-server-exec` | `mcp-gateway-exec-server` | An MCP server offering commands the administrator allows as tools (server `exec`, chapter 4). |
 | `mcp-server-restarts` | `mcp-gateway-restarts-server` | An MCP server with one read-only tool: what an update left waiting, the services to restart, a pending reboot and the kernels (server `restarts`, chapter 13). |
+| `mcp-server-storage` | `mcp-gateway-storage-server` | An MCP server reporting storage health, read only: the disks, NVMe and SATA SMART health, btrfs error counters and the last scrub (server `storage`, chapter 13). |
 | setup packages | `mcp-gateway-profile-*` | Definitions, roles, accounts and polkit rules for the systemd, firewalld, zypp, suseconnect and snapper MCP servers, and for the users' own containers with podman-mcp-server (chapter 13). |
 
 ## How a request flows
