@@ -283,7 +283,7 @@ section "Install"
 # The packages are installed (CI: test/vm/prepare.sh; openQA: from the
 # product's repositories); the gateway has not run yet, or is stopped
 # here so that its start is the tests'.
-for p in mcp-gateway mcp-gateway-selinux mcp-gateway-fs-server mcp-gateway-exec-server mcp-gateway-restarts-server mcp-gateway-tools \
+for p in mcp-gateway mcp-gateway-selinux mcp-gateway-fs-server mcp-gateway-exec-server mcp-gateway-restarts-server mcp-gateway-storage-server mcp-gateway-tools \
 	mcp-gateway-tests jq curl rpm-build selinux-policy-devel; do
 	rpm -q "$p" >/dev/null 2>&1 || die "package $p is not installed"
 done

@@ -1,0 +1,17 @@
+# The role of the server storage (package mcp-gateway-storage-server),
+# installed as /usr/share/mcp-gateway/policy/mcp/profiles/storage/data.yaml.
+# Bind users or groups to it in the role data.
+
+version: 1
+roles:
+  storage-reader:
+    description: 'storage: the disks, their SMART health, btrfs error counters and the last scrub; reads only'
+    permissions:
+      - server: storage
+        tool: storage_devices
+      - server: storage
+        tool: device_health
+      - server: storage
+        tool: btrfs_device_stats
+      - server: storage
+        tool: btrfs_scrub_status

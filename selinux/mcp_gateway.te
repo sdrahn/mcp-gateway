@@ -317,6 +317,27 @@ ifdef(`rpm_exec',`
 # granted. Its environment is the same file read as its map: the program
 # reads maps, status, comm, cmdline and cgroup only.
 
+# Storage health (the server storage, cmd/mcp-server-storage, package
+# mcp-gateway-storage-server): it lists the block devices in sysfs, reads
+# an NVMe namespace's SMART / Health log (Get Log Page: CAP_SYS_ADMIN) and
+# a SATA disk's SMART (ATA PASS-THROUGH over SG_IO: CAP_SYS_RAWIO), opening
+# the disk read-only (CAP_DAC_READ_SEARCH past its mode 0660 root:disk),
+# reads the btrfs error counters (sysfs, or BTRFS_IOC_GET_DEV_STATS
+# without the reset flag on the mount point: CAP_SYS_ADMIN) and the last
+# scrub (/var/lib/btrfs, BTRFS_IOC_SCRUB_PROGRESS). It writes nothing; the
+# device cgroup (sandbox.read_devices) refuses a write to a disk anyway.
+mcp_gateway_backend_template(storage)
+allow mcpsrv_storage_t self:capability { sys_admin sys_rawio dac_read_search };
+allow mcpsrv_storage_t self:cap_userns { sys_admin sys_rawio dac_read_search };
+dev_read_sysfs(mcpsrv_storage_t)
+storage_raw_read_fixed_disk(mcpsrv_storage_t)
+# The btrfs ioctls go to a directory of the file system: its mount point.
+files_list_all_mountpoints(mcpsrv_storage_t)
+gen_require(`attribute mountpoint;')
+allow mcpsrv_storage_t mountpoint:dir { open read ioctl };
+files_read_var_lib_files(mcpsrv_storage_t)
+fs_getattr_xattr_fs(mcpsrv_storage_t)
+
 # The gateway diagnostics (the server gateway-admin, mcp-gateway-admin
 # serve): root without capabilities, reading only. It reads the
 # configuration, the state directory, the journal and the audit log, file

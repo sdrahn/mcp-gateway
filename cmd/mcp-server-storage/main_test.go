@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"unsafe"
+
+	"github.com/sdrahn/mcp-gateway/internal/config"
 )
 
 // The ioctl structures have the kernel's sizes (amd64, arm64).
@@ -454,5 +456,38 @@ func TestServer(t *testing.T) {
 	}
 	if !strings.Contains(text(8), "/ devid 2 /dev/sda1: failing: 2 corruption errors") {
 		t.Errorf("btrfs_device_stats: %q", text(8))
+	}
+}
+
+// The definition the package installs: this program, as a throwaway
+// account with its three capabilities and read access to the disks,
+// without network, in its own domain; accepted in the administrator's
+// directory only.
+func TestDefinition(t *testing.T) {
+	in, err := os.ReadFile(filepath.Join("..", "..", "packaging", "storage-server", "storage.yaml.in"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := strings.NewReplacer("@LIBEXECDIR@", "/usr/libexec", "@DATADIR@", "/usr/share").Replace(string(in))
+	vendor, admin := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(admin, "storage.yaml"), []byte(def), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backends, err := config.LoadBackends(vendor, admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := backends["storage"]
+	if b == nil || b.RunAs != "dynamic" || b.Privileged || b.Network || b.SELinuxType != "mcpsrv_storage_t" || !b.Elevated() ||
+		!slices.Equal(b.Command, []string{"/usr/libexec/mcp-servers/mcp-server-storage"}) ||
+		!slices.Equal(b.Sandbox.Capabilities, []string{"CAP_SYS_ADMIN", "CAP_SYS_RAWIO", "CAP_DAC_READ_SEARCH"}) ||
+		!slices.Equal(b.Sandbox.ReadDevices, []string{"block-sd", "block-blkext"}) || b.Sandbox.ProtectHome != "yes" {
+		t.Fatalf("%+v", b)
+	}
+	if err := os.Rename(filepath.Join(admin, "storage.yaml"), filepath.Join(vendor, "storage.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.LoadBackends(vendor, admin); err == nil {
+		t.Error("accepted from the vendor directory")
 	}
 }
