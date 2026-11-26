@@ -86,6 +86,9 @@ type Router struct {
 	MaxTasksPerPrincipal int
 	TaskRetention        time.Duration
 	TaskMaxResultBytes   int
+	// IdempotencyWindow keeps the outcome of a call with an idempotency
+	// key (idempotency.go; 0: the default).
+	IdempotencyWindow time.Duration
 	// MaxContextsPerPrincipal limits a principal's open contexts
 	// (contexts.go; 0: the default).
 	MaxContextsPerPrincipal int
@@ -115,7 +118,9 @@ type Router struct {
 	lastChange atomic.Value // time.Time
 	// tasks are the agents' tasks; tasksCtx ends their calls when the
 	// gateway stops (stopTasks).
-	tasks     taskStore
+	tasks taskStore
+	// idem keeps the outcomes of calls with an idempotency key.
+	idem      idemStore
 	contexts  contextStore
 	tasksCtx  context.Context
 	warm      warmState
@@ -307,6 +312,7 @@ func (r *Router) init() {
 			MaxRequestsPerPrincipal: r.MaxRequestsPerPrincipal, MaxStreamsPerPrincipal: r.MaxStreamsPerPrincipal, VaultIdle: r.VaultIdle,
 			MaxVersion: r.MaxVersion, NoRequestTimeout: r.NoRequestTimeout, NoWait: r.NoWait,
 			MaxTasksPerPrincipal: r.MaxTasksPerPrincipal, TaskRetention: r.TaskRetention, TaskMaxResultBytes: r.TaskMaxResultBytes,
+			IdempotencyWindow:       r.IdempotencyWindow,
 			MaxContextsPerPrincipal: r.MaxContextsPerPrincipal, RemoteApprovals: r.RemoteApprovals})
 		r.pool.onListChanged = r.listChanged
 		r.pool.current = func(server string) *config.Backend { return (*r.registry.Load())[server] }
@@ -336,6 +342,7 @@ type Settings struct {
 	MaxTasksPerPrincipal                                            int
 	TaskRetention                                                   time.Duration
 	TaskMaxResultBytes                                              int
+	IdempotencyWindow                                               time.Duration
 	MaxContextsPerPrincipal                                         int
 	// RemoteApprovals is the URL "mcp-gateway-admin approvals --gateway"
 	// takes on other hosts (the approval API of the gateway's page with
@@ -387,6 +394,9 @@ func (r *Router) applySettings(s Settings) {
 	}
 	if s.MaxContextsPerPrincipal <= 0 {
 		s.MaxContextsPerPrincipal = defaultContextsPerPrincipal
+	}
+	if s.IdempotencyWindow <= 0 {
+		s.IdempotencyWindow = defaultIdempotencyWindow
 	}
 	s.MaxVersion = lowerKeys(s.MaxVersion)
 	s.NoRequestTimeout = lowerNames(s.NoRequestTimeout)
