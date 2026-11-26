@@ -1894,6 +1894,59 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	check "limits: ... the gateway says which it ended" hl_evicted
 	mcp-gateway-admin config unset limits.sessions_per_principal >/dev/null
 
+	# Idempotency keys (Custos R8): an agent of MCP 2026-07-28 makes a call
+	# that changes something (hold appends a line to its marker), the
+	# connection is cut before the answer, and the call is sent again with
+	# the same key: it gets the result, and the change happened once. The
+	# same key with other arguments is refused.
+	id_marker=/run/mcpgw-vmtest-idem
+	rm -f "$id_marker"
+	id_key="vmtest-$RANDOM-r8"
+	id_tok=$(hl_tok "aud=$hl_url&sub=alice&preferred_username=alice&scope=mcp")
+	# id_call SECONDS MAX: hold for SECONDS with the key, as alice's agent,
+	# giving up after MAX seconds; sets id_code and id_body.
+	id_call() {
+		local body
+		body=$(jq -c -n --arg s "$1" --arg m "$id_marker" --arg k "$id_key" '{jsonrpc: "2.0", id: 1, method: "tools/call",
+			params: {name: "hold", arguments: {seconds: $s, marker: $m}, _meta: {
+				"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+				"io.modelcontextprotocol/clientInfo": {name: "vmtest-r8", version: "1"},
+				"io.modelcontextprotocol/clientCapabilities": {},
+				"io.github.sdrahn.mcp-gateway/idempotencyKey": $k}}}')
+		id_code=$(curl -s --noproxy '*' --max-time "$2" -o /root/id-body -w '%{http_code}' \
+			-H 'Content-Type: application/json' -H 'Accept: application/json' -H "Authorization: Bearer $id_tok" \
+			-H "MCP-Protocol-Version: 2026-07-28" -H "Mcp-Method: tools/call" -H "Mcp-Name: hold" \
+			--data "$body" https://gw.vmtest:9443/mcp/privtest)
+		id_body=$(cat /root/id-body 2>/dev/null)
+		echo "  hold $1 s (key $id_key): ${id_code:-none} ${id_body:0:200}"
+	}
+	id_since=$(date +%s)
+	: >/root/id-body
+	id_call 6 2
+	check "idempotency: the connection is cut before the answer" test "$id_code" = 000
+	check "... while the call runs (no change yet)" test ! -e "$id_marker"
+	id_call 6 30
+	check "idempotency: the call sent again with its key gets the result" \
+		bash -c '[ "$1" = 200 ] && jq -e ".result.content[0].text == \"held\"" <<<"$2" >/dev/null' _ "$id_code" "$id_body"
+	check "... and the change happened once" test "$(grep -c held "$id_marker" 2>/dev/null)" = 1
+	id_call 6 30
+	check "idempotency: once more, answered from the first call" \
+		bash -c '[ "$1" = 200 ] && jq -e ".result.content[0].text == \"held\"" <<<"$2" >/dev/null' _ "$id_code" "$id_body"
+	check "... still one change" test "$(grep -c held "$id_marker")" = 1
+	id_call 0 30
+	check "idempotency: the same key with other arguments is refused" \
+		bash -c 'jq -e ".error.code == -32602 and (.error.message | contains(\"was used for another call\"))" <<<"$1" >/dev/null' _ "$id_body"
+	check "... and does not run" test "$(grep -c held "$id_marker")" = 1
+	id_journal() { journalctl -u mcp-gateway.service -o cat --since "@$id_since" | grep -F "\"idempotency_key\":\"$id_key\""; }
+	id_journal | sed 's/^/  | /' | cut -c1-240
+	check "idempotency: one decision and one result for the key" \
+		bash -c '[ "$(grep -vF "\"event\"" <<<"$1" | grep -c "\"action\":\"tools.call\"")" = 1 ] &&
+			[ "$(grep -c "\"event\":\"mcp-result\"" <<<"$1")" = 1 ]' _ "$(id_journal)"
+	check "... and the repeats as such" \
+		bash -c '[ "$(grep "\"event\":\"mcp-repeat\"" <<<"$1" | grep -c "\"outcome\":\"answered\"")" = 2 ] &&
+			grep "\"event\":\"mcp-repeat\"" <<<"$1" | grep -q "\"outcome\":\"refused\""' _ "$(id_journal)"
+	rm -f "$id_marker"
+
 	# Whom an instance serves (#359): every instance gets
 	# MCP_GATEWAY_PRINCIPAL from the gateway, whatever account it runs as.
 	# The test server, run as a system account of its own, reads its

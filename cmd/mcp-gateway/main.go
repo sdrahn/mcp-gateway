@@ -360,6 +360,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		MaxContextsPerPrincipal:  gw.Limits.ContextsPerPrincipal,
 		TaskRetention:            gw.Tasks.Retention,
 		TaskMaxResultBytes:       gw.Tasks.MaxResultBytes,
+		IdempotencyWindow:        gw.Idempotency.Window,
 		MaxVersion:               gw.Agents.MaxVersion,
 		NoRequestTimeout:         gw.Agents.NoRequestTimeout,
 		NoWait:                   gw.Approvals.NoWait,

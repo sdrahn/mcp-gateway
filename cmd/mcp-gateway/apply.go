@@ -46,6 +46,7 @@ func applyConfig(log *slog.Logger, next, running *config.Gateway, certs *certSto
 		MaxContextsPerPrincipal:  next.Limits.ContextsPerPrincipal,
 		TaskRetention:            next.Tasks.Retention,
 		TaskMaxResultBytes:       next.Tasks.MaxResultBytes,
+		IdempotencyWindow:        next.Idempotency.Window,
 		MaxVersion:               next.Agents.MaxVersion,
 		NoRequestTimeout:         next.Agents.NoRequestTimeout,
 		NoWait:                   next.Approvals.NoWait,

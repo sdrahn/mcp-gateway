@@ -53,6 +53,9 @@ type Record struct {
 	// OverRate is the rate (obligation approval_over_rate) the call
 	// reached, which asked for an approval.
 	OverRate string
+	// IdempotencyKey is the client's key for the call (a repeat with it
+	// is answered from this call, event mcp-repeat).
+	IdempotencyKey string
 }
 
 // KernelSender delivers messages to the kernel audit subsystem.
@@ -127,6 +130,9 @@ func (a *Logger) Log(r Record) {
 	if r.OverRate != "" {
 		attrs = append(attrs, "over_rate", r.OverRate)
 	}
+	if r.IdempotencyKey != "" {
+		attrs = append(attrs, "idempotency_key", r.IdempotencyKey)
+	}
 	if r.ProposalDigest != "" {
 		attrs = append(attrs, "proposal_digest", r.ProposalDigest)
 		if r.FullArgs && r.Proposal != nil {
@@ -170,6 +176,8 @@ type Result struct {
 	// ProgressToken is the client's _meta.progressToken for the call: what
 	// the client said, for correlation only.
 	ProgressToken string
+	// IdempotencyKey is the client's key for the call, if it gave one.
+	IdempotencyKey string
 }
 
 // Result records the outcome of a forwarded call (event mcp-result), in
@@ -188,6 +196,9 @@ func (a *Logger) Result(r Result) {
 	attrs = append(attrs, "duration_ms", r.Duration.Milliseconds())
 	if r.ProgressToken != "" {
 		attrs = append(attrs, "progress_token", r.ProgressToken)
+	}
+	if r.IdempotencyKey != "" {
+		attrs = append(attrs, "idempotency_key", r.IdempotencyKey)
 	}
 	a.l.Info("mcp", attrs...)
 }

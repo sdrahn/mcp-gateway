@@ -1117,6 +1117,15 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	if err := checkParamKeys(params); err != nil {
 		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params: "+err.Error())
 	}
+	// An idempotency key (idempotency.go): the gateway's, never the
+	// server's.
+	var idemKey string
+	if m.Method == "tools/call" {
+		var err error
+		if idemKey, err = takeIdempotencyKey(params); err != nil {
+			return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params: "+err.Error())
+		}
+	}
 	if m.Method == "tools/call" && s.endpoint().aggregated {
 		var name string
 		if json.Unmarshal(params["name"], &name) == nil && name == capabilitiesTool {
@@ -1153,6 +1162,19 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	if err := s.checkArgNames(ctx, t); err != nil {
 		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params: "+err.Error())
 	}
+	if idemKey != "" && idemOf(ctx) == nil {
+		return s.idempotent(ctx, idemKey, t, func(ctx context.Context) (any, *jsonrpc.Error) {
+			return s.callTarget(ctx, m, params, t, round)
+		})
+	}
+	return s.callTarget(ctx, m, params, t, round)
+}
+
+// callTarget decides and makes the call m to t (params decoded; round,
+// a modern agent's input round, if any).
+func (s *Session) callTarget(ctx context.Context, m *jsonrpc.Message, params map[string]json.RawMessage,
+	t *callTarget, round *agentRound) (any, *jsonrpc.Error) {
+	idem := idemOf(ctx)
 	t.progress = s.progressOf(ctx, params)
 	if t.progress != nil {
 		ctx = context.WithValue(ctx, progressTokenKey{}, t.progress.token)
@@ -1160,6 +1182,11 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	s.takeProposal(m.Method, t, params)
 
 	decisionID := newDecisionID()
+	var idemKeyText string
+	if idem != nil {
+		idem.setDecision(decisionID)
+		idemKeyText = idem.key
+	}
 	var dec pep.Decision
 	var grant *pep.Grant
 	var in pep.Input
@@ -1202,7 +1229,8 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 		Name: t.resource.Name, Effect: string(dec.Effect), Reason: dec.Reason, GrantID: grantID,
 		DecisionID: decisionID, Args: t.args, FullArgs: ob != nil && ob.FullAudit, Reidentified: nReidentified,
 		Privileged: s.r.privileged(t.server), Scopes: p.Scopes, OutsideScopes: dec.OutsideScopes,
-		ProposalDigest: t.proposal.Digest(), Proposal: proposalRecord(t.proposal), OverRate: t.overRate})
+		ProposalDigest: t.proposal.Digest(), Proposal: proposalRecord(t.proposal), OverRate: t.overRate,
+		IdempotencyKey: idemKeyText})
 	if dec.Effect != pep.Allow {
 		if dec.OutsideScopes {
 			return s.scopeDenial(ctx, m.Method, dec)
@@ -1273,7 +1301,8 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 			return
 		}
 		r := audit.Result{Session: p.SessionID, Sub: p.Sub, Server: t.server, Name: t.resource.Name,
-			DecisionID: decisionID, ApprovalID: approvalID, GrantID: grantID, Duration: time.Since(started)}
+			DecisionID: decisionID, ApprovalID: approvalID, GrantID: grantID, Duration: time.Since(started),
+			IdempotencyKey: idemKeyText}
 		r.Outcome, r.Error = callOutcome(ctx, raw, rerr, sendErr)
 		if ob == nil || !ob.FullAudit {
 			r.Error = "" // the digest mode records no text of the call
@@ -1353,6 +1382,11 @@ func (s *Session) call(ctx context.Context, m *jsonrpc.Message) (any, *jsonrpc.E
 	}
 	deliver := func(ctx context.Context, to principal.Principal) (any, *jsonrpc.Error) {
 		return s.deliver(ctx, to, m.Method, t, in, ob, decisionID, raw)
+	}
+	if idem != nil {
+		// Kept for a repeat with the key, delivered to it as policy
+		// decides then.
+		idem.setDeliver(deliver, len(raw), s.r.settings().TaskMaxResultBytes)
 	}
 	if s.task != nil {
 		// A task's result is delivered when the agent fetches it.

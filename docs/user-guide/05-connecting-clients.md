@@ -521,6 +521,45 @@ this: the gateway makes the call as any other and keeps the result.
   of the gateway (chapter 3). Recorded in the journal as `mcp-task`
   (chapter 11).
 
+## Calls sent again: idempotency keys
+
+A client whose connection breaks while a `tools/call` runs gets no
+answer, and cannot tell whether the call ran. It should not simply send
+it again: the call may change the system, and running it twice is worse
+than failing once. With an **idempotency key** it may:
+
+```json
+{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {
+  "name": "patch", "arguments": {"patches": ["SUSE-2026-1234"]},
+  "_meta": {"io.github.sdrahn.mcp-gateway/idempotencyKey": "e-1/call_3"}}}
+```
+
+- **The key** is the client's: 1 to 128 printable ASCII characters
+  without spaces, unique among its calls (a UUID, or the client's id of
+  the call). The gateway takes it out before forwarding the call: the
+  server never sees it.
+- **Sent again** with the same key, server, tool and arguments, by the
+  same user (in any session, or none), the call is not run again: the
+  answer is the first call's, delivered as policy decides now (chapter
+  12, "Deciding again on delivery"). While the first runs, the repeat
+  waits for it; if it waits for an approval, that approval decides both.
+- **The same key for another call** (other arguments, tool or server)
+  is refused (`-32602`, "was used for another call"); nothing runs.
+- **The call runs to its end** although the client went away or
+  cancelled it: that is what lets the client ask again.
+- **Kept for** `idempotency.window` (10 min, chapter 3) after the call
+  ended, in memory: not across a restart of the gateway. A result larger
+  than `tasks.max_result_bytes` is not kept (the repeat is told the call
+  ran), and a user keeps at most 1000 keys at a time. A call that ended
+  with an error is kept too: to try again, use a new key.
+- **Audit:** the decision and `mcp-result` name the key
+  (`idempotency_key`); each repeat is recorded as `mcp-repeat`, so that
+  one run shows as one run (chapter 11).
+
+Without a key nothing changes: every call runs. A long call that the
+client wants to fetch later is better a task (above); a key protects a
+call the client already sent.
+
 ## Client compatibility
 
 The gateway speaks MCP 2024-11-05 to 2026-07-28 with agents: the
