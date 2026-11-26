@@ -88,6 +88,9 @@ type Gateway struct {
 	Pseudonymize Pseudonymize `yaml:"pseudonymize"`
 	// Tasks configures the tasks the gateway offers agents (D20).
 	Tasks Tasks `yaml:"tasks"`
+	// Idempotency configures the keys that let a client send a
+	// tools/call again without it running twice.
+	Idempotency Idempotency `yaml:"idempotency"`
 	// Agents configures how the gateway speaks to agents.
 	Agents Agents `yaml:"agents"`
 
@@ -145,6 +148,14 @@ type Tasks struct {
 	Retention time.Duration `yaml:"retention"`
 	// MaxResultBytes bounds a kept result; a larger one fails the task.
 	MaxResultBytes int `yaml:"max_result_bytes"`
+}
+
+// Idempotency configures idempotency keys of tools/call (a client's key
+// in the call's _meta): the outcome of a call with a key is kept this
+// long, and the same call sent again with the key is answered from it.
+type Idempotency struct {
+	// Window keeps a call's outcome this long after it ended.
+	Window time.Duration `yaml:"window"`
 }
 
 // Pseudonymize configures the pseudonym vaults (obligation
@@ -751,6 +762,7 @@ const (
 	DefaultContextsPerPrincipal  = 8
 	DefaultTaskRetention         = time.Hour
 	DefaultTaskMaxResultBytes    = 4 << 20
+	DefaultIdempotencyWindow     = 10 * time.Minute
 	// DefaultMCSRange is the upper quarter of the targeted policy's
 	// categories; libvirt is confined to the rest by the shipped drop-ins.
 	DefaultMCSRange        = "c768.c1023"
@@ -937,6 +949,9 @@ func (g *Gateway) setDefaults() {
 	}
 	if g.Tasks.MaxResultBytes == 0 {
 		g.Tasks.MaxResultBytes = DefaultTaskMaxResultBytes
+	}
+	if g.Idempotency.Window == 0 {
+		g.Idempotency.Window = DefaultIdempotencyWindow
 	}
 	if g.Approvals.ControlSocket == "" {
 		g.Approvals.ControlSocket = DefaultControl
@@ -1126,6 +1141,9 @@ func (g *Gateway) Validate() error {
 	}
 	if g.Tasks.MaxResultBytes < 1024 {
 		return errors.New("tasks.max_result_bytes: must be at least 1024")
+	}
+	if g.Idempotency.Window < time.Minute || g.Idempotency.Window > 24*time.Hour {
+		return errors.New("idempotency.window: must be between 1m and 24h")
 	}
 	if l := g.Policy.StatusListen; l != "" {
 		host, port, err := net.SplitHostPort(l)
