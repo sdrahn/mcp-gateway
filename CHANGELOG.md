@@ -5,7 +5,23 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.17.0 — 2026-11-26
+
+Storage health for agents, read-only: the new server `storage` reports
+the disks, the SMART health of NVMe and SATA disks, the error counters
+of the mounted btrfs file systems and their last scrub. Every call reads
+the devices itself; smartd need not run. For it, a server definition
+may now let an instance read device classes (`sandbox.read_devices`)
+instead of hiding `/dev`.
+
+Upgrading from 1.16.x needs no changes to server definitions, role data
+or custom policies. The SELinux module `mcp_gateway` adds the domain
+`mcpsrv_storage_t`. The server `storage` is a new, optional package; on
+a transactional system, install it in the same transaction as the
+update of `mcp-gateway-selinux`, or reboot in between (chapter 2), and
+link its profile into `/etc/mcp-gateway/servers.d` to offer it (chapter
+13). After the update, restart the gateway
+(`systemctl restart mcp-gateway.service`); the package does not.
 
 ### Added
 
