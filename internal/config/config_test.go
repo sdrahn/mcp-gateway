@@ -454,6 +454,8 @@ func TestLoadBackendsErrors(t *testing.T) {
 		"bad selinux type":     {"name: a\ncommand: [/usr/bin/a]\nselinux_type: unconfined_t\n"},
 		"bad isolation":        {"name: a\ncommand: [/usr/bin/a]\nisolation: global\n"},
 		"bad discovery":        {"name: a\ncommand: [/usr/bin/a]\ndiscovery: cached\n"},
+		"gateway's variable":   {"name: a\ncommand: [/usr/bin/a]\nenv:\n  MCP_GATEWAY_PRINCIPAL: x\n"},
+		"gateway's prefix":     {"name: a\ncommand: [/usr/bin/a]\nenv:\n  MCP_GATEWAY_OTHER: x\n"},
 		"contexts alone":       {"name: a\ncommand: [/usr/bin/a]\ncontexts: true\n"},
 		"view with network":    {"name: a\ncommand: [/usr/bin/a]\nnetwork: true\nnetwork_view: host\n"},
 		"unknown view":         {"name: a\ncommand: [/usr/bin/a]\nnetwork_view: all\n"},
@@ -902,5 +904,19 @@ func TestExposedSecret(t *testing.T) {
 	}
 	if _, err := ExposedSecret(filepath.Join(dir, "none")); err == nil {
 		t.Error("a missing file")
+	}
+}
+
+// The prefix MCP_GATEWAY_ is the gateway's: a definition naming such a
+// variable is refused with what to do.
+func TestReservedEnv(t *testing.T) {
+	b := &Backend{Name: "a", Command: []string{"/usr/bin/a"}, Env: map[string]string{"CALLER": "${USER}", "MCP_GATEWAY_PRINCIPAL": "{}"}}
+	b.ApplyDefaults()
+	if err := b.Validate(); err == nil || !strings.Contains(err.Error(), "env: MCP_GATEWAY_PRINCIPAL: the prefix MCP_GATEWAY_ is the gateway's") {
+		t.Errorf("%v", err)
+	}
+	delete(b.Env, "MCP_GATEWAY_PRINCIPAL")
+	if err := b.Validate(); err != nil {
+		t.Errorf("without it: %v", err)
 	}
 }
