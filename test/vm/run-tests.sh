@@ -1894,6 +1894,75 @@ if command -v semanage >/dev/null && command -v openssl >/dev/null; then
 	check "limits: ... the gateway says which it ended" hl_evicted
 	mcp-gateway-admin config unset limits.sessions_per_principal >/dev/null
 
+	# Whom an instance serves (#359): every instance gets
+	# MCP_GATEWAY_PRINCIPAL from the gateway, whatever account it runs as.
+	# The test server, run as a system account of its own, reads its
+	# environment (/proc/self/environ) for alice on the socket, for a
+	# remote agent without a local account and for alice's token.
+	id vmtest-delegate >/dev/null 2>&1 || useradd -r -M -d / -s /sbin/nologin vmtest-delegate
+	cat >/etc/mcp-gateway/servers.d/whoserves.yaml <<'END'
+name: whoserves
+command: ["/usr/libexec/mcpgw-privtest"]
+run_as: vmtest-delegate
+selinux_type: mcpsrv_privtest_t
+END
+	jq '.roles.tester.permissions += [{"server": "whoserves", "tool": "read_file"}] | .bindings.users["agent-x"] += ["tester"]' \
+		/etc/mcp-gateway/policy/rbac/data.yaml >/root/hl-data.json &&
+		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
+	check "whom an instance serves: the definition is accepted" /usr/bin/mcp-gateway --check --policy-data=
+	systemctl reload mcp-gateway.service
+	# ws_value FILTER: MCP_GATEWAY_PRINCIPAL in the environment that the
+	# answer on stdin carries at FILTER, split in jq (bash drops the NULs
+	# between the variables).
+	ws_value() { jq -r "($1 // \"\") | split(\"\\u0000\")[] | select(startswith(\"MCP_GATEWAY_PRINCIPAL=\")) | ltrimstr(\"MCP_GATEWAY_PRINCIPAL=\")" 2>/dev/null; }
+	ws_local() {
+		stool alice whoserves read_file '{"path":"/proc/self/environ"}' >/dev/null
+		ws=$(ws_value .content[0].text <<<"$out")
+		[ -n "$ws" ]
+	}
+	check "whom an instance serves: alice's instance reports it" eventually 20 ws_local
+	echo "  local: $ws"
+	check "... local, alice, her uid, no issuer" jq -e --argjson uid "$(id -u alice)" \
+		'. == {"kind": "local", "sub": "alice", "uid": $uid} and (keys_unsorted == ["kind", "sub", "uid"])' <<<"$ws"
+	ws_inst=""
+	for unit in $(systemctl list-units --type=service --state=running --plain --no-legend 'mcp-whoserves-*' | awk '{print $1}'); do
+		pid=$(systemctl show -p MainPID --value "$unit")
+		[ "$pid" != 0 ] && ws_inst=$pid
+	done
+	check "... while the instance runs as vmtest-delegate" test "$(proc_user "${ws_inst:-1}")" = vmtest-delegate
+	# ws_remote TOKEN: the same through the HTTPS listener, as TOKEN's
+	# principal; sets ws.
+	ws_remote() {
+		hl_post "$1" /mcp/whoserves "$hl_init"
+		hl_sid=$(sed -n 's/^[Mm][Cc][Pp]-[Ss]ession-[Ii][Dd]: *//p' <<<"$hl_hdr")
+		hl_post "$1" /mcp/whoserves '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+			"Mcp-Session-Id: $hl_sid" "MCP-Protocol-Version: 2025-06-18"
+		hl_post "$1" /mcp/whoserves '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"/proc/self/environ"}}}' \
+			"Mcp-Session-Id: $hl_sid" "MCP-Protocol-Version: 2025-06-18"
+		ws=$(ws_value .result.content[0].text <<<"$hl_body")
+		[ -n "$ws" ]
+	}
+	ws_agent=$(hl_tok "aud=$hl_url&sub=agent-x&scope=mcp")
+	check "whom an instance serves: a remote agent's instance reports it" ws_remote "$ws_agent"
+	echo "  remote: $ws"
+	check "... remote, agent-x, the issuer, no uid" \
+		jq -e '. == {"kind": "remote", "sub": "agent-x", "iss": "https://idp.vmtest"} and (keys_unsorted == ["kind", "sub", "iss"])' <<<"$ws"
+	check "whom an instance serves: alice's token, mapped to her account" \
+		ws_remote "$(hl_tok "aud=$hl_url&sub=alice&preferred_username=alice&scope=mcp")"
+	echo "  remote, mapped: $ws"
+	check "... remote, alice, the issuer and her uid" jq -e --argjson uid "$(id -u alice)" \
+		'. == {"kind": "remote", "sub": "alice", "iss": "https://idp.vmtest", "uid": $uid}' <<<"$ws"
+	check "... never the account it runs as" bash -c '! grep -qF vmtest-delegate <<<"$1"' _ "$ws"
+	# A definition may not set it.
+	printf 'env:\n  MCP_GATEWAY_PRINCIPAL: "{\\"kind\\":\\"local\\",\\"sub\\":\\"root\\",\\"uid\\":0}"\n' >>/etc/mcp-gateway/servers.d/whoserves.yaml
+	ws_refused() { ! /usr/bin/mcp-gateway --check --policy-data= >/root/ws-check.txt 2>&1 && grep -qF "env: MCP_GATEWAY_PRINCIPAL: the prefix MCP_GATEWAY_ is the gateway's" /root/ws-check.txt; }
+	check "whom an instance serves: a definition that sets the variable is refused" ws_refused
+	rm -f /etc/mcp-gateway/servers.d/whoserves.yaml
+	jq '.roles.tester.permissions -= [{"server": "whoserves", "tool": "read_file"}] | del(.bindings.users["agent-x"])' \
+		/etc/mcp-gateway/policy/rbac/data.yaml >/root/hl-data.json &&
+		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
+	systemctl reload mcp-gateway.service
+
 	# config unset takes setup http's keys out of the drop-in again.
 	for k in listen cert_file key_file issuer audience local_user_claim scopes groups_claim; do
 		mcp-gateway-admin config unset "http.$k" >/dev/null

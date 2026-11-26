@@ -1423,6 +1423,11 @@ func (b *Backend) setDefaults() {
 	}
 }
 
+// ReservedEnvPrefix starts the environment variables the gateway sets
+// for an instance (MCP_GATEWAY_PRINCIPAL); a definition's env may not name
+// one.
+const ReservedEnvPrefix = "MCP_GATEWAY_"
+
 // Validate checks a backend definition.
 func (b *Backend) Validate() error {
 	if err := checkVersion(b.Version); err != nil {
@@ -1439,6 +1444,11 @@ func (b *Backend) Validate() error {
 			return fmt.Errorf("tool_notes: %s: empty note", tool)
 		case utf8.RuneCountInString(note) > MaxToolNote:
 			return fmt.Errorf("tool_notes: %s: longer than %d characters", tool, MaxToolNote)
+		}
+	}
+	for _, k := range slices.Sorted(maps.Keys(b.Env)) {
+		if strings.HasPrefix(k, ReservedEnvPrefix) {
+			return fmt.Errorf("env: %s: the prefix %s is the gateway's (it sets MCP_GATEWAY_PRINCIPAL, whom an instance serves, itself)", k, ReservedEnvPrefix)
 		}
 	}
 	if b.Landlock != nil {
