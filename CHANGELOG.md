@@ -5,7 +5,19 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.17.2 — 2026-11-26
+
+A tool call may be sent again without running twice: a client names it
+with an idempotency key, and the same call sent again with the key is
+answered from the first. An agent whose connection is cut while a call
+runs (OpenShell's proxy at every token renewal) can ask for the outcome
+instead of reporting a failure that may in fact have run (Custos R8,
+#363).
+
+Upgrading from 1.17.1 needs no changes to server definitions, role data
+or custom policies; `gateway.yaml` may set `idempotency.window`. After
+the update, restart the gateway (`systemctl restart
+mcp-gateway.service`); the package does not.
 
 ### Added
 
