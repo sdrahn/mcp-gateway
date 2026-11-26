@@ -6,8 +6,9 @@
 //	install_rpm {path}   rpm -i --nodeps <path>
 //	remove_rpm  {name}   rpm -e <name>
 //	hold        {seconds, marker}
-//	                     waits, then writes marker; ignores cancellation,
-//	                     as a running RPM transaction must
+//	                     waits, then appends a line to marker (one per
+//	                     call); ignores cancellation, as a running RPM
+//	                     transaction must
 //	read_credential {name}  $CREDENTIALS_DIRECTORY/name
 //	list_credentials        the entries of /run/credentials
 //	read_file   {path}   a file's content (what the sandbox lets it see)
@@ -81,7 +82,15 @@ func call(name string, args map[string]string) map[string]any {
 		var secs int
 		_, _ = fmt.Sscan(args["seconds"], &secs)
 		time.Sleep(time.Duration(secs) * time.Second)
-		if err := os.WriteFile(args["marker"], []byte("held\n"), 0o644); err != nil {
+		// A line per call: the marker counts the calls that ran.
+		f, err := os.OpenFile(args["marker"], os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+		if err == nil {
+			_, err = f.WriteString("held\n")
+			if cerr := f.Close(); err == nil {
+				err = cerr
+			}
+		}
+		if err != nil {
 			return text(err.Error(), true)
 		}
 		return text("held", false)
