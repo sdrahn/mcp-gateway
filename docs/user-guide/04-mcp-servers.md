@@ -304,7 +304,7 @@ Server names must be unique across all files.
 | `proxy` | none | with an `https://` `url`: an HTTP proxy to tunnel through, `http://host:port` (or `https://`). See [Through a proxy](#through-a-proxy) |
 | `proxy_headers` | none | with `proxy`: headers sent to the proxy (map), typically `Proxy-Authorization`; `${CREDENTIAL:name}` as in `headers` |
 | `sign_in` | none | with `url`: each user signs in to the server with their own account there (`scopes`, `client_id`, `client_secret`). See [Signing in for each user](#signing-in-for-each-user) |
-| `env` | none | extra environment variables (map); `${HOME}`, `${USER}` and `${UID}` are replaced as in `command`; a variable naming `${UID}` is left out for a principal without a local account (`XDG_RUNTIME_DIR: /run/user/${UID}`) |
+| `env` | none | extra environment variables (map); `${HOME}`, `${USER}` and `${UID}` are replaced as in `command`; a variable naming `${UID}` is left out for a principal without a local account (`XDG_RUNTIME_DIR: /run/user/${UID}`); names starting with `MCP_GATEWAY_` are the gateway's and refused ("Whom an instance serves") |
 | `selinux_type` | `mcpsrv_generic_t` (`mcpsrv_http_t` with `url`) | the SELinux domain instances run in; must be `mcpsrv_<name>_t` (see [SELinux domains](#selinux-domains-for-servers)) |
 | `isolation` | `principal` | `principal`: one instance per principal, shared by that principal's sessions. `session`: a new instance per session; agents of MCP 2026-07-28 have no session and share one instance per principal, as with `principal`, unless `contexts` gives them their own. |
 | `contexts` | `false` | with `isolation: session`: agents of MCP 2026-07-28 may open contexts, each with an instance of its own. See [Contexts](#contexts-for-agents-without-sessions) |
@@ -441,8 +441,9 @@ Each instance runs as a transient systemd service named
 - **stdio** connected to the gateway (a private socket pair); **stderr**
   goes to the journal of the unit;
 - the **environment** `PATH=/usr/local/bin:/usr/bin`, `LANG=C.UTF-8`,
-  `HOME` and `USER` of the principal (if it has a local account), and
-  the definition's `env`;
+  `HOME` and `USER` of the principal (if it has a local account), the
+  definition's `env`, and `MCP_GATEWAY_PRINCIPAL`, whom the instance
+  serves ("Whom an instance serves" below);
 - the **working directory** of the principal's home (local principals);
 - a **sandbox**: `NoNewPrivileges`, `ProtectSystem=strict` (the whole
   file system read-only except `/dev`, `/proc`, `/sys` and the home as
@@ -461,6 +462,52 @@ Each instance runs as a transient systemd service named
   users of different remote principals) cannot touch each other;
 - with `landlock`: the instance's trees and ports, enforced by the kernel
   ("Landlock" above).
+
+### Whom an instance serves
+
+Every instance gets `MCP_GATEWAY_PRINCIPAL`, set by the gateway: the
+principal the instance serves, as compact JSON with its keys in this
+order. A server running under a fixed account (`run_as: <account>` or
+`dynamic`) can tell from it whom it acts for; it is the same for every
+`run_as`.
+
+| Field | Value |
+|---|---|
+| `kind` | `local` (a client on the Unix socket), `remote` (a client with a token, over HTTPS) or `none` |
+| `sub` | the local user name; for a remote principal the token's subject, or the local account it is mapped to (`http.local_user_claim`), as policy sees it |
+| `iss` | the token's issuer (`http.issuer`); remote principals only |
+| `uid` | the local uid: local principals, and remote ones mapped to a local account |
+
+```text
+MCP_GATEWAY_PRINCIPAL={"kind":"local","sub":"alice","uid":1001}
+MCP_GATEWAY_PRINCIPAL={"kind":"remote","sub":"agent-x","iss":"https://idp.example.com/realms/agents"}
+MCP_GATEWAY_PRINCIPAL={"kind":"remote","sub":"bob","iss":"https://idp.example.com/realms/agents","uid":1002}
+MCP_GATEWAY_PRINCIPAL={"kind":"none"}
+```
+
+- **An instance that runs for no one** gets `{"kind":"none"}`: the
+  shared discovery instance (`discovery: shared`) and a server started
+  by `mcp-gateway-admin inspect` or the doctor. A server tells it apart
+  from a principal, and both from a gateway before 1.18, which sets no
+  such variable.
+- **Always one principal.** Every isolation mode gives an instance to
+  one principal: `isolation: principal` keys it by transport and
+  subject (a remote subject is unique: there is one `http.issuer`),
+  `isolation: session` by the client's session, and a context
+  ("Contexts for agents without sessions") belongs to the principal
+  that opened it. The value is that principal's for the instance's
+  life.
+- **The gateway's alone.** The prefix `MCP_GATEWAY_` is reserved: a
+  definition whose `env` names such a variable is refused, and the
+  gateway sets its own after the definition's.
+- **Information, not a right.** It grants nothing: policy decides every
+  call as before, and the variable is no credential to pass on. Nothing
+  else of the principal is in it: no token, other claims, groups,
+  scopes or roles.
+
+A server that believes it should check `kind` and, for a remote
+principal, `iss` before `sub`: a local account `agent-x` and a token
+whose subject is `agent-x` are different principals.
 
 ### Seeing the host's network
 

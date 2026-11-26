@@ -5,6 +5,19 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Added
+
+- Every server instance is told whom it serves: `MCP_GATEWAY_PRINCIPAL`,
+  compact JSON with `kind` (`local`, `remote`, or `none` for an instance
+  that runs for no one, such as the shared discovery instance), `sub`,
+  `iss` (remote principals) and `uid` (with a local account), whatever
+  account the instance runs as (chapter 4, "Whom an instance serves").
+  It informs and grants nothing. The prefix `MCP_GATEWAY_` is the
+  gateway's: a definition whose `env` names such a variable is refused
+  (#359).
+
 ## v1.17.0 — 2026-11-26
 
 Storage health for agents, read-only: the new server `storage` reports
