@@ -466,3 +466,44 @@ func TestCheckUser(t *testing.T) {
 		t.Error("$USER in env")
 	}
 }
+
+// MCP_GATEWAY_PRINCIPAL: whom an instance serves, compact JSON in a fixed
+// field order; the gateway's value, whatever the definition's env says;
+// {"kind":"none"} for an instance that runs for no one.
+func TestPrincipalEnv(t *testing.T) {
+	uid := uint32(1001)
+	mapped := uint32(1002)
+	for _, c := range []struct {
+		name string
+		p    principal.Principal
+		want string
+	}{
+		{"local", principal.Principal{Sub: "alice", UID: &uid, Home: "/home/alice", Groups: []string{"wheel"},
+			Transport: principal.TransportUnix, SELinux: "unconfined_u:unconfined_r:unconfined_t:s0", SessionID: "s1"},
+			`{"kind":"local","sub":"alice","uid":1001}`},
+		{"remote", principal.Principal{Sub: "agent-x", Issuer: "https://idp.example.com/realms/agents",
+			Groups: []string{"agents"}, Scopes: []string{"mcp"}, Roles: []string{"admin"}, Transport: principal.TransportHTTP,
+			Cert: &principal.Cert{Subject: "CN=agent-x"}, Expires: time.Now().Add(time.Hour)},
+			`{"kind":"remote","sub":"agent-x","iss":"https://idp.example.com/realms/agents"}`},
+		{"remote mapped to a local account", principal.Principal{Sub: "bob", Issuer: "https://idp.example.com", UID: &mapped,
+			Home: "/home/bob", Transport: principal.TransportHTTP},
+			`{"kind":"remote","sub":"bob","iss":"https://idp.example.com","uid":1002}`},
+		{"discovery", principal.Discovery, `{"kind":"none"}`},
+		{"inspect", principal.Principal{Sub: "root", Transport: principal.TransportInternal, SessionID: "inspect"}, `{"kind":"none"}`},
+	} {
+		if got := PrincipalValue(c.p); got != c.want {
+			t.Errorf("%s: %s, want %s", c.name, got, c.want)
+		}
+		// In the environment, also against a definition that tries to
+		// set it (config refuses one; the gateway's value wins anyway).
+		b := &config.Backend{Name: "agents", Command: []string{"/usr/bin/x"},
+			Env: map[string]string{PrincipalEnv: `{"kind":"local","sub":"root","uid":0}`}}
+		env := environment(b, c.p)
+		if !slices.Contains(env, PrincipalEnv+"="+c.want) {
+			t.Errorf("%s: environment %q", c.name, env)
+		}
+		if n := len(slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return !strings.HasPrefix(kv, PrincipalEnv+"=") })); n != 1 {
+			t.Errorf("%s: %d values of %s", c.name, n, PrincipalEnv)
+		}
+	}
+}

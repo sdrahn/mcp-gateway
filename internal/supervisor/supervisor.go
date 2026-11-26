@@ -125,8 +125,44 @@ func landlockRules(r landlock.Rules, p principal.Principal) landlock.Rules {
 	return r
 }
 
+// PrincipalEnv is the variable that tells an instance whom it serves
+// (docs/user-guide/04-mcp-servers.md, "Whom an instance serves"). The
+// gateway sets it; a definition may not (config.ReservedEnvPrefix).
+const PrincipalEnv = "MCP_GATEWAY_PRINCIPAL"
+
+// principalInfo is PrincipalEnv's value, in this field order.
+type principalInfo struct {
+	Kind string  `json:"kind"`
+	Sub  string  `json:"sub,omitempty"`
+	Iss  string  `json:"iss,omitempty"`
+	UID  *uint32 `json:"uid,omitempty"`
+}
+
+// PrincipalValue is PrincipalEnv's value for an instance of p: compact
+// JSON naming the kind (local: a local client on the Unix socket; remote:
+// a client with a token over HTTP), the subject, the issuer of a remote
+// principal and the local uid when there is one. An instance that runs
+// for no one (the shared discovery instance, inspect) gets
+// {"kind":"none"}. Nothing else of the principal: no token, claims,
+// groups, scopes or roles. It informs the backend and grants nothing.
+func PrincipalValue(p principal.Principal) string {
+	var info principalInfo
+	switch p.Transport {
+	case principal.TransportUnix:
+		info = principalInfo{Kind: "local", Sub: p.Sub, UID: p.UID}
+	case principal.TransportHTTP:
+		info = principalInfo{Kind: "remote", Sub: p.Sub, Iss: p.Issuer, UID: p.UID}
+	default:
+		info = principalInfo{Kind: "none"}
+	}
+	out, _ := json.Marshal(info)
+	return string(out)
+}
+
 // environment returns the backend's environment for p: a minimal base plus
-// the backend's own variables, sorted for determinism.
+// the backend's own variables, sorted for determinism. PrincipalEnv is the
+// gateway's: set after the definition's, it wins (config refuses a
+// definition that names it).
 func environment(b *config.Backend, p principal.Principal) []string {
 	env := map[string]string{
 		"PATH": "/usr/local/bin:/usr/bin",
@@ -144,6 +180,7 @@ func environment(b *config.Backend, p principal.Principal) []string {
 		}
 		env[k] = expandVars(v, p)
 	}
+	env[PrincipalEnv] = PrincipalValue(p)
 	out := make([]string, 0, len(env))
 	for k, v := range env {
 		out = append(out, k+"="+v)

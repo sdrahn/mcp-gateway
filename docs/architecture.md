@@ -610,6 +610,13 @@ Approvers learn about pending approvals without watching the inbox:
   the meantime fail at once with "backend unavailable; retry in …". An
   instance that ran for a minute before failing starts the count afresh,
   and stops by the gateway (idle, session end) are not failures.
+- **Whom an instance serves:** the gateway sets `MCP_GATEWAY_PRINCIPAL`
+  in every instance's environment: `kind` (`local`, `remote`, or `none`
+  for one that runs for no one, such as the shared discovery instance),
+  `sub`, `iss` (remote) and `uid` (with a local account), as compact
+  JSON. It informs a backend under a fixed account whom it acts for and
+  grants nothing; definitions may not set variables with the prefix
+  `MCP_GATEWAY_`.
 - **Credentials:** the gateway **never forwards client tokens** to
   backends (token passthrough is prohibited by the MCP authorization
   specification). Backend secrets come from systemd credentials.
@@ -1977,6 +1984,10 @@ when a mapping exists (SSSD/IPA: `sub` → Unix user), otherwise
 their own uid.
 *Rationale:* keeps DAC meaningful where accounts exist, still isolates
 where they don't.
+A dynamic user (or any `run_as` account) identifies no principal, so
+every instance is told whom it serves in `MCP_GATEWAY_PRINCIPAL`
+(§5.7): a backend under a fixed account can act for a remote principal
+it knows by issuer and subject.
 
 **D2 — Endpoint style.**
 *Decision (accepted):* offer **both**: aggregated `/mcp` (and `mcp-connect --server all`)
