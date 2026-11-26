@@ -1911,11 +1911,13 @@ END
 		cat /root/hl-data.json >/etc/mcp-gateway/policy/rbac/data.yaml
 	check "whom an instance serves: the definition is accepted" /usr/bin/mcp-gateway --check --policy-data=
 	systemctl reload mcp-gateway.service
-	# ws_value TEXT: MCP_GATEWAY_PRINCIPAL in the environment TEXT read.
-	ws_value() { tr '\0' '\n' <<<"$1" | sed -n 's/^MCP_GATEWAY_PRINCIPAL=//p'; }
+	# ws_value FILTER: MCP_GATEWAY_PRINCIPAL in the environment that the
+	# answer on stdin carries at FILTER, split in jq (bash drops the NULs
+	# between the variables).
+	ws_value() { jq -r "($1 // \"\") | split(\"\\u0000\")[] | select(startswith(\"MCP_GATEWAY_PRINCIPAL=\")) | ltrimstr(\"MCP_GATEWAY_PRINCIPAL=\")" 2>/dev/null; }
 	ws_local() {
 		stool alice whoserves read_file '{"path":"/proc/self/environ"}' >/dev/null
-		ws=$(ws_value "$(jq -r '.content[0].text // empty' <<<"$out" 2>/dev/null)")
+		ws=$(ws_value .content[0].text <<<"$out")
 		[ -n "$ws" ]
 	}
 	check "whom an instance serves: alice's instance reports it" eventually 20 ws_local
@@ -1937,7 +1939,7 @@ END
 			"Mcp-Session-Id: $hl_sid" "MCP-Protocol-Version: 2025-06-18"
 		hl_post "$1" /mcp/whoserves '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"/proc/self/environ"}}}' \
 			"Mcp-Session-Id: $hl_sid" "MCP-Protocol-Version: 2025-06-18"
-		ws=$(ws_value "$(jq -r '.result.content[0].text // empty' <<<"$hl_body" 2>/dev/null)")
+		ws=$(ws_value .result.content[0].text <<<"$hl_body")
 		[ -n "$ws" ]
 	}
 	ws_agent=$(hl_tok "aud=$hl_url&sub=agent-x&scope=mcp")
