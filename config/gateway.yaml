@@ -220,6 +220,13 @@ tasks:
   retention: 1h
   max_result_bytes: 4194304
 
+# A client may name a tools/call with an idempotency key (in its _meta):
+# sent again with the key, the same call is answered from the first
+# instead of running twice. The outcome is kept this long after the call
+# ended (1m to 24h), in memory.
+idempotency:
+  window: 10m
+
 # The newest MCP version spoken with a client, by the name it gives
 # (clientInfo): one capped below 2026-07-28 uses the initialize
 # handshake. Kit (mcp-go 1.1) gives up on approvals after about 75 s on

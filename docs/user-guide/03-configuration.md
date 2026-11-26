@@ -135,6 +135,7 @@ within `policy.watch_interval` (10 s).
 | `notifications.email` (all keys) | apply to the next mail; the password file is read again |
 | `limits` | apply to the next session, instance, request or task |
 | `tasks.retention`, `tasks.max_result_bytes` | apply to tasks that end from then on |
+| `idempotency.window` | applies to calls with a key that end from then on |
 | `pseudonymize.vault_idle` | applies to the next request |
 | `agents.max_version`, `agents.no_request_timeout` | apply to the next request or session (`no_request_timeout`: to the next round) |
 | `supervisor.idle_timeout` | applies to instances that become idle from then on |
@@ -412,6 +413,21 @@ and token, and the gateway keeps its result for the user.
 |---|---|---|
 | `tasks.retention` | `1h` | keep a task, and its result, this long after its call ended (fetched or not); at least `1m`. Tasks do not survive a restart of the gateway |
 | `tasks.max_result_bytes` | `4194304` (4 MiB) | a larger result fails the task ("the result exceeds tasks.max_result_bytes"); at least `1024` |
+
+### Calls sent again
+
+```yaml
+idempotency:
+  window: 10m
+```
+
+A client may name a `tools/call` with an idempotency key (chapter 5,
+"Calls sent again: idempotency keys"): sent again with the key, the
+call is answered from the first instead of running twice.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `idempotency.window` | `10m` | keep the outcome of a call with a key this long after it ended; between `1m` and `24h`. Outcomes are kept in memory, not across a restart; results larger than `tasks.max_result_bytes` are not kept |
 
 ### Protocol versions per client
 
