@@ -488,7 +488,7 @@ MCP_GATEWAY_PRINCIPAL={"kind":"none"}
 - **An instance that runs for no one** gets `{"kind":"none"}`: the
   shared discovery instance (`discovery: shared`) and a server started
   by `mcp-gateway-admin inspect` or the doctor. A server tells it apart
-  from a principal, and both from a gateway before 1.18, which sets no
+  from a principal, and both from a gateway before 1.17.1, which sets no
   such variable.
 - **Always one principal.** Every isolation mode gives an instance to
   one principal: `isolation: principal` keys it by transport and
