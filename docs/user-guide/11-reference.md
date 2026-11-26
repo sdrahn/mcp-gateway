@@ -608,6 +608,7 @@ Decision records (journal of `mcp-gateway.service`, `"audit": true`):
 | `over_rate` | the rate (obligation `approval_over_rate`) the call reached, which asked for an approval |
 | `proposal_digest` | SHA-256 of the client's proposal for the call, if it sent one (chapter 7, "The agent's account of a call") |
 | `proposal` | the proposal itself, only with the obligation `audit: "full"` |
+| `idempotency_key` | the client's idempotency key for the call, if it gave one (chapter 5, "Calls sent again: idempotency keys") |
 
 Event records carry `event` (the operation below), `ok` and fields of
 the event. The event `mcp-pseudonymize` is recorded in the journal only
@@ -623,7 +624,13 @@ expired with its result not fetched (chapter 5, "Long calls: tasks"):
 `principal`, `transport`, `server`. So is `mcp-proposal-dropped`, a
 call's proposal the gateway did not keep because it was malformed or too
 large (the call went on without it): `session`, `sub`, `server`,
-`name`, `reason`.
+`name`, `reason`. So is `mcp-repeat`, a call sent again with an
+idempotency key (chapter 5): `session`, `sub`, `server`, `name`,
+`idempotency_key`, `decision_id` (the first call's) and `outcome`:
+`answered` (with the first call's outcome), `waiting` (for the first
+call, which runs; `answered` follows) or `refused` (the key was used for
+another call). A repeat has no decision record and no `mcp-result` of
+its own: one run is one decision and one result.
 
 The outcome of each tool call the gateway forwarded, `mcp-result`, is
 recorded in the journal only too, when the server's answer comes back or
@@ -641,6 +648,7 @@ that policy denied were not forwarded and have none:
 | `error` | with `tool_error` and `error`: the result's first text or the error's message, on one line, at most 200 bytes; only with the obligation `audit: "full"` (the digest mode records no text of the call) |
 | `duration_ms` | from forwarding the call to its end |
 | `progress_token` | the client's `_meta.progressToken` for the call, if it sent one. Client-supplied: for correlating with the client's own records only |
+| `idempotency_key` | the client's idempotency key for the call, if it gave one |
 
 ```json
 {"audit": true, "event": "mcp-result", "session": "4f1c…", "sub": "alice",

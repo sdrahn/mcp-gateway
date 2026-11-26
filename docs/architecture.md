@@ -1461,6 +1461,36 @@ authorization server's issuer; client ID metadata documents, which the
 specification now prefers to dynamic registration, the gateway already
 serves.
 
+#### 5.11.7 Idempotency keys
+
+A client whose connection is cut while a `tools/call` runs cannot tell
+whether the call ran (an agent behind a proxy that closes connections
+at every token renewal; Custos R8). It may name the call with a key in
+its `_meta`, `io.github.sdrahn.mcp-gateway/idempotencyKey` (1 to 128
+printable ASCII characters), which the gateway takes out before
+forwarding. Per principal and key the router keeps the call's outcome
+in memory for `idempotency.window` (10 min) after it ended:
+
+- The first call with a key runs as any other, but on a context that
+  the client's connection ending or a cancellation does not end: the
+  request waits for the call, keeping its instance, and the outcome is
+  kept: the result, with its delivery (`deliver`, D20), or the error.
+- A call with the same key and the same server, tool and arguments
+  (compared as a digest of the arguments as decided) is not decided nor
+  run again: it waits for the first if that runs, and gets its outcome,
+  the result delivered as policy decides now for the principal as it is
+  now. A pending approval stays the one approval.
+- The key with another server, tool or arguments is refused (invalid
+  params) and nothing runs. Without a key nothing changes.
+- An answer that is not an outcome (a modern agent asked for input, a
+  tool of the gateway's own) is not kept: the key may be used again. A
+  result larger than `tasks.max_result_bytes` is not kept; a repeat is
+  told the call ran. A principal keeps at most 1000 keys.
+
+The audit shows one run as one decision and one `mcp-result`, both with
+`idempotency_key`; each repeat is an event `mcp-repeat` (the key, the
+first call's decision id, `answered`, `waiting` or `refused`).
+
 ## 6. Policy model
 
 ### 6.1 Packages

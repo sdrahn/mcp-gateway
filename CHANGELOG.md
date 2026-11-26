@@ -5,6 +5,20 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Added
+
+- Idempotency keys for `tools/call` (chapter 5, "Calls sent again:
+  idempotency keys"; Custos R8): a client names a call with
+  `io.github.sdrahn.mcp-gateway/idempotencyKey` in its `_meta`. Sent
+  again with the key, the same call by the same user is not run again
+  but answered from the first, waiting for it while it runs (a pending
+  approval stays the one approval); the key with another call is
+  refused. A call with a key runs to its end when the client goes away.
+  Outcomes are kept for `idempotency.window` (10 min). The decision and
+  `mcp-result` name the key; a repeat is the event `mcp-repeat` (#363).
+
 ## v1.17.1 — 2026-11-26
 
 A server instance is told whom it serves: `MCP_GATEWAY_PRINCIPAL` names
