@@ -4,7 +4,8 @@ Status: maintained with the code; decisions D1–D14 accepted (section 9).
 Scope: design of a policy-enforcing proxy that exposes MCP servers to
 local and remote MCP clients: local servers that speak stdio, and
 servers that speak Streamable HTTP, on the host or elsewhere (section
-5.7.2).
+5.7.2). From 2.0 also in a container, in front of a Kubernetes
+cluster's MCP servers (section 5.12, D23).
 
 This document explains why the gateway is built the way it is. How to
 install, configure and run it is the [user guide](user-guide/README.md);
@@ -14,11 +15,11 @@ install, configure and run it is the [user guide](user-guide/README.md);
 |---|---|
 | 1–3 | problem statement, goals and non-goals, terminology |
 | 4 | architecture overview: the parts and how a request flows through them |
-| 5 | components: transports, identity, router, enforcement, OPA, approval broker, instance supervisor, SELinux module, audit, Cockpit |
+| 5 | components: transports, identity, router, enforcement, OPA, approval broker, instance supervisor, SELinux module, audit, Cockpit; the gateway in containers and Kubernetes (5.12) |
 | 6 | policy model: packages, input and decision documents, role data, policy lifecycle |
 | 7 | key flows: a call needing approval, remote session setup, discovery |
 | 8 | threat model (summary) |
-| 9 | decisions D1–D22, each with its rationale |
+| 9 | decisions D1–D23, each with its rationale |
 | 10 | repository layout |
 | 11 | roadmap: the steps by release, with what each delivered |
 | 12 | open items |
@@ -68,7 +69,9 @@ Access must be governed. The gateway shall
   kernel (local) or an external OIDC IdP (remote).
 - Content-level safety filtering of tool output (prompt-injection
   detection etc.). The design leaves a hook for it (obligations, §6.4).
-- High availability / multi-host clustering. One gateway per host.
+- High availability / multi-host clustering. One gateway per host; in
+  Kubernetes (2.0, §5.12) one replica per deployment until the state
+  the gateway keeps in memory has a shared store.
 - SLES 15 and Leap 15, and with them AppArmor: the confinement model is
   SELinux.
 
@@ -1491,6 +1494,150 @@ The audit shows one run as one decision and one `mcp-result`, both with
 `idempotency_key`; each repeat is an event `mcp-repeat` (the key, the
 first call's decision id, `answered`, `waiting` or `refused`).
 
+### 5.12 Containers and Kubernetes (2.0)
+
+*Status: design for 2.0 (D23, roadmap steps 46–48); nothing of it is
+implemented yet.*
+
+The gateway is built for a host: it starts instances as systemd units,
+confines them with SELinux domains and MCS pairs, knows local clients by
+their socket credentials, and writes to the kernel audit log. The same
+gateway is wanted in front of the MCP servers of a Kubernetes cluster,
+where none of that exists in the same form. Most of the gateway does not
+depend on the host: the router, the HTTP listener with OAuth and mTLS,
+the policy (OPA), approvals, obligations and pseudonymization, servers
+that speak HTTP (§5.7.2) and the audit records themselves. What does
+sits behind one interface, the launcher of instances
+(`supervisor.Launcher`, `Start(ctx, backend, principal, id)`), and a few
+startup checks. 2.0 carves out a container mode from that seam instead
+of forking the gateway: one code base, the same configuration, policy
+inputs and audit records on both levels.
+
+#### 5.12.1 What depends on the host
+
+| Part | On a host | In a container / Kubernetes |
+|---|---|---|
+| Starting instances | systemd transient units over D-Bus (`supervisor.Systemd`) | the container launcher (§5.12.2) or the Kubernetes launcher (§5.12.3) |
+| Confining an instance | `DynamicUser`, `run_as: principal` or an account, the systemd sandbox, `DeviceAllow`, a SELinux domain per server and an MCS pair per instance, Landlock | step 1: none beyond the gateway's own pod (so only servers that speak HTTP); step 2: a pod per instance with its `securityContext`, a NetworkPolicy, seccomp and an MCS level (§5.12.3) |
+| Local principals | the Unix socket, `SO_PEERCRED` / `SO_PEERSEC`, local accounts, polkit | none: every principal is remote (§5.12.4) |
+| Audit | the journal and the kernel audit log (`TRUSTED_APP`) | the same records as JSON on stdout, for the cluster's log pipeline; no kernel audit (`audit.kernel: auto` already does without, §12) |
+| Approvers | Cockpit, the CLI on the host, the approval page, webhooks, mail | the approval page, `approvals --gateway`, webhooks and mail (D21): no Cockpit |
+| State | `/var/lib/mcp-gateway` (grants, keys, clients, reviews); in memory: sessions, pending approvals, tasks, idempotency keys, contexts | a persistent volume, one replica (§5.12.5) |
+| Configuration | `/usr/etc` and `/etc/mcp-gateway`, watched with inotify | the same files from ConfigMaps (role data, server definitions, `gateway.yaml`) and Secrets (TLS key, credentials) |
+
+#### 5.12.2 Container mode (step 46)
+
+A setting, `deployment: container` (default `host`), and an image: the
+gateway, `mcp-http-connector` and OPA (a second container of the pod, as
+the `mcp-opa` service is on a host).
+
+- **Instances** start as child processes of the gateway (the existing
+  exec launcher, which is no longer for development only in this mode):
+  the connectors of servers that speak HTTP (§5.7.2). The servers
+  themselves run as their own Deployments and Services, outside the
+  gateway's pod. A definition with `command` (a stdio server) is refused
+  in this mode until step 47: a child process shares the gateway's pod,
+  its account and its secrets, which is no isolation at all.
+- **What has no meaning here is refused, not ignored:** `run_as` other
+  than the default, `selinux_type`, `privileged`, `sandbox.*`,
+  `network_view`, `landlock`, `requires` with a host path, the Unix
+  socket listener and local principals, polkit, Cockpit. `mcp-gateway
+  --check` names each key it refuses and why.
+- **Principals** come from the HTTP listener only (§5.12.4); policy
+  inputs are unchanged (`transport: http`), so the shipped policy and
+  custom ones work as they are.
+- **Audit:** the journal records go to stdout (they are JSON already);
+  kernel audit is off. The doctor checks what applies to a container
+  (the listener, OPA, the identity provider, the servers' URLs) and
+  skips the host's (SELinux labels, units, polkit).
+- **Packaging:** an OCI image built from the same sources as the RPMs
+  (on openSUSE BCI), and a Helm chart or plain manifests: a Deployment
+  with one replica, the OPA container, a Service for the listener,
+  ConfigMaps and Secrets, a PersistentVolumeClaim for the state.
+
+#### 5.12.3 A Kubernetes launcher for stdio servers (step 47)
+
+An instance (per principal, session or context, as now: §5.7, D22) is a
+pod the gateway creates through the Kubernetes API, in a namespace of
+its own, with a ServiceAccount allowed to create, watch and delete pods
+there and nothing else.
+
+- **stdio across the pod boundary:** the server's container runs a small
+  shim, `mcp-stdio-bridge`, as its entrypoint: it starts the server and
+  relays its stdio to the gateway over one Streamable HTTP or gRPC
+  stream, authenticated with a token the gateway gave the pod (not
+  `kubectl attach`, which needs more rights and loses messages on
+  reconnects). The server needs no change, as on a host.
+- **The sandbox, translated:** each systemd property of §5.7 maps to the
+  pod: `NoNewPrivileges` to `allowPrivilegeEscalation: false`,
+  `ProtectSystem=strict` to `readOnlyRootFilesystem`, `PrivateTmp` to an
+  `emptyDir`, `CapabilityBoundingSet=` to `capabilities.drop: [ALL]`
+  (and `sandbox.capabilities` to `add`), `SystemCallFilter` to the
+  `RuntimeDefault` seccomp profile, `MemoryMax` and `TasksMax` to
+  resource limits, `RuntimeMaxSec` to `activeDeadlineSeconds`, "no
+  network" to a NetworkPolicy that denies all egress, `network: true` to
+  one that allows it, `IPAddressAllow` of a connector to one naming the
+  server's addresses. `run_as` becomes `runAsUser` / `runAsNonRoot`
+  (`dynamic`: a high uid per instance), and the instance's MCS pair goes
+  into `seLinuxOptions.level` where the nodes run SELinux, so that two
+  instances of one image still cannot touch each other. A domain per
+  server (`selinux_type`) needs the node's policy, which the cluster
+  administrator owns: the launcher passes `seLinuxOptions.type` only
+  where the definition names one and a setting allows it.
+- **Lifecycle:** the pool (idle timeout, limits per principal, restart
+  backoff, stopping on session end) is the gateway's, as now; the
+  launcher creates and deletes pods and reports a pod that ended. Image,
+  resources and node selection come from the definition (new keys
+  `image`, `resources`, `node_selector`, `tolerations`), checked as
+  definitions are.
+- **Credentials** (`credentials`) become a Secret mounted into the pod
+  at `$CREDENTIALS_DIRECTORY`; `MCP_GATEWAY_PRINCIPAL` and the other
+  environment variables are set as on a host.
+
+#### 5.12.4 Principals in a cluster
+
+There is no local client: every principal is remote, authenticated by
+the HTTP listener (§5.1, §5.2) with a bearer token, or mTLS.
+
+- **Agents in the cluster** present projected ServiceAccount tokens
+  (audience: the gateway's resource), validated against the cluster's
+  OIDC issuer, which is configured as an issuer like any other. Their
+  subject is `system:serviceaccount:<namespace>:<name>`; role data binds
+  roles to those names, or to the groups the token carries.
+- **People and outside agents** sign in with the organization's
+  identity provider as on a host.
+- **More than one issuer:** a cluster's agents and its people usually
+  have different issuers, while a host gateway has one (`http.issuer`).
+  2.0 accepts a list of issuers, each with its own audience and claims;
+  `iss` is already part of a principal and of its key (`principalKey`),
+  and `MCP_GATEWAY_PRINCIPAL` names it (§5.7). The instance key of
+  §5.7 takes the issuer too, which a single issuer made unnecessary.
+- `local_user_claim` has no meaning (no local accounts) and is refused
+  in container mode.
+
+#### 5.12.5 State and replicas
+
+The gateway keeps state that a second replica would not see: sessions
+and their streams, pending approvals and their waiting calls, grants,
+tasks, idempotency keys (§5.11.7), contexts, the pseudonym vaults.
+2.0 runs **one replica**, with its files on a persistent volume, as a
+host runs one gateway; a restart ends what lives in memory there as it
+does on a host. Several replicas (step 48) need that state in a shared
+store (with sessions and tasks pinned to the replica that runs their
+calls, since an instance's stdio cannot move); that is designed when it
+is needed, not in 2.0.
+
+#### 5.12.6 What stays out
+
+- **Privileged servers** (§5.7.1) change a host as a whole: they stay on
+  the host, behind a host gateway, which a cluster gateway may reach as
+  a server that speaks HTTP.
+- **Cockpit** is a host's console; in a cluster the approval page and
+  webhooks serve approvers (D21), and the control API is reached with
+  `mcp-gateway-admin --gateway`.
+- **Server setups** (`mcp-gateway-profile-*`) configure host services
+  (systemd, firewalld, zypp): they stay host packages.
+
 ## 6. Policy model
 
 ### 6.1 Packages
@@ -2698,6 +2845,45 @@ has many conversations); a header or cookie (no standard client sends
 one back); handles for every `isolation: session` server without
 setting (it changes servers' tool schemas, which administrators should
 choose); contexts that survive a restart (the instances do not).
+
+**D23 — The gateway in containers and Kubernetes: one gateway, a
+launcher per platform.**
+*Decision (proposed 2026-11-27 for 2.0.0, roadmap steps 46–48):* the
+gateway runs in a container and in front of a Kubernetes cluster's MCP
+servers as the same program, with `deployment: container`: the router,
+policy, approvals, obligations and audit are unchanged; what depends on
+the host is replaced behind the launcher interface and a few startup
+checks (§5.12). Step 46 ships a container image that serves remote
+principals only and servers that speak HTTP (their connectors as child
+processes; stdio servers refused); step 47 adds a Kubernetes launcher
+that runs each instance as a pod of its own, the systemd sandbox
+translated into the pod's security context and a NetworkPolicy, with an
+MCS level per instance where the nodes run SELinux, and a bridge in the
+pod that carries stdio; 2.0 accepts more than one token issuer (a
+cluster's ServiceAccount tokens next to the organization's identity
+provider). One replica, with its state on a volume; several replicas
+need a shared store (step 48). Host deployments keep working as they
+are: host configuration, policy inputs and audit records stay
+compatible, and anything removed follows the deprecation rule of 1.x
+(deprecated in one minor release, removed in the next).
+*Rationale:* the policy model, approvals and audit are what the gateway
+is for, and they do not depend on the host; one code base keeps them
+identical on both levels and lets a policy written for one apply to the
+other. Isolating each instance is what the host gives through systemd
+and SELinux; in a cluster a pod per instance gives the same boundary
+with the platform's own means. Servers that speak HTTP need no new
+isolation, so they come first.
+*Considered:* the gateway as a sidecar of each MCP server (no
+per-principal instances, policy and approvals per pod); a separate
+"cloud" gateway (two code bases, two policy models); running the host
+gateway privileged in a pod with systemd (it would need the node's
+systemd and SELinux policy, and confine nothing the cluster sees);
+`kubectl attach` for stdio (more rights, messages lost on reconnect);
+several replicas in 2.0 (needs a shared store for state that is in
+memory today).
+*Why a major version:* a new deployment target with its own
+configuration keys and a multi-issuer `http` block; the host package
+stays compatible, so upgrading a host from 1.x needs no changes.
 
 ## 10. Repository layout
 
@@ -4519,6 +4705,43 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       revision noticed within seconds (`mcp-policy-change` with the new
       revision).
 
+Steps 46–48 lead to 2.0: the gateway in containers and in front of a
+Kubernetes cluster's MCP servers (D23, §5.12). Planned:
+
+46. **Container mode** (2.0; D23; planned):
+    - `deployment: container`: instances as child processes (the exec
+      launcher, for connectors only); definitions with `command` and the
+      host-only keys refused with the reason (`mcp-gateway --check`);
+      remote principals only; audit to stdout, no kernel audit; the
+      doctor's container checks;
+    - more than one token issuer (`http.issuers`), each with audience
+      and claims; the instance key with the issuer; `http.issuer` stays
+      as the one-issuer form;
+    - the image (openSUSE BCI, built from the same sources as the RPMs)
+      and manifests or a Helm chart: one replica, the OPA container,
+      ConfigMaps, Secrets, a volume for the state;
+    - tests: unit tests of the mode's checks, an e2e test of the image
+      with a test identity provider and a server that speaks HTTP, and a
+      kind (Kubernetes in Docker) job in CI with a ServiceAccount token
+      as the agent's credential; live reload from a ConfigMap (§12).
+47. **A Kubernetes launcher for stdio servers** (2.0; D23; planned):
+    - an instance as a pod in the gateway's instance namespace, created
+      and deleted by the pool as instances are now; the sandbox of §5.7
+      translated (§5.12.3); an MCS level per instance where the nodes run
+      SELinux; the definition keys `image`, `resources`, `node_selector`,
+      `tolerations`;
+    - `mcp-stdio-bridge`: the pod's entrypoint, relaying the server's
+      stdio to the gateway over one authenticated stream;
+    - credentials as Secrets at `$CREDENTIALS_DIRECTORY`;
+    - tests: unit tests of the translation (a definition to its pod
+      spec, compared with the systemd properties of the same
+      definition), the bridge, and the kind job with a stdio server per
+      principal: one pod each, a NetworkPolicy without egress, the pod
+      deleted after the idle timeout.
+48. **Several replicas** (after 2.0; D23; open): the state the gateway
+    keeps in memory (sessions, pending approvals, tasks, idempotency
+    keys, contexts) in a shared store, sessions pinned to their replica.
+
 ## 12. Open items
 
 - HTTP streams: a request or log message of a stdio server while a
@@ -4550,6 +4773,11 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
   `policy.status_listen` (step 45), else polled.
 - The kernel audit subsystem is optional (`audit.kernel: auto`); in
   containers without `CAP_AUDIT_WRITE` only the journal records remain.
+- Containers and Kubernetes (2.0, §5.12): whether the inotify watch of
+  the configuration follows a ConfigMap's update (Kubernetes swaps the
+  `..data` symlink of the mounted directory; the watched files do not
+  change themselves) is to be tested in step 46; a cluster gateway
+  reaches a host's privileged servers only through a host gateway.
 - Servers with `sign_in` (§5.7.3): from step 22 a running instance gets
   a new access token when its server refuses one, so the first request
   after a token expired waits for a refresh (about a second); a server
