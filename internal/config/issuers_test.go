@@ -65,3 +65,34 @@ func TestIssuers(t *testing.T) {
 		}
 	}
 }
+
+// Without http.issuer, a first issuer that looks like a cluster's (no
+// scopes, or a token_file) is warned about: it is the one people sign in
+// with (#412). With http.issuer, or a people's provider first, nothing.
+func TestSignInIssuerWarning(t *testing.T) {
+	without := func(issuers string) string {
+		return strings.Replace(httpYAML, "  issuer: http://127.0.0.1:9000/realms/mcp\n", "  issuers:\n"+issuers, 1)
+	}
+	cluster := "    - issuer: https://kubernetes.default.svc\n      audience: mcp-gateway\n      scopes: []\n"
+	people := "    - issuer: https://idp.example.com\n"
+	tokenFile := "    - issuer: https://kubernetes.default.svc\n      token_file: /run/token\n"
+	for name, tc := range map[string]struct {
+		yaml string
+		warn bool
+	}{
+		"cluster first":            {without(cluster + people), true},
+		"token_file first":         {without(tokenFile + people), true},
+		"people first":             {without(people + cluster), false},
+		"http.issuer and cluster":  {httpYAML + "  issuers:\n" + cluster, false},
+		"one issuer, its defaults": {without(people), false},
+	} {
+		g, err := LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", tc.yaml))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		warned := slices.ContainsFunc(g.Warnings, func(w string) bool { return strings.Contains(w, "is the issuer people sign in with") })
+		if warned != tc.warn {
+			t.Errorf("%s: warnings %q", name, g.Warnings)
+		}
+	}
+}

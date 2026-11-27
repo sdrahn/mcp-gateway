@@ -132,6 +132,11 @@ minor release (with a warning) and removed in the next.
   lines stay within what SMTP allows: a long argument (with
   `include_args`) or notice text could make a line longer than 998
   characters, and a mail server refuse the mail (#411).
+- `mcp-gateway --check`, the gateway's log at start and both doctors
+  warn when, without `http.issuer`, the first of `http.issuers` (the
+  issuer people sign in with) looks like a cluster's: no scopes, or a
+  `token_file` (#412). The doctor in the gateway shows gateway.yaml's
+  warnings under "configuration".
 - Chapter 10 says what upgrading a host from 1.x to 2.0 changes:
   nothing in its configuration, role data or policy; the console is new
   where the approval page is set up.

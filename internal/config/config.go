@@ -1247,6 +1247,9 @@ func (g *Gateway) Validate() error {
 		if g.HTTP.ListTTL < 0 {
 			return errors.New("http.list_ttl: must not be negative")
 		}
+		if w := g.HTTP.signInIssuerWarning(); w != "" && !slices.Contains(g.Warnings, w) {
+			g.Warnings = append(g.Warnings, w)
+		}
 	}
 	return nil
 }

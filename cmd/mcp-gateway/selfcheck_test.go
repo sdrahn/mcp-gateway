@@ -104,6 +104,13 @@ func TestSelfCheck(t *testing.T) {
 	if r := m["state volume"]; r.Status != doctor.Fail {
 		t.Errorf("no state volume %+v", r)
 	}
+	// gateway.yaml's warnings (#412).
+	reloader.restart = nil
+	c.gw.Warnings = []string{"http.issuers[0] (https://kubernetes.default.svc) is the issuer people sign in with"}
+	m = byCheck(c.Run(context.Background()).Results)
+	if r := m["configuration"]; r.Status != doctor.Warn || !strings.Contains(strings.Join(r.Details, " "), "people sign in with") {
+		t.Errorf("warnings %+v", r)
+	}
 }
 
 // A webhook's check posts a ping to its receiver: not at the start or a
