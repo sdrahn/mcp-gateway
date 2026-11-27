@@ -15,6 +15,13 @@ minor release (with a warning) and removed in the next.
   and format characters to a terminal as escapes (`\u001B`). Escape
   sequences in a client's name reached the terminal of whoever listed
   clients or approvals (#409).
+- A call's arguments, where approvers read them (the approval page and
+  its reviews, approval mail, `mcp-gateway-admin approvals show` and
+  `reviews show`, Cockpit's Approvals tab), show characters that do not
+  show as themselves, bidirectional controls and zero-width ones among
+  them, as escapes (`\u202E`): an agent could make an argument read as
+  other than it was (#410). `tools/check-tree` refuses such characters
+  in the sources.
 
 ## v1.17.2 — 2026-11-26
 
