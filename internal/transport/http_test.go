@@ -695,10 +695,13 @@ func TestResumeRequestStream(t *testing.T) {
 // resuming (D20): not one written while a connection is attached, also
 // on a resumed connection after what it replayed.
 func TestResumeMakesResponseAgain(t *testing.T) {
-	srv, _ := newTestServer(t, nil)
+	srv, h := newTestServer(t, nil)
 	sid := initialize(t, srv, "/mcp", "alice")
 	_, elID := askAndDrop(t, srv, sid)
 	answer(t, srv, sid)
+	// The answer is taken (202) before the response is written: resumed
+	// before that, the response comes live, as the second half checks.
+	waitResponded(t, h, sid, "2")
 	resp := resume(t, srv, sid, elID)
 	events := make(chan sseEvent2, 8)
 	go sseWithIDs(resp, events)
@@ -719,6 +722,33 @@ func TestResumeMakesResponseAgain(t *testing.T) {
 	answer(t, srv, sid)
 	if live := nextEv(t, events); live.msg == nil || live.msg.Key() != "2" || strings.Contains(string(live.msg.Result), "again") {
 		t.Fatalf("live response on a resumed stream: %+v", live)
+	}
+}
+
+// waitResponded waits until the request stream of key in session sid
+// holds its response.
+func waitResponded(t *testing.T, h *HTTPHandler, sid, key string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		h.mu.Lock()
+		s := h.sessions[sid]
+		h.mu.Unlock()
+		done := false
+		if s != nil {
+			s.mu.Lock()
+			for _, st := range s.streams {
+				done = done || (st.key == key && st.done)
+			}
+			s.mu.Unlock()
+		}
+		if done {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no response to %s in session %s:\n%s", key, sid, streamState(h))
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

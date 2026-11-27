@@ -491,9 +491,53 @@ func TestStatus(t *testing.T) {
 	}
 	s.RestartPending = func() bool { return true }
 	s.ServersError = func() string { return "web.yaml: unknown key" }
-	if rec := call(t, s, 1001, "GET", "/v1/status", ""); !strings.Contains(rec.Body.String(), `"restart_pending":true`) ||
-		!strings.Contains(rec.Body.String(), `"servers_error":"web.yaml: unknown key"`) {
-		t.Fatalf("%d %s", rec.Code, rec.Body)
+	// Why it was refused for root and those who may review policy, that
+	// it was for others (#413): a caller whose uid is neither root's nor
+	// the gateway's own (the test's, 1001 on CI's runner).
+	alice := broker.Approver{Name: "alice", UID: uint32(os.Getuid()) + 1}
+	if rec := callAs(t, s, alice, "cli", "GET", "/v1/status", ""); !strings.Contains(rec.Body.String(), `"restart_pending":true`) ||
+		!strings.Contains(rec.Body.String(), `"servers_error":"the last change was refused`) || strings.Contains(rec.Body.String(), "unknown key") {
+		t.Fatalf("alice: %d %s", rec.Code, rec.Body)
+	}
+	if rec := callAs(t, s, broker.Approver{Name: "root", UID: 0}, "cli", "GET", "/v1/status", ""); !strings.Contains(rec.Body.String(), `"servers_error":"web.yaml: unknown key"`) {
+		t.Fatalf("root: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// A caller has at most maxStreamsPerCaller event streams open, and all
+// callers maxStreams; one that ends frees its place (#413).
+func TestEventStreamsLimited(t *testing.T) {
+	s, _, _ := setup(t)
+	a := broker.Approver{Name: "u-someone", Remote: true, NoUID: true}
+	for range maxStreamsPerCaller {
+		if !s.openStream(a) {
+			t.Fatal("refused below the limit")
+		}
+	}
+	if s.openStream(a) {
+		t.Fatal("one stream too many for a caller")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequestWithContext(WithCaller(ctx, a, "console"), "GET", "/v1/events", nil)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("GET /v1/events beyond the limit: %d %s", rec.Code, rec.Body)
+	}
+	s.closeStream(a)
+	if !s.openStream(a) {
+		t.Fatal("a closed stream's place not freed")
+	}
+	// Another caller has its own, up to the limit in all.
+	other := broker.Approver{Name: "u-other", Remote: true, NoUID: true}
+	for i := 0; s.openStream(broker.Approver{Name: fmt.Sprint("u-", i), Remote: true, NoUID: true}); i++ {
+	}
+	if s.openStream(other) {
+		t.Fatal("beyond the limit in all")
+	}
+	if s.streamsN != maxStreams {
+		t.Fatalf("%d streams counted", s.streamsN)
 	}
 }
 

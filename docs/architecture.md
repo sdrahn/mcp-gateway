@@ -1590,7 +1590,12 @@ there and nothing else.
   relays its stdio to the gateway over one Streamable HTTP or gRPC
   stream, authenticated with a token the gateway gave the pod (not
   `kubectl attach`, which needs more rights and loses messages on
-  reconnects). The server needs no change, as on a host.
+  reconnects). The server needs no change, as on a host. The stream is
+  plain HTTP on the pod network, guarded by that token and the
+  instance's NetworkPolicy (only the gateway's pods reach the bridge):
+  a cluster that must not carry the calls and their results in the
+  clear needs a network that encrypts between nodes (a CNI with
+  WireGuard or IPsec) (#413).
 - **The sandbox, translated:** each systemd property of §5.7 maps to the
   pod: `NoNewPrivileges` to `allowPrivilegeEscalation: false`,
   `ProtectSystem=strict` to `readOnlyRootFilesystem`, `PrivateTmp` to an
