@@ -84,6 +84,7 @@ Build targets: SLES 16 and Leap 16 (supported), openSUSE Tumbleweed
 | `mcp-gateway-cockpit` | the Cockpit page (`/usr/share/cockpit/mcp-gateway`): approvals and grants, servers and instances, role bindings, audit records |
 | `mcp-gateway-desktop` | `mcp-gateway-notify`: desktop notifications for approvals the logged-in user may decide on (XDG autostart) |
 | `mcp-gateway-fs-server` | the file server `mcp-server-fs`, registered as server `fs` (replaces `mcp-gateway-demo-server`), and as `gateway-docs` on the documentation; `profiles/gateway-docs-mcp-docs.yaml` runs `gateway-docs` on mcp-docs instead (Suggests: `mcp-docs`) |
+| `mcp-gateway-container` | the files of the gateway's container image (2.0, container mode): the gateway, `mcp-gateway-admin`, the connector, the sign-in helper, `mcp-policy-render`, the stdio bridge of the Kubernetes launcher (`mcp-stdio-bridge`, linked statically) and the policy; no services, accounts or dependencies. For an image built from the packages (`packaging/container/obs`), not for a host |
 | `mcp-gateway-tests` | the functional tests for openQA and other test systems (`/usr/libexec/mcp-gateway/tests/run-tests.sh --disposable --results DIR`: TAP and JUnit results), their test client and test server; they change the system for good, so only for test systems ([test/openqa](../../test/openqa/README.md)) |
 
 `mcp-gateway` requires `opa` (the Open Policy Agent binary at

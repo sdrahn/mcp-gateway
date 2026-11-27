@@ -76,8 +76,42 @@ minor release (with a warning) and removed in the next.
   the approval page: the status and reload errors, servers and their
   instances, sessions, tasks, sign-ins, the policy and its what-if, with
   the actions the approver rules allow (stop, end, cancel, sign out).
+- The doctor in the gateway (2.0, D23, roadmap step 48; chapter 16,
+  "Operating"; #391): in container mode the gateway runs its own checks
+  (configuration, policy engine, certificate, identity providers' key
+  sets, approval page, webhooks, servers' URLs, state volume, the
+  Kubernetes API) at the start, after reloads and on request, and logs
+  what fails. `GET`/`POST /v1/doctor`, the console's Doctor page and
+  `mcp-gateway-admin doctor --gateway URL` show them; the plain doctor
+  asks the gateway when its configuration is of container mode.
+
+- The gateway's containers on one host (2.0; chapter 17, "Containers on
+  one host"): `deploy/podman` is the pod for `podman kube play` with a
+  Quadlet unit for systemd, `deploy/docker/compose.yaml` the same for
+  Docker Compose, both configured from a directory of the host that the
+  gateway reloads.
+- The chart's `secrets` (chapter 16): Secrets mounted read-only into
+  the gateway's container for the files `gateway.yaml` and the server
+  definitions name (the approval page's client secret, webhooks'
+  secrets, the mail password, servers' credentials), readable by the
+  gateway's account only.
+- Chapter 16 walks through a gateway in a cluster step by step, from an
+  empty cluster to an agent's first call and an operator's approval,
+  with a troubleshooting table.
+
+- The container image from the packages (2.0; `packaging/container`,
+  "Building in OBS"): the subpackage `mcp-gateway-container` holds the
+  image's files, the stdio bridge among them, without services or
+  dependencies; `packaging/container/obs/Dockerfile` installs it into
+  BCI-Micro in an OBS container repository. `packaging/container/README.md`
+  is the guide to building, verifying and publishing the image on SUSE
+  systems.
 
 ### Changed
+
+- The container image builds on SLES 16's BCI-Micro
+  (`registry.suse.com/bci/bci-micro:16.0`) by default, instead of SLE 15
+  SP7's (`IMAGE_BASE`).
 
 - `mcp-policy-render` skips hidden directories below the role data's
   directory (a ConfigMap's `..<timestamp>` directory, `.git`): they are

@@ -58,6 +58,24 @@ servers: {}
 # The role data, data.yaml (chapter 6); empty: the shipped default.
 rbac: {}
 
+# Secrets for the files gateway.yaml and the server definitions name:
+# each Secret is mounted read-only into the gateway's container, at
+# /etc/mcp-gateway/secrets/<name>/<key> or at mountPath, readable by the
+# gateway's account only (0440, group 10001). The gateway reads them as
+# files on a host: the approval page's client secret
+# (approvals.page.client_secret_file), webhooks' secrets
+# (approvals.webhooks[].secret_file), the mail password
+# (notifications.email.password_file), and the servers' credentials (a Secret at
+# /etc/mcp-gateway/credentials, for credentials: [name]). Most are read
+# at start: after changing a Secret, restart the gateway
+# (kubectl rollout restart deployment/mcp-gateway).
+secrets: []
+#  - name: mcp-gateway-console
+#    # approvals.page.client_secret_file:
+#    #   /etc/mcp-gateway/secrets/mcp-gateway-console/client-secret
+#  - name: mcp-gateway-credentials
+#    mountPath: /etc/mcp-gateway/credentials
+
 # The listener's certificate: a Secret of type kubernetes.io/tls.
 tls:
   secretName: mcp-gateway-tls

@@ -2,7 +2,8 @@
 // string selects variants: ?source=server (bundle from a bundle server),
 // ?nokey (no signing key on the host), ?reload (a failed reload and keys
 // that need a restart; systemctl reload fails), ?default (no role data in
-// /etc: the shipped default in force), ?yaml (data.yaml in force).
+// /etc: the shipped default in force), ?yaml (data.yaml in force), ?demo
+// (an approval as the README's screenshot shows it, tools/screenshots).
 (function () {
     const query = new URLSearchParams(window.location.search);
     const log = window.__calls = [];
@@ -63,7 +64,14 @@
             ? { restart_pending: false, config_error: "/etc/mcp-gateway/gateway.yaml: yaml: line 3: did not find expected key",
                 restart_needed: ["socket_group"] }
             : { restart_pending: query.has("restart") },
-        "/v1/approvals": () => [{ id: "a1", channel: "oob", principal: { sub: "alice", transport: "unix", client: { name: "kit" } },
+        "/v1/approvals": () => query.has("demo") ? [{ id: "a7", channel: "oob",
+            principal: { sub: "alice", transport: "unix", client: { name: "claude-code", version: "2.1" } },
+            action: "tools.call", server: "zypp", name: "install_packages", args: { packages: ["git-lfs"] },
+            prompt: "Install packages on this host?", scopes: ["once", "session"],
+            expires: new Date(Date.now() + 240000).toISOString(), waiting: true,
+            proposal: { summary: "Install git-lfs to fetch the large test fixtures of the repository",
+                        steps: ["zypper install git-lfs", "git lfs pull"], context: { task: "fix the failing CI job" },
+                        client_supplied: true } }] : [{ id: "a1", channel: "oob", principal: { sub: "alice", transport: "unix", client: { name: "kit" } },
             action: "tools.call", server: "fs", name: "write_file", args: { path: "/home/alice/x" }, prompt: "Write?",
             scopes: ["once", "session"], expires: new Date(Date.now() + 60000).toISOString(), waiting: true,
             proposal: { summary: "Save the notes <b>now</b>", steps: ["write x"], context: { activity: "e-1" },

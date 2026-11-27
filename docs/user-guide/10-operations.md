@@ -205,7 +205,9 @@ but keeps running.
 
 ### Self-check
 
-Start with the self-check, as root:
+Start with the self-check, as root (a gateway in a container runs its
+own checks, which `mcp-gateway-admin doctor --gateway URL` and the
+console show; chapter 16, "Operating"):
 
 ```bash
 mcp-gateway-admin doctor

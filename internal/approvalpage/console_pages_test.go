@@ -12,6 +12,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/control"
+	"github.com/sdrahn/mcp-gateway/internal/doctor"
 	"github.com/sdrahn/mcp-gateway/internal/router"
 )
 
@@ -155,5 +156,46 @@ func TestConsolePagesOthers(t *testing.T) {
 	_, body = post(t, c, f.srv.URL+"/console/instances/fs-ivy-1/stop", url.Values{"csrf": {csrf}}, map[string]string{"Origin": f.srv.URL})
 	if len(g.stopped) != 0 || !strings.Contains(body, "refused") {
 		t.Errorf("zed stopped %v: %s", g.stopped, body)
+	}
+}
+
+type pageDoctor struct{ runs int }
+
+func (d *pageDoctor) Report(context.Context) control.DoctorReport {
+	return control.DoctorReport{Checked: time.Now(), Trigger: "start", Results: []doctor.Result{
+		{Check: "policy", Status: doctor.OK, Summary: "OPA decides"},
+		{Check: "server tickets", Status: doctor.Fail, Summary: "tickets.svc:80 does not answer", Details: []string{"check its url"}}}}
+}
+
+func (d *pageDoctor) Run(ctx context.Context) control.DoctorReport {
+	d.runs++
+	r := d.Report(ctx)
+	r.Trigger = "request"
+	return r
+}
+
+func TestConsoleDoctor(t *testing.T) {
+	// Without the doctor in the gateway: what to do instead.
+	f, _ := consolePagesFixture(t)
+	c := f.browser(t)
+	if _, body, _ := get(t, c, f.srv.URL+"/console/doctor"); !strings.Contains(body, "run mcp-gateway-admin doctor") || strings.Contains(body, "Check again") {
+		t.Errorf("no doctor: %s", body)
+	}
+
+	b, err := broker.New(broker.Options{Timeout: time.Minute, Policy: jackOnly{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &pageDoctor{}
+	f = newFixture(t, func(pg *Page) { pg.Control = (&control.Server{Broker: b, Doctor: d}).Handler() })
+	c = f.browser(t)
+	code, body, _ := get(t, c, f.srv.URL+"/console/doctor")
+	if code != 200 || !strings.Contains(body, `<span class="status fail">fail</span>`) || !strings.Contains(body, "tickets.svc:80 does not answer") ||
+		!strings.Contains(body, "at the start") || d.runs != 0 {
+		t.Fatalf("doctor: %d %s", code, body)
+	}
+	_, body = post(t, c, f.srv.URL+"/console/doctor", url.Values{"csrf": {csrfOf(t, body)}}, map[string]string{"Origin": f.srv.URL})
+	if d.runs != 1 || !strings.Contains(body, "on request") {
+		t.Errorf("check again: %d %s", d.runs, body)
 	}
 }

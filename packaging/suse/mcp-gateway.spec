@@ -51,6 +51,19 @@ OPA policy (RBAC, argument constraints), sensitive calls can require a
 human approval, and each MCP server instance runs as a confined systemd
 transient unit in its own SELinux domain.
 
+%package container
+Summary:        The gateway's files for its container image
+Group:          Productivity/Networking/Security
+
+%description container
+The files of the gateway's container image (container mode,
+packaging/container): the gateway and mcp-gateway-admin, the connector,
+the sign-in helper, the role data renderer, the stdio bridge that the
+Kubernetes launcher copies into each stdio server's pod, the policy and
+the shipped role data. Without services, accounts or dependencies, for
+an image built from the packages (zypper --installroot); on a host,
+install mcp-gateway.
+
 %package selinux
 Summary:        SELinux policy module for mcp-gateway
 License:        MIT
@@ -323,7 +336,7 @@ building, pushing and removing images need an approval.
 
 %build
 export GOFLAGS="-mod=vendor"
-%make_build build build-tests VERSION=%{version} LIBEXECDIR=%{_libexecdir}
+%make_build build build-tests bin/mcp-stdio-bridge VERSION=%{version} LIBEXECDIR=%{_libexecdir}
 make selinux
 %sysusers_generate_pre packaging/sysusers.d/mcp-gateway.conf %{name} %{name}.conf
 %sysusers_generate_pre profiles/systemd/sysusers.conf %{name}-profile-systemd %{name}-profile-systemd.conf
@@ -337,6 +350,8 @@ make selinux
     DATADIR=%{_datadir} SYSCONFDIR=%{_sysconfdir} DISTCONFDIR=%{_distconfdir} \
     UNITDIR=%{_unitdir} SYSUSERSDIR=%{_sysusersdir} TMPFILESDIR=%{_tmpfilesdir} \
     SELINUXDIR=%{_datadir}/selinux/packages/%{selinuxtype}
+# The stdio bridge is for the container image only (mcp-gateway-container).
+install -Dm0755 bin/mcp-stdio-bridge %{buildroot}%{_libexecdir}/mcp-gateway/mcp-stdio-bridge
 
 %check
 export GOFLAGS="-mod=vendor"
@@ -457,6 +472,28 @@ fi
 %{_tmpfilesdir}/%{name}.conf
 %{_datadir}/polkit-1/rules.d/50-mcp-gateway.rules
 %{_datadir}/polkit-1/actions/io.github.sdrahn.mcp-gateway.policy
+
+# What make install-container stages for the image (the Makefile); the
+# files but the bridge are mcp-gateway's too, the same ones.
+%files container
+%license LICENSE
+%{_bindir}/mcp-gateway
+%{_bindir}/mcp-gateway-admin
+%dir %{_libexecdir}/mcp-gateway
+%{_libexecdir}/mcp-gateway/mcp-gateway-tools
+%{_libexecdir}/mcp-gateway/mcp-http-connector
+%{_libexecdir}/mcp-gateway/mcp-oauth-helper
+%{_libexecdir}/mcp-gateway/mcp-policy-render
+%{_libexecdir}/mcp-gateway/mcp-stdio-bridge
+%dir %{_datadir}/mcp-gateway
+%dir %{_datadir}/mcp-gateway/servers.d
+%dir %{_datadir}/mcp-gateway/policy
+%dir %{_datadir}/mcp-gateway/policy/mcp
+%{_datadir}/mcp-gateway/policy/mcp/*.rego
+%dir %{_datadir}/mcp-gateway/schema
+%{_datadir}/mcp-gateway/schema/rbac.schema.json
+%dir %{_datadir}/mcp-gateway/rbac
+%{_datadir}/mcp-gateway/rbac/data.yaml
 
 %files selinux
 %dir %{_datadir}/selinux/packages/%{selinuxtype}

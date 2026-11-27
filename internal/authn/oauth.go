@@ -546,3 +546,31 @@ func (k jwk) publicKey() (crypto.PublicKey, error) {
 	}
 	return nil, fmt.Errorf("unsupported key type %q", k.Kty)
 }
+
+// IssuerStatus is what the gateway holds of an issuer's key set (the
+// doctor in the gateway): its usable keys, or why it could not fetch
+// them.
+type IssuerStatus struct {
+	Issuer string
+	Keys   int
+	Err    error
+}
+
+// CheckIssuers fetches each issuer's key set as validating a token
+// does (discovery, ca_file, token_file), unless it was fetched less than
+// keysMinInterval ago, and reports each one, in the order of the
+// configuration.
+func (o *OAuth) CheckIssuers(ctx context.Context) []IssuerStatus {
+	var out []IssuerStatus
+	for _, c := range o.cfg.AllIssuers() {
+		is := o.issuers[c.Issuer]
+		is.mu.Lock()
+		var err error
+		if is.keys == nil || o.now().Sub(is.fetchedAt) > keysMinInterval {
+			err = is.refresh(ctx)
+		}
+		out = append(out, IssuerStatus{Issuer: c.Issuer, Keys: len(is.keys), Err: err})
+		is.mu.Unlock()
+	}
+	return out
+}

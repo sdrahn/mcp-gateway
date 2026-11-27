@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
+	"github.com/sdrahn/mcp-gateway/internal/doctor"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
 )
 
@@ -64,5 +66,52 @@ func TestViaOf(t *testing.T) {
 	r := plain.WithContext(WithCaller(context.Background(), broker.Approver{Name: "a"}, "console"))
 	if viaOf(r, "cli") != "console" || by(r, broker.Approver{Name: "a"}) != "a (console)" {
 		t.Error("the console's via")
+	}
+}
+
+type fakeDoctor struct{ runs int }
+
+func (f *fakeDoctor) Report(context.Context) DoctorReport {
+	return DoctorReport{Trigger: "start", Results: []doctor.Result{{Check: "policy", ID: "policy", Status: doctor.OK, Summary: "OPA decides"}}}
+}
+
+func (f *fakeDoctor) Run(ctx context.Context) DoctorReport {
+	f.runs++
+	r := f.Report(ctx)
+	r.Trigger = "request"
+	return r
+}
+
+// /v1/doctor: for root and those review_policy allows; POST runs the
+// checks; without the doctor in the gateway, 404.
+func TestDoctorRoute(t *testing.T) {
+	s, _, _ := setup(t)
+	root := broker.Approver{Name: "root"}
+	if rec := callAs(t, s, root, "", "GET", "/v1/doctor", ""); rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "mcp-gateway-admin doctor") {
+		t.Errorf("no doctor: %d %s", rec.Code, rec.Body)
+	}
+	d := &fakeDoctor{}
+	s.Doctor = d
+	rec := callAs(t, s, root, "", "GET", "/v1/doctor", "")
+	var rep DoctorReport
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &rep) != nil || rep.Trigger != "start" || len(rep.Results) != 1 || d.runs != 0 {
+		t.Errorf("GET: %d %s", rec.Code, rec.Body)
+	}
+	if rec := callAs(t, s, root, "", "POST", "/v1/doctor", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"trigger":"request"`) || d.runs != 1 {
+		t.Errorf("POST: %d %s", rec.Code, rec.Body)
+	}
+	// The gateway's own account (kubectl exec): its results.
+	if rec := callAs(t, s, broker.Approver{Name: "mcp-gateway", UID: uint32(os.Getuid())}, "", "GET", "/v1/doctor", ""); rec.Code != 200 {
+		t.Errorf("the gateway's account: %d", rec.Code)
+	}
+	// alice, and an operator signed in (never root, nor the gateway's
+	// account): no review_policy, no results.
+	// (Another local account: not the test's own uid, which CI's may be
+	// 1001, alice's.)
+	other := broker.Approver{Name: "bob", UID: uint32(os.Getuid()) + 1}
+	for _, a := range []broker.Approver{other, {Name: "root", Remote: true}, {Name: "x", UID: uint32(os.Getuid()), Remote: true}} {
+		if rec := callAs(t, s, a, "console", "GET", "/v1/doctor", ""); rec.Code != http.StatusForbidden {
+			t.Errorf("%+v: %d", a, rec.Code)
+		}
 	}
 }

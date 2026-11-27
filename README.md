@@ -19,7 +19,8 @@ through a proxy, optionally with each user's own OAuth sign-in), with:
 
 Target distributions: SLES 16 and openSUSE Leap 16 (openSUSE Tumbleweed
 for development), packaged with the Open Build Service; see
-[packaging/suse](packaging/suse/README.md).
+[packaging/suse](packaging/suse/README.md); the container image (2.0):
+[packaging/container](packaging/container/README.md).
 
 Status: released (1.17.2) for SLES 16 and Leap 16, ready to be used
 (roadmap in [docs/architecture.md](docs/architecture.md), section 11).
@@ -38,6 +39,34 @@ configuration, MCP servers, clients, policy (including custom Rego),
 approvals and operations; see [docs/architecture.md](docs/architecture.md)
 for the design and [examples/dev](examples/dev/README.md) to run it from a
 checkout.
+
+## Screenshots
+
+**Cockpit** (on a host): the gateway's page in the administrator's
+console, over the control socket.
+
+| Approvals | Servers and instances |
+|---|---|
+| [![An agent's call waiting for approval, with the agent's own account of it](docs/images/cockpit-approvals.png)](docs/images/cockpit-approvals.png) | [![The servers with their sandbox and the running instances](docs/images/cockpit-servers.png)](docs/images/cockpit-servers.png) |
+
+| Clients |
+|---|
+| [![The AI agents and other MCP clients using the gateway](docs/images/cockpit-clients.png)](docs/images/cockpit-clients.png) |
+
+**The console** (in a Kubernetes cluster, or wherever the gateway serves
+HTTPS): the gateway's management page at `/console/`, signed in through
+the identity provider, each view and action decided by the approver
+rules ([user guide, chapter 16](docs/user-guide/16-kubernetes.md)).
+
+| Gateway | Servers and instances |
+|---|---|
+| [![The console's overview: counts, the configuration's reload status and the policy](docs/images/console.png)](docs/images/console.png) | [![The servers and the instances of agents with ServiceAccount tokens](docs/images/console-servers.png)](docs/images/console-servers.png) |
+
+| Doctor | Approve or deny |
+|---|---|
+| [![The checks the gateway runs itself in the cluster](docs/images/console-doctor.png)](docs/images/console-doctor.png) | [![An agent's call waiting for an operator](docs/images/console-approval.png)](docs/images/console-approval.png) |
+
+The screenshots are made with demo data by `make screenshots`.
 
 ## Repository layout
 
@@ -66,7 +95,7 @@ checkout.
 | `systemd/` | `mcp-gateway.service`, `mcp-opa.service` |
 | `tools/` | `mcp-policy-bundle`: builds and signs a policy bundle; `check-release`: checks a commit is ready to be tagged (run by the Release workflow); `check-tree`: checks a commit holds sources only (run by CI) |
 | `config/` | example `gateway.yaml` and backend definitions (`servers.d/`) |
-| `packaging/` | OBS package for openSUSE/SLES (`suse/`), `mcp-opa.service` drop-ins for signed bundles (`opa/`), sysusers.d, tmpfiles.d, polkit rule, the shipped servers' definitions and roles (`fs-server/`, with the server of the gateway's own docs; `exec-server/`; `admin/`), MCS settings for libvirt (`mcs/`), the notification agent's autostart (`desktop/`) |
+| `packaging/` | OBS package for openSUSE/SLES (`suse/`), the container image and how to build it on SUSE systems (`container/`), `mcp-opa.service` drop-ins for signed bundles (`opa/`), sysusers.d, tmpfiles.d, polkit rule, the shipped servers' definitions and roles (`fs-server/`, with the server of the gateway's own docs; `exec-server/`; `admin/`), MCS settings for libvirt (`mcs/`), the notification agent's autostart (`desktop/`) |
 | `docs/` | [user guide](docs/user-guide/README.md), [architecture](docs/architecture.md) |
 
 ## Development
@@ -81,6 +110,7 @@ make build      # bin/mcp-gateway, bin/mcp-gateway-admin, bin/mcp-gateway-tools,
 make check      # gofmt/opa fmt, go vet, go test (incl. e2e if opa is found), opa check, opa test
 make lint       # golangci-lint
 make selinux    # selinux/mcp_gateway.pp
+make screenshots # docs/images: the README's screenshots (node, playwright, Chromium)
 make install install-selinux install-cockpit install-demo DESTDIR=... # see the Makefile's directory variables
 
 bin/mcp-gateway --check --config config/gateway.yaml

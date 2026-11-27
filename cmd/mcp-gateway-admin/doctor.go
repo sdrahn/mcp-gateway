@@ -53,6 +53,11 @@ what to change; what the doctor cannot tell is wrong is OK, with a note.
 Run it as root; without root, the checks that need it are skipped.
 Exits 1 if a check failed, 3 with -strict if one warned, 0 otherwise.
 
+A gateway in a container (deployment: container) runs its own checks:
+there, and with -gateway URL for one on another host (signed in with
+mcp-gateway-admin approvals login), the doctor asks the gateway to run
+them and shows its results.
+
 `
 
 func runDoctor(args []string, stdout, stderr io.Writer) int {
@@ -74,6 +79,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	timeout := fs.Duration("timeout", 30*time.Second, "how long to wait for each server")
 	asJSON := fs.Bool("json", false, "print the results as JSON")
 	strict := fs.Bool("strict", false, "exit 3 if a check warned (and none failed)")
+	gateway := fs.String("gateway", "", "a gateway on another host, https://host:port: show its own checks (approvals login --gateway signs in)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -83,6 +89,9 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	if fs.NArg() > 0 {
 		fs.Usage()
 		return 2
+	}
+	if *gateway != "" || inContainer(*configPath) {
+		return gatewayDoctor(*gateway, *asJSON, *strict, stdout, stderr)
 	}
 	d := &doctorRun{
 		root:        os.Geteuid() == 0,
@@ -112,6 +121,63 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return doctorExit(rs, *strict)
+}
+
+// inContainer tells whether the configuration is a gateway's in a
+// container, whose checks the gateway runs itself.
+func inContainer(configPath string) bool {
+	gw, _, err := config.Resolve(configPath)
+	return err == nil && gw.Container()
+}
+
+// gatewayDoctorTimeout bounds the gateway's run of its checks.
+const gatewayDoctorTimeout = 2 * time.Minute
+
+// gatewayDoctor has the gateway run its checks (POST /v1/doctor): the
+// one at gateway, over its console API, or else the local one, over the
+// control socket.
+func gatewayDoctor(gateway string, asJSON, strict bool, stdout, stderr io.Writer) int {
+	var cc *controlClient
+	var err error
+	if gateway != "" {
+		cc, err = newConsoleClient(gateway)
+	} else {
+		cc, err = newControlClient("")
+	}
+	if err != nil {
+		say(stderr, "mcp-gateway-admin doctor:", err)
+		return 1
+	}
+	hc := *cc.http
+	hc.Timeout = gatewayDoctorTimeout
+	cc.http = &hc
+	status, data, err := cc.request(http.MethodPost, "/v1/doctor", nil)
+	if err != nil {
+		say(stderr, "mcp-gateway-admin doctor:", err)
+		return 1
+	}
+	if status != http.StatusOK {
+		say(stderr, "mcp-gateway-admin doctor:", cc.message(status, data))
+		return 1
+	}
+	var rep struct {
+		Checked time.Time       `json:"checked"`
+		Results []doctor.Result `json:"results"`
+	}
+	if err := json.Unmarshal(data, &rep); err != nil {
+		say(stderr, "mcp-gateway-admin doctor:", err)
+		return 1
+	}
+	if asJSON {
+		err = doctor.WriteJSON(stdout, rep.Results)
+	} else {
+		err = doctor.WriteText(stdout, rep.Results, colorful(stdout))
+	}
+	if err != nil {
+		say(stderr, err)
+		return 1
+	}
+	return doctorExit(rep.Results, strict)
 }
 
 // doctorExit is the doctor's exit status: 1 if a check failed, 3 if one

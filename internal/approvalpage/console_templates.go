@@ -84,3 +84,12 @@ var consolePolicyTmpl = template.Must(template.New("policy").Funcs(funcs).Parse(
 {{end}}</table>{{else}}<p>No decision would change.</p>{{end}}
 {{if $.Unchecked}}<p class="muted">Not checked: {{range $.Unchecked}}{{.}} ({{index $.WhatIf.Unchecked .}}) {{end}}</p>{{end}}{{end}}
 {{template "bottom" .}}`))
+
+var consoleDoctorTmpl = template.Must(template.New("doctor").Funcs(funcs).Parse(layout + `{{template "top" .}}
+{{if .DoctorError}}<p class="note error">{{.DoctorError}}</p>{{end}}
+{{with .Report}}<p class="muted">Checked {{clock .Checked}} ({{if eq .Trigger "start"}}at the start{{else if eq .Trigger "reload"}}after a reload{{else}}on request{{end}}).</p>
+<table><tr><th></th><th>Check</th><th>Result</th></tr>
+{{range .Results}}<tr><td><span class="status {{.Status}}">{{.Status}}</span></td><td>{{.Check}}</td><td>{{.Summary}}{{range .Details}}<div class="muted">{{.}}</div>{{end}}</td></tr>
+{{end}}</table>{{end}}
+{{if .Report}}<form method="post" action="/console/doctor"><input type="hidden" name="csrf" value="{{.S.CSRF}}"><div class="actions"><button>Check again</button></div></form>{{end}}
+{{template "bottom" .}}`))

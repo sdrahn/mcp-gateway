@@ -148,6 +148,14 @@ usage errors, 0 otherwise.
 | `--timeout DURATION` | how long to wait for each server (default `30s`) |
 | `--json` | print the results as JSON (below) |
 | `--strict` | exit 3 if a check warned and none failed |
+| `--gateway URL` | a gateway on another host, `https://host:port`: have it run its own checks (container mode) and show them, as signed in with `approvals login --gateway` |
+
+A gateway in container mode (`deployment: container`) runs its own
+checks (chapter 16, "Operating"): with `--gateway URL`, and when the
+configuration read is one of container mode (`kubectl exec … --
+mcp-gateway-admin doctor`), the doctor has the gateway run them
+(`POST /v1/doctor`) and shows its results, with the same output, JSON
+and exit status; the host's checks and their flags do not apply.
 
 With `--json`, the output is an array of results: `check` (the label of
 the text output), `id`, `subject` (absent for checks about nothing in
@@ -552,6 +560,8 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `GET /v1/policy` | `{"mode": "directories"\|"bundle", "bundles": {name: revision}, "shipped_roles": {role: {"setup", "description", "permissions"}}}`; `502` if OPA is unavailable |
 | `POST /v1/policy/whatif` | body: proposed role data (as `data.json`); returns `{"changes": [{"principal", "server", "kind", "name", "before", "after"}], "principals", "resources", "unchecked": {server: reason}}`: the decisions that would change, for the users (`user:<name>`) and groups (`group:<name>`) either role data binds; `403` unless `data.mcp.approvals.review_policy` allows the caller |
 | `GET /v1/metrics` | metrics in the Prometheus text format (chapter 10); `403` unless the caller is root |
+| `GET /v1/doctor` | container mode: the doctor's checks the gateway runs itself (chapter 16, "Operating"), as last run (at the start, after a reload, on request): `{"checked", "trigger": "start"\|"reload"\|"request", "results"}`, `results` as `mcp-gateway-admin doctor --json`'s; `403` unless the caller is root or `data.mcp.approvals.review_policy` allows them; `404` on a host (run `mcp-gateway-admin doctor`) |
+| `POST /v1/doctor` | run those checks now and answer as `GET` (up to a minute) |
 | `POST /v1/notices` | post a notice (chapter 7, "Notices"): `{"principal", "servers", "severity": "info"\|"warning", "title", "text"}`; returns the notice (`201`): `{"id", "principal": {"sub", "uid"}, "servers", "severity", "title", "text", "posted_by", "created", "expires"}`; `400` with what is wrong; `403` unless the caller is root or `data.mcp.approvals.post_notice` allows them |
 | `GET /v1/notices` | the unexpired notices the caller may read and has not dismissed, oldest first |
 | `POST /v1/notices/{id}/dismiss` | hide a notice for the caller; `204`; `404` if unknown or not the caller's to read |

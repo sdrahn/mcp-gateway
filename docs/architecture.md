@@ -1804,6 +1804,18 @@ serves it too, next to Cockpit.
   servers' URLs, the state volume) run in the gateway itself, on start,
   on reload and on demand, so the console and `mcp-gateway-admin
   doctor --gateway` show them; on a host the doctor stays a command.
+  As built (#391): `cmd/mcp-gateway/selfcheck.go` runs, in container
+  mode, the configuration's reload state, OPA's decision, `doctor.TLS`,
+  each issuer's key set (`authn.OAuth.CheckIssuers`, as validation
+  fetches it), the approval page's client, the webhooks (on request
+  only: a ping to the receiver), a TCP
+  connection to each URL server (or its proxy), a write to the state
+  volume and the launcher's list of pods (`Kubernetes.Check`): at the
+  start, after each reload and on `POST /v1/doctor`, logging failures
+  and warnings; `GET /v1/doctor` answers the last run, for root and
+  `review_policy`. The console's Doctor page and `mcp-gateway-admin
+  doctor --gateway URL` show it; the plain doctor with a configuration
+  of container mode asks the control socket.
 
 **The platform's side:**
 
@@ -4964,8 +4976,9 @@ Kubernetes cluster's MCP servers (D23, §5.12). Planned:
       definition), the bridge, and the kind job with a stdio server per
       principal: one pod each, a NetworkPolicy without egress, the pod
       deleted after the idle timeout.
-48. **The console** (2.0; D23; in progress: the probes, #386; the
-    console's API, #388; the pages, #390; §5.12.7):
+48. **The console** (2.0; D23; done: the probes, #386; the
+    console's API, #388; the pages, #390; the doctor in the gateway,
+    #391; §5.12.7):
     - the approval page grown into the gateway's management page at
       `/console/`: views of the status, the servers and their
       instances, sessions, tasks, sign-ins, approvals, grants, reviews,

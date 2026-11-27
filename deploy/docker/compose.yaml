@@ -1,0 +1,105 @@
+# The gateway in container mode with Docker Compose (user guide,
+# chapter 17, "Docker"): the containers of the pod in
+# deploy/podman/mcp-gateway.yaml, with the configuration in a directory
+# of the host, which the gateway reloads when it changes:
+#
+#   /etc/mcp-gateway-pod/gateway.yaml    (deploy/podman/gateway.yaml)
+#   /etc/mcp-gateway-pod/servers.d/      the server definitions
+#   /etc/mcp-gateway-pod/rbac/           the role data (data.yaml)
+#   /etc/mcp-gateway-pod/tls/            tls.crt and tls.key
+#
+#   MCP_GATEWAY_IMAGE=registry.example.com/mcp-gateway:2.0.0 docker compose up -d
+name: mcp-gateway
+
+x-image: &image ${MCP_GATEWAY_IMAGE:-registry.example.com/mcp-gateway:2.0.0}
+x-restricted: &restricted
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+services:
+  # Docker creates named volumes owned by root: hand them to the
+  # gateway's account (uid 10001) once, then copy the policy from the
+  # gateway's image, so gateway and policy are of one version.
+  volumes:
+    image: *image
+    user: "0"
+    entrypoint: ["/usr/bin/chown", "10001:10001", "/state", "/run-gw", "/rendered", "/policy"]
+    network_mode: none
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    volumes:
+      - state:/state
+      - run:/run-gw
+      - rendered:/rendered
+      - policy:/policy
+  policy:
+    image: *image
+    <<: *restricted
+    entrypoint: ["/usr/bin/cp", "-R", "/usr/share/mcp-gateway/policy/.", "/policy/"]
+    network_mode: none
+    depends_on:
+      volumes: {condition: service_completed_successfully}
+    volumes:
+      - policy:/policy
+
+  policy-render:
+    image: *image
+    <<: *restricted
+    entrypoint: ["/usr/libexec/mcp-gateway/mcp-policy-render", "-watch"]
+    network_mode: none
+    restart: unless-stopped
+    depends_on:
+      volumes: {condition: service_completed_successfully}
+    volumes:
+      - /etc/mcp-gateway-pod/rbac:/etc/mcp-gateway/policy/rbac:ro
+      - rendered:/run/mcp-opa
+  opa:
+    image: docker.io/openpolicyagent/opa:1.22.4-static
+    <<: *restricted
+    user: "10001:10001"
+    network_mode: none
+    restart: unless-stopped
+    command:
+      - run
+      - --server
+      - --addr=unix:///run/mcp-gateway/opa.sock
+      - --unix-socket-perm=0660
+      - --watch
+      - --log-format=json
+      - --set=decision_logs.console=true
+      - --set=decision_logs.mask_decision=/mcp/log/mask
+      - /policy
+      - mcp.rbac:/run/mcp-opa/rbac
+    depends_on:
+      policy: {condition: service_completed_successfully}
+    volumes:
+      - policy:/policy:ro
+      - rendered:/run/mcp-opa:ro
+      - run:/run/mcp-gateway
+  gateway:
+    image: *image
+    <<: *restricted
+    command: ["--config", "/etc/mcp-gateway/config/gateway.yaml"]
+    restart: unless-stopped
+    depends_on:
+      volumes: {condition: service_completed_successfully}
+    ports:
+      # The HTTPS listener; the metrics and probes on the loopback only.
+      - "8443:8443"
+      - "127.0.0.1:9464:9464"
+    tmpfs: [/tmp]
+    volumes:
+      - /etc/mcp-gateway-pod:/etc/mcp-gateway/config:ro
+      - /etc/mcp-gateway-pod/servers.d:/etc/mcp-gateway/servers.d:ro
+      - /etc/mcp-gateway-pod/rbac:/etc/mcp-gateway/policy/rbac:ro
+      - /etc/mcp-gateway-pod/tls:/etc/mcp-gateway/tls:ro
+      - state:/var/lib/mcp-gateway
+      - run:/run/mcp-gateway
+      - rendered:/run/mcp-opa:ro
+
+volumes:
+  state:
+  run:
+  rendered:
+  policy:
