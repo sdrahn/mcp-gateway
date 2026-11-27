@@ -314,6 +314,11 @@ and the last good one stays in force (`kubectl logs deploy/mcp-gateway
   (OPA's decision log: `-c opa`).
 - Approvals from another host: `mcp-gateway-admin approvals login
   --gateway https://mcp-gateway.example.com` (chapter 7).
+- The console's API: with the approval page set up, the control API on
+  the listener below `/console/api/v1/`, for operators signed in there,
+  as the approver rules allow them (`remote-user:`, `remote-group:`;
+  chapter 7, "The console's API"). Unlike `kubectl exec`, it acts as the
+  operator, not as the gateway's account.
 - The command line in the pod, as the gateway's account:
   `kubectl -n mcp-gateway exec deploy/mcp-gateway -c gateway --
   mcp-gateway-admin clients` (the sessions and agents).

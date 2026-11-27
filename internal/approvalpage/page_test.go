@@ -339,12 +339,14 @@ func contains(s []string, v string) bool {
 type auditRec struct {
 	mu     sync.Mutex
 	events []string
+	fields []map[string]string
 }
 
 func (a *auditRec) Event(op string, ok bool, f map[string]string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.events = append(a.events, op+" "+map[bool]string{true: "ok", false: "failed"}[ok]+" "+f["principal"]+" "+f["reason"])
+	a.fields = append(a.fields, f)
 }
 
 type fixture struct {

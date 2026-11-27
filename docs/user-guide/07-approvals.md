@@ -470,6 +470,36 @@ public client with the **device authorization grant** (Keycloak: *OAuth
 - The device flow asks the user to confirm a code shown by a program:
   confirm only codes from your own `approvals login`.
 
+## The console's API
+
+With the approval page set up, the HTTPS listener also serves the whole
+control API below `/console/api/v1/` (2.0): the servers and their
+instances, sessions, tasks, sign-ins, approvals, grants, notices,
+reviews, the policy and its what-if, for people signed in on the
+approval page or with `approvals login`, not only the approvals and
+grants of `/approvals/api/v1/`. It is the interface of the gateway's
+console (chapter 16), and of scripts:
+
+```console
+$ TOKEN=$(jq -r .id_token ~/.config/mcp-gateway-admin/gateways/gw1.example.com_9443.json)
+$ curl -s -H "Authorization: Bearer $TOKEN" https://gw1.example.com:9443/console/api/v1/sessions
+```
+
+- What a caller sees and does is the approver rules' decision, as on
+  the control socket (chapter 6, "Who may approve"): name a cluster's
+  operators with `remote-user:<sub>` or `remote-group:<group>` for the
+  servers they manage. Without a rule, one sees one's own and the list
+  of servers.
+- A browser's requests that change something carry the CSRF token of
+  its sign-in (`GET /console/api/v1/session`) in `X-CSRF-Token`; other
+  sites can neither read the API nor act through it.
+- Decisions are audited with `via=console` (with a bearer token
+  `via=remote-cli`), and every change with an `mcp-console-action`
+  record.
+
+The routes and their answers are those of the control API (chapter 11,
+"Control API").
+
 ## Webhooks
 
 A webhook brings approvals to where a team already decides on changes:

@@ -29,6 +29,11 @@
 //	GET    /v1/events           server-sent events: approvals the caller may decide on
 //	GET    /v1/metrics          metrics in the Prometheus text format (root only)
 //
+// The approval page serves the same Handler on the HTTPS listener below
+// /console/api/v1/ (the console, internal/approvalpage/console.go), to
+// callers it signed in, which it passes in the request's context
+// (WithCaller) instead of peer credentials.
+//
 // The fields of requests and responses are fixed in testdata/contract:
 // within /v1, fields are only added (docs/architecture.md, decision D10).
 package control
@@ -230,7 +235,7 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, s.Broker.ListGrants(r.Context(), a))
 	}))
 	mux.HandleFunc("DELETE /v1/grants/{id}", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
-		if err := s.Broker.RevokeGrantVia(r.Context(), a, r.PathValue("id"), via(r.URL.Query().Get("via"))); err != nil {
+		if err := s.Broker.RevokeGrantVia(r.Context(), a, r.PathValue("id"), viaOf(r, r.URL.Query().Get("via"))); err != nil {
 			writeError(w, http.StatusNotFound, "no such grant")
 			return
 		}
@@ -559,7 +564,7 @@ func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request, a broker.App
 			if t.ID != id || !s.Broker.MayManageTask(r.Context(), a, taskTarget(t)) {
 				continue
 			}
-			switch err := s.Tasks.CancelTask(id, a.Name+" (control API)"); {
+			switch err := s.Tasks.CancelTask(id, by(r, a)); {
 			case err == nil:
 				if s.Log != nil {
 					s.Log.Info("task cancelled via control API", "task", id, "server", t.Server, "tool", t.Tool, "by", a.Name)
@@ -651,7 +656,7 @@ func (s *Server) endSession(w http.ResponseWriter, r *http.Request, a broker.App
 			if c.ID != id || !s.Broker.MayManageSession(r.Context(), a, sessionTarget(c)) {
 				continue
 			}
-			if s.Sessions.EndSession(id, a.Name+" (control API)") == nil {
+			if s.Sessions.EndSession(id, by(r, a)) == nil {
 				if s.Log != nil {
 					s.Log.Info("session ended via control API", "session", id, "sub", c.Sub, "client", c.Client.Name, "by", a.Name)
 				}
@@ -875,7 +880,7 @@ func (s *Server) judge(w http.ResponseWriter, r *http.Request, a broker.Approver
 		return
 	}
 	id := r.PathValue("id")
-	if body.Verdict == broker.VerdictOK && s.OwnPassword != nil {
+	if body.Verdict == broker.VerdictOK && s.ownPassword(r) {
 		own, err := s.Broker.ReviewOwnOnly(r.Context(), a, id)
 		if err != nil {
 			writeError(w, http.StatusNotFound, "no such review")
@@ -896,7 +901,7 @@ func (s *Server) judge(w http.ResponseWriter, r *http.Request, a broker.Approver
 			}
 		}
 	}
-	rv, err := s.Broker.Judge(r.Context(), a, id, body.Verdict, body.Reason, via(body.Via))
+	rv, err := s.Broker.Judge(r.Context(), a, id, body.Verdict, body.Reason, viaOf(r, body.Via))
 	switch {
 	case errors.Is(err, broker.ErrNotFound):
 		writeError(w, http.StatusNotFound, "no such review")
@@ -1062,12 +1067,12 @@ func (s *Server) resolve(w http.ResponseWriter, r *http.Request, a broker.Approv
 		writeError(w, http.StatusBadRequest, `decision must be "approve" or "deny"`)
 		return
 	}
-	if body.Decision == "approve" && s.OwnPassword != nil {
+	if body.Decision == "approve" && s.ownPassword(r) {
 		if !s.ownAuthenticated(w, r, a) {
 			return
 		}
 	}
-	g, err := s.Broker.ResolveVia(r.Context(), a, r.PathValue("id"), body.Decision == "approve", body.Scope, via(body.Via))
+	g, err := s.Broker.ResolveVia(r.Context(), a, r.PathValue("id"), body.Decision == "approve", body.Scope, viaOf(r, body.Via))
 	switch {
 	case errors.Is(err, broker.ErrNotFound), errors.Is(err, broker.ErrForbidden):
 		writeError(w, http.StatusNotFound, "no such approval")
@@ -1124,9 +1129,14 @@ func (s *Server) log() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
 }
 
-// with identifies the caller and passes them to h.
+// with identifies the caller and passes them to h: the approver the
+// context carries (WithCaller), else the peer credentials' account.
 func (s *Server) with(h func(http.ResponseWriter, *http.Request, broker.Approver)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if c, ok := r.Context().Value(callerKey{}).(caller); ok {
+			h(w, r, c.a)
+			return
+		}
 		peer, ok := r.Context().Value(peerKey{}).(transport.PeerCred)
 		if !ok {
 			writeError(w, http.StatusForbidden, "no peer credentials")
@@ -1149,6 +1159,53 @@ func (s *Server) with(h func(http.ResponseWriter, *http.Request, broker.Approver
 // through other means (tests).
 func WithPeer(ctx context.Context, p transport.PeerCred) context.Context {
 	return context.WithValue(ctx, peerKey{}, p)
+}
+
+type callerKey struct{}
+
+// caller is an approver identified before the Handler, and the way its
+// actions are audited.
+type caller struct {
+	a   broker.Approver
+	via string
+}
+
+// WithCaller returns ctx carrying an approver identified elsewhere: the
+// console's sign-in on the HTTPS listener (docs/architecture.md, section
+// 5.12.7). The Handler takes it instead of peer credentials, audits its
+// decisions with via, whatever a request names, and asks for no local
+// password (approvals.self_needs_password): the identity provider
+// authenticated it.
+func WithCaller(ctx context.Context, a broker.Approver, via string) context.Context {
+	return context.WithValue(ctx, callerKey{}, caller{a: a, via: via})
+}
+
+// viaOf is how r's decision is audited: the way of a caller WithCaller
+// identified, else the way the request names (via).
+func viaOf(r *http.Request, named string) string {
+	if c, ok := r.Context().Value(callerKey{}).(caller); ok {
+		return c.via
+	}
+	return via(named)
+}
+
+// by names the caller in the logs and audit records of what it stopped,
+// cancelled or ended: "alice (control API)", "alice (console)".
+func by(r *http.Request, a broker.Approver) string {
+	if c, ok := r.Context().Value(callerKey{}).(caller); ok {
+		return a.Name + " (" + c.via + ")"
+	}
+	return a.Name + " (control API)"
+}
+
+// ownPassword reports whether r's caller is asked for their password
+// before approving their own request: callers of the control socket, if
+// OwnPassword is set.
+func (s *Server) ownPassword(r *http.Request) bool {
+	if _, ok := r.Context().Value(callerKey{}).(caller); ok {
+		return false
+	}
+	return s.OwnPassword != nil
 }
 
 // Identify resolves peer credentials through NSS.

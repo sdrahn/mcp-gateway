@@ -570,6 +570,37 @@ endpoints and fields; clients must ignore fields they do not know. A
 field is never renamed or dropped within `/v1`: that would be `/v2`,
 with `/v1` kept for one more minor release.
 
+### On the HTTPS listener: the console's API
+
+The same routes are served on the HTTPS listener below
+`/console/api/v1/` (`/console/api/v1/servers` is `/v1/servers`), with
+the approval page enabled (`approvals.page`), to callers signed in
+there instead of by peer credentials (2.0; chapter 7, "The console's
+API"):
+
+- with the approval page's session cookie, as a browser signed in on
+  the page: requests other than `GET` and `HEAD` carry the session's
+  CSRF token in the header `X-CSRF-Token` and come from the page's
+  origin (`Origin`, `Sec-Fetch-Site`); `403` otherwise;
+- or with the ID token of a sign-in of the command line
+  (`approvals.page.device_client_id`, `approvals login --gateway`) as
+  the bearer token; then no cookie counts, and an agent's token or
+  another client's is refused (`401`).
+
+The approver rules decide as on the socket: a caller signed in matches
+`remote-user:<sub>` and `remote-group:<group>`, or the rules of its local
+account if its sign-in maps to one (`http.local_user_claim`); it is never
+root (`GET /v1/metrics` is `403`) and is asked for no password
+(`password_required` does not apply). A request's `via` is ignored:
+decisions are audited with `via=console`, with a bearer token
+`via=remote-cli`. Every request that changes something adds an audit
+record `mcp-console-action`. Not signed in: `401`.
+
+| Method and path | Body / result |
+|---|---|
+| `GET /console/api/v1/session` | the caller: `{"name", "groups", "issuer", "csrf", "expires"}`; `csrf` (the token for `X-CSRF-Token`) only for a cookie's session |
+| `… /console/api/v1/<route>` | the control API's `/v1/<route>`, above |
+
 **Approval** fields: `id`, `channel`, `principal` (as policy sees it:
 `sub`, `iss`, `uid`, `groups`, `home`, `transport`, `selinux`,
 `client`, `session_id`, `cert`), `action`, `server`, `name`, `args`,
@@ -667,6 +698,7 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcp-notice` | a notice was posted (chapter 7, "Notices") | `id`, `by`, `principal`, `servers`, `severity`, `title`, `notify` (the notify rules' recipients, `user:`/`group:` names) |
 | `mcp-approval` | an approval was decided (`res=success` approved, `failed` denied) | `id`, `principal`, `server`, `target`, `by`, `scope`, `channel`; `proposal_digest`, the digest of the client's proposal the approver was shown, if any; `over_rate`, the rate reached, for an approval asked over a rate; `via`: `page` on the gateway's approval page, `remote-cli` from `mcp-gateway-admin --gateway`, `webhook` on a webhook's callback, `cockpit`, `cli` or `api` when decided through the control API and the caller named it |
 | `mcp-approver-sign-in` | an approver signed in on the gateway's approval page (`res=success`), or a sign-in failed after the identity provider answered (`res=failed`); or signed in on another host (`approvals login --gateway`) | `principal`, `issuer`, `via` (`page`, `remote-cli`), `reason` |
+| `mcp-console-action` | a request of the console's API that changes something (not `GET`), decided by the control API (`res=success`, or `res=failed` with a status of `400` and up) | `by`, `issuer`, `via` (`console`, `remote-cli`), `method`, `route` (`/v1/…`), `status` |
 | `mcp-webhook-callback` | a webhook's receiver called back with a decision, validly signed (`res=success` taken; `failed` refused: replayed, an approver the rules do not allow, a scope not offered, …; unsigned or stale callbacks are not audited) | `webhook`, `approver` (as the callback names them), `id`, `reason` |
 | `mcp-grant-revoke` | a grant was revoked | `id`, `by`, `principal`, `server`, `target`; `via` as for `mcp-approval` |
 | `mcp-policy-change` | OPA loaded a different policy | `revision` |
