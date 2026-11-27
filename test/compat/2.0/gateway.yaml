@@ -11,6 +11,11 @@
 # supports the version, and warns about keys it is going to remove.
 version: 1
 
+# host: systemd, SELinux and local clients on the Unix socket.
+# container: in a container or a Kubernetes pod, remote principals and
+# servers that speak HTTP only (user guide, chapter 3, "Deployment").
+deployment: host
+
 # Unix socket for local clients (directly or via mcp-connect).
 socket: /run/mcp-gateway/mcp.sock
 # Group owning the socket (mode 0660). Empty: the gateway's own group.
@@ -219,6 +224,13 @@ pseudonymize:
 tasks:
   retention: 1h
   max_result_bytes: 4194304
+
+# A client may name a tools/call with an idempotency key (in its _meta):
+# sent again with the key, the same call is answered from the first
+# instead of running twice. The outcome is kept this long after the call
+# ended (1m to 24h), in memory.
+idempotency:
+  window: 10m
 
 # The newest MCP version spoken with a client, by the name it gives
 # (clientInfo): one capped below 2026-07-28 uses the initialize

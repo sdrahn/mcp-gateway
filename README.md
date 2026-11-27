@@ -22,7 +22,7 @@ for development), packaged with the Open Build Service; see
 [packaging/suse](packaging/suse/README.md); the container image (2.0):
 [packaging/container](packaging/container/README.md).
 
-Status: released (1.17.3) for SLES 16 and Leap 16, ready to be used
+Status: released (2.0.0) for SLES 16 and Leap 16, ready to be used
 (roadmap in [docs/architecture.md](docs/architecture.md), section 11).
 Releases marked as pre-releases on GitHub (tags such as
 v1.0.0-rc1) bring new features ahead of the next release recommended for

@@ -7,6 +7,46 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+## v2.0.0 — 2026-11-27
+
+The gateway in containers and in front of a Kubernetes cluster's MCP
+servers, as the same program (D23, `docs/architecture.md` §5.12):
+
+- **Container mode** (`deployment: container`): remote principals only,
+  servers that speak HTTP through their connectors, audit to standard
+  error, and the doctor's checks run in the gateway. It is the
+  container image on SLES 16's BCI-Micro, with manifests (`kubectl
+  apply -k`) and a Helm chart (chapter 16).
+- **Several identity providers** (`http.issuers`): a cluster's
+  ServiceAccount tokens for agents beside the organization's provider
+  for people.
+- **A Kubernetes launcher for stdio servers**
+  (`supervisor.mode: kubernetes`): each instance a pod of its own, the
+  systemd sandbox translated into its security context and a
+  NetworkPolicy, `mcp-stdio-bridge` carrying its stdio.
+- **The console** at `/console/`, beside the approval page: the
+  gateway's status, servers, instances, sessions, tasks, sign-ins,
+  policy and doctor, and the actions the approver rules allow, through
+  the control API's routes on the listener. Probes on the metrics
+  listener.
+- **The gateway's containers on one host**: Podman (`kube play`,
+  Quadlet) and Docker Compose (chapter 17). An OBS build of the image
+  from the packages (`packaging/container`).
+
+Also security fixes for what 2.0 adds (#408, #412, #413). 2.0.0 includes
+1.17.3.
+
+Upgrading a host from 1.17.x needs no changes to `gateway.yaml`, server
+definitions, role data or custom policies (chapter 10, "From 1.x to
+2.0"): `deployment` defaults to `host`, `http.issuer` stays as the
+one-issuer form of `http.issuers`, and nothing deprecated in 1.x is
+removed. The SELinux modules and the systemd units do not change. After
+the update, restart the gateway (`systemctl restart
+mcp-gateway.service`); the package does not. Where the approval page is
+set up, the console is new at `/console/`, showing and doing what the
+approver rules allow. Building needs Go 1.25 or later.
+
+
 ### Added
 
 - The container image and Kubernetes manifests (2.0, D23, roadmap step
