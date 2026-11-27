@@ -2,6 +2,7 @@
 /build/
 # go build ./cmd/<name> in the top directory writes the program here.
 /mcp-connect
+/mcp-stdio-bridge
 /mcp-gateway
 /mcp-gateway-admin
 /mcp-gateway-notify

@@ -48,6 +48,13 @@ minor release (with a warning) and removed in the next.
   `tolerations`, checked as definitions are, and refused until the
   launcher is in place; the translation of a definition to its pod,
   NetworkPolicy and Secret, the systemd sandbox property by property.
+- The Kubernetes launcher, `supervisor.mode: kubernetes` (container
+  mode; chapter 3 and 16; #382): instances of stdio servers in pods of
+  their own, their stdio carried by `mcp-stdio-bridge`, which an init
+  container copies in from the gateway's image; connectors of servers
+  that speak HTTP stay child processes. The gateway speaks the
+  Kubernetes API over REST as its ServiceAccount and deletes the pods of
+  an earlier run at start.
 
 ### Changed
 
