@@ -1,0 +1,23 @@
+# gateway.yaml of the gateway with Podman (deploy/podman/mcp-gateway.yaml;
+# user guide, chapter 17): copy it to /etc/mcp-gateway-pod/gateway.yaml
+# and set the identity provider and the audience. The pod's layout fixes
+# the directories, the sockets and the listener's certificate.
+version: 1
+deployment: container
+servers_dir: /etc/mcp-gateway/servers.d
+state_dir: /var/lib/mcp-gateway
+policy:
+  opa_socket: /run/mcp-gateway/opa.sock
+# Metrics and the probes (/healthz, /readyz); the pod publishes them on
+# the host's loopback.
+metrics:
+  listen: ":9464"
+http:
+  listen: ":8443"
+  cert_file: /etc/mcp-gateway/tls/tls.crt
+  key_file: /etc/mcp-gateway/tls/tls.key
+  # The identity provider people and agents sign in with, and the URL
+  # agents connect to (its host is the one the certificate names).
+  issuer: https://idp.example.com/realms/mcp
+  audience: https://mcp-gateway.example.com:8443/mcp
+  scopes: [mcp]

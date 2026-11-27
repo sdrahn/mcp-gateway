@@ -6,7 +6,8 @@ policy, approvals and audit records as on a host
 ([architecture, section 5.12](../architecture.md#512-containers-and-kubernetes-20),
 decision D23). This chapter covers the image, the manifests, agents
 that authenticate with the cluster's ServiceAccount tokens, servers in
-the cluster, and configuration from ConfigMaps.
+the cluster, and configuration from ConfigMaps. The same containers on
+one host, with Podman or Docker, are chapter 17.
 
 *Status: container mode serves servers that speak HTTP, and with the
 Kubernetes launcher servers that speak stdio, each instance in a pod of
