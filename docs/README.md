@@ -60,7 +60,7 @@ For an agent, which server to ask:
 | disk health (NVMe and SATA SMART), btrfs error counters and scrubs (server `storage`) | [13, "Storage health"](user-guide/13-system-management-servers.md#storage-health) |
 | Slow starts or timeouts, a small host (Raspberry Pi), many users: what to measure, which settings to change | [14. Tuning](user-guide/14-tuning.md) |
 | Setting up Keycloak for the gateway, or for several gateways: the container, the realm, the clients, scopes and mappers, each gateway's configuration | [15. Keycloak](user-guide/15-keycloak.md) |
-| Running the gateway in a container or a Kubernetes cluster: the image, the manifests, agents with ServiceAccount tokens, servers in the cluster | [16. Kubernetes](user-guide/16-kubernetes.md) |
+| Running the gateway in a container or a Kubernetes cluster, step by step: the image, the manifests, agents with ServiceAccount tokens, servers in the cluster, approvals and the console there, troubleshooting | [16. Kubernetes](user-guide/16-kubernetes.md) |
 | Why something is designed the way it is | [architecture.md, "9. Decisions"](architecture.md#9-decisions) |
 
 ## Error messages
