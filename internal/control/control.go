@@ -505,8 +505,13 @@ func (s *Server) signIns(w http.ResponseWriter, r *http.Request, a broker.Approv
 				out.SignIns = append(out.SignIns, e)
 			}
 		}
-		if p := s.SignIns.PendingFor(a.UID); p != nil {
-			out.Pending = p
+		// Pending sign-ins are the caller's own, by local uid: none for
+		// an approver without a local account, whose UID is 0 but not
+		// root's (#408).
+		if !a.NoUID {
+			if p := s.SignIns.PendingFor(a.UID); p != nil {
+				out.Pending = p
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -536,7 +541,7 @@ func (s *Server) signOut(w http.ResponseWriter, r *http.Request, a broker.Approv
 				(q.Has("iss") && e.Principal.Issuer != q.Get("iss")) {
 				continue
 			}
-		} else if e.Principal.UID == nil || *e.Principal.UID != a.UID {
+		} else if a.NoUID || e.Principal.UID == nil || *e.Principal.UID != a.UID {
 			continue
 		}
 		if !s.Broker.MayManageSignIn(r.Context(), a, server, e.Principal.UID) {

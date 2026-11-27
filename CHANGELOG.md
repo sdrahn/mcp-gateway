@@ -111,6 +111,10 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- The sign-ins of the control API (`GET /v1/sign-ins`, also on the
+  console's API) list no pending sign-ins for an approver signed in
+  without a local account; they listed root's (uid 0), with their
+  links (#408).
 - What a client says of itself (`clientInfo`, of an `initialize` or a
   modern agent's `_meta`) is kept without control and format characters,
   each field up to 128 characters; `mcp-gateway-admin` writes control
