@@ -24,7 +24,7 @@ Source1:        vendor.tar.gz
 Source99:       %{name}-rpmlintrc
 BuildRequires:  bzip2
 BuildRequires:  gcc
-BuildRequires:  golang(API) >= 1.24
+BuildRequires:  golang(API) >= 1.25
 BuildRequires:  make
 BuildRequires:  pkgconfig(systemd)
 # Owns /usr/share/polkit-1/rules.d, where the rules file goes (the build
