@@ -80,6 +80,7 @@ func parseAgentMeta(m *jsonrpc.Message) (agentMeta, *jsonrpc.Error) {
 	if raw, ok := p.Meta[metaClientInfo]; ok && json.Unmarshal(raw, &am.client) != nil {
 		return am, rpcError(jsonrpc.CodeInvalidParams, "invalid params: "+metaClientInfo+" is not an implementation")
 	}
+	am.client = am.client.Clean()
 	if raw, ok := p.Meta[metaLogLevel]; ok {
 		if json.Unmarshal(raw, &am.logLevel) != nil || !slices.Contains(logLevels, am.logLevel) {
 			return am, rpcError(jsonrpc.CodeInvalidParams, "invalid params: unknown "+metaLogLevel)

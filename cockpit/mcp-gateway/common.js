@@ -65,6 +65,24 @@ function el(tag, attrs, ...children) {
 }
 
 /* relative describes a time relative to now ("in 5 min", "3 h ago"). */
+// shownJSON is v as indented JSON with each character that does not show
+// as itself (a control character but newline and tab, a format
+// character: bidirectional controls, zero-width ones) written as a JSON
+// escape, so that arguments read as what they are (#410). It stays JSON
+// with the same strings: such characters occur only in its strings.
+function shownJSON(v) {
+    return JSON.stringify(v, null, 2).replace(/[\p{Cc}\p{Cf}]/gu, c => {
+        if (c === "\n" || c === "\t")
+            return c;
+        // One escape per UTF-16 unit: a character beyond the BMP as its
+        // surrogate pair.
+        let out = "";
+        for (let i = 0; i < c.length; i++)
+            out += "\\u" + c.charCodeAt(i).toString(16).toUpperCase().padStart(4, "0");
+        return out;
+    });
+}
+
 function relative(date) {
     let s = Math.round((new Date(date) - Date.now()) / 1000);
     const past = s < 0;

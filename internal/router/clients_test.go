@@ -207,3 +207,31 @@ func TestEndAgent(t *testing.T) {
 		t.Fatalf("the next request: %+v", m.Error)
 	}
 }
+
+// What a client says of itself is kept without control and format
+// characters, from an initialize and from a modern agent's _meta (#409):
+// administrators see it in their terminals.
+func TestClientInfoCleaned(t *testing.T) {
+	r, _ := testRouter(t, time.Hour)
+	evil := "agent\x1b]52;c;aGk=\x07\x1b[2J\u202eexe"
+	connectClient(t, r, alice(), "fs", map[string]any{}, nil, "2025-11-25", map[string]any{"name": evil, "version": "1\u009b31m"})
+	a := agent(t, r, bob(), "")
+	if m := a.roundTrip(1, "tools/list", withAgentMeta(nil, map[string]any{metaClientInfo: map[string]any{"name": evil, "version": "2"}})); m.Error != nil {
+		t.Fatal(m.Error)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got := r.Sessions()
+		names := map[string]string{}
+		for _, c := range got {
+			names[c.Kind] = c.Client.Name + " " + c.Client.Version
+		}
+		if names["session"] == "agent]52;c;aGk=[2Jexe 131m" && names["agent"] == "agent]52;c;aGk=[2Jexe 2" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("clients %q", names)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}

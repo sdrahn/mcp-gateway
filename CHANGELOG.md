@@ -111,6 +111,32 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- The sign-ins of the control API (`GET /v1/sign-ins`, also on the
+  console's API) list no pending sign-ins for an approver signed in
+  without a local account; they listed root's (uid 0), with their
+  links (#408).
+- What a client says of itself (`clientInfo`, of an `initialize` or a
+  modern agent's `_meta`) is kept without control and format characters,
+  each field up to 128 characters; `mcp-gateway-admin` writes control
+  and format characters to a terminal as escapes (`\u001B`). Escape
+  sequences in a client's name reached the terminal of whoever listed
+  clients or approvals (#409).
+- A call's arguments, where approvers read them (the approval page and
+  its reviews, approval mail, `mcp-gateway-admin approvals show` and
+  `reviews show`, Cockpit's Approvals tab), show characters that do not
+  show as themselves, bidirectional controls and zero-width ones among
+  them, as escapes (`\u202E`): an agent could make an argument read as
+  other than it was (#410). `tools/check-tree` refuses such characters
+  in the sources.
+- Approval and notice mail is quoted-printable instead of 8bit, so its
+  lines stay within what SMTP allows: a long argument (with
+  `include_args`) or notice text could make a line longer than 998
+  characters, and a mail server refuse the mail (#411).
+- `mcp-gateway --check`, the gateway's log at start and both doctors
+  warn when, without `http.issuer`, the first of `http.issuers` (the
+  issuer people sign in with) looks like a cluster's: no scopes, or a
+  `token_file` (#412). The doctor in the gateway shows gateway.yaml's
+  warnings under "configuration".
 - `GET /v1/status` (also on the console's API) gives why the last
   change of the configuration was refused to root, the gateway's own
   account and those who may review policy changes, as the doctor's

@@ -84,6 +84,13 @@ func connectWrapped(t *testing.T, r *Router, p principal.Principal, server strin
 func connectVersion(t *testing.T, r *Router, p principal.Principal, server string, caps map[string]any,
 	wrap func(jsonrpc.MessageConn) jsonrpc.MessageConn, version string) *client {
 	t.Helper()
+	return connectClient(t, r, p, server, caps, wrap, version, map[string]any{"name": "test"})
+}
+
+// connectClient is connectVersion with the clientInfo of its initialize.
+func connectClient(t *testing.T, r *Router, p principal.Principal, server string, caps map[string]any,
+	wrap func(jsonrpc.MessageConn) jsonrpc.MessageConn, version string, clientInfo map[string]any) *client {
+	t.Helper()
 	cTest, cGw := net.Pipe()
 	c := &client{t: t, conn: jsonrpc.NewConn(cTest), msgs: make(chan *jsonrpc.Message, 32), done: make(chan struct{})}
 	go func() {
@@ -102,7 +109,7 @@ func connectVersion(t *testing.T, r *Router, p principal.Principal, server strin
 	}
 	var first *jsonrpc.Message
 	init, _ := jsonrpc.NewRequest(json.RawMessage(`0`), "initialize", map[string]any{
-		"protocolVersion": version, "capabilities": caps, "clientInfo": map[string]any{"name": "test"},
+		"protocolVersion": version, "capabilities": caps, "clientInfo": clientInfo,
 	})
 	if server == "" {
 		first = init

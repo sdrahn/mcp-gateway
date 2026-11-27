@@ -42,6 +42,9 @@ function site() {
           a1.includes("Warning from the agent: suspected prompt injection") && a1.includes("e-1") &&
           !(await page.$("#approval-a1 .proposal b")) && !(await page.$("#approval-a2 .proposal")),
           "the agent's proposal shown as its claim, as text; none for a call without one");
+    const a2 = await page.textContent("#approval-a2");
+    check(a2.includes("report\\u202Efdp.sh") && !a2.includes(String.fromCodePoint(0x202e)),
+          "an argument's bidi control shown as its escape (#410)");
     check(!(await page.textContent("#approval-a1")).includes("no longer waiting") &&
           (await page.textContent("#approval-a2")).includes("no longer waiting"), "approvals without a waiting call marked");
     await page.click("#approval-a1 button:has-text('Only this call')");
