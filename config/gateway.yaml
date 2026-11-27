@@ -11,6 +11,11 @@
 # supports the version, and warns about keys it is going to remove.
 version: 1
 
+# host: systemd, SELinux and local clients on the Unix socket.
+# container: in a container or a Kubernetes pod, remote principals and
+# servers that speak HTTP only (user guide, chapter 3, "Deployment").
+deployment: host
+
 # Unix socket for local clients (directly or via mcp-connect).
 socket: /run/mcp-gateway/mcp.sock
 # Group owning the socket (mode 0660). Empty: the gateway's own group.

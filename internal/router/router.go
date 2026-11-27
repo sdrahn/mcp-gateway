@@ -417,8 +417,8 @@ func (r *Router) settings() Settings {
 	return *r.live.Load()
 }
 
-// Serve accepts connections from l until ctx ends, then stops all backend
-// instances.
+// Serve accepts connections from l (nil: none, in container mode) until
+// ctx ends, then stops all backend instances.
 func (r *Router) Serve(ctx context.Context, l *transport.UnixListener) error {
 	r.init()
 	// Deferred: tasks' calls end after the instances (privileged calls
@@ -426,11 +426,16 @@ func (r *Router) Serve(ctx context.Context, l *transport.UnixListener) error {
 	defer r.endTasks()
 	defer r.pool.closeAll()
 	defer r.warm.stop() // no warm-up starts an instance once they stop
+	r.startWarmUp(ctx)
+	if l == nil {
+		// No Unix socket (container mode): clients come over HTTP only.
+		<-ctx.Done()
+		return nil
+	}
 	go func() {
 		<-ctx.Done()
 		_ = l.Close()
 	}()
-	r.startWarmUp(ctx)
 	for {
 		c, err := l.Accept()
 		if err != nil {

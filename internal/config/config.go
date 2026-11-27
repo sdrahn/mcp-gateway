@@ -53,7 +53,13 @@ const Version = 1
 type Gateway struct {
 	// Version of the file's format (Version).
 	Version int `yaml:"version"`
-	// Socket is the unix socket local clients connect to.
+	// Deployment is "host" (the default: systemd, SELinux, local
+	// clients) or "container" (in a container or a Kubernetes pod:
+	// remote principals and servers that speak HTTP only; see
+	// deployment.go and docs/architecture.md, section 5.12).
+	Deployment string `yaml:"deployment"`
+	// Socket is the unix socket local clients connect to (none in
+	// container mode).
 	Socket string `yaml:"socket"`
 	// SocketGroup, if set, owns the socket (mode 0660).
 	SocketGroup string `yaml:"socket_group"`
@@ -860,7 +866,11 @@ func (g *Gateway) setDefaults() {
 	if g.Version == 0 {
 		g.Version = Version
 	}
-	if g.Socket == "" {
+	if g.Deployment == "" {
+		g.Deployment = DeploymentHost
+	}
+	container := g.Deployment == DeploymentContainer
+	if g.Socket == "" && !container {
 		g.Socket = DefaultSocket
 	}
 	if g.ServersDir == "" {
@@ -886,6 +896,9 @@ func (g *Gateway) setDefaults() {
 	}
 	if g.Supervisor.Mode == "" {
 		g.Supervisor.Mode = "systemd"
+		if container {
+			g.Supervisor.Mode = "exec"
+		}
 	}
 	if g.Supervisor.SELinux == "" {
 		g.Supervisor.SELinux = "auto"
@@ -958,6 +971,9 @@ func (g *Gateway) setDefaults() {
 	}
 	if g.Audit.Kernel == "" {
 		g.Audit.Kernel = "auto"
+		if container {
+			g.Audit.Kernel = "off"
+		}
 	}
 	if g.Notifications.Email.To == "" {
 		g.Notifications.Email.To = "{user}"
@@ -993,7 +1009,10 @@ func (g *Gateway) Validate() error {
 	if err := checkVersion(g.Version); err != nil {
 		return err
 	}
-	if !filepath.IsAbs(g.Socket) {
+	if err := g.validateDeployment(); err != nil {
+		return err
+	}
+	if g.Deployment == DeploymentHost && !filepath.IsAbs(g.Socket) {
 		return fmt.Errorf("socket: must be an absolute path, got %q", g.Socket)
 	}
 	if g.Policy.Timeout < 0 {
