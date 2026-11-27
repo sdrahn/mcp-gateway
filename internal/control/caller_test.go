@@ -106,7 +106,10 @@ func TestDoctorRoute(t *testing.T) {
 	}
 	// alice, and an operator signed in (never root, nor the gateway's
 	// account): no review_policy, no results.
-	for _, a := range []broker.Approver{users[1001], {Name: "root", Remote: true}, {Name: "x", UID: uint32(os.Getuid()), Remote: true}} {
+	// (Another local account: not the test's own uid, which CI's may be
+	// 1001, alice's.)
+	other := broker.Approver{Name: "bob", UID: uint32(os.Getuid()) + 1}
+	for _, a := range []broker.Approver{other, {Name: "root", Remote: true}, {Name: "x", UID: uint32(os.Getuid()), Remote: true}} {
 		if rec := callAs(t, s, a, "console", "GET", "/v1/doctor", ""); rec.Code != http.StatusForbidden {
 			t.Errorf("%+v: %d", a, rec.Code)
 		}
