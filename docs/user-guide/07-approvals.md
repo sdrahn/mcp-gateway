@@ -470,6 +470,37 @@ public client with the **device authorization grant** (Keycloak: *OAuth
 - The device flow asks the user to confirm a code shown by a program:
   confirm only codes from your own `approvals login`.
 
+## The console
+
+With the approval page set up, the gateway also serves its management
+page at `/console/` (2.0), signed in as on the approval page: the
+gateway's status, the servers and their instances, the clients
+(sessions), the agents' tasks, sign-ins to servers and the policy, and
+the approvals, grants and reviews of `/approvals/`. It is meant for a
+gateway without Cockpit (in a cluster, chapter 16), and works beside
+Cockpit on a host too.
+
+| Page | Shows | Actions |
+|---|---|---|
+| Gateway (`/console/`) | the version, whether the last change of `gateway.yaml` or of the server definitions was refused and why, the keys waiting for a restart, the policy's revisions | |
+| Servers | each server's isolation, network, sign-in; the instances you manage | Stop |
+| Sessions | the clients you manage, and those that ended in the last 24 hours | End |
+| Tasks | the agents' tasks you manage | Cancel |
+| Sign-ins | principals' sign-ins to servers with `sign_in` | Sign out |
+| Policy | the policy's bundles and revisions, the roles of server setups | What if: paste role data, see the decisions it would change |
+| Approvals | the approval page | Approve, deny, revoke, review |
+
+- What you see and may do is the approver rules' decision, as in
+  Cockpit and on the command line (chapter 6, "Who may approve"):
+  `remote-user:<sub>` and `remote-group:<group>` name operators signed in
+  without a local account.
+- The configuration is shown, not edited: change it where it is kept
+  (the ConfigMaps in Git, or `/etc/mcp-gateway` on a host). The Gateway
+  page shows whether the gateway took the change.
+- The pages run no scripts; each action is a form with the sign-in's
+  CSRF token, audited with `via=console` and an `mcp-console-action`
+  record.
+
 ## The console's API
 
 With the approval page set up, the HTTPS listener also serves the whole

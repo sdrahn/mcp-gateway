@@ -314,6 +314,11 @@ and the last good one stays in force (`kubectl logs deploy/mcp-gateway
   (OPA's decision log: `-c opa`).
 - Approvals from another host: `mcp-gateway-admin approvals login
   --gateway https://mcp-gateway.example.com` (chapter 7).
+- The console: with the approval page set up, the gateway's management
+  page at `https://<listener>/console/`, for operators signed in there
+  (chapter 7, "The console"): status and reload errors, servers and
+  instances, sessions, tasks, sign-ins, the policy and its what-if, and
+  the approvals.
 - The console's API: with the approval page set up, the control API on
   the listener below `/console/api/v1/`, for operators signed in there,
   as the approver rules allow them (`remote-user:`, `remote-group:`;

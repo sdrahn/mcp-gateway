@@ -243,6 +243,7 @@ func (pg *Page) Handler() http.Handler {
 	mux.HandleFunc("POST /approvals/reviews/{id}", pg.judge)
 	pg.apiRoutes(mux)
 	pg.consoleRoutes(mux)
+	pg.consolePages(mux)
 	mux.HandleFunc("/approvals/", func(w http.ResponseWriter, r *http.Request) {
 		pg.page(w, http.StatusNotFound, "Not found", "There is no such page.", nil)
 	})
@@ -320,7 +321,8 @@ func (pg *Page) startLogin(w http.ResponseWriter, r *http.Request, next string) 
 			"The gateway cannot reach its identity provider: "+err.Error(), nil)
 		return
 	}
-	if !strings.HasPrefix(next, "/approvals/") || strings.HasPrefix(next, "/approvals/callback") {
+	console := pg.Control != nil && strings.HasPrefix(next, "/console/")
+	if (!strings.HasPrefix(next, "/approvals/") && !console) || strings.HasPrefix(next, "/approvals/callback") {
 		next = "/approvals/"
 	}
 	l := login{State: oauth.NewState(), Nonce: oauth.NewState(), Verifier: oauth.NewVerifier(), Next: next, Created: pg.now().Unix()}
@@ -584,6 +586,11 @@ func (pg *Page) metadata(ctx context.Context) (*metadata, error) {
 // page itself: it must carry the session's CSRF token, and an Origin
 // (or Sec-Fetch-Site) that browsers send with it must name the page.
 func (pg *Page) checkPost(w http.ResponseWriter, r *http.Request) *session {
+	return pg.checkPostLimit(w, r, 8192)
+}
+
+// checkPostLimit is checkPost for a form of up to limit bytes.
+func (pg *Page) checkPostLimit(w http.ResponseWriter, r *http.Request, limit int64) *session {
 	s := pg.current(r)
 	if s == nil {
 		pg.page(w, http.StatusForbidden, "Signed out", "Your sign-in on the approval page ended. Open the page again to sign in; nothing was decided.", nil)
@@ -599,7 +606,7 @@ func (pg *Page) checkPost(w http.ResponseWriter, r *http.Request) *session {
 		pg.page(w, http.StatusForbidden, "Refused", "This request came from another site; nothing was decided.", nil)
 		return nil
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 8192)
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	if subtle.ConstantTimeCompare([]byte(r.PostFormValue("csrf")), []byte(s.CSRF)) != 1 {
 		pg.page(w, http.StatusForbidden, "Refused", "This request did not come from the approval page (no valid CSRF token); nothing was decided. Open the page again.", nil)
 		return nil
