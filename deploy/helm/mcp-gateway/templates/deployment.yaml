@@ -69,6 +69,9 @@ spec:
             - {name: servers, mountPath: /etc/mcp-gateway/servers.d, readOnly: true}
             - {name: rbac, mountPath: /etc/mcp-gateway/policy/rbac, readOnly: true}
             - {name: tls, mountPath: /etc/mcp-gateway/tls, readOnly: true}
+            {{- range $i, $s := .Values.secrets }}
+            - {name: secret-{{ $i }}, mountPath: {{ default (printf "/etc/mcp-gateway/secrets/%s" $s.name) $s.mountPath }}, readOnly: true}
+            {{- end }}
             {{- if .Values.clusterIssuer.enabled }}
             - {name: cluster-ca, mountPath: /etc/mcp-gateway/cluster-ca, readOnly: true}
             - {name: token, mountPath: /var/run/secrets/mcp-gateway/token, readOnly: true}
@@ -124,6 +127,11 @@ spec:
           configMap: {name: {{ $name }}-rbac}
         - name: tls
           secret: {secretName: {{ .Values.tls.secretName }}}
+        {{- range $i, $s := .Values.secrets }}
+        # The gateway's account reads it (fsGroup), no other.
+        - name: secret-{{ $i }}
+          secret: {secretName: {{ required "secrets[].name: the Secret's name" $s.name }}, defaultMode: 0440}
+        {{- end }}
         {{- if .Values.clusterIssuer.enabled }}
         - name: cluster-ca
           configMap: {name: kube-root-ca.crt}

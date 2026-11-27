@@ -30,7 +30,7 @@ message is explained.
 | [13. System management servers](13-system-management-servers.md) | systemd, firewalld, snapper, suseconnect and zypp MCP servers, podman for the users' own containers, the pending restarts after an update, and storage health: setup packages, accounts, SELinux domains, polkit, read freely and change only with approval |
 | [14. Tuning](14-tuning.md) | What to measure, settings for slow server starts, policy decisions, many users, remote clients and approvals; starting points for a small host (Raspberry Pi), a typical server and many users |
 | [15. Keycloak for one or more gateways](15-keycloak.md) | Keycloak in a container (Podman Quadlet), the realm for remote agents, the approval page and the command line, one token per gateway, token lifetimes and offline tokens, connecting each gateway |
-| [16. Kubernetes](16-kubernetes.md) | The gateway in a container and in a cluster (2.0): the image, the manifests, ServiceAccount tokens for agents, servers in the cluster, configuration from ConfigMaps, what container mode refuses |
+| [16. Kubernetes](16-kubernetes.md) | The gateway in a container and in a cluster (2.0): a walkthrough from an empty cluster to an agent's first call and an operator's approval, troubleshooting, the image, the manifests, ServiceAccount tokens for agents, servers in the cluster, configuration from ConfigMaps, what container mode refuses |
 | [17. Containers on one host](17-containers.md) | The gateway's pod with Podman (`podman kube play`, a Quadlet service) or Docker Compose (2.0): the configuration directory, starting and checking it, servers and agents, changes, upgrades, backups, rootless |
 
 ## Quick start (openSUSE Tumbleweed)
