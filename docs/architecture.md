@@ -19,7 +19,7 @@ install, configure and run it is the [user guide](user-guide/README.md);
 | 6 | policy model: packages, input and decision documents, role data, policy lifecycle |
 | 7 | key flows: a call needing approval, remote session setup, discovery |
 | 8 | threat model (summary) |
-| 9 | decisions D1–D23, each with its rationale |
+| 9 | decisions D1–D24, each with its rationale |
 | 10 | repository layout |
 | 11 | roadmap: the steps by release, with what each delivered |
 | 12 | open items |
@@ -70,8 +70,9 @@ Access must be governed. The gateway shall
 - Content-level safety filtering of tool output (prompt-injection
   detection etc.). The design leaves a hook for it (obligations, §6.4).
 - High availability / multi-host clustering. One gateway per host; in
-  Kubernetes (2.0, §5.12) one replica per deployment until the state
-  the gateway keeps in memory has a shared store.
+  Kubernetes (2.0, §5.12) one replica per deployment; several
+  replicas, each principal served by one, are proposed for after 2.0
+  (step 49, D24).
 - SLES 15 and Leap 15, and with them AppArmor: the confinement model is
   SELinux.
 
@@ -1498,7 +1499,7 @@ first call's decision id, `answered`, `waiting` or `refused`).
 
 *Status: implemented in 2.0 (D23, roadmap steps 46–48): container mode
 (step 46), the Kubernetes launcher (step 47) and the console (step 48).
-Several replicas (§5.12.5) are step 49, after 2.0.*
+Several replicas (§5.12.5) are step 49, after 2.0 (D24, proposed).*
 
 The gateway is built for a host: it starts instances as systemd units,
 confines them with SELinux domains and MCS pairs, knows local clients by
@@ -1523,7 +1524,7 @@ inputs and audit records on both levels.
 | Local principals | the Unix socket, `SO_PEERCRED` / `SO_PEERSEC`, local accounts, polkit | none: every principal is remote (§5.12.4) |
 | Audit | the journal and the kernel audit log (`TRUSTED_APP`) | the same records as JSON on the standard error, as on a host, for the cluster's log pipeline; no kernel audit (`audit.kernel: off`) |
 | Approvers | Cockpit, the CLI on the host, the approval page, webhooks, mail | the approval page, `approvals --gateway`, webhooks and mail (D21): no Cockpit |
-| State | `/var/lib/mcp-gateway` (grants, keys, clients, reviews); in memory: sessions, pending approvals, tasks, idempotency keys, contexts | a persistent volume, one replica (§5.12.5) |
+| State | `/var/lib/mcp-gateway` (grants, keys, clients, reviews); in memory: sessions, pending approvals, tasks, idempotency keys, contexts | a persistent volume, one replica; several replicas with a shared store proposed (§5.12.5, D24) |
 | Configuration | `/usr/etc` and `/etc/mcp-gateway`, watched with inotify | the same files from ConfigMaps (role data, server definitions, `gateway.yaml`) and Secrets (TLS key, credentials) |
 
 #### 5.12.2 Container mode (step 46)
@@ -1710,10 +1711,114 @@ and their streams, pending approvals and their waiting calls, grants,
 tasks, idempotency keys (§5.11.7), contexts, the pseudonym vaults.
 2.0 runs **one replica**, with its files on a persistent volume, as a
 host runs one gateway; a restart ends what lives in memory there as it
-does on a host. Several replicas (step 49) need that state in a shared
-store (with sessions and tasks pinned to the replica that runs their
-calls, since an instance's stdio cannot move); that is designed when it
-is needed, not in 2.0.
+does on a host. That stays the default, and needs nothing of what
+follows.
+
+**Several replicas** (step 49, D24, proposed) serve more principals than
+one pod can, and keep the gateway answering while one replica is
+replaced or lost. They are for container mode only: a host runs one
+gateway, as before.
+
+*What the state is.* Sorted by who reaches it:
+
+| State | Today | Reached by | With several replicas |
+|---|---|---|---|
+| Instances (stdio pipes, the bridge's stream, connectors) | the replica's processes and pods | the principal's calls | stay on the replica that started them: they cannot move |
+| Legacy sessions, their streams and replay; request sessions of modern agents; subscription streams | memory | the principal's client | the owner replica (below) |
+| Tasks, their results; idempotency outcomes; contexts | memory | the principal's agent | the owner replica |
+| Pseudonym vaults; `rate_limit` counters (D11); `session` grants; the limits per principal; denials remembered for the next attempt | memory | decisions on the principal's calls | the owner replica |
+| The MRTR `requestState` key (§5.11.2) | memory, new at each start | the principal's retries | stays per replica: a retry reaches the owner that sealed it |
+| `duration` grants (`grants.json`), pending `url` and `oob` approvals (`pending.json`), notices (`notices.json`), reviews (`reviews.json`) | files in `state_dir` | approvers on any replica, the principal's calls | the shared store |
+| Pending sign-ins (PKCE verifier, by `state`) | memory | the principal's browser, at the callback | the owner replica; the callback is forwarded there |
+| Principals' upstream tokens (§5.7.3) and their key | encrypted files in `state_dir` | the principal's instances, the console | the shared store, encrypted as now; the key in a Secret |
+| Clients seen (`clients.json`, D14) | a file | the console, `clients` | the shared store, last-seen written at most once a minute per client |
+| The key of argument digests (`audit.key`) | a file | the audit | a Secret, the same for all replicas, so that digests compare |
+| Local users seen (`principals.json`) | a file | approval mail to primary groups | not used in container mode (no local users) |
+
+Most of it belongs to one principal and is used only by that
+principal's calls. So the design does not share it: it **sends each
+principal's requests to one replica**, its owner, and shares only what
+other people reach: approvals, grants, notices, reviews, tokens and the
+clients seen.
+
+*Owners.* A replica that receives a request authenticates it (the token,
+the client certificate) and looks up the principal's owner. If it is
+another replica, it forwards the request there as it came, streams
+included. If the principal has no owner, it takes the principal itself.
+Ownership is a lease in the shared store (one per principal key, which
+names the issuer, §5.12.4): renewed while the principal has instances,
+sessions, tasks or idempotency outcomes, released after
+`supervisor.idle_timeout` without them. A principal therefore stays where
+its instances are, and a new replica takes new principals rather than
+moving running ones; nothing rebalances by itself. Each replica holds a
+lease of its own too, renewed every few seconds. A principal whose owner
+lost that lease is taken by the next replica its requests reach, with
+what a restart loses (its instances, sessions, running tasks, contexts,
+idempotency outcomes, vault).
+
+*Forwarding.* Between replicas on a peer listener of their own
+(`replication.listen`, not exposed by the Service), with mTLS: the
+replicas' certificate from a Secret, its CA trusted on that listener
+only. The forwarded request keeps the client's `Authorization` header,
+and the owner validates the token itself, so a replica cannot speak for
+a principal it has no token of. It adds, as headers only a peer may
+send, the client's certificate as the receiving replica verified it
+(where mTLS is used), the client's address, and that it was forwarded
+once (a forwarded request is never forwarded again: it fails if the
+receiver is no longer the owner, and the client retries). Responses,
+SSE streams included, pass through as they come. Sign-in callbacks
+carry no token: their `state` names the replica that started the
+sign-in, which the callback is forwarded to.
+
+*The shared store* is the Kubernetes API, in the gateway's namespace:
+Leases for the replicas and the owners, Secrets for the records
+(approvals and reviews hold call arguments, tokens are tokens), each
+written with its `resourceVersion` so that two replicas cannot both
+decide one approval. Every replica watches them: an approval decided on
+the replica where the approver happens to be wakes the call waiting on
+the owner within the watch's delay; a grant revoked anywhere stops
+counting at the owner the same way. A replica whose watch broke treats
+grants as absent until it has listed them again (it asks instead of
+allowing on stale data). The volume of this state is small and written
+at the pace of people (decisions, sign-ins), which the API server
+carries; what changes with every call stays in the owner's memory. The
+gateway already speaks to the API server (the Kubernetes launcher), so
+the store needs a Role, not a new service. It sits behind an interface,
+so that another store (PostgreSQL) can be added if a cluster needs one.
+
+*Instance pods* carry the label of the replica that started them. A
+replica deletes its own at start (not every gateway's, as with one
+replica), and the replicas delete the pods of a replica whose lease
+expired.
+
+*Approvals and notices* are made once, by the owner: mail, webhooks and
+push are sent from there and not again by every replica. Inbox, the
+approval page, `approvals --gateway` and the console read the store, on
+any replica.
+
+*The console and the control API* (§5.12.7) show the whole gateway: the
+replica serving a view asks its peers for theirs (instances, sessions,
+tasks) and merges them, naming each row's replica; an action (stopping
+an instance, ending a session, cancelling a task) is forwarded to the
+replica that holds it, and decided by policy there as now. The doctor
+reports per replica.
+
+*Ending a replica.* On `SIGTERM` a replica gives up its lease for new
+principals: the requests of an owned principal with nothing running move
+at once; one with instances, sessions or tasks stays until those end or
+the pod's grace period runs out, then moves with what a restart loses.
+A rolling update thus ends no more than a restart of one replica does.
+
+*What stays per replica:* the configuration (each watches its own
+mounts, and converges within the reload's delay), OPA (a sidecar of each
+pod), metrics (each pod scraped), the audit (each replica writes its
+records, with a field `replica`), and `limits.instances`, which bounds
+each replica.
+
+*What it does not give:* one principal's calls are not spread (an agent
+with many parallel calls is served by one replica); a lost replica ends
+what its principals had in memory, as a restart does today; instances
+do not move between replicas.
 
 #### 5.12.6 What stays out
 
@@ -3125,6 +3230,64 @@ console (two sources of truth, and a write path from a browser into the
 cluster); the Kubernetes Dashboard (shows pods, not approvals or
 sessions); Cockpit in a pod (a host's console, needs the host's
 accounts).
+
+**D24 — Several replicas: each principal served by one, what people
+reach shared.**
+*Decision (proposed 2026-11-27, roadmap step 49; open since D23):* in
+container mode the gateway may run as several replicas of one
+Deployment (`replication` in `gateway.yaml`; one replica stays the
+default and needs none of it). Each principal has an owner, one replica
+that serves all of its requests, holds its instances, sessions, tasks,
+contexts, idempotency outcomes, pseudonym vault and rate-limit counters
+in memory as today, and makes its decisions. A replica that receives a
+request of a principal it does not own authenticates it and forwards it
+to the owner over a peer listener with mTLS; the owner validates the
+token again. Ownership is a lease in the Kubernetes API, held while the
+principal has something running and released after the idle timeout;
+a principal whose owner is gone is taken by the next replica its
+requests reach. What other people than the principal reach, `duration`
+grants, pending approvals, notices, reviews, the principals' upstream
+tokens and the clients seen, moves from `state_dir` to Secrets in the
+gateway's namespace, written with compare-and-set and watched by every
+replica; approvals, notices and their mail and webhooks are made once,
+by the owner. The console and the control API show all replicas and
+forward actions to the replica that holds what they act on. Policy
+inputs do not change; audit records name their replica. Hosts are not
+affected: a host runs one gateway.
+*Rationale:* nearly all state the gateway keeps in memory belongs to one
+principal and is used only by that principal's calls, and the largest
+part of it, the instances, cannot move at all. Serving a principal in
+one place keeps that state where it is, exact (rate limits, limits per
+principal) and without a store round trip per call; only what approvers
+and the console reach on another replica needs sharing, and that is
+small and written at the pace of people. The Kubernetes API is already
+there, already backed up with the cluster, and already spoken by the
+gateway (the Kubernetes launcher): the store needs a Role, not a new
+service to run and secure. Forwarding the request as it came, with the
+owner checking the token, keeps one replica from speaking for a
+principal it holds no token of.
+*Considered:* all state in a shared store, any replica serving any call
+(instances cannot move, so calls would still need an owner; every call
+would touch the store; rate limits and vaults would need atomic shared
+updates); affinity at the Ingress (MCP clients send no cookie, client
+addresses hide behind NAT, and a hash of the `Authorization` header
+moves a principal at every token renewal); owners by hashing the
+principal over the replicas (a replica that comes or goes moves
+principals and loses their instances); PostgreSQL or Valkey as the store
+(another service to run, secure and back up; left possible behind the
+store's interface); the existing files on a ReadWriteMany volume (file
+locks over NFS, and no change notification across nodes); one active
+replica and a standby (availability without more capacity, and the
+standby still loses the instances); redirecting the client to the owner
+instead of forwarding (needs every replica reachable at an address of
+its own, and clients that follow redirects of a POST with an SSE
+response).
+*Open for review:* whether the store should be PostgreSQL from the start
+rather than the Kubernetes API; whether a forwarded request that finds
+the receiver no longer the owner should be served by it (taking the
+principal) instead of failing for the client to retry; whether
+`limits.instances` should bound the gateway as a whole (a counter in the
+store) rather than each replica.
 
 ## 10. Repository layout
 
@@ -5005,9 +5168,33 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       admin, refused), CSRF and framing as for the approval page, a
       browser test (Playwright) of the views and one action, the probes
       in the kind job.
-49. **Several replicas** (after 2.0; D23; open): the state the gateway
-    keeps in memory (sessions, pending approvals, tasks, idempotency
-    keys, contexts) in a shared store, sessions pinned to their replica.
+49. **Several replicas** (after 2.0; D24, proposed; open; §5.12.5): each
+    principal's requests served by one replica, its owner, and what other
+    people reach in a shared store, the Kubernetes API:
+    - stage A, the shared store: `replication` in `gateway.yaml`
+      (container mode only); `duration` grants, pending approvals,
+      notices, reviews, the principals' upstream tokens and the clients
+      seen move from `state_dir` to Secrets in the gateway's namespace,
+      watched by the gateway, written with their `resourceVersion`; the
+      key of the tokens and of argument digests in Secrets; at the first
+      start with the store, the files of a volume are imported once. A
+      Role for Leases and Secrets in the manifests and the chart. Tests:
+      the store against a fake API server; the kind job with one replica
+      on the store;
+    - stage B, owners and forwarding: the replicas' leases, a lease per
+      principal, the peer listener with mTLS, forwarding of requests and
+      their streams, sign-in callbacks forwarded by their `state`,
+      approvals and notices made once by the owner, instance pods
+      labelled with their replica and reaped when its lease expired.
+      Tests: the kind job with three replicas (one principal's requests
+      through each reach one instance; an approval decided on another
+      replica wakes the call; a sign-in completed through another
+      replica; a replica deleted: its principals taken by the others);
+    - stage C, the console and the control API across replicas (views
+      merged from the peers, actions forwarded to the replica that holds
+      them), draining on `SIGTERM`, the chart's `replicas` with a
+      PodDisruptionBudget and spread over nodes, the Deployment's
+      `RollingUpdate`; the user guide (chapter 16).
 
 ## 12. Open items
 
