@@ -137,3 +137,141 @@ approvals:
 		t.Errorf("audit lacks the page's decision")
 	}
 }
+
+// TestConsoleBrowser goes through the console (step 48) in a real
+// browser (test/browser/console.js, as TestApprovalPageBrowser): signed in
+// through the identity provider, each tab of the navigation opened, an
+// instance stopped on the Servers tab, and proposed role data tried in
+// the Policy tab's what-if. The forms are the browser's own, with the
+// Origin it chooses; the stop is audited as the console's.
+//
+// MCPGW_BROWSER=1 runs it, as TestApprovalPageBrowser.
+func TestConsoleBrowser(t *testing.T) {
+	if os.Getenv("MCPGW_BROWSER") == "" {
+		t.Skip("MCPGW_BROWSER=1 runs it (node, playwright-core, Chrome)")
+	}
+	script, err := filepath.Abs(filepath.Join("..", "test", "browser", "console.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := os.MkdirTemp("", "mcpgw-console-browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	if err := os.WriteFile(filepath.Join(home, "hello.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provider, flow := newCodeFlowIdP(t)
+	certFile, keyFile, pool := selfSigned(t, home)
+	port := freePort(t)
+	origin := fmt.Sprintf("https://127.0.0.1:%d", port)
+	audience := origin + "/mcp"
+	flow.redirectURI = origin + "/approvals/callback"
+	flow.user = "u-operator"
+
+	// u-operator is named by the default approver rules: an operator of
+	// every server, who may review policy changes.
+	roles := fmt.Sprintf(`"roles": {"reader": {"permissions": [
+	    {"server": "fs", "tool": "read_file", "args": {"path": %q}}
+	  ]}}`, "^"+regexp.QuoteMeta(home)+"/")
+	rbac := `{` + roles + `,
+	  "bindings": {"groups": {}, "users": {"u-agent": ["reader"]}},
+	  "approvers": {"default": ["remote-user:u-operator"]}
+	}`
+	// The what-if's proposal: u-agent loses the role.
+	proposed := `{` + roles + `,
+	  "bindings": {"groups": {}, "users": {}},
+	  "approvers": {"default": ["remote-user:u-operator"]}
+	}`
+	e := setup(t, rbac, map[string]string{"fs": home}, fmt.Sprintf(`http:
+  listen: 127.0.0.1:%d
+  cert_file: %s
+  key_file: %s
+  issuer: %s
+  audience: %s
+approvals:
+  page:
+    client_id: approvals
+`, port, certFile, keyFile, provider.srv.URL, audience))
+
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		resp, err := client.Get(audience)
+		if err == nil {
+			_ = resp.Body.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("gateway HTTPS not up: %v\n%s", err, e.gwLogs.String())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// An agent's call starts the instance the browser stops.
+	agent := &remote{t: t, client: client, url: audience + "/fs", token: provider.token(t, "u-agent", audience)}
+	agent.call(1, "initialize", map[string]any{"protocolVersion": "2025-06-18",
+		"capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "console-browser-e2e"}})
+	_ = agent.post(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"}, false).Body.Close()
+	if text, isErr := toolResult(t, agent.call(2, "tools/call", map[string]any{"name": "read_file",
+		"arguments": map[string]any{"path": filepath.Join(home, "hello.txt")}})); isErr || text != "hello" {
+		t.Fatalf("the call: %q %v", text, isErr)
+	}
+
+	cmd := exec.Command("node", script, origin, proposed, "u-agent")
+	cmd.Env = os.Environ()
+	out, err := cmd.CombinedOutput()
+	t.Logf("browser:\n%s", out)
+	if err != nil {
+		t.Fatalf("the browser: %v\n%s", err, e.gwLogs.String())
+	}
+	lines := map[string]string{}
+	for _, l := range strings.Split(string(out), "\n") {
+		if k, v, ok := strings.Cut(l, ": "); ok {
+			lines[k] = v
+		}
+	}
+	for what, want := range map[string][]string{
+		"overview /console/":             {"MCP Gateway console", "Signed in as u-operator", "Status"},
+		"tab Servers /console/servers":   {"fs", "Stop"},
+		"tab Sessions /console/sessions": {"console-browser-e2e", "u-agent"},
+		"tab Tasks /console/tasks":       {"No tasks you manage."},
+		"tab Sign-ins /console/sign-ins": {"No sign-ins you manage."},
+		"tab Policy /console/policy":     {"What if"},
+		"tab Doctor /console/doctor":     {"runs no checks of its own here"},
+		"tab Gateway /console/":          {"Version"},
+		"stopped":                        {"Done: stopped instance "},
+		"what-if":                        {"u-agent", "read_file"},
+	} {
+		page, ok := lines[what]
+		if !ok {
+			t.Errorf("%s: no page", what)
+			continue
+		}
+		for _, w := range want {
+			if !strings.Contains(page, w) {
+				t.Errorf("%s lacks %q: %s", what, w, page)
+			}
+		}
+	}
+	// The agent's instance is gone from the page that says so.
+	id := strings.TrimSuffix(strings.TrimPrefix(lines["stop"], "/console/instances/"), "/stop")
+	if id == "" || !strings.Contains(lines["stopped"], "stopped instance "+id) || strings.Contains(lines["stopped"], id+" u-agent") {
+		t.Errorf("instance %q not stopped: %s", id, lines["stopped"])
+	}
+	for _, post := range []string{"post /console/instances/", "post /console/policy/whatif"} {
+		if !regexp.MustCompile(regexp.QuoteMeta(post) + `\S* origin=` + regexp.QuoteMeta(origin) + `\n`).Match(out) {
+			t.Errorf("the browser did not send the page's origin with %s", post)
+		}
+	}
+	wants := []string{`"event":"mcp-console-action"`, `"via":"console"`, `"by":"u-operator"`, `"route":"/v1/instances/`}
+	logs := e.gwLogs.waitContains(wants...)
+	found := false
+	for _, l := range strings.Split(logs, "\n") {
+		found = found || !slices.ContainsFunc(wants, func(w string) bool { return !strings.Contains(l, w) })
+	}
+	if !found {
+		t.Errorf("no audit record of the console's stop:\n%s", logs)
+	}
+}
