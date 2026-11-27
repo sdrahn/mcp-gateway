@@ -31,12 +31,11 @@ what container mode refuses.
 - Podman 4.9 or newer (`zypper install podman`); `podman kube play`
   runs the pod.
 - The gateway's image: from your registry, or built with
-  `make image` (chapter 16, "The image"; `packaging/container`). For a
-  SLES 16 host, build on SLE 16's base:
+  `make image` (chapter 16, "The image"; `packaging/container`), on
+  SLES 16's BCI-Micro:
 
   ```bash
-  make image IMAGE=registry.example.com/mcp-gateway:2.0.0 \
-      IMAGE_BASE=registry.suse.com/bci/bci-micro:16.0 CONTAINER=podman
+  make image IMAGE=registry.example.com/mcp-gateway:2.0.0 CONTAINER=podman
   ```
 
 - An identity provider for agents and people (chapter 5, "Remote

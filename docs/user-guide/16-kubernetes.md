@@ -35,7 +35,7 @@ container mode refuses, with the reason.
 ## The image
 
 `make image` builds it from the same sources as the RPMs on SUSE's Base
-Container Image (`registry.suse.com/bci/bci-micro`): the gateway,
+Container Image of SLES 16 (`registry.suse.com/bci/bci-micro:16.0`): the gateway,
 `mcp-gateway-admin`, the connector, the sign-in helper,
 `mcp-policy-render` and the policy.
 
