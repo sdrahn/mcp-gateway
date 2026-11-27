@@ -100,7 +100,7 @@ The screenshots are made with demo data by `make screenshots`.
 
 ## Development
 
-Requirements: Go ≥ 1.24, [`opa`](https://www.openpolicyagent.org/docs/latest/#running-opa),
+Requirements: Go ≥ 1.25, [`opa`](https://www.openpolicyagent.org/docs/latest/#running-opa),
 `golangci-lint`, and for the SELinux module the reference-policy devel
 files (`selinux-policy-devel` on openSUSE/SLES and Fedora,
 `selinux-policy-dev` on Debian/Ubuntu) plus `checkpolicy`.

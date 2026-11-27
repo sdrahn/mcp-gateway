@@ -206,7 +206,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now mcp-gateway.service
 ```
 
-Build requirements: Go ≥ 1.24, `opa` (tests), `golangci-lint` (lint),
+Build requirements: Go ≥ 1.25, `opa` (tests), `golangci-lint` (lint),
 and the SELinux reference policy development files for the module
 (`selinux-policy-devel` on openSUSE). `make check` runs formatting, vet,
 unit and end-to-end tests and the policy tests.
