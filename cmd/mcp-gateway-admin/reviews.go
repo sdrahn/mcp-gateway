@@ -15,6 +15,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
+	"github.com/sdrahn/mcp-gateway/internal/display"
 )
 
 const reviewsUsage = `usage: mcp-gateway-admin reviews [options]                    list the calls to review
@@ -201,9 +202,9 @@ func printReview(w io.Writer, r broker.Review) {
 	}
 	_ = tw.Flush()
 	if len(r.Args) > 0 {
-		data, _ := json.MarshalIndent(r.Args, "  ", "  ")
+		data, _ := display.JSON(r.Args, "  ", "  ")
 		say(w, "Arguments:")
-		say(w, "  "+string(data))
+		say(w, "  "+data)
 	} else {
 		say(w, "Arguments: not recorded (the policy's audit keeps a digest)")
 	}

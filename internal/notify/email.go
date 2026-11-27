@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -29,6 +28,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/display"
 )
 
 // notifyPath is the policy rule naming whom to tell.
@@ -361,8 +361,8 @@ func (e *Email) Message(p broker.Pending) []byte {
 		line("  Asked:      the rate %s was reached (the call runs once if approved)", p.OverRate)
 	}
 	if e.config().IncludeArgs && len(p.Args) > 0 {
-		args, _ := json.MarshalIndent(p.Args, "              ", "  ")
-		fmt.Fprintf(&body, "  Arguments:  %s\r\n", strings.ReplaceAll(string(args), "\n", "\r\n"))
+		args, _ := display.JSON(p.Args, "              ", "  ")
+		fmt.Fprintf(&body, "  Arguments:  %s\r\n", strings.ReplaceAll(args, "\n", "\r\n"))
 	}
 	line("  Times out:  %s", p.Expires.Local().Format(time.RFC1123))
 	line("")

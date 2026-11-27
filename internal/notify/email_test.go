@@ -416,3 +416,15 @@ func TestLongLines(t *testing.T) {
 		}
 	}
 }
+
+// Arguments in mail show their bidirectional controls as escapes: an
+// approver reads what the call is (#410).
+func TestIncludeArgsHidden(t *testing.T) {
+	e, _ := NewEmail(config.Email{SMTP: "x:25", From: "gw@x", To: "{user}", IncludeArgs: true}, fakePolicy{}, nil)
+	p := pending()
+	p.Args = map[string]any{"path": "/home/alice/report\u202efdp.sh"}
+	msg := decoded(t, e.Message(p))
+	if !strings.Contains(msg, `report\u202Efdp.sh`) || strings.ContainsRune(msg, 0x202e) {
+		t.Fatalf("arguments:\n%s", msg)
+	}
+}
