@@ -111,6 +111,12 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- `GET /v1/status` (also on the console's API) gives why the last
+  change of the configuration was refused to root, the gateway's own
+  account and those who may review policy changes, as the doctor's
+  results; others are told that it was refused. A caller may have up to
+  8 event streams (`GET /v1/events`) open, all callers 256; beyond
+  that, 429 (#413).
 - Chapter 10 says what upgrading a host from 1.x to 2.0 changes:
   nothing in its configuration, role data or policy; the console is new
   where the approval page is set up.

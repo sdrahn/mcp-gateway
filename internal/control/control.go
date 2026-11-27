@@ -54,6 +54,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
@@ -187,6 +188,47 @@ type Server struct {
 	OwnPassword func(ctx context.Context, peer transport.PeerCred, p broker.Pending) error
 
 	stopping <-chan struct{} // closed when Serve's context ends
+
+	// streams counts the open event streams, per caller (ReaderKey) and
+	// in all (#413).
+	streamsMu sync.Mutex
+	streams   map[string]int
+	streamsN  int
+}
+
+// Event streams a caller, and all callers, may have open at a time
+// (GET /v1/events): each holds a subscription for as long as it is open,
+// and a sign-in of the console's can open them from anywhere.
+const (
+	maxStreamsPerCaller = 8
+	maxStreams          = 256
+)
+
+// openStream counts a new event stream of a; false when a, or all, have
+// as many as they may.
+func (s *Server) openStream(a broker.Approver) bool {
+	s.streamsMu.Lock()
+	defer s.streamsMu.Unlock()
+	k := a.ReaderKey()
+	if s.streamsN >= maxStreams || s.streams[k] >= maxStreamsPerCaller {
+		return false
+	}
+	if s.streams == nil {
+		s.streams = map[string]int{}
+	}
+	s.streams[k]++
+	s.streamsN++
+	return true
+}
+
+func (s *Server) closeStream(a broker.Approver) {
+	s.streamsMu.Lock()
+	defer s.streamsMu.Unlock()
+	k := a.ReaderKey()
+	if s.streams[k]--; s.streams[k] <= 0 {
+		delete(s.streams, k)
+	}
+	s.streamsN--
 }
 
 // Serve serves the API on l until ctx ends.
@@ -229,13 +271,23 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/whoami", s.with(func(w http.ResponseWriter, _ *http.Request, a broker.Approver) {
 		writeJSON(w, http.StatusOK, a)
 	}))
-	mux.HandleFunc("GET /v1/status", s.with(func(w http.ResponseWriter, _ *http.Request, _ broker.Approver) {
+	mux.HandleFunc("GET /v1/status", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
 		st := statusResponse{Version: version.Version, RestartPending: s.RestartPending != nil && s.RestartPending()}
 		if s.ServersError != nil {
 			st.ServersError = s.ServersError()
 		}
 		if s.ConfigError != nil {
 			st.ConfigError = s.ConfigError()
+		}
+		// Why a change was refused quotes the files, which may hold what
+		// not everyone should read: the text for those who see the
+		// doctor's results (#413), that it was refused for the others.
+		if (st.ServersError != "" || st.ConfigError != "") && !s.seesConfiguration(r.Context(), a) {
+			for _, e := range []*string{&st.ServersError, &st.ConfigError} {
+				if *e != "" {
+					*e = "the last change was refused (the doctor, and those who may review policy changes, see why)"
+				}
+			}
 		}
 		if s.RestartNeeded != nil {
 			st.RestartNeeded = s.RestartNeeded()
@@ -376,13 +428,20 @@ type errorResponse struct {
 // which reads all the gateway reads anyway) and those review_policy
 // allows, as they name the gateway's files, issuers and servers'
 // addresses.
+// seesConfiguration reports whether a sees the doctor's results and why
+// a change of the configuration was refused: root, the gateway's own
+// account, and those data.mcp.approvals.review_policy allows.
+func (s *Server) seesConfiguration(ctx context.Context, a broker.Approver) bool {
+	own := !a.Remote && a.UID == uint32(os.Getuid())
+	return a.Root() || own || s.Broker.MayReviewPolicy(ctx, a)
+}
+
 func (s *Server) doctor(w http.ResponseWriter, r *http.Request, a broker.Approver) {
 	if s.Doctor == nil {
 		writeError(w, http.StatusNotFound, "the gateway runs no checks of its own here: run mcp-gateway-admin doctor on its host")
 		return
 	}
-	own := !a.Remote && a.UID == uint32(os.Getuid())
-	if !a.Root() && !own && !s.Broker.MayReviewPolicy(r.Context(), a) {
+	if !s.seesConfiguration(r.Context(), a) {
 		writeError(w, http.StatusForbidden, "the doctor's results are for root and those data.mcp.approvals.review_policy allows")
 		return
 	}
@@ -1021,6 +1080,11 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, a broker.Approve
 		writeError(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
+	if !s.openStream(a) {
+		writeError(w, http.StatusTooManyRequests, fmt.Sprintf("too many event streams open (at most %d per caller, %d in all)", maxStreamsPerCaller, maxStreams))
+		return
+	}
+	defer s.closeStream(a)
 	ch, stop := s.Broker.Subscribe() // before listing: nothing is missed
 	defer stop()
 	w.Header().Set("Content-Type", "text/event-stream")
