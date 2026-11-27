@@ -140,6 +140,25 @@ messages, metric names, the fields of audit records, the Cockpit page
 and the output of `mcp-gateway-admin`; the release notes name what
 changes there.
 
+### From 1.x to 2.0
+
+2.0 adds a deployment in containers and Kubernetes (chapters 16 and
+17); a host upgrades to it like to a minor release, with no changes to
+`gateway.yaml`, the server definitions, the role data or a custom
+policy:
+
+- `deployment` defaults to `host`, the gateway's behavior on a host;
+- `http.issuer` stays, as the one-issuer form of the new
+  `http.issuers`;
+- nothing deprecated in 1.x is removed: the last removal was 1.7's
+  (configuration in JSON);
+- the SELinux modules and the systemd units do not change.
+
+After the update, restart the gateway as above. New on a host whose
+approval page is set up (`approvals.page`, chapter 7): the console at
+`/console/`, signed in as on the approval page, showing and doing what
+the approver rules allow each who signs in (chapter 7, "The console").
+
 ## Monitoring
 
 ### Metrics
