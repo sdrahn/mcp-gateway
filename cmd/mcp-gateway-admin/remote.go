@@ -417,6 +417,17 @@ func newRemoteClient(gateway string) (*controlClient, error) {
 	return s.client(path), nil
 }
 
+// newConsoleClient is the control client for --gateway URL's console
+// API, which serves all of the control API's routes (2.0), signed in.
+func newConsoleClient(gateway string) (*controlClient, error) {
+	cc, err := newRemoteClient(gateway)
+	if err != nil {
+		return nil, err
+	}
+	cc.base = cc.remote + "/console/api"
+	return cc, nil
+}
+
 // remoteUnreachable says why a gateway's approval API did not answer.
 func remoteUnreachable(origin string, err error) error {
 	var ue *url.Error

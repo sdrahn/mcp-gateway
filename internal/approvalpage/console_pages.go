@@ -37,6 +37,8 @@ import (
 //	POST /console/tasks/{id}/cancel
 //	GET  /console/sign-ins               principals' sign-ins to servers
 //	POST /console/sign-ins/{server}/sign-out
+//	GET  /console/doctor                 the doctor's checks in the gateway, as last run
+//	POST /console/doctor                 run them now
 //	GET  /console/policy                 the policy's bundles and shipped roles, the what-if
 //	POST /console/policy/whatif          the decisions proposed role data would change
 
@@ -136,6 +138,8 @@ func (pg *Page) consolePages(mux *http.ServeMux) {
 		}
 		return http.MethodDelete, route, "", "signed " + r.PostFormValue("principal") + " out of " + r.PathValue("server")
 	}, "/console/sign-ins"))
+	mux.HandleFunc("GET /console/doctor", pg.consoleDoctor)
+	mux.HandleFunc("POST /console/doctor", pg.consoleDoctor)
 	mux.HandleFunc("GET /console/policy", pg.consolePolicy)
 	mux.HandleFunc("POST /console/policy/whatif", pg.consoleWhatIf)
 }
@@ -299,6 +303,28 @@ func (pg *Page) consoleSignIns(w http.ResponseWriter, r *http.Request) {
 	pg.read(r, s, d, "sign-ins", &si)
 	d["List"] = si.SignIns
 	pg.render(w, http.StatusOK, consoleSignInsTmpl, d)
+}
+
+// consoleDoctor shows the doctor's checks in the gateway; POST runs them
+// first.
+func (pg *Page) consoleDoctor(w http.ResponseWriter, r *http.Request) {
+	var s *session
+	if r.Method == http.MethodPost {
+		s = pg.checkPost(w, r)
+	} else {
+		s = pg.signedIn(w, r)
+	}
+	if s == nil {
+		return
+	}
+	d := pg.consoleData(s, "Doctor", "doctor")
+	var rep control.DoctorReport
+	if code, msg := pg.call(r.Context(), s, r.Method, "doctor", "", &rep); code >= 300 {
+		d["DoctorError"] = msg
+	} else {
+		d["Report"] = rep
+	}
+	pg.render(w, http.StatusOK, consoleDoctorTmpl, d)
 }
 
 func (pg *Page) consolePolicy(w http.ResponseWriter, r *http.Request) {

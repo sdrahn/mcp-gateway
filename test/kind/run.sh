@@ -113,6 +113,15 @@ pass "metadata names the cluster's issuer"
 curl -s "http://127.0.0.1:$MPORT/metrics" | grep -q '^mcp_gateway_instances ' || fail "no metrics"
 pass "/readyz, /healthz and /metrics on the metrics port"
 
+# The doctor in the gateway, asked as the gateway's account in its
+# container (the control socket): nothing fails, and the cluster's
+# checks ran.
+doc=$(k -n "$NS" exec deploy/mcp-gateway -c gateway -- mcp-gateway-admin doctor --config /etc/mcp-gateway/config/gateway.yaml --json) || true
+[ "$(jq '[.[] | select(.status == "fail")] | length' <<<"$doc" 2>/dev/null)" = 0 ] || fail "doctor: $doc"
+[ "$(jq '[.[] | select(.id == "policy" or .id == "state-volume" or .id == "kubernetes-api" or .id == "identity-provider")] |
+	length >= 4 and all(.status == "ok")' <<<"$doc")" = true ] || fail "doctor: $doc"
+pass "the doctor in the gateway: $(jq -r '[.[] | .id + " " + .status] | join(", ")' <<<"$doc")"
+
 token=$(k -n agents create token custos --audience mcp-gateway --duration 30m)
 
 # post SERVER TOKEN BODY [SESSION]: the response body; the session id

@@ -44,6 +44,9 @@ type serverReloader struct {
 	set func(map[string]*config.Backend) router.BackendChanges
 	// loaded, if set, sees definitions put in force, to warn about them.
 	loaded func(map[string]*config.Backend)
+	// reloaded, if set, is called after each reload, taken or refused
+	// (the doctor in the gateway checks again).
+	reloaded func()
 
 	// loadConfig, if set, reads and validates gateway.yaml
 	// (config.Resolve), and applyConfig puts its reloadable keys in
@@ -108,8 +111,12 @@ func (l *serverReloader) RestartNeeded() []string {
 // other.
 func (l *serverReloader) reload(trigger string) error {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	return errors.Join(l.reloadConfig(trigger), l.reloadServers(trigger))
+	err := errors.Join(l.reloadConfig(trigger), l.reloadServers(trigger))
+	l.mu.Unlock()
+	if l.reloaded != nil {
+		l.reloaded()
+	}
+	return err
 }
 
 // reloadConfig puts the reloadable keys of gateway.yaml in force; l.mu is

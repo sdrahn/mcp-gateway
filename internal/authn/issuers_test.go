@@ -192,3 +192,25 @@ func TestOAuthIssuerTokenFile(t *testing.T) {
 		t.Errorf("the token went to a key set on another origin: %q", got)
 	}
 }
+
+// CheckIssuers fetches each issuer's key set, and says why one cannot
+// be fetched; a set fetched a moment ago is not fetched again.
+func TestCheckIssuers(t *testing.T) {
+	org, cluster := newIdP(t), newIdP(t)
+	o := NewOAuth(config.HTTP{Issuer: org.srv.URL, Audience: audience,
+		Issuers: []config.Issuer{{Issuer: cluster.srv.URL, Audience: "mcp-gateway"}}}, org.srv.Client())
+	st := o.CheckIssuers(context.Background())
+	if len(st) != 2 || st[0].Issuer != org.srv.URL || st[0].Keys != 2 || st[0].Err != nil || st[1].Keys != 2 || st[1].Err != nil {
+		t.Fatalf("%+v", st)
+	}
+	hits := org.jwksHits.Load()
+	cluster.srv.Close()
+	st = o.CheckIssuers(context.Background())
+	if org.jwksHits.Load() != hits || st[1].Err != nil || st[1].Keys != 2 {
+		t.Errorf("fetched again at once: %d hits, %+v", org.jwksHits.Load()-hits, st)
+	}
+	down := NewOAuth(config.HTTP{Issuer: cluster.srv.URL, Audience: audience}, org.srv.Client())
+	if st := down.CheckIssuers(context.Background()); len(st) != 1 || st[0].Err == nil || st[0].Keys != 0 {
+		t.Errorf("an issuer that does not answer: %+v", st)
+	}
+}

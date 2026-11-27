@@ -11,8 +11,9 @@ the cluster, and configuration from ConfigMaps.
 *Status: container mode serves servers that speak HTTP, and with the
 Kubernetes launcher servers that speak stdio, each instance in a pod of
 its own (roadmap step 47); the manifests and the chart set the launcher
-up. The console, the management page for operators, follows with step
-48.*
+up. The console, the management page for operators (chapter 7, "The
+console"), and the doctor's checks in the gateway (Operating, below)
+complete it (roadmap step 48).*
 
 ## What is different from a host
 
@@ -310,6 +311,21 @@ and the last good one stays in force (`kubectl logs deploy/mcp-gateway
   for Prometheus; the chart adds a ServiceMonitor with
   `serviceMonitor.enabled: true`.
 
+- The doctor: in a container the gateway runs its own checks at the
+  start, after each reload and on request, and logs what fails or
+  warns: the configuration (a refused change, keys waiting for a
+  restart), the policy engine, the listener's certificate, each
+  identity provider's key set (as the listener fetches it, with its
+  `ca_file` and `token_file`), the approval page's client, the webhooks
+  (on request only: their check posts a ping to the receiver), a connection to each server's URL (or its proxy), the state
+  volume, and with the Kubernetes launcher the API server's list of the
+  instances' pods. The console's Doctor page shows them, as do
+  `mcp-gateway-admin doctor --gateway https://mcp-gateway.example.com`
+  and `kubectl -n mcp-gateway exec deploy/mcp-gateway -c gateway --
+  mcp-gateway-admin doctor --config /etc/mcp-gateway/config/gateway.yaml`
+  (as the gateway's own account), for operators the approver rules let
+  review the policy (`review_policy`: the `default` rules other than
+  `self`).
 - Logs and audit records: `kubectl -n mcp-gateway logs deploy/mcp-gateway -c gateway`
   (OPA's decision log: `-c opa`).
 - Approvals from another host: `mcp-gateway-admin approvals login
@@ -324,9 +340,12 @@ and the last good one stays in force (`kubectl logs deploy/mcp-gateway
   as the approver rules allow them (`remote-user:`, `remote-group:`;
   chapter 7, "The console's API"). Unlike `kubectl exec`, it acts as the
   operator, not as the gateway's account.
-- The command line in the pod, as the gateway's account:
+- The command line in the pod, as the gateway's account (uid 10001,
+  which has no name in the image: the control API takes it as `10001`):
   `kubectl -n mcp-gateway exec deploy/mcp-gateway -c gateway --
-  mcp-gateway-admin clients` (the sessions and agents).
+  mcp-gateway-admin clients` (the sessions and agents the approver
+  rules let it see: `user:10001` names it; the doctor's results it
+  always sees).
 - State (grants, the audit key, sign-in tokens) is on the volume
   `mcp-gateway-state`; back it up as you would `/var/lib/mcp-gateway`.
 

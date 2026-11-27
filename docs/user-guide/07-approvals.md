@@ -488,6 +488,7 @@ Cockpit on a host too.
 | Tasks | the agents' tasks you manage | Cancel |
 | Sign-ins | principals' sign-ins to servers with `sign_in` | Sign out |
 | Policy | the policy's bundles and revisions, the roles of server setups | What if: paste role data, see the decisions it would change |
+| Doctor | container mode: the checks the gateway runs itself (chapter 16), for operators `review_policy` allows | Check again |
 | Approvals | the approval page | Approve, deny, revoke, review |
 
 - What you see and may do is the approver rules' decision, as in

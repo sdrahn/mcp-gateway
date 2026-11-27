@@ -83,6 +83,9 @@ var checkIDs = map[string]string{
 	"SELinux port":      "selinux-port",
 	"token":             "token",
 	"listener":          "listener",
+	// the doctor in the gateway (container mode)
+	"state volume": "state-volume",
+	"kubernetes":   "kubernetes-api",
 }
 
 // checkPrefixes are the IDs of the checks labeled "<prefix><subject>",
@@ -90,6 +93,7 @@ var checkIDs = map[string]string{
 var checkPrefixes = []struct{ prefix, id string }{
 	{"SELinux type ", "selinux-type"},
 	{"approver group ", "approver-group"},
+	{"identity provider ", "identity-provider"},
 	{"network view ", "network-view"},
 	{"requires ", "requires"},
 	{"SELinux ", "selinux-denials"},
