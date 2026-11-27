@@ -111,6 +111,9 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- Chapter 10 says what upgrading a host from 1.x to 2.0 changes:
+  nothing in its configuration, role data or policy; the console is new
+  where the approval page is set up.
 - The container image builds on SLES 16's BCI-Micro
   (`registry.suse.com/bci/bci-micro:16.0`) by default, instead of SLE 15
   SP7's (`IMAGE_BASE`).

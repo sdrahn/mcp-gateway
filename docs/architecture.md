@@ -1496,9 +1496,9 @@ first call's decision id, `answered`, `waiting` or `refused`).
 
 ### 5.12 Containers and Kubernetes (2.0)
 
-*Status: design for 2.0 (D23, roadmap steps 46–48). Implemented:
-`deployment: container` with its checks (step 46, #369); the rest is
-planned.*
+*Status: implemented in 2.0 (D23, roadmap steps 46–48): container mode
+(step 46), the Kubernetes launcher (step 47) and the console (step 48).
+Several replicas (§5.12.5) are step 49, after 2.0.*
 
 The gateway is built for a host: it starts instances as systemd units,
 confines them with SELinux domains and MCS pairs, knows local clients by
@@ -1536,9 +1536,11 @@ the `mcp-opa` service is on a host).
   exec launcher, which is no longer for development only in this mode):
   the connectors of servers that speak HTTP (§5.7.2). The servers
   themselves run as their own Deployments and Services, outside the
-  gateway's pod. A definition with `command` (a stdio server) is refused
-  in this mode until step 47: a child process shares the gateway's pod,
-  its account and its secrets, which is no isolation at all.
+  gateway's pod. A definition with `command` (a stdio server) is never a
+  child process in this mode: one would share the gateway's pod, its
+  account and its secrets, which is no isolation at all. It is refused,
+  unless the Kubernetes launcher (§5.12.3, step 47; `supervisor.mode:
+  kubernetes`) runs it in a pod of its own.
 - **What has no meaning here is refused, not ignored:** `run_as` other
   than the default, `selinux_type`, `privileged`, `sandbox.*`,
   `network_view`, `landlock`, `requires` with a host path, the Unix
@@ -4939,8 +4941,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
       revision noticed within seconds (`mcp-policy-change` with the new
       revision).
 
-Steps 46–48 lead to 2.0: the gateway in containers and in front of a
-Kubernetes cluster's MCP servers (D23, §5.12). Planned:
+Steps 46–48 are 2.0: the gateway in containers and in front of a
+Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
 
 46. **Container mode** (2.0; D23; done: the setting and its checks,
     #369; several issuers, #373; the image, the manifests and the kind
