@@ -1,0 +1,144 @@
+{{- $name := include "mcp-gateway.fullname" . -}}
+{{- $image := printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) -}}
+# One replica (docs/architecture.md, section 5.12.5), Recreate as its
+# volume is ReadWriteOnce: the gateway, OPA and mcp-policy-render in one
+# pod, the policy copied from the gateway's image by the init container.
+# As deploy/kubernetes/deployment.yaml.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: {{- include "mcp-gateway.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {{- include "mcp-gateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "mcp-gateway.selectorLabels" . | nindent 8 }}
+      annotations:
+        # gateway.yaml has keys that need a restart: a change rolls the pod.
+        checksum/config: {{ include "mcp-gateway.config" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: policy
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/bin/cp", "-R", "/usr/share/mcp-gateway/policy/.", "/policy/"]
+          securityContext: {{- include "mcp-gateway.restricted" . | nindent 12 }}
+          volumeMounts:
+            - {name: policy, mountPath: /policy}
+      containers:
+        - name: gateway
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--config", "/etc/mcp-gateway/config/gateway.yaml"]
+          ports:
+            - {name: https, containerPort: 8443}
+          readinessProbe:
+            tcpSocket: {port: https}
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: https}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources: {{- toYaml .Values.resources.gateway | nindent 12 }}
+          securityContext: {{- include "mcp-gateway.restricted" . | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/mcp-gateway/config, readOnly: true}
+            - {name: servers, mountPath: /etc/mcp-gateway/servers.d, readOnly: true}
+            - {name: rbac, mountPath: /etc/mcp-gateway/policy/rbac, readOnly: true}
+            - {name: tls, mountPath: /etc/mcp-gateway/tls, readOnly: true}
+            {{- if .Values.clusterIssuer.enabled }}
+            - {name: cluster-ca, mountPath: /etc/mcp-gateway/cluster-ca, readOnly: true}
+            - {name: token, mountPath: /var/run/secrets/mcp-gateway/token, readOnly: true}
+            {{- end }}
+            - {name: state, mountPath: /var/lib/mcp-gateway}
+            - {name: run, mountPath: /run/mcp-gateway}
+            - {name: rendered, mountPath: /run/mcp-opa, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+        - name: policy-render
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/libexec/mcp-gateway/mcp-policy-render", "-watch"]
+          resources: {{- toYaml .Values.resources.policyRender | nindent 12 }}
+          securityContext: {{- include "mcp-gateway.restricted" . | nindent 12 }}
+          volumeMounts:
+            - {name: rbac, mountPath: /etc/mcp-gateway/policy/rbac, readOnly: true}
+            - {name: rendered, mountPath: /run/mcp-opa}
+        - name: opa
+          image: {{ printf "%s:%s" .Values.opaImage.repository .Values.opaImage.tag }}
+          imagePullPolicy: {{ .Values.opaImage.pullPolicy }}
+          args:
+            - run
+            - --server
+            - --addr=unix:///run/mcp-gateway/opa.sock
+            - --unix-socket-perm=0660
+            - --watch
+            - --log-format=json
+            - --set=decision_logs.console=true
+            - --set=decision_logs.mask_decision=/mcp/log/mask
+            - /policy
+            - mcp.rbac:/run/mcp-opa/rbac
+          resources: {{- toYaml .Values.resources.opa | nindent 12 }}
+          securityContext: {{- include "mcp-gateway.restricted" . | nindent 12 }}
+          volumeMounts:
+            - {name: policy, mountPath: /policy, readOnly: true}
+            - {name: rendered, mountPath: /run/mcp-opa, readOnly: true}
+            - {name: run, mountPath: /run/mcp-gateway}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: config
+          configMap: {name: {{ $name }}-config}
+        - name: servers
+          configMap: {name: {{ $name }}-servers}
+        - name: rbac
+          configMap: {name: {{ $name }}-rbac}
+        - name: tls
+          secret: {secretName: {{ .Values.tls.secretName }}}
+        {{- if .Values.clusterIssuer.enabled }}
+        - name: cluster-ca
+          configMap: {name: kube-root-ca.crt}
+        # The gateway's own token, for the cluster's issuer key set: for
+        # the API server, an hour long, renewed by the kubelet.
+        - name: token
+          projected:
+            sources:
+              - serviceAccountToken: {path: token, expirationSeconds: 3600}
+        {{- end }}
+        - name: state
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-state" $name) .Values.persistence.existingClaim }}
+        - name: run
+          emptyDir: {medium: Memory}
+        - name: rendered
+          emptyDir: {medium: Memory}
+        - name: policy
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

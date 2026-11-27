@@ -1,8 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"os/user"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -33,12 +38,38 @@ func refuseRoot(euid int, allowRoot bool, lookup func(string) (*user.User, error
 // own; reading or replacing them would fail later with a bare permission
 // error. Root, which may run the gateway with -allow-root, reads them all.
 func checkStateOwnership(dir string, uid int) error {
+	return checkState(dir, uid, false)
+}
+
+// checkStateVolume is checkStateOwnership for container mode, where the
+// state directory is a volume's root: the platform owns it (fsGroup
+// changes its group, not its owner), so only the files in it need be the
+// gateway's, and the directory writable by it.
+func checkStateVolume(dir string, uid int) error {
+	if err := checkState(dir, uid, true); err != nil {
+		return err
+	}
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	f, err := os.CreateTemp(dir, ".write-check-")
+	if err != nil {
+		return fmt.Errorf("state directory %s is not writable by uid %d (the pod's securityContext: fsGroup, or a volume the gateway's account may write): %w", dir, uid, err)
+	}
+	_ = f.Close()
+	return os.Remove(f.Name())
+}
+
+func checkState(dir string, uid int, volume bool) error {
 	if uid == 0 {
 		return nil
 	}
 	foreign, err := statedir.ForeignFiles(dir, uint32(uid))
 	if err != nil {
 		return fmt.Errorf("state directory: %w", err)
+	}
+	if volume {
+		foreign = slices.DeleteFunc(foreign, func(f statedir.ForeignFile) bool { return filepath.Clean(f.Path) == filepath.Clean(dir) })
 	}
 	if len(foreign) == 0 {
 		return nil

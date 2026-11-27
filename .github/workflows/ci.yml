@@ -33,6 +33,28 @@ jobs:
         with:
           version: latest
 
+  # The container image in a Kubernetes cluster (roadmap step 46, D23):
+  # deploy/kubernetes in kind, an agent with a ServiceAccount token, and
+  # ConfigMaps changed while the gateway runs (test/kind/run.sh).
+  kind:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        deploy: [kustomize, helm]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: kind
+        run: |
+          go install sigs.k8s.io/kind@v0.29.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - run: test/kind/run.sh
+        env:
+          DEPLOY: ${{ matrix.deploy }}
+
   # Client compatibility (roadmap step 15): MCP client libraries as agents
   # use them, against the gateway over the local socket and HTTPS
   # (e2e/clients_test.go, test/clients).

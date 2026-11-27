@@ -21,6 +21,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/sdrahn/mcp-gateway/internal/egress"
 	"github.com/sdrahn/mcp-gateway/internal/landlock"
 	"github.com/sdrahn/mcp-gateway/internal/version"
 )
@@ -523,6 +524,10 @@ type Backend struct {
 	// ProxyHeaders are sent to Proxy with each CONNECT (for example
 	// Proxy-Authorization), with ${CREDENTIAL:name} as in Headers.
 	ProxyHeaders map[string]string `yaml:"proxy_headers"`
+	// CAFile holds CA certificates (PEM) an https URL's certificate may
+	// chain to besides the system's: a server whose certificate a
+	// private CA signed (a cluster's or a mesh's).
+	CAFile string `yaml:"ca_file"`
 	// SignIn, with URL, has each principal sign in to the server with
 	// their own account there (OAuth 2.1 with PKCE; docs/architecture.md,
 	// section 5.7.3).
@@ -1701,6 +1706,9 @@ var headerName = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+.^_|~-]+$`)
 // proxy, in a fixed order (the command identifies the definition).
 func (b *Backend) connectorCommand() []string {
 	cmd := []string{HTTPConnector, "-url", b.URL}
+	if b.CAFile != "" {
+		cmd = append(cmd, "-ca-file", b.CAFile)
+	}
 	for _, k := range slices.Sorted(maps.Keys(b.Headers)) {
 		cmd = append(cmd, "-header", k+": "+b.Headers[k])
 	}
@@ -1727,12 +1735,20 @@ func (b *Backend) validateURL() error {
 	switch u.Scheme {
 	case "https":
 	case "http":
+		// A cluster's Service names too, which container mode allows
+		// (CheckDeployment refuses them on a host).
 		host := u.Hostname()
-		if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
-			return fmt.Errorf("url: http:// only to the local host (localhost, 127.0.0.1, ::1); use https:// for %s", host)
+		if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) && !egress.ClusterName(host) {
+			return fmt.Errorf("url: http:// only to the local host (localhost, 127.0.0.1, ::1), or in container mode to a cluster's Service (name.namespace.svc); use https:// for %s", host)
+		}
+		if b.CAFile != "" {
+			return errors.New("ca_file: only for an https:// url")
 		}
 	default:
 		return fmt.Errorf("url: scheme must be https (or http to the local host), not %q", u.Scheme)
+	}
+	if b.CAFile != "" && !filepath.IsAbs(b.CAFile) {
+		return fmt.Errorf("ca_file: must be an absolute path, got %q", b.CAFile)
 	}
 	if len(b.Command) > 0 && !slices.Equal(b.Command, b.connectorCommand()) {
 		return errors.New("url and command: give one of them")

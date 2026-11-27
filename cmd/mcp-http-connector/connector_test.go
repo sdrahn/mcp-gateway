@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net"
@@ -460,5 +461,38 @@ func TestConnectorUnauthorized(t *testing.T) {
 	var plain, errb strings.Builder
 	if rc := run(context.Background(), []string{"-url", srv.URL}, strings.NewReader(initialize), &plain, &errb); rc == exitUnauthorized || !strings.Contains(plain.String(), "401") {
 		t.Errorf("without -sign-in: rc %d, %q", rc, plain.String())
+	}
+}
+
+// -ca-file: a server whose certificate a private CA signed; plain http://
+// to a cluster's Service.
+func TestConnectorCAFileAndClusterHTTP(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	t.Cleanup(srv.Close)
+	ca := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+	for name, o := range map[string]options{"with the CA": {caPEM: ca}, "without": {}} {
+		c, err := newConnector(srv.URL+"/mcp", o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := c.client.Post(c.endpoint, "application/json", strings.NewReader("{}"))
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		if (err == nil) != (name == "with the CA") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := newConnector(srv.URL+"/mcp", options{caPEM: []byte("not a certificate")}); err == nil {
+		t.Error("-ca-file without a certificate accepted")
+	}
+	if _, err := newConnector("http://echo.agents.svc:8080/mcp", options{}); err != nil {
+		t.Errorf("http:// to a cluster's Service: %v", err)
+	}
+	if _, err := newConnector("http://echo.agents.svc:8080/mcp", options{caPEM: ca}); err == nil {
+		t.Error("-ca-file with http:// accepted")
+	}
+	if _, err := newConnector("http://mcp.example.com/mcp", options{}); err == nil {
+		t.Error("http:// to another host accepted")
 	}
 }

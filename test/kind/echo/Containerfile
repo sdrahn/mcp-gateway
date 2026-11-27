@@ -1,0 +1,6 @@
+ARG BASE=registry.suse.com/bci/bci-micro:15.7
+FROM ${BASE}
+COPY echo /usr/bin/echo-server
+USER 10001:10001
+EXPOSE 8080
+ENTRYPOINT ["/usr/bin/echo-server"]

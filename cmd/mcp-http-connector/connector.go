@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -89,6 +90,7 @@ type options struct {
 	proxyHeaders []string // -proxy-header "Name: value", sent with CONNECT
 	credDir      string   // $CREDENTIALS_DIRECTORY
 	signIn       bool     // -sign-in: Authorization is a principal's token
+	caPEM        []byte   // -ca-file: CA certificates besides the system's
 }
 
 func newConnector(endpoint string, o options) (*connector, error) {
@@ -99,8 +101,9 @@ func newConnector(endpoint string, o options) (*connector, error) {
 	switch u.Scheme {
 	case "https":
 	case "http":
-		if !egress.Loopback(u.Hostname()) {
-			return nil, fmt.Errorf("-url: http:// only to a local address (localhost, 127.0.0.0/8, ::1), not %s", u.Hostname())
+		// The gateway allows cluster names in container mode only.
+		if !egress.Loopback(u.Hostname()) && !egress.ClusterName(u.Hostname()) {
+			return nil, fmt.Errorf("-url: http:// only to a local address (localhost, 127.0.0.0/8, ::1) or a cluster's Service (….svc), not %s", u.Hostname())
 		}
 	default:
 		return nil, fmt.Errorf("-url: scheme must be https or http, not %q", u.Scheme)
@@ -110,6 +113,19 @@ func newConnector(endpoint string, o options) (*connector, error) {
 		return nil, err
 	}
 	eo := egress.Options{Resolve: o.resolve}
+	if len(o.caPEM) > 0 {
+		if u.Scheme != "https" {
+			return nil, errors.New("-ca-file: only for an https:// -url")
+		}
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(o.caPEM) {
+			return nil, errors.New("-ca-file: no PEM certificate in it")
+		}
+		eo.RootCAs = pool
+	}
 	if o.proxy != "" {
 		if eo.Proxy, err = egress.ParseProxy(o.proxy); err != nil {
 			return nil, err

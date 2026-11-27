@@ -1,0 +1,136 @@
+# One replica (docs/architecture.md, section 5.12.5): sessions, pending
+# approvals and tasks live in its memory, so a second replica would not
+# see them; Recreate, as its volume is ReadWriteOnce.
+#
+# Three containers share /run/mcp-gateway (OPA's socket) and
+# /run/mcp-opa (the rendered role data), as the three services do on a
+# host: the gateway, OPA from its own image, and mcp-policy-render,
+# which renders the role data's ConfigMap for OPA and again on every
+# change. The policy comes from the gateway's image (the init container
+# copies it), so gateway and policy are always of one version.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-gateway
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: gateway
+    spec:
+      serviceAccountName: mcp-gateway
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: policy
+          image: mcp-gateway
+          command: ["/usr/bin/cp", "-R", "/usr/share/mcp-gateway/policy/.", "/policy/"]
+          securityContext: &restricted
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: policy, mountPath: /policy}
+      containers:
+        - name: gateway
+          image: mcp-gateway
+          args: ["--config", "/etc/mcp-gateway/config/gateway.yaml"]
+          ports:
+            - {name: https, containerPort: 8443}
+          readinessProbe:
+            tcpSocket: {port: https}
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: https}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 1Gi}
+          securityContext: *restricted
+          volumeMounts:
+            - {name: config, mountPath: /etc/mcp-gateway/config, readOnly: true}
+            - {name: servers, mountPath: /etc/mcp-gateway/servers.d, readOnly: true}
+            - {name: rbac, mountPath: /etc/mcp-gateway/policy/rbac, readOnly: true}
+            - {name: tls, mountPath: /etc/mcp-gateway/tls, readOnly: true}
+            - {name: cluster-ca, mountPath: /etc/mcp-gateway/cluster-ca, readOnly: true}
+            - {name: token, mountPath: /var/run/secrets/mcp-gateway/token, readOnly: true}
+            - {name: state, mountPath: /var/lib/mcp-gateway}
+            - {name: run, mountPath: /run/mcp-gateway}
+            - {name: rendered, mountPath: /run/mcp-opa, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+        - name: policy-render
+          image: mcp-gateway
+          command: ["/usr/libexec/mcp-gateway/mcp-policy-render", "-watch"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext: *restricted
+          volumeMounts:
+            - {name: rbac, mountPath: /etc/mcp-gateway/policy/rbac, readOnly: true}
+            - {name: rendered, mountPath: /run/mcp-opa}
+        - name: opa
+          image: docker.io/openpolicyagent/opa:1.22.4-static
+          args:
+            - run
+            - --server
+            - --addr=unix:///run/mcp-gateway/opa.sock
+            - --unix-socket-perm=0660
+            - --watch
+            - --log-format=json
+            - --set=decision_logs.console=true
+            - --set=decision_logs.mask_decision=/mcp/log/mask
+            - /policy
+            - mcp.rbac:/run/mcp-opa/rbac
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 512Mi}
+          securityContext: *restricted
+          volumeMounts:
+            - {name: policy, mountPath: /policy, readOnly: true}
+            - {name: rendered, mountPath: /run/mcp-opa, readOnly: true}
+            - {name: run, mountPath: /run/mcp-gateway}
+      volumes:
+        - name: config
+          configMap: {name: mcp-gateway-config}
+        - name: servers
+          configMap: {name: mcp-gateway-servers}
+        - name: rbac
+          configMap: {name: mcp-gateway-rbac}
+        - name: tls
+          secret: {secretName: mcp-gateway-tls}
+        # The cluster's CA, which signed the API server's certificate:
+        # the issuer of the ServiceAccount tokens (http.issuers[].ca_file).
+        - name: cluster-ca
+          configMap: {name: kube-root-ca.crt}
+        # The gateway's own token, for the cluster's discovery document
+        # and key set (http.issuers[].token_file): for the API server, an
+        # hour long, renewed by the kubelet. Only this, not the default
+        # token mount.
+        - name: token
+          projected:
+            sources:
+              - serviceAccountToken: {path: token, expirationSeconds: 3600}
+        - name: state
+          persistentVolumeClaim: {claimName: mcp-gateway-state}
+        - name: run
+          emptyDir: {medium: Memory}
+        - name: rendered
+          emptyDir: {medium: Memory}
+        - name: policy
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

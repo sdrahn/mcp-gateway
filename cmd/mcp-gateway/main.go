@@ -234,7 +234,11 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	}
 
 	// Before listening: a failed start leaves no socket behind.
-	if err := checkStateOwnership(gw.StateDir, os.Geteuid()); err != nil {
+	checkStateDir := checkStateOwnership
+	if gw.Container() {
+		checkStateDir = checkStateVolume
+	}
+	if err := checkStateDir(gw.StateDir, os.Geteuid()); err != nil {
 		return err
 	}
 	// No Unix socket in container mode: every principal is remote.

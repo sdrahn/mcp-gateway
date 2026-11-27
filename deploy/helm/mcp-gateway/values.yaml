@@ -1,0 +1,82 @@
+# Values of the mcp-gateway chart (user guide, chapter 16). The gateway's
+# own settings are gateway.yaml's (chapter 3), under config; server
+# definitions (chapter 4) under servers; the role data (chapter 6) under
+# rbac.
+
+image:
+  repository: registry.example.com/mcp-gateway
+  # Default: the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+opaImage:
+  repository: docker.io/openpolicyagent/opa
+  tag: 1.22.4-static
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# gateway.yaml. The chart sets what the pod's layout fixes (deployment,
+# the directories, the sockets, the listener's address and certificate,
+# the cluster issuer's CA and token); put the rest here.
+config:
+  http:
+    # The organization's identity provider: people sign in with it.
+    issuer: https://idp.example.com/realms/mcp
+    # The URL agents use, ending in /mcp.
+    audience: https://mcp-gateway.example.com/mcp
+    scopes: [mcp]
+
+# The cluster's ServiceAccount tokens, for agents in the cluster: added to
+# http.issuers. The pod's own token reads the issuer's key set.
+clusterIssuer:
+  enabled: true
+  issuer: https://kubernetes.default.svc.cluster.local
+  # The audience the agents' projected tokens ask for.
+  audience: mcp-gateway
+  subjectPrefix: "k8s:"
+
+# Server definitions, by file name: name, url, ... (chapter 4).
+servers: {}
+#  tickets:
+#    name: tickets
+#    url: http://tickets.mcp-servers.svc:8080/mcp
+
+# The role data, data.yaml (chapter 6); empty: the shipped default.
+rbac: {}
+
+# The listener's certificate: a Secret of type kubernetes.io/tls.
+tls:
+  secretName: mcp-gateway-tls
+
+persistence:
+  size: 1Gi
+  storageClassName: ""
+  # An existing claim instead of a new one.
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 443
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # The listener serves TLS itself: pass it through, or re-encrypt.
+  host: mcp-gateway.example.com
+  tls: []
+
+resources:
+  gateway:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 1Gi}
+  policyRender:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+  opa:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 512Mi}
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

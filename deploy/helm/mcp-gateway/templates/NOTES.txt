@@ -1,0 +1,6 @@
+mcp-gateway {{ .Chart.AppVersion }} in container mode, as {{ include "mcp-gateway.fullname" . }}.
+
+- The listener: Service {{ include "mcp-gateway.fullname" . }}, port {{ .Values.service.port }} (HTTPS, Secret {{ .Values.tls.secretName }}).
+- Agents in the cluster: a projected ServiceAccount token with audience
+  {{ .Values.clusterIssuer.audience }}; bind "{{ .Values.clusterIssuer.subjectPrefix }}system:serviceaccount:<namespace>:<name>" in rbac.
+- Logs and audit records: kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "mcp-gateway.fullname" . }} -c gateway

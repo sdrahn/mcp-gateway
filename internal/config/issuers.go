@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -22,6 +23,18 @@ type Issuer struct {
 	Audience string `yaml:"audience"`
 	// JWKSURL overrides the key set URL of OIDC discovery.
 	JWKSURL string `yaml:"jwks_url"`
+	// CAFile holds CA certificates (PEM) the issuer's discovery document
+	// and key set are trusted with, besides the system's: a cluster's
+	// API server, whose certificate its own CA signed (the kube-root-ca.crt
+	// ConfigMap of every namespace).
+	CAFile string `yaml:"ca_file"`
+	// TokenFile holds a bearer token the gateway sends when it fetches
+	// the issuer's discovery document and key set, read anew each time:
+	// the gateway pod's own projected ServiceAccount token, which a
+	// cluster's API server asks for (system:service-account-issuer-
+	// discovery). It goes to the issuer's own origin only; a key set
+	// elsewhere is fetched without it.
+	TokenFile string `yaml:"token_file"`
 	// GroupsClaim names the claim with the principal's groups; default
 	// http.groups_claim.
 	GroupsClaim string `yaml:"groups_claim"`
@@ -105,6 +118,15 @@ func (h HTTP) validateIssuers() error {
 			if err := checkURL(v); err != nil {
 				return fmt.Errorf("%s.%s: %w", key, name, err)
 			}
+		}
+		if is.CAFile != "" && !filepath.IsAbs(is.CAFile) {
+			return fmt.Errorf("%s.ca_file: must be an absolute path, got %q", key, is.CAFile)
+		}
+		if is.TokenFile != "" && !filepath.IsAbs(is.TokenFile) {
+			return fmt.Errorf("%s.token_file: must be an absolute path, got %q", key, is.TokenFile)
+		}
+		if is.TokenFile != "" && !strings.HasPrefix(is.Issuer, "https://") {
+			return fmt.Errorf("%s.token_file: only for an https:// issuer (the token would go in the clear)", key)
 		}
 		if is.SubjectPrefix != "" && !subjectPrefix.MatchString(is.SubjectPrefix) {
 			return fmt.Errorf("%s.subject_prefix: %q must be up to 32 letters, digits and ._- followed by a colon (\"partner:\")", key, is.SubjectPrefix)

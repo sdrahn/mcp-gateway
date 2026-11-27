@@ -1,0 +1,24 @@
+# The gateway's container image (docs/architecture.md, section 5.12.2;
+# user guide, chapter 16): the gateway in container mode, the connector of
+# servers that speak HTTP, the sign-in helper, the role data renderer and
+# the policy, on SUSE's Base Container Image. Built by `make image` from
+# what `make install-container` staged, the same sources and binaries as
+# the RPMs; OPA runs beside it in the pod from its own image.
+ARG BASE=registry.suse.com/bci/bci-micro:15.7
+FROM ${BASE}
+ARG VERSION=devel
+
+LABEL org.opencontainers.image.title="mcp-gateway" \
+      org.opencontainers.image.description="Policy-enforcing gateway for MCP servers, in container mode" \
+      org.opencontainers.image.source="https://github.com/sdrahn/mcp-gateway" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${VERSION}"
+
+COPY root/ /
+
+# An account of its own, never root; the manifests set the same ids
+# (runAsUser, fsGroup).
+USER 10001:10001
+EXPOSE 8443
+ENTRYPOINT ["/usr/bin/mcp-gateway"]
+CMD ["--config", "/etc/mcp-gateway/config/gateway.yaml"]

@@ -1,0 +1,34 @@
+# gateway.yaml, the server definitions and the role data: the gateway
+# reloads them in place when the kubelet updates the mounted files; a
+# change to gateway.yaml rolls the pod (the checksum in the Deployment),
+# as some of its keys need a restart.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-config
+  labels: {{- include "mcp-gateway.labels" . | nindent 4 }}
+data:
+  gateway.yaml: |
+{{ include "mcp-gateway.config" . | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-servers
+  labels: {{- include "mcp-gateway.labels" . | nindent 4 }}
+data:
+{{- range $file, $def := .Values.servers }}
+  {{ $file }}.yaml: |
+{{ toYaml $def | indent 4 }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-rbac
+  labels: {{- include "mcp-gateway.labels" . | nindent 4 }}
+data:
+{{- with .Values.rbac }}
+  data.yaml: |
+{{ toYaml . | indent 4 }}
+{{- end }}

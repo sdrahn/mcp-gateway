@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/sdrahn/mcp-gateway/internal/egress"
 )
 
 // Deployments (Gateway.Deployment; docs/architecture.md, section 5.12
@@ -79,10 +82,16 @@ func (g *Gateway) validateDeployment() error {
 // in container mode, only servers that speak HTTP, without the keys of a
 // host's sandbox. It names every key it refuses.
 func CheckDeployment(g *Gateway, backends map[string]*Backend) error {
-	if !g.Container() {
-		return nil
-	}
 	var errs []error
+	if !g.Container() {
+		// On a host, plain http:// reaches the local host only.
+		for _, name := range slices.Sorted(maps.Keys(backends)) {
+			if u, err := url.Parse(backends[name].URL); err == nil && u.Scheme == "http" && egress.ClusterName(u.Hostname()) {
+				errs = append(errs, fmt.Errorf("server %s: url: http:// to a cluster's Service (%s) only in container mode (deployment: container); use https:// on a host", name, u.Hostname()))
+			}
+		}
+		return errors.Join(errs...)
+	}
 	for _, name := range slices.Sorted(maps.Keys(backends)) {
 		for _, p := range backends[name].ContainerProblems() {
 			errs = append(errs, fmt.Errorf("server %s: %s", name, p))

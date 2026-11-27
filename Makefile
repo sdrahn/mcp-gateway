@@ -45,7 +45,7 @@ TESTBINARIES := bin/tests/mcpcall bin/tests/privsrv
 # packaged as mcp-gateway-profile-<name>.
 PROFILES := systemd firewalld zypp suseconnect snapper podman
 
-.PHONY: all build test vet lint fmt-check policy-check policy-test selinux check \
+.PHONY: all build test vet lint fmt-check policy-check policy-test selinux check image install-container \
 	install install-gateway install-tools install-selinux install-cockpit install-desktop install-fs-server install-demo install-exec-server install-restarts-server install-storage-server \
 	install-profiles build-tests install-tests clean
 
@@ -258,5 +258,35 @@ install-storage-server:
 	install -Dm0644 packaging/storage-server/storage-roles.yaml \
 		$(DESTDIR)$(DATADIR)/mcp-gateway/policy/mcp/profiles/storage/data.yaml
 
+# The container image (container mode, D23): the gateway and its helpers
+# from bin/, the policy and the default role data, staged below
+# $(IMAGEROOT) and built on $(IMAGE_BASE) with $(CONTAINER) (docker or
+# podman). OPA runs beside it from its own image (deploy/kubernetes).
+IMAGE       ?= mcp-gateway:$(VERSION)
+IMAGE_BASE  ?= registry.suse.com/bci/bci-micro:15.7
+CONTAINER   ?= docker
+IMAGEROOT   := build/image
+
+install-container:
+	install -Dm0755 bin/mcp-gateway $(DESTDIR)/usr/bin/mcp-gateway
+	install -Dm0755 bin/mcp-gateway-admin $(DESTDIR)/usr/bin/mcp-gateway-admin
+	install -Dm0755 bin/mcp-gateway-tools $(DESTDIR)/usr/libexec/mcp-gateway/mcp-gateway-tools
+	install -Dm0755 bin/mcp-http-connector $(DESTDIR)/usr/libexec/mcp-gateway/mcp-http-connector
+	install -Dm0755 bin/mcp-oauth-helper $(DESTDIR)/usr/libexec/mcp-gateway/mcp-oauth-helper
+	install -Dm0755 bin/mcp-policy-render $(DESTDIR)/usr/libexec/mcp-gateway/mcp-policy-render
+	install -d $(DESTDIR)/usr/share/mcp-gateway/policy/mcp
+	install -m0644 $(filter-out %_test.rego,$(wildcard policy/mcp/*.rego)) $(DESTDIR)/usr/share/mcp-gateway/policy/mcp/
+	install -Dm0644 internal/policydata/rbac.schema.json $(DESTDIR)/usr/share/mcp-gateway/schema/rbac.schema.json
+	install -Dm0644 policy/mcp/rbac/data.yaml $(DESTDIR)/usr/share/mcp-gateway/rbac/data.yaml
+	install -d $(DESTDIR)/usr/share/mcp-gateway/servers.d
+
+image:
+	$(MAKE) build
+	rm -rf $(IMAGEROOT)
+	$(MAKE) install-container DESTDIR=$(CURDIR)/$(IMAGEROOT)/root
+	$(CONTAINER) build -f packaging/container/Containerfile \
+		--build-arg BASE=$(IMAGE_BASE) --build-arg VERSION=$(VERSION) \
+		-t $(IMAGE) $(IMAGEROOT)
+
 clean:
-	rm -rf bin selinux/tmp selinux/*.pp $(PROFILES:%=selinux/mcp_%.if)
+	rm -rf bin build selinux/tmp selinux/*.pp $(PROFILES:%=selinux/mcp_%.if)
