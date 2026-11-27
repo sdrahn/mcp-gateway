@@ -310,6 +310,20 @@ and the last good one stays in force (`kubectl logs deploy/mcp-gateway
   for Prometheus; the chart adds a ServiceMonitor with
   `serviceMonitor.enabled: true`.
 
+- The doctor: in a container the gateway runs its own checks at the
+  start, after each reload and on request, and logs what fails or
+  warns: the configuration (a refused change, keys waiting for a
+  restart), the policy engine, the listener's certificate, each
+  identity provider's key set (as the listener fetches it, with its
+  `ca_file` and `token_file`), the approval page's client, the webhooks
+  (on request only: their check posts a ping to the receiver), a connection to each server's URL (or its proxy), the state
+  volume, and with the Kubernetes launcher the API server's list of the
+  instances' pods. The console's Doctor page shows them, as do
+  `mcp-gateway-admin doctor --gateway https://mcp-gateway.example.com`
+  and `kubectl -n mcp-gateway exec deploy/mcp-gateway -c gateway --
+  mcp-gateway-admin doctor`, for root and operators the approver rules
+  let review the policy (`review_policy`: the `default` rules other than
+  `self`).
 - Logs and audit records: `kubectl -n mcp-gateway logs deploy/mcp-gateway -c gateway`
   (OPA's decision log: `-c opa`).
 - Approvals from another host: `mcp-gateway-admin approvals login

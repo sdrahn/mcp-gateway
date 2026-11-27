@@ -450,6 +450,21 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if gw.OwnApprovalsNeedPassword() {
 		cs.OwnPassword = ownPassword(&polkit.Authority{})
 	}
+	// The listener's validator of tokens, which the doctor in the gateway
+	// asks for the issuers' key sets too.
+	var tokens *authn.OAuth
+	if gw.HTTP.Listen != "" {
+		tokens = authn.NewOAuth(gw.HTTP, nil)
+	}
+	var self *selfCheck
+	if gw.Container() {
+		self = &selfCheck{log: log, gw: gw, backends: r.CurrentBackends, reloader: reloader, opa: opa, tokens: tokens}
+		if s, ok := launcher.(supervisor.Split); ok {
+			self.kube, _ = s.Stdio.(*supervisor.Kubernetes)
+		}
+		cs.Doctor = self
+		reloader.reloaded = func() { self.background("reload") }
+	}
 	if page != nil {
 		page.Control = cs.Handler()
 	}
@@ -506,10 +521,14 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	stopHTTP := func() {}
 	if gw.HTTP.Listen != "" {
 		httpErrs = make(chan error, 1)
-		if stopHTTP, err = serveHTTP(log, gw.HTTP, certs, r, signIns, page, hooks, httpErrs); err != nil {
+		if stopHTTP, err = serveHTTP(log, gw.HTTP, tokens, certs, r, signIns, page, hooks, httpErrs); err != nil {
 			stop()
 			return errors.Join(err, <-served)
 		}
+	}
+
+	if self != nil {
+		self.background("start")
 	}
 
 	// Type=notify: ready once every listener is up.
@@ -622,9 +641,8 @@ func newSignIns(log *slog.Logger, gw *config.Gateway, launcher supervisor.Launch
 // serveHTTP starts the remote transport (MCP Streamable HTTP, OAuth
 // resource server). The returned function ends all HTTP sessions and
 // shuts the server down.
-func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Router, signIns *signin.Manager,
+func serveHTTP(log *slog.Logger, cfg config.HTTP, tokens *authn.OAuth, certs *certStore, r *router.Router, signIns *signin.Manager,
 	page *approvalpage.Page, hooks *webhook.Hooks, errc chan<- error) (func(), error) {
-	tokens := authn.NewOAuth(cfg, nil)
 	h, err := transport.NewHTTPHandler(transport.HTTPConfig{
 		Resource:             cfg.Audience,
 		AuthorizationServers: authorizationServers(cfg),

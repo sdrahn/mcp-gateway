@@ -28,6 +28,8 @@
 //	POST   /v1/policy/whatif    role data → the decisions it would change
 //	GET    /v1/events           server-sent events: approvals the caller may decide on
 //	GET    /v1/metrics          metrics in the Prometheus text format (root only)
+//	GET    /v1/doctor           the doctor's checks in the gateway (container mode), as last run
+//	POST   /v1/doctor           run them now
 //
 // The approval page serves the same Handler on the HTTPS listener below
 // /console/api/v1/ (the console, internal/approvalpage/console.go), to
@@ -55,6 +57,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/doctor"
 	"github.com/sdrahn/mcp-gateway/internal/metrics"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
@@ -107,6 +110,25 @@ type PolicyReview interface {
 	WhatIf(ctx context.Context, in pep.WhatIfInput) ([]pep.Change, error)
 }
 
+// Doctor runs the doctor's checks in the gateway (container mode; the
+// doctor in the gateway, cmd/mcp-gateway/selfcheck.go).
+type Doctor interface {
+	// Report returns the last results, running the checks first if they
+	// never ran.
+	Report(ctx context.Context) DoctorReport
+	// Run runs the checks now.
+	Run(ctx context.Context) DoctorReport
+}
+
+// DoctorReport is the body of GET and POST /v1/doctor.
+type DoctorReport struct {
+	// Checked is when the checks ran; Trigger what ran them: "start",
+	// "reload" or "request".
+	Checked time.Time       `json:"checked"`
+	Trigger string          `json:"trigger"`
+	Results []doctor.Result `json:"results"`
+}
+
 // Catalog lists what the MCP servers offer (router.Router).
 type Catalog interface {
 	Catalog(ctx context.Context) router.Catalog
@@ -149,6 +171,9 @@ type Server struct {
 	RestartNeeded func() []string
 	// ConfigReloads counts the reloads of gateway.yaml since the start.
 	ConfigReloads func() int
+	// Doctor serves /v1/doctor; optional (a host's doctor is the
+	// command, mcp-gateway-admin doctor).
+	Doctor Doctor
 	// Metrics serves GET /v1/metrics; optional.
 	Metrics *metrics.Registry
 	// SignIns serves /v1/sign-ins; optional.
@@ -277,6 +302,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/reviews/{id}", s.with(s.judge))
 	mux.HandleFunc("GET /v1/events", s.with(s.events))
 	mux.HandleFunc("GET /v1/metrics", s.with(s.metrics))
+	mux.HandleFunc("GET /v1/doctor", s.with(s.doctor))
+	mux.HandleFunc("POST /v1/doctor", s.with(s.doctor))
 	return mux
 }
 
@@ -341,6 +368,25 @@ type errorResponse struct {
 	Error string `json:"error"`
 	// Code names a refusal a client handles (PasswordRequired).
 	Code string `json:"code,omitempty"`
+}
+
+// doctor answers the doctor's results in the gateway, run anew on POST:
+// to root and those review_policy allows, as they name the gateway's
+// files, issuers and servers' addresses.
+func (s *Server) doctor(w http.ResponseWriter, r *http.Request, a broker.Approver) {
+	if s.Doctor == nil {
+		writeError(w, http.StatusNotFound, "the gateway runs no checks of its own here: run mcp-gateway-admin doctor on its host")
+		return
+	}
+	if !a.Root() && !s.Broker.MayReviewPolicy(r.Context(), a) {
+		writeError(w, http.StatusForbidden, "the doctor's results are for root and those data.mcp.approvals.review_policy allows")
+		return
+	}
+	if r.Method == http.MethodPost {
+		writeJSON(w, http.StatusOK, s.Doctor.Run(r.Context()))
+		return
+	}
+	writeJSON(w, http.StatusOK, s.Doctor.Report(r.Context()))
 }
 
 // metrics writes the metrics, to root only: they count every

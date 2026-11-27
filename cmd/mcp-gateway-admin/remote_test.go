@@ -105,6 +105,11 @@ func newRemoteFake(t *testing.T) *remoteFake {
 		f.mu.Unlock()
 		w.WriteHeader(204)
 	}))
+	mux.HandleFunc("POST /console/api/v1/doctor", authed(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, `{"checked":"2026-11-27T11:00:00Z","trigger":"request","results":[`+
+			`{"check":"policy","id":"policy","status":"ok","summary":"OPA decides"},`+
+			`{"check":"server tickets","id":"server","subject":"tickets","status":"warn","summary":"slow"}]}`)
+	}))
 	mux.HandleFunc("GET /approvals/api/v1/grants", authed(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprint(w, `[]`)
 	}))
@@ -162,6 +167,13 @@ func TestRemoteLogin(t *testing.T) {
 	}
 	if rc, _, _ = runCmd("grants", "--gateway", gw); rc != 0 {
 		t.Errorf("grants: %d", rc)
+	}
+	// The gateway's own checks, through its console API.
+	if rc, stdout, stderr = runCmd("doctor", "--gateway", gw); rc != 0 || !strings.Contains(stdout, "OPA decides") || !strings.Contains(stdout, "slow") {
+		t.Errorf("doctor: %d %s %s", rc, stdout, stderr)
+	}
+	if rc, stdout, _ = runCmd("doctor", "--gateway", gw, "--json", "--strict"); rc != 3 || !strings.Contains(stdout, `"subject": "tickets"`) {
+		t.Errorf("doctor --json --strict: %d %s", rc, stdout)
 	}
 
 	// An expired ID token is renewed with the refresh token, and kept.

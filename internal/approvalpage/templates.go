@@ -26,6 +26,7 @@ var consoleTabs = []tab{
 	{"tasks", "Tasks", "/console/tasks"},
 	{"sign-ins", "Sign-ins", "/console/sign-ins"},
 	{"policy", "Policy", "/console/policy"},
+	{"doctor", "Doctor", "/console/doctor"},
 	{"approvals", "Approvals", "/approvals/"},
 }
 
@@ -106,6 +107,10 @@ form.inline { display: inline; margin: 0; }
 .tabs { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; padding: 0.4rem 1.5rem; border-bottom: 1px solid var(--border); }
 .tabs a { text-decoration: none; padding: 0.2rem 0; }
 .tabs a[aria-current] { color: var(--fg); border-bottom: 2px solid var(--accent); font-weight: 500; }
+.status { display: inline-block; min-width: 3.5em; text-align: center; border-radius: 3px; padding: 0 0.4em; font-size: 12px; border: 1px solid var(--border); }
+.status.fail { color: var(--danger); border-color: var(--danger); }
+.status.warn { background: var(--highlight); }
+.status.ok { color: var(--muted); }
 .note.error { background: var(--error-bg); border-left-color: var(--danger); }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; }
 .stats .card { margin: 0; display: block; color: inherit; text-decoration: none; }

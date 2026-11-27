@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -272,4 +273,17 @@ func (s Split) Start(ctx context.Context, b *config.Backend, p principal.Princip
 		return s.HTTP.Start(ctx, b, p, id)
 	}
 	return s.Stdio.Start(ctx, b, p, id)
+}
+
+// Check asks the API server for the instances' pods, as the launcher
+// does, and returns how many there are: whether the gateway's account
+// reaches the API server and may list pods in the namespace.
+func (k *Kubernetes) Check(ctx context.Context) (int, error) {
+	var list struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := k.Client.List(ctx, kube.PodsPath(k.Options.Namespace), LabelManagedBy+"="+managedBy, &list); err != nil {
+		return 0, err
+	}
+	return len(list.Items), nil
 }

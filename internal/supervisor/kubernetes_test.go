@@ -30,6 +30,7 @@ type fakeAPI struct {
 	waitReason string
 	policy     kube.NetworkPolicy
 	secret     kube.Secret
+	lists      []string // label selectors of lists of pods
 }
 
 func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +68,9 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p := f.pod
 		p.Status = st
 		_ = json.NewEncoder(w).Encode(p)
+	case r.Method == http.MethodGet && strings.HasSuffix(path, "/pods"):
+		f.lists = append(f.lists, r.URL.Query().Get("labelSelector"))
+		_, _ = io.WriteString(w, `{"items": [{}, {}]}`)
 	case r.Method == http.MethodDelete:
 		f.deleted = append(f.deleted, path+"?"+r.URL.RawQuery)
 		w.WriteHeader(http.StatusOK)
@@ -229,4 +233,27 @@ type launcherFunc func(*config.Backend)
 func (f launcherFunc) Start(_ context.Context, b *config.Backend, _ principal.Principal, _ string) (Instance, error) {
 	f(b)
 	return nil, nil
+}
+
+// Check lists the instances' pods as the launcher's own; an API server
+// that does not answer is an error.
+func TestKubernetesCheck(t *testing.T) {
+	api := &fakeAPI{}
+	k, _ := testKubernetes(t, api)
+	n, err := k.Check(context.Background())
+	if err != nil || n != 2 || len(api.lists) != 1 || api.lists[0] != LabelManagedBy+"="+managedBy {
+		t.Fatalf("check: %d %v %v", n, err, api.lists)
+	}
+	tokenFile := t.TempDir() + "/token"
+	writeTestFile(t, tokenFile, "sa-token\n")
+	srv := httptest.NewServer(http.NotFoundHandler())
+	c, err := kube.NewClient(srv.URL, tokenFile, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Close()
+	k.Client = c
+	if _, err := k.Check(context.Background()); err == nil {
+		t.Error("an API server that does not answer: no error")
+	}
 }

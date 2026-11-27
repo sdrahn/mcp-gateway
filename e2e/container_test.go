@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -71,10 +72,17 @@ func TestContainerMode(t *testing.T) {
 	certFile, keyFile, pool := selfSigned(t, dir)
 	port := freePort(t)
 	audience := fmt.Sprintf("https://127.0.0.1:%d/mcp", port)
-	rbac := `{
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The test's account is an operator (review_policy): it sees the
+	// doctor's results.
+	rbac := fmt.Sprintf(`{
 	  "roles": {"echoer": {"permissions": [{"server": "echo", "tool": "echo"}]}},
-	  "bindings": {"groups": {}, "users": {"u-agent": ["echoer"], "k8s:system:serviceaccount:agents:custos": ["echoer"]}}
-	}`
+	  "bindings": {"groups": {}, "users": {"u-agent": ["echoer"], "k8s:system:serviceaccount:agents:custos": ["echoer"]}},
+	  "approvers": {"default": ["user:%s"]}
+	}`, me.Username)
 	e := setup(t, rbac, nil, fmt.Sprintf(`deployment: container
 http:
   listen: 127.0.0.1:%d
@@ -163,6 +171,28 @@ http:
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("the cluster's token for another audience: HTTP %d", resp.StatusCode)
+	}
+
+	// The doctor in the gateway: run on request, over the control socket.
+	var rep struct {
+		Trigger string
+		Results []struct{ Check, ID, Subject, Status, Summary string }
+	}
+	if code := controlDo(t, ctl, "POST", "/v1/doctor", "", &rep); code != 200 || rep.Trigger != "request" {
+		t.Fatalf("doctor: %d %+v", code, rep)
+	}
+	got := map[string]string{}
+	for _, r := range rep.Results {
+		got[r.Check] = r.Status
+		if r.Status == "fail" {
+			t.Errorf("doctor: %s failed: %s", r.Check, r.Summary)
+		}
+	}
+	for _, check := range []string{"configuration", "policy", "identity provider " + provider.srv.URL, "identity provider " + cluster.srv.URL,
+		"server echo", "state volume"} {
+		if got[check] != "ok" {
+			t.Errorf("doctor: %s is %q, want ok (%v)", check, got[check], got)
+		}
 	}
 
 	// A stdio server is refused, in mcp-gateway --check and on reload.
