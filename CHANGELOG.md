@@ -76,6 +76,8 @@ minor release (with a warning) and removed in the next.
   the approval page: the status and reload errors, servers and their
   instances, sessions, tasks, sign-ins, the policy and its what-if, with
   the actions the approver rules allow (stop, end, cancel, sign out).
+  CI goes through it in a headless browser: each view, a stop and the
+  what-if (#405).
 - The doctor in the gateway (2.0, D23, roadmap step 48; chapter 16,
   "Operating"; #391): in container mode the gateway runs its own checks
   (configuration, policy engine, certificate, identity providers' key

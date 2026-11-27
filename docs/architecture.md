@@ -4980,7 +4980,7 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       deleted after the idle timeout.
 48. **The console** (2.0; D23; done: the probes, #386; the
     console's API, #388; the pages, #390; the doctor in the gateway,
-    #391; §5.12.7):
+    #391; the browser test, #405; §5.12.7):
     - the approval page grown into the gateway's management page at
       `/console/`: views of the status, the servers and their
       instances, sessions, tasks, sign-ins, approvals, grants, reviews,
