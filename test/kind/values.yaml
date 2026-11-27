@@ -1,0 +1,27 @@
+# The kind test with the Helm chart (run.sh, DEPLOY=helm): as the
+# kustomize overlay (config.yaml), the cluster's ServiceAccount tokens as
+# the only issuer.
+image:
+  repository: mcp-gateway
+  tag: test
+config:
+  policy:
+    watch_interval: 2s
+  http:
+    # Reached through kubectl port-forward in the test.
+    audience: https://127.0.0.1:8443/mcp
+servers:
+  echo:
+    name: echo
+    url: http://mcp-echo.mcp-gateway.svc:8080/mcp
+rbac:
+  version: 1
+  roles:
+    echoer:
+      permissions:
+        - {server: echo, tool: echo}
+        - {server: echo2, tool: echo}
+  bindings:
+    users:
+      "k8s:system:serviceaccount:agents:custos": [echoer]
+    groups: {}

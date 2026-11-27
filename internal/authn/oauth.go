@@ -17,6 +17,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/user"
 	"slices"
@@ -446,6 +447,13 @@ func (is *issuerKeys) getJSON(ctx context.Context, url string, v any) error {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
+	if is.cfg.TokenFile != "" && sameOrigin(url, is.cfg.Issuer) {
+		tok, err := os.ReadFile(is.cfg.TokenFile)
+		if err != nil {
+			return fmt.Errorf("token_file: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(tok)))
+	}
 	resp, err := is.client.Do(req)
 	if err != nil {
 		return err
@@ -455,6 +463,14 @@ func (is *issuerKeys) getJSON(ctx context.Context, url string, v any) error {
 		return fmt.Errorf("GET %s: %s", url, resp.Status)
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(v)
+}
+
+// sameOrigin reports whether u is on the origin (scheme, host, port) of
+// issuer: the token_file goes there only.
+func sameOrigin(u, issuer string) bool {
+	a, err1 := neturl.Parse(u)
+	b, err2 := neturl.Parse(issuer)
+	return err1 == nil && err2 == nil && a.Scheme == b.Scheme && strings.EqualFold(a.Host, b.Host)
 }
 
 // jwk is a JSON Web Key (RFC 7517) with the members needed for RSA, EC and

@@ -11,14 +11,17 @@ minor release (with a warning) and removed in the next.
 
 - The container image and Kubernetes manifests (2.0, D23, roadmap step
   46; chapter 16; #375): `make image` builds the gateway's image on
-  SUSE's BCI; `deploy/kubernetes` runs it with OPA and the role data
-  renderer in one pod, configured from ConfigMaps. CI deploys it to a
+  SUSE's BCI; `deploy/kubernetes` (`kubectl apply -k`) and the Helm
+  chart `deploy/helm/mcp-gateway` run it with OPA and the role data
+  renderer in one pod, configured from ConfigMaps. CI deploys both to a
   kind cluster and calls a server in it as a ServiceAccount
   (`test/kind/run.sh`).
 - In container mode, `url` may be plain `http://` to a cluster's
   Service (`name.namespace.svc`, `….svc.cluster.local`); a server
   definition's `ca_file` and an issuer's (`http.issuers[].ca_file`)
-  name CA certificates besides the system's (#375).
+  name CA certificates besides the system's; an issuer's `token_file`
+  is the gateway pod's own token for the cluster's key set, sent to the
+  issuer's origin only (#375).
 
 - Several identity providers, `http.issuers` (2.0, D23, roadmap step
   46; chapter 3, "Remote access"; #373): tokens of each are validated

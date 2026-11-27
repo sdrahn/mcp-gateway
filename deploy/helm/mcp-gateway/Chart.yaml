@@ -1,0 +1,12 @@
+apiVersion: v2
+name: mcp-gateway
+description: >-
+  Policy-enforcing gateway for MCP servers, in container mode: one replica
+  with OPA and the role data renderer in its pod (user guide, chapter 16).
+type: application
+version: 0.1.0
+# The gateway's version the chart is written for; image.tag defaults to it.
+appVersion: "2.0.0"
+home: https://github.com/sdrahn/mcp-gateway
+sources:
+  - https://github.com/sdrahn/mcp-gateway

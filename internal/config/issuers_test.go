@@ -55,6 +55,8 @@ func TestIssuers(t *testing.T) {
 		httpYAML + "  issuers:\n    - issuer: https://a.example.com\n    - issuer: https://a.example.com\n":                     "http.issuers[1].issuer: https://a.example.com is named twice",
 		httpYAML + "  issuers:\n    - issuer: http://idp.example.com\n":                                                         "http.issuers[0].issuer",
 		httpYAML + "  issuers:\n    - issuer: https://a.example.com\n      subject_prefix: k8s\n":                               "subject_prefix",
+		httpYAML + "  issuers:\n    - issuer: https://a.example.com\n      token_file: token\n":                                 "token_file: must be an absolute path",
+		httpYAML + "  issuers:\n    - issuer: http://127.0.0.1:9100\n      token_file: /run/token\n":                            "token_file: only for an https:// issuer",
 		only + "  local_user_claim: uid\n":                                                                                      "http.local_user_claim: applies to the tokens of http.issuer",
 		"deployment: container\n" + httpYAML + "  issuers:\n    - issuer: https://a.example.com\n      local_user_claim: uid\n": "http.issuers[0].local_user_claim: not in container mode",
 	} {

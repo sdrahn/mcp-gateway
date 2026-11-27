@@ -76,6 +76,12 @@ func PlanRender(dir, def, shippedDir string) (Plan, error) {
 			}
 			return err
 		}
+		if d.IsDir() && path != dir && strings.HasPrefix(d.Name(), ".") {
+			// Hidden: a ConfigMap's ..<timestamp> directory, whose files
+			// the top's data.yaml links to (Kubernetes' atomic writer),
+			// or a version control system's.
+			return filepath.SkipDir
+		}
 		if !d.IsDir() {
 			switch strings.ToLower(filepath.Ext(path)) {
 			case ".json", ".yaml", ".yml", ".rego":

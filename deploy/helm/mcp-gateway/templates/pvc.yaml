@@ -1,0 +1,19 @@
+{{- if not .Values.persistence.existingClaim }}
+# The gateway's state (grants, pending approvals, the audit key, sign-in
+# tokens, clients). Kept when the release is uninstalled.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}-state
+  labels: {{- include "mcp-gateway.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.persistence.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}

@@ -28,6 +28,10 @@ data:
         - issuer: https://kubernetes.default.svc.cluster.local
           audience: mcp-gateway
           ca_file: /etc/mcp-gateway/cluster-ca/ca.crt
+          # The key set from the API server itself, with the pod's own
+          # token (the discovery document names the node's address).
+          jwks_url: https://kubernetes.default.svc.cluster.local/openid/v1/jwks
+          token_file: /var/run/secrets/mcp-gateway/token/token
           scopes: []
           subject_prefix: "k8s:"
 ---

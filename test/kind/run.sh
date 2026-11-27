@@ -11,8 +11,10 @@
 #     section 12);
 #   - role data changed in its ConfigMap takes effect (mcp-policy-render
 #     and OPA follow the swap too).
-# Needs docker (or CONTAINER=podman), kind, kubectl, openssl, curl, jq and
-# go. KEEP=1 keeps the cluster.
+# DEPLOY=helm deploys the chart (deploy/helm/mcp-gateway, with
+# test/kind/values.yaml) instead of the manifests. Needs docker (or
+# CONTAINER=podman), kind, kubectl, openssl, curl, jq, go, and helm for
+# DEPLOY=helm. KEEP=1 keeps the cluster.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -20,6 +22,8 @@ KIND=${KIND:-kind}
 KUBECTL=${KUBECTL:-kubectl}
 CONTAINER=${CONTAINER:-docker}
 CLUSTER=${CLUSTER:-mcpgw}
+DEPLOY=${DEPLOY:-kustomize}
+HELM=${HELM:-helm}
 IMAGE_BASE=${IMAGE_BASE:-registry.suse.com/bci/bci-micro:15.7}
 NS=mcp-gateway
 PORT=${PORT:-18443}
@@ -61,17 +65,21 @@ echo "--- cluster"
 k create namespace "$NS" --dry-run=client -o yaml | apply
 k create namespace agents --dry-run=client -o yaml | apply
 k -n agents create serviceaccount custos --dry-run=client -o yaml | apply
-# The gateway reads the issuer's discovery document and key set without a
-# token of its own (user guide, chapter 16).
-k create clusterrolebinding mcp-gateway-oidc-discovery --clusterrole=system:service-account-issuer-discovery \
-	--group=system:unauthenticated --dry-run=client -o yaml | apply
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 -subj /CN=mcp-gateway \
 	-addext "subjectAltName=IP:127.0.0.1,DNS:mcp-gateway.$NS.svc" \
 	-keyout "$work/tls.key" -out "$work/tls.crt" 2>/dev/null
 k -n "$NS" create secret tls mcp-gateway-tls --cert "$work/tls.crt" --key "$work/tls.key" --dry-run=client -o yaml | apply
 
-echo "--- deploy"
-k apply -k test/kind >/dev/null
+echo "--- deploy ($DEPLOY)"
+case "$DEPLOY" in
+kustomize) k apply -k test/kind >/dev/null ;;
+helm)
+	k -n "$NS" apply -f test/kind/echo.yaml >/dev/null
+	"$HELM" --kube-context "kind-$CLUSTER" -n "$NS" upgrade --install mcp-gateway deploy/helm/mcp-gateway \
+		-f test/kind/values.yaml >/dev/null
+	;;
+*) fail "DEPLOY: kustomize or helm, not $DEPLOY" ;;
+esac
 k -n "$NS" rollout status deploy/mcp-echo --timeout=180s
 k -n "$NS" rollout status deploy/mcp-gateway --timeout=240s
 

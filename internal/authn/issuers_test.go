@@ -2,6 +2,9 @@ package authn
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"net/http"
@@ -11,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
@@ -126,5 +130,60 @@ func TestOAuthIssuerCAFile(t *testing.T) {
 	if _, err := oauth(filepath.Join(t.TempDir(), "missing.crt")).Authenticate(ctx, token, nil); err == nil ||
 		!strings.Contains(err.Error(), "ca_file") {
 		t.Errorf("a missing ca_file: %v", err)
+	}
+}
+
+// token_file: the gateway's own token goes with the discovery document
+// and key set to the issuer's origin (a cluster's API server asks for
+// one), never to a key set elsewhere.
+func TestOAuthIssuerTokenFile(t *testing.T) {
+	idp := newIdP(t)
+	target, _ := url.Parse(idp.srv.URL)
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	var issuer *httptest.Server
+	issuer = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer sa-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path == "/.well-known/openid-configuration" {
+			_ = json.NewEncoder(w).Encode(map[string]string{"issuer": issuer.URL, "jwks_uri": issuer.URL + "/jwks"})
+			return
+		}
+		proxy.ServeHTTP(w, r)
+	}))
+	t.Cleanup(issuer.Close)
+	var elsewhereAuth atomic.Value
+	elsewhere := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		elsewhereAuth.Store(r.Header.Get("Authorization"))
+		proxy.ServeHTTP(w, r)
+	}))
+	t.Cleanup(elsewhere.Close)
+	dir := t.TempDir()
+	tokenFile := filepath.Join(dir, "token")
+	if err := os.WriteFile(tokenFile, []byte("sa-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(issuer.Certificate())
+	pool.AddCert(elsewhere.Certificate())
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}}
+	ctx := context.Background()
+	token := idp.rsaToken(t, map[string]any{"iss": issuer.URL, "aud": "mcp-gateway"})
+	oauth := func(tf, jwks string) *OAuth {
+		return NewOAuth(config.HTTP{Audience: audience, GroupsClaim: "groups",
+			Issuers: []config.Issuer{{Issuer: issuer.URL, Audience: "mcp-gateway", TokenFile: tf, JWKSURL: jwks}}}, client)
+	}
+	if _, err := oauth(tokenFile, "").Authenticate(ctx, token, nil); err != nil {
+		t.Errorf("with token_file: %v", err)
+	}
+	if _, err := oauth("", "").Authenticate(ctx, token, nil); err == nil {
+		t.Error("accepted though the issuer refused the discovery document")
+	}
+	if _, err := oauth(tokenFile, elsewhere.URL+"/jwks").Authenticate(ctx, token, nil); err != nil {
+		t.Errorf("a key set elsewhere: %v", err)
+	}
+	if got, _ := elsewhereAuth.Load().(string); got != "" {
+		t.Errorf("the token went to a key set on another origin: %q", got)
 	}
 }

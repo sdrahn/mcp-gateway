@@ -1562,13 +1562,19 @@ the `mcp-opa` service is on a host).
   Deployment with one replica, the gateway, OPA from its own image and
   `mcp-policy-render` in one pod, the policy copied from the gateway's
   image by an init container, a Service for the listener, ConfigMaps
-  and the TLS Secret, a PersistentVolumeClaim for the state. A Helm
-  chart can come when it is asked for.
+  and the TLS Secret, a PersistentVolumeClaim for the state; and a Helm
+  chart of the same pod (`deploy/helm/mcp-gateway`), its values holding
+  `gateway.yaml`, the servers and the role data, a checksum of
+  `gateway.yaml` rolling the pod. The gateway's pod has a projected
+  token of its own for the API server, with which it reads the cluster
+  issuer's key set (`token_file`, sent to the issuer's origin only); the
+  default token mount stays off.
 - **Servers in the cluster:** plain `http://` to a cluster's Service
   names (`name.namespace.svc`, `….svc.cluster.local`) in container mode
   only, the traffic staying on the cluster's network; `https://`
   elsewhere, with a definition's `ca_file` for a private CA. Issuers
-  take a `ca_file` too (the cluster's CA, for its API server).
+  take a `ca_file` too (the cluster's CA, for its API server), and a
+  `token_file`.
 
 #### 5.12.3 A Kubernetes launcher for stdio servers (step 47)
 

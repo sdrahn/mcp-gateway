@@ -235,3 +235,26 @@ func TestRenderDefault(t *testing.T) {
 		t.Error("broken default rendered")
 	}
 }
+
+// A ConfigMap mounted as the role data's directory: its files are links
+// into a hidden ..<timestamp> directory (Kubernetes' atomic writer), which
+// is not role data of its own.
+func TestPlanRenderConfigMap(t *testing.T) {
+	src, shipped := t.TempDir(), t.TempDir()
+	ts := filepath.Join(src, "..2026_11_27_07_54_39.1434126715")
+	writeFile(t, filepath.Join(ts, "data.yaml"), "roles: {}\n")
+	if err := os.Symlink(filepath.Base(ts), filepath.Join(src, "..data")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..data", "data.yaml"), filepath.Join(src, "data.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(src, ".git", "data.yaml"), "roles: {}\n")
+	p, err := PlanRender(src, "", shipped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Sources) != 1 || p.Sources[0].Rel != "." {
+		t.Errorf("sources %+v", p.Sources)
+	}
+}

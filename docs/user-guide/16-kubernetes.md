@@ -47,7 +47,54 @@ It runs as uid and gid 10001, never as root, and needs no capability
 and no writable root file system. OPA comes from its own image
 (`openpolicyagent/opa`, the `-static` variant).
 
-## Deploying
+## Deploying with Helm
+
+`deploy/helm/mcp-gateway` is a chart of the same pod. The values hold
+`gateway.yaml` (`config`, without what the pod's layout fixes: the
+directories, sockets, the listener's address and certificate),
+the server definitions (`servers`), the role data (`rbac`), the cluster's
+issuer (`clusterIssuer`, on by default), the image, persistence, an
+optional Ingress and the resources:
+
+```yaml
+# my-values.yaml
+image:
+  repository: registry.example.com/mcp-gateway
+  tag: 2.0.0
+config:
+  http:
+    issuer: https://idp.example.com/realms/mcp
+    audience: https://mcp-gateway.example.com/mcp
+    scopes: [mcp]
+servers:
+  tickets:
+    name: tickets
+    url: http://tickets.mcp-servers.svc:8080/mcp
+rbac:
+  version: 1
+  roles:
+    operator:
+      permissions:
+        - {server: tickets, tool: '*'}
+  bindings:
+    users:
+      "k8s:system:serviceaccount:agents:custos": [operator]
+    groups: {}
+```
+
+```bash
+kubectl create namespace mcp-gateway
+kubectl -n mcp-gateway create secret tls mcp-gateway-tls --cert tls.crt --key tls.key
+helm -n mcp-gateway upgrade --install mcp-gateway deploy/helm/mcp-gateway -f my-values.yaml
+```
+
+`helm upgrade` with changed `servers` or `rbac` updates their
+ConfigMaps, which the gateway reloads in place; a changed `config`
+rolls the pod (a checksum of `gateway.yaml` in the pod template), as
+some of its keys need a restart. The state's volume is kept when the
+release is uninstalled.
+
+## Deploying with kubectl
 
 `deploy/kubernetes` holds plain manifests for `kubectl apply -k`: one
 Deployment of one replica (sessions, pending approvals and tasks live in
@@ -90,6 +137,8 @@ http:
     - issuer: https://kubernetes.default.svc.cluster.local   # agents in the cluster
       audience: mcp-gateway
       ca_file: /etc/mcp-gateway/cluster-ca/ca.crt
+      jwks_url: https://kubernetes.default.svc.cluster.local/openid/v1/jwks
+      token_file: /var/run/secrets/mcp-gateway/token/token
       scopes: []
       subject_prefix: "k8s:"
 ```
@@ -99,14 +148,13 @@ http:
 - `ca_file` is the cluster's CA, which signed the API server's
   certificate; the manifests mount the `kube-root-ca.crt` ConfigMap,
   which every namespace has, there.
-- The gateway reads the issuer's discovery document and key set without
-  a token of its own. Clusters allow that to ServiceAccounts only, by
-  default; allow it to anyone (the documents are public keys and URLs):
-
-  ```bash
-  kubectl create clusterrolebinding mcp-gateway-oidc-discovery \
-    --clusterrole=system:service-account-issuer-discovery --group=system:unauthenticated
-  ```
+- The API server gives its key set to ServiceAccounts only (the
+  cluster's default binding `system:service-account-issuer-discovery`).
+  The gateway's pod has a token of its own for that, a projected volume
+  for the API server renewed by the kubelet (`token_file`); the default
+  token mount stays off. The token goes to the issuer's own address
+  only, so `jwks_url` names the key set there: the discovery document
+  names the node's address instead.
 
 - The agent's pod asks for a token with the audience:
 
@@ -182,5 +230,6 @@ and the last good one stays in force (`kubectl logs deploy/mcp-gateway
 - State (grants, the audit key, sign-in tokens) is on the volume
   `mcp-gateway-state`; back it up as you would `/var/lib/mcp-gateway`.
 
-`test/kind/run.sh` deploys all of this to a kind cluster and checks it
-(CI runs it on every change).
+`test/kind/run.sh` deploys all of this to a kind cluster and checks it,
+with the manifests and with the chart (`DEPLOY=helm`); CI runs both on
+every change.

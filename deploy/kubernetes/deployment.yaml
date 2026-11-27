@@ -67,6 +67,7 @@ spec:
             - {name: rbac, mountPath: /etc/mcp-gateway/policy/rbac, readOnly: true}
             - {name: tls, mountPath: /etc/mcp-gateway/tls, readOnly: true}
             - {name: cluster-ca, mountPath: /etc/mcp-gateway/cluster-ca, readOnly: true}
+            - {name: token, mountPath: /var/run/secrets/mcp-gateway/token, readOnly: true}
             - {name: state, mountPath: /var/lib/mcp-gateway}
             - {name: run, mountPath: /run/mcp-gateway}
             - {name: rendered, mountPath: /run/mcp-opa, readOnly: true}
@@ -115,6 +116,14 @@ spec:
         # the issuer of the ServiceAccount tokens (http.issuers[].ca_file).
         - name: cluster-ca
           configMap: {name: kube-root-ca.crt}
+        # The gateway's own token, for the cluster's discovery document
+        # and key set (http.issuers[].token_file): for the API server, an
+        # hour long, renewed by the kubelet. Only this, not the default
+        # token mount.
+        - name: token
+          projected:
+            sources:
+              - serviceAccountToken: {path: token, expirationSeconds: 3600}
         - name: state
           persistentVolumeClaim: {claimName: mcp-gateway-state}
         - name: run
