@@ -2695,7 +2695,10 @@ pr_main() { systemctl show -p MainPID --value "vmtest-restart-$1.service"; }
 pr_a=$(pr_main a)
 pr_b=$(pr_main b)
 pr_maps() { grep -c "$pr_lib/libvmtest-$1.so.1" "/proc/$2/maps"; }
-check "pending restarts: the test services use their libraries" bash -c '[ "$1" -gt 0 ] && [ "$2" -gt 0 ]' _ "$(pr_maps a "$pr_a")" "$(pr_maps b "$pr_b")"
+# systemd-run returns when the unit started, at times before its process
+# exec'd with the preloaded library: wait for the mappings.
+pr_loaded() { [ "$(pr_maps a "$pr_a")" -gt 0 ] && [ "$(pr_maps b "$pr_b")" -gt 0 ]; }
+check "pending restarts: the test services use their libraries" eventually 20 pr_loaded
 # The update: a new file renamed over the old one.
 cp "$pr_src" "$pr_lib/.libvmtest-a.new" && mv -f "$pr_lib/.libvmtest-a.new" "$pr_lib/libvmtest-a.so.1"
 check "pending restarts: the replaced library is deleted for the service that uses it" grep -q "$pr_lib/libvmtest-a.so.1 (deleted)" "/proc/$pr_a/maps"
