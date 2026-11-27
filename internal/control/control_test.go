@@ -492,8 +492,10 @@ func TestStatus(t *testing.T) {
 	s.RestartPending = func() bool { return true }
 	s.ServersError = func() string { return "web.yaml: unknown key" }
 	// Why it was refused for root and those who may review policy, that
-	// it was for others (#413).
-	if rec := call(t, s, 1001, "GET", "/v1/status", ""); !strings.Contains(rec.Body.String(), `"restart_pending":true`) ||
+	// it was for others (#413): a caller whose uid is neither root's nor
+	// the gateway's own (the test's, 1001 on CI's runner).
+	alice := broker.Approver{Name: "alice", UID: uint32(os.Getuid()) + 1}
+	if rec := callAs(t, s, alice, "cli", "GET", "/v1/status", ""); !strings.Contains(rec.Body.String(), `"restart_pending":true`) ||
 		!strings.Contains(rec.Body.String(), `"servers_error":"the last change was refused`) || strings.Contains(rec.Body.String(), "unknown key") {
 		t.Fatalf("alice: %d %s", rec.Code, rec.Body)
 	}
