@@ -17,7 +17,7 @@ func FuzzVersioned(f *testing.F) {
 		`{}`,
 		`{"action":"tools.call","args":{"path":"/home/a"}}`,
 		`{"args":{"version":2,"x":"}\",\"version\":3"}}`,
-		`{"a":" </script>"}`,
+		"{\"a\":\"\u2028</script>\"}",
 		`{"Version":1}`,
 		`{"verſion":1}`,
 	} {
