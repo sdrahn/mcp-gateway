@@ -85,6 +85,15 @@ minor release (with a warning) and removed in the next.
   `mcp-gateway-admin doctor --gateway URL` show them; the plain doctor
   asks the gateway when its configuration is of container mode.
 
+- The chart's `secrets` (chapter 16): Secrets mounted read-only into
+  the gateway's container for the files `gateway.yaml` and the server
+  definitions name (the approval page's client secret, webhooks'
+  secrets, the mail password, servers' credentials), readable by the
+  gateway's account only.
+- Chapter 16 walks through a gateway in a cluster step by step, from an
+  empty cluster to an agent's first call and an operator's approval,
+  with a troubleshooting table.
+
 ### Changed
 
 - `mcp-policy-render` skips hidden directories below the role data's

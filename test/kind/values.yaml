@@ -25,6 +25,9 @@ servers:
     name: stdio
     command: [/usr/bin/echo-server, -stdio]
     image: mcp-echo:test
+# A Secret run.sh creates, checked as the gateway's account reads it.
+secrets:
+  - name: mcp-gateway-kind
 rbac:
   version: 1
   roles:

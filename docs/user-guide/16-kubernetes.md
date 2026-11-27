@@ -287,9 +287,23 @@ rbac:
   hears of it too.
 - From a laptop: `mcp-gateway-admin approvals login --gateway
   https://mcp-gateway.example.com`, then `mcp-gateway-admin approvals`.
-- A confidential client's secret (`approvals.page.client_secret_file`)
-  needs a Secret mounted into the gateway's container, which the chart
-  does not add; use a public client, or patch the Deployment.
+- A confidential client's secret comes from a Secret that the chart
+  mounts (`secrets`, below):
+
+  ```bash
+  kubectl -n mcp-gateway create secret generic mcp-gateway-console \
+      --from-literal=client-secret='<the identity provider's client secret>'
+  ```
+
+  ```yaml
+  secrets:
+    - name: mcp-gateway-console
+  config:
+    approvals:
+      page:
+        client_id: mcp-gateway-console
+        client_secret_file: /etc/mcp-gateway/secrets/mcp-gateway-console/client-secret
+  ```
 
 ### 7. Day to day
 
@@ -381,6 +395,24 @@ kubectl create namespace mcp-gateway
 kubectl -n mcp-gateway create secret tls mcp-gateway-tls --cert tls.crt --key tls.key
 helm -n mcp-gateway upgrade --install mcp-gateway deploy/helm/mcp-gateway -f my-values.yaml
 ```
+
+**Secrets** for the files `gateway.yaml` and the server definitions
+name come from `secrets`: each Secret is mounted read-only into the
+gateway's container, readable by its account only (mode 0440, group
+10001), at `/etc/mcp-gateway/secrets/<name>/<key>` or at `mountPath`:
+
+```yaml
+secrets:
+  # approvals.page.client_secret_file, approvals.webhooks[].secret_file,
+  # notifications.email.password_file: /etc/mcp-gateway/secrets/mcp-gateway-approvals/<key>
+  - name: mcp-gateway-approvals
+  # The servers' credentials (credentials: [name] in a definition).
+  - name: mcp-gateway-credentials
+    mountPath: /etc/mcp-gateway/credentials
+```
+
+The gateway reads most of them at start: after changing a Secret,
+`kubectl -n mcp-gateway rollout restart deployment/mcp-gateway`.
 
 `helm upgrade` with changed `servers` or `rbac` updates their
 ConfigMaps, which the gateway reloads in place; a changed `config`
