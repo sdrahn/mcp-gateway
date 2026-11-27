@@ -39,6 +39,20 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- $_ := set $http "cert_file" "/etc/mcp-gateway/tls/tls.crt" -}}
 {{- $_ := set $http "key_file" "/etc/mcp-gateway/tls/tls.key" -}}
 {{- if $issuers }}{{ $_ := set $http "issuers" $issuers }}{{ end -}}
+{{- if .Values.kubernetesLauncher.enabled -}}
+{{- $kl := .Values.kubernetesLauncher -}}
+{{- $sup := deepCopy (default dict $cfg.supervisor) -}}
+{{- $_ := set $sup "mode" "kubernetes" -}}
+{{- $_ := set $sup "kubernetes" (dict
+      "namespace" $kl.namespace
+      "bridge_image" (include "mcp-gateway.image" .)
+      "image_pull_policy" $kl.imagePullPolicy
+      "start_timeout" $kl.startTimeout
+      "selinux" $kl.selinux
+      "gateway_namespace" .Release.Namespace
+      "gateway_labels" (include "mcp-gateway.selectorLabels" . | fromYaml)) -}}
+{{- $_ := set $cfg "supervisor" $sup -}}
+{{- end -}}
 {{- $policy := deepCopy (default dict $cfg.policy) -}}
 {{- $_ := set $policy "opa_socket" "/run/mcp-gateway/opa.sock" -}}
 {{- $_ := set $cfg "version" 1 -}}
@@ -48,6 +62,10 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- $_ := set $cfg "policy" $policy -}}
 {{- $_ := set $cfg "http" $http -}}
 {{- toYaml $cfg -}}
+{{- end -}}
+
+{{- define "mcp-gateway.image" -}}
+{{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) -}}
 {{- end -}}
 
 {{- define "mcp-gateway.restricted" -}}

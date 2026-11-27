@@ -1,0 +1,10 @@
+# The namespace of the instances' pods (the Kubernetes launcher,
+# supervisor.mode: kubernetes): one of their own, held to the restricted
+# Pod Security Standard, which the pods the gateway creates meet.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mcp-instances
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted

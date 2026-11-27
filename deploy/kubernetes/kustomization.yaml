@@ -4,15 +4,18 @@
 #   kubectl apply -k deploy/kubernetes
 # after creating the namespace and the TLS Secret (chapter 16). The
 # ConfigMaps carry no hash suffix: the gateway reloads them in place.
+# Each object names its namespace (mcp-gateway, and mcp-instances for the
+# instances' pods), as a kustomization's namespace would move them all.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: mcp-gateway
 labels:
   - pairs:
       app.kubernetes.io/name: mcp-gateway
     includeSelectors: true
 resources:
+  - namespace.yaml
   - serviceaccount.yaml
+  - rbac.yaml
   - configmap.yaml
   - pvc.yaml
   - deployment.yaml

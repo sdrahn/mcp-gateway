@@ -1,0 +1,32 @@
+# What the gateway's ServiceAccount may do in the instances' namespace,
+# and nothing else: create, look at and delete the instances' pods, and
+# create their Secrets and NetworkPolicies (they go with their pod).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mcp-gateway-instances
+  namespace: mcp-instances
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [create, get, list, delete, deletecollection]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [create, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcp-gateway-instances
+  namespace: mcp-instances
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mcp-gateway-instances
+subjects:
+  - kind: ServiceAccount
+    name: mcp-gateway
+    namespace: mcp-gateway

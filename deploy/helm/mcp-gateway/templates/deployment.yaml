@@ -1,5 +1,5 @@
 {{- $name := include "mcp-gateway.fullname" . -}}
-{{- $image := printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) -}}
+{{- $image := include "mcp-gateway.image" . -}}
 # One replica (docs/architecture.md, section 5.12.5), Recreate as its
 # volume is ReadWriteOnce: the gateway, OPA and mcp-policy-render in one
 # pod, the policy copied from the gateway's image by the init container.

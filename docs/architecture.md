@@ -1640,6 +1640,14 @@ there and nothing else.
   for each request. At start the gateway deletes the pods of an earlier
   run. The bridge is a static binary in the gateway's image
   (`make image`).
+- **As built (part 3, #384):** the manifests and the chart create the
+  instances' namespace (`mcp-instances`, Pod Security `restricted`), a
+  Role there for the gateway's ServiceAccount (pods: create, get, list,
+  delete, deletecollection; Secrets and NetworkPolicies: create,
+  delete), and set `supervisor.mode: kubernetes`. The kind job runs a
+  stdio server in pods of its own: one per principal, each with a
+  NetworkPolicy without egress (the server cannot reach the API server's
+  address), owned by its pod, deleted after the idle timeout.
 - **Lifecycle:** the pool (idle timeout, limits per principal, restart
   backoff, stopping on session end) is the gateway's, as now; the
   launcher creates and deletes pods and reports a pod that ended. Image,
@@ -4919,9 +4927,9 @@ Kubernetes cluster's MCP servers (D23, §5.12). Planned:
       with a test identity provider and a server that speaks HTTP, and a
       kind (Kubernetes in Docker) job in CI with a ServiceAccount token
       as the agent's credential; live reload from a ConfigMap (§12).
-47. **A Kubernetes launcher for stdio servers** (2.0; D23; in progress:
-    the definition keys and the translation to a pod, #380; the
-    launcher and the bridge, #382):
+47. **A Kubernetes launcher for stdio servers** (2.0; D23; done: the
+    definition keys and the translation to a pod, #380; the launcher and
+    the bridge, #382; the manifests, the chart and the kind job, #384):
     - an instance as a pod in the gateway's instance namespace, created
       and deleted by the pool as instances are now; the sandbox of §5.7
       translated (§5.12.3); an MCS level per instance where the nodes run
