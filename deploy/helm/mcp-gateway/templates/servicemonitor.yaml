@@ -1,0 +1,16 @@
+{{- if .Values.serviceMonitor.enabled }}
+# Prometheus scrapes the gateway's metrics (mcp_gateway_*; user guide,
+# chapter 10) from the Service's metrics port.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}
+  labels: {{- include "mcp-gateway.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels: {{- include "mcp-gateway.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+{{- end }}

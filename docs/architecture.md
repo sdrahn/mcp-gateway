@@ -1797,7 +1797,10 @@ serves it too, next to Cockpit.
   and the definitions are loaded) on the metrics listener, for the
   liveness and readiness probes; a refused reload does not make the pod
   unready (it keeps serving what it ran), but shows in the console, the
-  metrics and the logs.
+  metrics and the logs. As built (#386): `/readyz` asks OPA's own
+  `/health` (the definitions are loaded before the gateway listens at
+  all); the manifests and the chart listen on `:9464`, probe there, and
+  name the Service's `metrics` port; the chart's `serviceMonitor`.
 - **Metrics** on the metrics listener, scraped by Prometheus (the chart
   can add a ServiceMonitor); **logs and audit records** on the standard
   error, for the cluster's log pipeline.
@@ -4947,7 +4950,7 @@ Kubernetes cluster's MCP servers (D23, §5.12). Planned:
       definition), the bridge, and the kind job with a stdio server per
       principal: one pod each, a NetworkPolicy without egress, the pod
       deleted after the idle timeout.
-48. **The console** (2.0; D23; planned; §5.12.7):
+48. **The console** (2.0; D23; in progress: the probes, #386; §5.12.7):
     - the approval page grown into the gateway's management page at
       `/console/`: views of the status, the servers and their
       instances, sessions, tasks, sign-ins, approvals, grants, reviews,

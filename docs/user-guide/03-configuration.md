@@ -359,6 +359,12 @@ with `semanage port -a -t mcp_metrics_port_t -p tcp 9464`.
 |---|---|---|
 | `metrics.listen` | empty (off) | `host:port` to serve `GET /metrics` on, e.g. `127.0.0.1:9464`; must differ from `http.listen` |
 
+The listener also answers a container platform's probes: `GET /healthz`
+(200 `ok` while the gateway serves) and `GET /readyz` (200 `ready` while
+the policy engine answers, else 503 with the reason). A reload that was
+refused does not make the gateway unready: it serves what it ran. The
+manifests and the chart of chapter 16 listen on `:9464` in the pod.
+
 ### Audit
 
 ```yaml

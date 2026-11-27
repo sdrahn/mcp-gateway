@@ -424,7 +424,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 
 	registerGauges(r, b)
 	if gw.Metrics.Listen != "" {
-		stopMetrics, err := serveMetrics(log, gw.Metrics.Listen)
+		stopMetrics, err := serveMetrics(log, gw.Metrics.Listen, opa.Health)
 		if err != nil {
 			return err
 		}

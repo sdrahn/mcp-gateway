@@ -39,24 +39,45 @@ func registerGauges(r *router.Router, b *broker.Broker) {
 	)
 }
 
-// metricsHandler serves GET /metrics and nothing else.
-func metricsHandler() http.Handler {
+// metricsHandler serves GET /metrics, and the probes of a container
+// platform (docs/architecture.md, section 5.12.7): GET /healthz, the
+// process serves; GET /readyz, it can decide, as OPA answers (ready).
+// A refused reload does not make the gateway unready: it serves what it
+// ran.
+func metricsHandler(ready func(context.Context) error) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", metrics.ContentType)
 		_ = metrics.Default.WriteText(w)
 	})
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = fmt.Fprintln(w, "ok")
+	})
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		if ready != nil {
+			if err := ready(ctx); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = fmt.Fprintln(w, "not ready: the policy engine:", err)
+				return
+			}
+		}
+		_, _ = fmt.Fprintln(w, "ready")
+	})
 	return mux
 }
 
-// serveMetrics serves the metrics over plain HTTP on addr
+// serveMetrics serves the metrics and the probes over plain HTTP on addr
 // (metrics.listen), without authentication.
-func serveMetrics(log *slog.Logger, addr string) (func(), error) {
+func serveMetrics(log *slog.Logger, addr string, ready func(context.Context) error) (func(), error) {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("metrics.listen: %w", err)
 	}
-	srv := &http.Server{Handler: metricsHandler(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: metricsHandler(ready), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := srv.Serve(l); !errors.Is(err, http.ErrServerClosed) {
 			log.Error("metrics listener failed", "err", err)
