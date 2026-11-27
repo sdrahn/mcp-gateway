@@ -15,6 +15,9 @@ data:
     state_dir: /var/lib/mcp-gateway
     policy:
       opa_socket: /run/mcp-gateway/opa.sock
+    # Metrics and the probes (/healthz, /readyz), plain HTTP in the pod.
+    metrics:
+      listen: ":9464"
     supervisor:
       # Stdio servers in pods of their own in mcp-instances (rbac.yaml);
       # the connectors of servers that speak HTTP beside the gateway.

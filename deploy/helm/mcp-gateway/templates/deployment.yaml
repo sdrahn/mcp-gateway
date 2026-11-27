@@ -52,11 +52,14 @@ spec:
           args: ["--config", "/etc/mcp-gateway/config/gateway.yaml"]
           ports:
             - {name: https, containerPort: 8443}
+            - {name: metrics, containerPort: 9464}
+          # /readyz: the policy engine answers; /healthz: the gateway
+          # serves (metrics.listen).
           readinessProbe:
-            tcpSocket: {port: https}
+            httpGet: {path: /readyz, port: metrics}
             periodSeconds: 5
           livenessProbe:
-            tcpSocket: {port: https}
+            httpGet: {path: /healthz, port: metrics}
             initialDelaySeconds: 10
             periodSeconds: 20
           resources: {{- toYaml .Values.resources.gateway | nindent 12 }}

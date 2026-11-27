@@ -304,6 +304,12 @@ and the last good one stays in force (`kubectl logs deploy/mcp-gateway
 
 ## Operating
 
+- Probes: the pod is ready while `GET /readyz` on the metrics port
+  (`9464`) answers, which needs the policy engine; alive while
+  `GET /healthz` does. The Service's `metrics` port serves `/metrics`
+  for Prometheus; the chart adds a ServiceMonitor with
+  `serviceMonitor.enabled: true`.
+
 - Logs and audit records: `kubectl -n mcp-gateway logs deploy/mcp-gateway -c gateway`
   (OPA's decision log: `-c opa`).
 - Approvals from another host: `mcp-gateway-admin approvals login

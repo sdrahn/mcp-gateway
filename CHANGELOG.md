@@ -59,6 +59,12 @@ minor release (with a warning) and removed in the next.
   `kubernetesLauncher`), and the kind job runs a stdio server in pods of
   their own (#384).
 
+- Probes on the metrics listener (2.0, D23, roadmap step 48; chapter 3;
+  #386): `GET /healthz`, and `GET /readyz` while the policy engine
+  answers. The manifests and the chart probe there and serve the
+  metrics on the Service's `metrics` port; the chart's
+  `serviceMonitor.enabled` adds a ServiceMonitor.
+
 ### Changed
 
 - `mcp-policy-render` skips hidden directories below the role data's

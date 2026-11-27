@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -17,7 +20,7 @@ func TestServeMetrics(t *testing.T) {
 	}
 	addr := l.Addr().String()
 	_ = l.Close()
-	stop, err := serveMetrics(slog.New(slog.DiscardHandler), addr)
+	stop, err := serveMetrics(slog.New(slog.DiscardHandler), addr, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +43,32 @@ func TestServeMetrics(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("GET /: %d", resp.StatusCode)
 	}
-	if _, err := serveMetrics(slog.New(slog.DiscardHandler), addr); err == nil {
+	if _, err := serveMetrics(slog.New(slog.DiscardHandler), addr, nil); err == nil {
 		t.Error("a second listener on the same address: no error")
+	}
+}
+
+// The probes: /healthz while the process serves, /readyz while the
+// policy engine answers.
+func TestProbes(t *testing.T) {
+	var opaErr error
+	h := metricsHandler(func(context.Context) error { return opaErr })
+	get := func(path string) (int, string) {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		return rec.Code, rec.Body.String()
+	}
+	if code, body := get("/healthz"); code != 200 || body != "ok\n" {
+		t.Errorf("healthz %d %q", code, body)
+	}
+	if code, body := get("/readyz"); code != 200 || body != "ready\n" {
+		t.Errorf("readyz %d %q", code, body)
+	}
+	opaErr = errors.New("opa: dial unix /run/mcp-gateway/opa.sock: no such file")
+	if code, body := get("/readyz"); code != http.StatusServiceUnavailable || !strings.Contains(body, "the policy engine: opa: dial") {
+		t.Errorf("readyz without OPA %d %q", code, body)
+	}
+	if code, _ := get("/healthz"); code != 200 {
+		t.Errorf("healthz without OPA %d", code)
 	}
 }

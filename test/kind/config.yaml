@@ -12,6 +12,8 @@ data:
     policy:
       opa_socket: /run/mcp-gateway/opa.sock
       watch_interval: 2s
+    metrics:
+      listen: ":9464"
     supervisor:
       # An instance no session uses stops soon: the test sees its pod go.
       idle_timeout: 20s

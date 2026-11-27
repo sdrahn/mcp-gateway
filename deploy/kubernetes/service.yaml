@@ -11,3 +11,7 @@ spec:
     - name: https
       port: 443
       targetPort: https
+    # Metrics for Prometheus (plain HTTP; the probes' too).
+    - name: metrics
+      port: 9464
+      targetPort: metrics

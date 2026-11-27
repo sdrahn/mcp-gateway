@@ -72,6 +72,12 @@ service:
   type: ClusterIP
   port: 443
 
+# A Prometheus Operator ServiceMonitor for the metrics port (needs its
+# CRD).
+serviceMonitor:
+  enabled: false
+  interval: 30s
+
 ingress:
   enabled: false
   className: ""

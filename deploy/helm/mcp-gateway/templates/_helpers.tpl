@@ -60,6 +60,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- $_ := set $cfg "servers_dir" "/etc/mcp-gateway/servers.d" -}}
 {{- $_ := set $cfg "state_dir" "/var/lib/mcp-gateway" -}}
 {{- $_ := set $cfg "policy" $policy -}}
+{{- $_ := set $cfg "metrics" (dict "listen" ":9464") -}}
 {{- $_ := set $cfg "http" $http -}}
 {{- toYaml $cfg -}}
 {{- end -}}

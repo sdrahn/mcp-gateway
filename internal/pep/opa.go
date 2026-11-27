@@ -272,6 +272,13 @@ func (o *OPA) Bundles(ctx context.Context) (map[string]string, error) {
 	return out, nil
 }
 
+// Health reports whether OPA serves and has activated its bundles (its
+// /health endpoint): the gateway's readiness (GET /readyz).
+func (o *OPA) Health(ctx context.Context) error {
+	_, err := o.get(ctx, "/health?bundles")
+	return err
+}
+
 func (o *OPA) get(ctx context.Context, path string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, o.timeoutValue())
 	defer cancel()

@@ -10,3 +10,6 @@ spec:
     - name: https
       port: {{ .Values.service.port }}
       targetPort: https
+    - name: metrics
+      port: 9464
+      targetPort: metrics

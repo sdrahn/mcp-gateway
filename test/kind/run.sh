@@ -31,6 +31,7 @@ HELM=${HELM:-helm}
 IMAGE_BASE=${IMAGE_BASE:-registry.suse.com/bci/bci-micro:15.7}
 NS=mcp-gateway
 PORT=${PORT:-18443}
+MPORT=${MPORT:-19464}
 
 work=$(mktemp -d)
 pf=
@@ -94,7 +95,7 @@ esac
 k -n "$NS" rollout status deploy/mcp-echo --timeout=180s
 k -n "$NS" rollout status deploy/mcp-gateway --timeout=240s
 
-k -n "$NS" port-forward svc/mcp-gateway "$PORT:443" >"$work/pf.log" 2>&1 &
+k -n "$NS" port-forward svc/mcp-gateway "$PORT:443" "$MPORT:9464" >"$work/pf.log" 2>&1 &
 pf=$!
 for _ in $(seq 60); do
 	curl -s --cacert "$work/tls.crt" -o /dev/null "https://127.0.0.1:$PORT/.well-known/oauth-protected-resource/mcp" && break
@@ -105,6 +106,12 @@ meta=$(curl -sf --cacert "$work/tls.crt" "https://127.0.0.1:$PORT/.well-known/oa
 [ "$(jq -r '.authorization_servers[0]' <<<"$meta")" = https://kubernetes.default.svc.cluster.local ] ||
 	fail "metadata: $meta"
 pass "metadata names the cluster's issuer"
+
+# The probes (the pod is ready, so /readyz passed) and the metrics.
+[ "$(curl -s "http://127.0.0.1:$MPORT/readyz")" = ready ] && [ "$(curl -s "http://127.0.0.1:$MPORT/healthz")" = ok ] ||
+	fail "probes: $(curl -s "http://127.0.0.1:$MPORT/readyz")"
+curl -s "http://127.0.0.1:$MPORT/metrics" | grep -q '^mcp_gateway_instances ' || fail "no metrics"
+pass "/readyz, /healthz and /metrics on the metrics port"
 
 token=$(k -n agents create token custos --audience mcp-gateway --duration 30m)
 
