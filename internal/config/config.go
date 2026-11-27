@@ -524,6 +524,13 @@ type Backend struct {
 	// ProxyHeaders are sent to Proxy with each CONNECT (for example
 	// Proxy-Authorization), with ${CREDENTIAL:name} as in Headers.
 	ProxyHeaders map[string]string `yaml:"proxy_headers"`
+	// Image, Resources, NodeSelector and Tolerations describe the pod an
+	// instance runs in with the Kubernetes launcher (pod.go;
+	// docs/architecture.md, section 5.12.3).
+	Image        string            `yaml:"image"`
+	Resources    *Resources        `yaml:"resources"`
+	NodeSelector map[string]string `yaml:"node_selector"`
+	Tolerations  []Toleration      `yaml:"tolerations"`
 	// CAFile holds CA certificates (PEM) an https URL's certificate may
 	// chain to besides the system's: a server whose certificate a
 	// private CA signed (a cluster's or a mesh's).
@@ -1556,6 +1563,9 @@ func (b *Backend) Validate() error {
 		}
 	default:
 		return fmt.Errorf("network_view: unknown value %q (none or host)", b.NetworkView)
+	}
+	if err := b.validatePod(); err != nil {
+		return err
 	}
 	if err := b.Sandbox.validate(); err != nil {
 		return err
