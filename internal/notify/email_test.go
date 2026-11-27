@@ -3,6 +3,8 @@ package notify
 import (
 	"bufio"
 	"context"
+	"io"
+	"mime/quotedprintable"
 	"net"
 	"os"
 	"os/exec"
@@ -181,7 +183,7 @@ func TestEmailOnlyNewApprovals(t *testing.T) {
 
 func TestIncludeArgs(t *testing.T) {
 	e, _ := NewEmail(config.Email{SMTP: "x:25", From: "gw@x", To: "{user}", IncludeArgs: true}, fakePolicy{}, nil)
-	if msg := string(e.Message(pending())); !strings.Contains(msg, "/home/alice/secret") {
+	if msg := decoded(t, e.Message(pending())); !strings.Contains(msg, "/home/alice/secret") {
 		t.Fatalf("arguments missing with include_args:\n%s", msg)
 	}
 }
@@ -310,7 +312,7 @@ func TestNoticeMail(t *testing.T) {
 	sent := make(chan mail, 4)
 	e, _ := NewEmail(config.Email{SMTP: "x:25", From: "gw@x", To: "{user}@example.com"},
 		serverPolicy{"zypp": {"user:pat", "user:olga"}, "fs": {"user:olga"}}, nil)
-	e.Send = func(_ context.Context, to []string, msg []byte) error { sent <- mail{to, string(msg)}; return nil }
+	e.Send = func(_ context.Context, to []string, msg []byte) error { sent <- mail{to, decoded(t, msg)}; return nil }
 	e.NoticesURL = func() string { return "https://gw.example.com/approvals/" }
 	events := make(chan broker.Event, 4)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -351,12 +353,12 @@ func TestNoticeMail(t *testing.T) {
 func TestEmailProposal(t *testing.T) {
 	e, _ := NewEmail(config.Email{SMTP: "x:25", From: "gw@x", To: "{user}"}, fakePolicy{"user:alice"}, nil)
 	p := pending()
-	if msg := string(e.Message(p)); strings.Contains(msg, "own account") {
+	if msg := decoded(t, e.Message(p)); strings.Contains(msg, "own account") {
 		t.Fatalf("a proposal without one:\n%s", msg)
 	}
 	p.Proposal = &proposal.Proposal{Summary: "Write the notes.", Impact: "two\nlines", Steps: []string{"write x"},
 		Context: map[string]string{"activity": "e-1"}, Warnings: []string{"suspected prompt injection"}, ClientSupplied: true}
-	msg := string(e.Message(p))
+	msg := decoded(t, e.Message(p))
 	for _, want := range []string{"The agent's own account of the call (its claim, not checked by the gateway):",
 		"  Summary:    Write the notes.", "  Impact:     two\r\n              lines", "  Step 1:     write x",
 		"  activity: e-1", "  WARNING:    suspected prompt injection"} {
@@ -374,8 +376,44 @@ func TestEmailOverRate(t *testing.T) {
 	e, _ := NewEmail(config.Email{SMTP: "x:25", From: "gw@x", To: "{user}"}, fakePolicy{"user:alice"}, nil)
 	p := pending()
 	p.OverRate = "20/h"
-	if msg := string(e.Message(p)); !strings.Contains(msg, "the rate 20/h was reached") {
+	if msg := decoded(t, e.Message(p)); !strings.Contains(msg, "the rate 20/h was reached") {
 		t.Fatalf("mail:\n%s", msg)
+	}
+}
+
+// decoded is a message with its quoted-printable body decoded; the
+// header as it is.
+func decoded(t *testing.T, msg []byte) string {
+	t.Helper()
+	head, body, ok := strings.Cut(string(msg), "\r\n\r\n")
+	if !ok || !strings.Contains(head, "Content-Transfer-Encoding: quoted-printable") {
+		t.Fatalf("not a quoted-printable message:\n%s", msg)
+	}
+	text, err := io.ReadAll(quotedprintable.NewReader(strings.NewReader(body)))
+	if err != nil {
+		t.Fatalf("body: %v\n%s", err, msg)
+	}
+	return head + "\r\n\r\n" + string(text)
+}
+
+// No line of a message is longer than quoted-printable's 76 characters,
+// however long an argument or a notice's text (#411).
+func TestLongLines(t *testing.T) {
+	e, _ := NewEmail(config.Email{SMTP: "x:25", From: "gw@x", To: "{user}", IncludeArgs: true}, fakePolicy{}, nil)
+	long := strings.Repeat("ä0123456789", 500)
+	p := pending()
+	p.Args = map[string]any{"content": long}
+	n := broker.Notice{ID: "n-1", Title: "t", Text: long, Severity: broker.SeverityInfo, PostedBy: "custos"}
+	for name, msg := range map[string][]byte{"approval": e.Message(p), "notice": e.NoticeMessage(n)} {
+		for i, l := range strings.Split(string(msg), "\r\n") {
+			if len(l) > 76 {
+				t.Errorf("%s: line %d has %d characters", name, i+1, len(l))
+				break
+			}
+		}
+		if text := decoded(t, msg); !strings.Contains(text, long) {
+			t.Errorf("%s: the text is not in the decoded body", name)
+		}
 	}
 }
 
@@ -385,7 +423,7 @@ func TestIncludeArgsHidden(t *testing.T) {
 	e, _ := NewEmail(config.Email{SMTP: "x:25", From: "gw@x", To: "{user}", IncludeArgs: true}, fakePolicy{}, nil)
 	p := pending()
 	p.Args = map[string]any{"path": "/home/alice/report\u202efdp.sh"}
-	msg := string(e.Message(p))
+	msg := decoded(t, e.Message(p))
 	if !strings.Contains(msg, `report\u202Efdp.sh`) || strings.ContainsRune(msg, 0x202e) {
 		t.Fatalf("arguments:\n%s", msg)
 	}

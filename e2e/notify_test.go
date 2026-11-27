@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime/quotedprintable"
 	"net"
 	"net/http"
 	"os"
@@ -14,7 +16,7 @@ import (
 )
 
 // mailSink is a minimal SMTP server that hands over each mail's
-// recipients and data.
+// recipients and data, a quoted-printable body decoded.
 func mailSink(t *testing.T) (addr string, mails <-chan string) {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -55,7 +57,7 @@ func mailSink(t *testing.T) (addr string, mails <-chan string) {
 							mail.WriteString(l)
 						}
 						say("250 queued")
-						out <- mail.String()
+						out <- decodeMail(mail.String())
 					case cmd == "QUIT":
 						say("221 bye")
 						return
@@ -67,6 +69,20 @@ func mailSink(t *testing.T) (addr string, mails <-chan string) {
 		}
 	}()
 	return l.Addr().String(), out
+}
+
+// decodeMail decodes the quoted-printable body of a mail's data (after
+// the recipients and the header); one in another encoding stays as it is.
+func decodeMail(m string) string {
+	head, body, ok := strings.Cut(m, "\r\n\r\n")
+	if !ok || !strings.Contains(head, "Content-Transfer-Encoding: quoted-printable") {
+		return m
+	}
+	text, err := io.ReadAll(quotedprintable.NewReader(strings.NewReader(body)))
+	if err != nil {
+		return m
+	}
+	return head + "\r\n\r\n" + string(text)
 }
 
 func TestApprovalNotifications(t *testing.T) {
