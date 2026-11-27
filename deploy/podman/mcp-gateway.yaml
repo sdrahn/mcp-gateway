@@ -1,0 +1,113 @@
+# The gateway in container mode on one host with Podman (user guide,
+# chapter 17): the same pod as in a cluster (deploy/kubernetes), with
+# its configuration in a directory of the host, which the gateway
+# reloads when it changes:
+#
+#   /etc/mcp-gateway-pod/gateway.yaml    gateway.yaml (gateway.yaml here)
+#   /etc/mcp-gateway-pod/servers.d/      the server definitions
+#   /etc/mcp-gateway-pod/rbac/           the role data (data.yaml)
+#   /etc/mcp-gateway-pod/tls/            tls.crt and tls.key
+#
+# Run it with
+#   podman kube play --replace deploy/podman/mcp-gateway.yaml
+# or as a systemd service with the Quadlet unit mcp-gateway.kube.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mcp-gateway-state
+  annotations:
+    # The gateway's state belongs to its account.
+    volume.podman.io/uid: "10001"
+    volume.podman.io/gid: "10001"
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mcp-gateway
+spec:
+  restartPolicy: Always
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+  initContainers:
+    # The policy from the gateway's image, so gateway and policy are of
+    # one version.
+    - name: policy
+      image: registry.example.com/mcp-gateway:2.0.0
+      command: ["/usr/bin/cp", "-R", "/usr/share/mcp-gateway/policy/.", "/policy/"]
+      securityContext: &restricted
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+      volumeMounts:
+        - {name: policy, mountPath: /policy}
+  containers:
+    - name: gateway
+      image: registry.example.com/mcp-gateway:2.0.0
+      args: ["--config", "/etc/mcp-gateway/config/gateway.yaml"]
+      ports:
+        # The HTTPS listener for agents, the approval page and the
+        # console; the metrics and probes on the host's loopback only.
+        - {containerPort: 8443, hostPort: 8443}
+        - {containerPort: 9464, hostPort: 9464, hostIP: 127.0.0.1}
+      securityContext: *restricted
+      volumeMounts:
+        - {name: config, mountPath: /etc/mcp-gateway/config, readOnly: true}
+        - {name: servers, mountPath: /etc/mcp-gateway/servers.d, readOnly: true}
+        - {name: rbac, mountPath: /etc/mcp-gateway/policy/rbac, readOnly: true}
+        - {name: tls, mountPath: /etc/mcp-gateway/tls, readOnly: true}
+        - {name: state, mountPath: /var/lib/mcp-gateway}
+        - {name: run, mountPath: /run/mcp-gateway}
+        - {name: rendered, mountPath: /run/mcp-opa, readOnly: true}
+        - {name: tmp, mountPath: /tmp}
+    - name: policy-render
+      image: registry.example.com/mcp-gateway:2.0.0
+      command: ["/usr/libexec/mcp-gateway/mcp-policy-render", "-watch"]
+      securityContext: *restricted
+      volumeMounts:
+        - {name: rbac, mountPath: /etc/mcp-gateway/policy/rbac, readOnly: true}
+        - {name: rendered, mountPath: /run/mcp-opa}
+    - name: opa
+      image: docker.io/openpolicyagent/opa:1.22.4-static
+      args:
+        - run
+        - --server
+        - --addr=unix:///run/mcp-gateway/opa.sock
+        - --unix-socket-perm=0660
+        - --watch
+        - --log-format=json
+        - --set=decision_logs.console=true
+        - --set=decision_logs.mask_decision=/mcp/log/mask
+        - /policy
+        - mcp.rbac:/run/mcp-opa/rbac
+      securityContext: *restricted
+      volumeMounts:
+        - {name: policy, mountPath: /policy, readOnly: true}
+        - {name: rendered, mountPath: /run/mcp-opa, readOnly: true}
+        - {name: run, mountPath: /run/mcp-gateway}
+  volumes:
+    - name: config
+      hostPath: {path: /etc/mcp-gateway-pod, type: Directory}
+    - name: servers
+      hostPath: {path: /etc/mcp-gateway-pod/servers.d, type: Directory}
+    - name: rbac
+      hostPath: {path: /etc/mcp-gateway-pod/rbac, type: Directory}
+    - name: tls
+      hostPath: {path: /etc/mcp-gateway-pod/tls, type: Directory}
+    - name: state
+      persistentVolumeClaim: {claimName: mcp-gateway-state}
+    - name: run
+      emptyDir: {medium: Memory}
+    - name: rendered
+      emptyDir: {medium: Memory}
+    - name: policy
+      emptyDir: {}
+    - name: tmp
+      emptyDir: {}

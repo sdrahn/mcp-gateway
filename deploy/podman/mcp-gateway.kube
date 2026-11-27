@@ -1,0 +1,18 @@
+# Quadlet unit of the gateway with Podman (user guide, chapter 17):
+# install it as /etc/containers/systemd/mcp-gateway.kube, with the pod's
+# YAML as /etc/containers/systemd/mcp-gateway.yaml, then
+#   systemctl daemon-reload && systemctl start mcp-gateway
+[Unit]
+Description=MCP gateway (container mode, Podman)
+Wants=network-online.target
+After=network-online.target
+
+[Kube]
+Yaml=mcp-gateway.yaml
+# Ports are published by the pod's hostPort.
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target default.target
