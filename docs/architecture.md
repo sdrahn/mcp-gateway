@@ -1622,7 +1622,7 @@ and their streams, pending approvals and their waiting calls, grants,
 tasks, idempotency keys (§5.11.7), contexts, the pseudonym vaults.
 2.0 runs **one replica**, with its files on a persistent volume, as a
 host runs one gateway; a restart ends what lives in memory there as it
-does on a host. Several replicas (step 48) need that state in a shared
+does on a host. Several replicas (step 49) need that state in a shared
 store (with sessions and tasks pinned to the replica that runs their
 calls, since an instance's stdio cannot move); that is designed when it
 is needed, not in 2.0.
@@ -1632,11 +1632,98 @@ is needed, not in 2.0.
 - **Privileged servers** (§5.7.1) change a host as a whole: they stay on
   the host, behind a host gateway, which a cluster gateway may reach as
   a server that speaks HTTP.
-- **Cockpit** is a host's console; in a cluster the approval page and
-  webhooks serve approvers (D21), and the control API is reached with
-  `mcp-gateway-admin --gateway`.
+- **Cockpit** is a host's console; in a cluster the gateway's own
+  console takes its place (§5.12.7), next to webhooks and mail for
+  approvers (D21) and `mcp-gateway-admin --gateway` for the command
+  line.
 - **Server setups** (`mcp-gateway-profile-*`) configure host services
   (systemd, firewalld, zypp): they stay host packages.
+
+#### 5.12.7 Managing the gateway in a cluster (step 48)
+
+On a host an administrator manages the gateway with `mcp-gateway-admin`
+and the Cockpit page, both over the control socket, and edits the files
+in `/etc/mcp-gateway`. In a cluster there is no shell on the host and no
+Cockpit, and the files are the cluster's objects. Management splits in
+two, by what Kubernetes already does well:
+
+- **What the gateway is told (declared): Kubernetes.** `gateway.yaml`,
+  the server definitions and the role data are ConfigMaps, the TLS key,
+  client secrets and server credentials Secrets, kept in Git and applied
+  with Helm, Kustomize or a GitOps tool. The gateway reloads them as it
+  reloads its files (§12: the ConfigMap's `..data` swap), checks them as
+  `mcp-gateway --check` does, and keeps the definitions it runs when a
+  change is refused. Nothing in the gateway writes them: the console
+  shows the configuration and its reload status but does not edit it,
+  so the cluster's copy stays the one source and a change goes through
+  the same review as any other change to the cluster. Keys that need a
+  restart (`restart_needed`) are applied by rolling the Deployment (the
+  chart puts a checksum of the ConfigMap into the pod template).
+  Declaring servers as custom resources (an `MCPServer` kind, turned
+  into definitions by a controller) can come later; files in a
+  ConfigMap are what both levels share.
+- **What the gateway does (operated): its console, the command line
+  over `--gateway`, and the platform's probes and metrics.** Approvals,
+  reviews, grants, sessions, instances, tasks and sign-ins live in the
+  gateway, not in the cluster's objects, and are operated through the
+  control API, as on a host.
+
+**The console** is the approval page (§5.6, D21) grown into the
+gateway's management page, served by the HTTPS listener at `/console/`
+(the approval page stays at `/approvals/`), with the same sign-in
+through the identity provider, the same session cookie, CSRF protection
+and framing rules, and nothing an agent's token can open. It reaches
+the browsers through the gateway's Service and an Ingress, a Route or a
+Gateway API route (TLS passed through or re-encrypted to the listener).
+It is not tied to Kubernetes: a host gateway with the HTTPS listener
+serves it too, next to Cockpit.
+
+- **Views:** the gateway's status (version, policy revision, reload
+  status of `gateway.yaml` and the definitions, keys waiting for a
+  restart); the servers with their definitions, refusals and
+  instances; sessions and their history; tasks; sign-ins; approvals,
+  grants, reviews and notices; the doctor's results; the audit records
+  of an approval or a decision id.
+- **Actions:** decide approvals and reviews, revoke grants, stop an
+  instance, end a session, cancel a task, sign a principal out of a
+  server, and the what-if of role data (§6: paste role data, see the
+  decisions it would change) before the change goes to Git.
+- **Who may do what** is policy, as for the control API: the same
+  decisions of `data.mcp.approvals` (`allow`, `manage_grant`,
+  `manage_instance`, `manage_task`, `manage_session`,
+  `manage_sign_in`, `review_policy`) by the approver rules of
+  `data.mcp.rbac.approvers`, per server. A signed-in operator without a
+  local account matches the rules `remote-user:<sub>` and
+  `remote-group:<group>` (a group of the token's groups claim), so the
+  role data names a cluster's operators as it names its approvers;
+  without such a rule one sees and does only what is one's own. Every
+  action is audited with `via=console`, as decisions on the page are
+  with `via=page`.
+- **One API:** the console calls the control API's routes over the
+  listener (below `/console/api/v1/`, as the page does below
+  `/approvals/api/v1/`), the routes `mcp-gateway-admin --gateway` uses;
+  the console, the command line and the Cockpit page stay three faces of
+  one interface, and nothing is managed only in one of them.
+- **The doctor in the gateway:** in container mode the checks that apply
+  (the listener and its certificate, OPA, the identity providers, the
+  servers' URLs, the state volume) run in the gateway itself, on start,
+  on reload and on demand, so the console and `mcp-gateway-admin
+  doctor --gateway` show them; on a host the doctor stays a command.
+
+**The platform's side:**
+
+- **Probes:** `/healthz` (the process serves) and `/readyz` (OPA answers
+  and the definitions are loaded) on the metrics listener, for the
+  liveness and readiness probes; a refused reload does not make the pod
+  unready (it keeps serving what it ran), but shows in the console, the
+  metrics and the logs.
+- **Metrics** on the metrics listener, scraped by Prometheus (the chart
+  can add a ServiceMonitor); **logs and audit records** on the standard
+  error, for the cluster's log pipeline.
+- **The command line in the pod:** `kubectl exec deploy/mcp-gateway --
+  mcp-gateway-admin …` reaches the control socket as on a host, as the
+  gateway's account: for an operator with exec rights on the
+  namespace, an emergency path, not the daily one.
 
 ## 6. Policy model
 
@@ -2862,7 +2949,7 @@ MCS level per instance where the nodes run SELinux, and a bridge in the
 pod that carries stdio; 2.0 accepts more than one token issuer (a
 cluster's ServiceAccount tokens next to the organization's identity
 provider). One replica, with its state on a volume; several replicas
-need a shared store (step 48). Host deployments keep working as they
+need a shared store (step 49). Host deployments keep working as they
 are: host configuration, policy inputs and audit records stay
 compatible, and anything removed follows the deprecation rule of 1.x
 (deprecated in one minor release, removed in the next).
@@ -2893,6 +2980,30 @@ more than one token issuer is supported (`http.issuers`, with
 `http.issuer` kept as the one-issuer form); a server definition names
 its pod with the keys `image`, `resources`, `node_selector` and
 `tolerations`.
+*Amended 2026-11-27 (managing a cluster gateway, roadmap step 48):*
+2.0.0 includes a console (§5.12.7): the approval page grown into the
+gateway's management page on the HTTPS listener, signed in through the
+identity provider, showing the gateway's state and offering the control
+API's actions, each decided by policy and audited. Kubernetes manages
+what the gateway is told (ConfigMaps and Secrets from Git, rolled out
+with the Deployment); the console manages what it does and never edits
+the configuration. Probes (`/healthz`, `/readyz`) and the doctor's
+container checks run in the gateway. Several replicas move to step 49.
+*Rationale:* without Cockpit and a host's shell, a cluster gateway
+would leave its operators the command line through `kubectl exec`,
+which needs exec rights on the namespace and acts as the gateway's
+account, not as the operator. The approval page already signs people in
+and is served where browsers reach the gateway, and the control API
+already decides by policy what each caller may do, so the console adds
+views and routes, not a new trust model. Keeping the configuration
+declared keeps one source of truth and the cluster's review of changes.
+*Considered:* an operator with custom resources for servers and roles
+in 2.0 (more to build and to secure; the files in ConfigMaps serve both
+levels, and resources can come later); editing the configuration in the
+console (two sources of truth, and a write path from a browser into the
+cluster); the Kubernetes Dashboard (shows pods, not approvals or
+sessions); Cockpit in a pod (a host's console, needs the host's
+accounts).
 
 ## 10. Repository layout
 
@@ -4747,7 +4858,27 @@ Kubernetes cluster's MCP servers (D23, §5.12). Planned:
       definition), the bridge, and the kind job with a stdio server per
       principal: one pod each, a NetworkPolicy without egress, the pod
       deleted after the idle timeout.
-48. **Several replicas** (after 2.0; D23; open): the state the gateway
+48. **The console** (2.0; D23; planned; §5.12.7):
+    - the approval page grown into the gateway's management page at
+      `/console/`: views of the status, the servers and their
+      instances, sessions, tasks, sign-ins, approvals, grants, reviews,
+      the doctor's results; the actions of the control API (decide,
+      revoke, stop, end, cancel, sign out, what-if), each decided by
+      policy (`data.mcp.approvals`, the approver rules with
+      `remote-user:` and `remote-group:`) and audited with
+      `via=console`;
+    - the control API's routes on the listener below
+      `/console/api/v1/`, the same `mcp-gateway-admin --gateway` uses;
+    - the doctor's container checks in the gateway, at `GET
+      /v1/doctor` and in `doctor --gateway`;
+    - `/healthz` and `/readyz` on the metrics listener; the chart's
+      probes, an Ingress or Route for the listener, a ServiceMonitor, a
+      checksum of the ConfigMap in the pod template;
+    - tests: the console's routes and their policy decisions (own,
+      admin, refused), CSRF and framing as for the approval page, a
+      browser test (Playwright) of the views and one action, the probes
+      in the kind job.
+49. **Several replicas** (after 2.0; D23; open): the state the gateway
     keeps in memory (sessions, pending approvals, tasks, idempotency
     keys, contexts) in a shared store, sessions pinned to their replica.
 
