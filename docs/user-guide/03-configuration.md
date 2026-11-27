@@ -206,7 +206,8 @@ container does not is refused with the reason, at start, with
   `requires`;
 - in `gateway.yaml`: `socket` and `socket_group` (no Unix socket and no
   local agents), `supervisor.mode: systemd`, `audit.kernel: "on"` and
-  `http.local_user_claim` (no local accounts).
+  `http.local_user_claim` and `http.issuers[].local_user_claim` (no
+  local accounts).
 
 The defaults change with it: no Unix socket, `supervisor.mode: exec`
 and `audit.kernel: "off"`. The audit records go to the standard error,
@@ -514,7 +515,7 @@ http:
 |---|---|---|
 | `http.listen` | empty (off) | address to listen on, e.g. `:8443` |
 | `http.cert_file`, `http.key_file` | — (required) | TLS certificate and key (PEM) |
-| `http.issuer` | — (required) | the identity provider's issuer URL; tokens must carry it as `iss` |
+| `http.issuer` | — (required unless `http.issuers`) | the identity provider's issuer URL; tokens must carry it as `iss`. People sign in with it (the approval page, `--gateway`). |
 | `http.audience` | — (required) | the gateway's public MCP URL; tokens must carry it as `aud` (RFC 8707). Its path is the aggregated endpoint (`/mcp`), `<path>/<server>` the per-server endpoints. |
 | `http.jwks_url` | discovered | the issuer's key set; default from `<issuer>/.well-known/openid-configuration` |
 | `http.groups_claim` | `groups` | token claim holding the user's groups |
@@ -527,6 +528,41 @@ http:
 | `http.client_ca_file` | empty | CAs client certificates must chain to (mTLS) |
 | `http.client_auth` | `none` (`optional` with a CA file) | `none`, `optional` (verify a certificate if presented), `required` |
 | `http.require_bound_tokens` | `false` | accept only tokens bound to the client certificate (RFC 8705) |
+| `http.issuers` | `[]` | further identity providers whose tokens are accepted (below) |
+
+**Several identity providers.** In a cluster, agents present the
+cluster's ServiceAccount tokens while people sign in with the
+organization's provider. `http.issuers` adds issuers to `http.issuer`;
+without `http.issuer`, the first of them is the one people sign in with
+(the approval page, `mcp-gateway-admin --gateway`):
+
+```yaml
+http:
+  issuer: https://idp.example.com/realms/mcp
+  audience: https://mcp-gateway.example.com/mcp
+  scopes: [mcp]
+  issuers:
+    - issuer: https://kubernetes.default.svc.cluster.local
+      audience: mcp-gateway     # what the pod's projected token asks for
+      scopes: []                # ServiceAccount tokens carry no scope
+      subject_prefix: "k8s:"
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `issuer` | — (required) | the issuer URL its tokens carry as `iss`; each issuer once |
+| `audience` | `http.audience` | the `aud` its tokens must carry; any string |
+| `jwks_url` | discovered | its key set |
+| `groups_claim` | `http.groups_claim` | the claim with the groups |
+| `scopes` | `http.scopes` | scopes its tokens must carry; `[]` for none |
+| `local_user_claim` | empty (not inherited) | as `http.local_user_claim`, for this issuer's tokens |
+| `subject_prefix` | empty | goes before its tokens' subjects and groups (`k8s:`, `partner:`, up to 32 characters and a colon) |
+
+A token is checked with the keys of the issuer its `iss` names, and an
+issuer not listed is refused. Role data binds subjects and groups
+whatever their issuer, so give an issuer whose names could be another's
+a `subject_prefix`, and bind `k8s:system:serviceaccount:agents:custos`.
+Instances, grants and sign-ins are kept apart by issuer in any case.
 
 ### Signing in to servers
 

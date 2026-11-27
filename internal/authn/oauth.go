@@ -49,11 +49,24 @@ const (
 )
 
 // OAuth validates bearer tokens as an OAuth 2.1 resource server. It never
-// issues tokens and never forwards them.
+// issues tokens and never forwards them. It accepts the tokens of every
+// configured issuer (http.issuer and http.issuers), each validated with
+// its own key set, audience and claims.
 type OAuth struct {
 	cfg    config.HTTP
 	client *http.Client
 	now    func() time.Time
+
+	// issuers by issuer URL; signIn is the one people sign in with
+	// (ID tokens of the approval page and the command line).
+	issuers map[string]*issuerKeys
+	signIn  *issuerKeys
+}
+
+// issuerKeys is one issuer's settings and key set.
+type issuerKeys struct {
+	o   *OAuth
+	cfg config.Issuer
 
 	mu        sync.Mutex
 	jwksURL   string
@@ -61,24 +74,52 @@ type OAuth struct {
 	fetchedAt time.Time
 }
 
-// NewOAuth returns a validator for tokens from cfg.Issuer for
-// cfg.Audience.
+// NewOAuth returns a validator for the tokens of cfg's issuers
+// (cfg.AllIssuers), each for its audience.
 func NewOAuth(cfg config.HTTP, client *http.Client) *OAuth {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &OAuth{cfg: cfg, client: client, now: time.Now, jwksURL: cfg.JWKSURL}
+	o := &OAuth{cfg: cfg, client: client, now: time.Now, issuers: map[string]*issuerKeys{}}
+	for _, is := range cfg.AllIssuers() {
+		o.issuers[is.Issuer] = &issuerKeys{o: o, cfg: is, jwksURL: is.JWKSURL}
+	}
+	o.signIn = o.issuers[cfg.SignInIssuer()]
+	if o.signIn == nil {
+		// No issuer at all: every token is refused.
+		o.signIn = &issuerKeys{o: o}
+	}
+	return o
+}
+
+// issuerOf returns the issuer the token's iss claim names, read before
+// the signature is checked (the issuer's keys check it then).
+func (o *OAuth) issuerOf(token string) (*issuerKeys, error) {
+	unverified := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(token, unverified); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidToken, err)
+	}
+	iss, _ := unverified["iss"].(string)
+	is := o.issuers[iss]
+	if is == nil {
+		return nil, fmt.Errorf("%w: issuer %q is not one the gateway accepts tokens of", ErrInvalidToken, iss)
+	}
+	return is, nil
 }
 
 // Authenticate validates token and returns the principal it represents.
 // The session id is left empty for the transport to fill in.
 func (o *OAuth) Authenticate(ctx context.Context, token string, cert *x509.Certificate) (principal.Principal, error) {
+	is, err := o.issuerOf(token)
+	if err != nil {
+		return principal.Principal{}, err
+	}
 	claims := jwt.MapClaims{}
-	_, err := jwt.ParseWithClaims(token, claims,
-		func(t *jwt.Token) (any, error) { return o.key(ctx, t) },
+	_, err = jwt.ParseWithClaims(token, claims,
+		func(t *jwt.Token) (any, error) { return is.key(ctx, t) },
 		jwt.WithValidMethods(allowedAlgs),
-		jwt.WithIssuer(o.cfg.Issuer),
-		jwt.WithAudience(o.cfg.Audience),
+		jwt.WithIssuer(is.cfg.Issuer),
+		jwt.WithAudience(is.cfg.Audience),
 		jwt.WithExpirationRequired(),
 		jwt.WithLeeway(leeway),
 		jwt.WithTimeFunc(o.now),
@@ -97,7 +138,7 @@ func (o *OAuth) Authenticate(ctx context.Context, token string, cert *x509.Certi
 	if len(scopes) == 0 {
 		scopes = claimStrings(claims, "scp")
 	}
-	for _, want := range o.cfg.Scopes {
+	for _, want := range is.cfg.Scopes {
 		if !slices.Contains(scopes, want) {
 			// What an administrator needs to fix the client or the
 			// identity provider: whose token, from which client, with
@@ -108,7 +149,7 @@ func (o *OAuth) Authenticate(ctx context.Context, token string, cert *x509.Certi
 		}
 	}
 
-	p, err := o.principalOf(claims, sub)
+	p, err := is.principalOf(claims, sub)
 	if err != nil {
 		return principal.Principal{}, err
 	}
@@ -119,12 +160,21 @@ func (o *OAuth) Authenticate(ctx context.Context, token string, cert *x509.Certi
 // principalOf is the principal claims (validated, with subject sub) make:
 // the token's groups, and the local account local_user_claim names. A
 // token naming root or a system account is refused: whoever may choose
-// their name at the identity provider would otherwise run as it.
-func (o *OAuth) principalOf(claims jwt.MapClaims, sub string) (principal.Principal, error) {
+// their name at the identity provider would otherwise run as it. The
+// issuer's subject_prefix goes before the subject and the groups of the
+// token (not before a local account's).
+func (is *issuerKeys) principalOf(claims jwt.MapClaims, sub string) (principal.Principal, error) {
+	groups := claimStrings(claims, is.cfg.GroupsClaim)
+	if pre := is.cfg.SubjectPrefix; pre != "" {
+		sub = pre + sub
+		for i := range groups {
+			groups[i] = pre + groups[i]
+		}
+	}
 	p := principal.Principal{
 		Sub:       sub,
-		Issuer:    o.cfg.Issuer,
-		Groups:    claimStrings(claims, o.cfg.GroupsClaim),
+		Issuer:    is.cfg.Issuer,
+		Groups:    groups,
 		Transport: principal.TransportHTTP,
 	}
 	// Required and valid (checked above): streams the request opens end
@@ -132,8 +182,8 @@ func (o *OAuth) principalOf(claims jwt.MapClaims, sub string) (principal.Princip
 	if exp, err := claims.GetExpirationTime(); err == nil && exp != nil {
 		p.Expires = exp.Add(leeway)
 	}
-	if o.cfg.LocalUserClaim != "" {
-		if name, _ := claims[o.cfg.LocalUserClaim].(string); name != "" {
+	if is.cfg.LocalUserClaim != "" {
+		if name, _ := claims[is.cfg.LocalUserClaim].(string); name != "" {
 			if err := mapLocalUser(&p, name); err != nil {
 				return principal.Principal{}, err
 			}
@@ -171,11 +221,14 @@ func (o *OAuth) idToken(ctx context.Context, raw, clientID string, nonce *string
 	if clientID == "" {
 		return principal.Principal{}, fmt.Errorf("%w: no client", ErrInvalidToken)
 	}
+	// People sign in with one issuer (http.issuer, else the first of
+	// http.issuers).
+	is := o.signIn
 	claims := jwt.MapClaims{}
 	_, err := jwt.ParseWithClaims(raw, claims,
-		func(t *jwt.Token) (any, error) { return o.key(ctx, t) },
+		func(t *jwt.Token) (any, error) { return is.key(ctx, t) },
 		jwt.WithValidMethods(allowedAlgs),
-		jwt.WithIssuer(o.cfg.Issuer),
+		jwt.WithIssuer(is.cfg.Issuer),
 		jwt.WithAudience(clientID),
 		jwt.WithExpirationRequired(),
 		jwt.WithIssuedAt(),
@@ -200,7 +253,7 @@ func (o *OAuth) idToken(ctx context.Context, raw, clientID string, nonce *string
 	if sub == "" {
 		return principal.Principal{}, fmt.Errorf("%w: no subject", ErrInvalidToken)
 	}
-	return o.principalOf(claims, sub)
+	return is.principalOf(claims, sub)
 }
 
 // checkBinding enforces certificate-bound tokens (RFC 8705): a token
@@ -274,19 +327,23 @@ func claimStrings(c jwt.MapClaims, name string) []string {
 
 // key returns the verification key for t, refreshing the key set when the
 // key id is unknown (rate limited) or the set is old.
-func (o *OAuth) key(ctx context.Context, t *jwt.Token) (any, error) {
+func (is *issuerKeys) key(ctx context.Context, t *jwt.Token) (any, error) {
+	if is.cfg.Issuer == "" {
+		return nil, errors.New("no issuer configured")
+	}
 	kid, _ := t.Header["kid"].(string)
-	o.mu.Lock()
-	defer o.mu.Unlock()
+	is.mu.Lock()
+	defer is.mu.Unlock()
 
-	stale := o.now().Sub(o.fetchedAt) > keysMaxAge
-	k, found := o.lookup(kid)
+	now := is.o.now()
+	stale := now.Sub(is.fetchedAt) > keysMaxAge
+	k, found := is.lookup(kid)
 	if !found || stale {
-		if o.keys == nil || o.now().Sub(o.fetchedAt) > keysMinInterval {
-			if err := o.refresh(ctx); err != nil && o.keys == nil {
+		if is.keys == nil || now.Sub(is.fetchedAt) > keysMinInterval {
+			if err := is.refresh(ctx); err != nil && is.keys == nil {
 				return nil, err
 			}
-			k, found = o.lookup(kid)
+			k, found = is.lookup(kid)
 		}
 	}
 	if !found {
@@ -295,38 +352,39 @@ func (o *OAuth) key(ctx context.Context, t *jwt.Token) (any, error) {
 	return k, nil
 }
 
-func (o *OAuth) lookup(kid string) (crypto.PublicKey, bool) {
-	if kid == "" && len(o.keys) == 1 {
-		for _, k := range o.keys {
+func (is *issuerKeys) lookup(kid string) (crypto.PublicKey, bool) {
+	if kid == "" && len(is.keys) == 1 {
+		for _, k := range is.keys {
 			return k, true
 		}
 	}
-	k, ok := o.keys[kid]
+	k, ok := is.keys[kid]
 	return k, ok
 }
 
-func (o *OAuth) refresh(ctx context.Context) error {
-	o.fetchedAt = o.now()
-	if o.jwksURL == "" {
+func (is *issuerKeys) refresh(ctx context.Context) error {
+	o := is.o
+	is.fetchedAt = o.now()
+	if is.jwksURL == "" {
 		var meta struct {
 			Issuer  string `json:"issuer"`
 			JWKSURI string `json:"jwks_uri"`
 		}
-		if err := o.getJSON(ctx, strings.TrimSuffix(o.cfg.Issuer, "/")+"/.well-known/openid-configuration", &meta); err != nil {
+		if err := o.getJSON(ctx, strings.TrimSuffix(is.cfg.Issuer, "/")+"/.well-known/openid-configuration", &meta); err != nil {
 			return fmt.Errorf("oidc discovery: %w", err)
 		}
-		if meta.Issuer != o.cfg.Issuer {
-			return fmt.Errorf("oidc discovery: issuer %q does not match %q", meta.Issuer, o.cfg.Issuer)
+		if meta.Issuer != is.cfg.Issuer {
+			return fmt.Errorf("oidc discovery: issuer %q does not match %q", meta.Issuer, is.cfg.Issuer)
 		}
 		if meta.JWKSURI == "" {
 			return errors.New("oidc discovery: no jwks_uri")
 		}
-		o.jwksURL = meta.JWKSURI
+		is.jwksURL = meta.JWKSURI
 	}
 	var set struct {
 		Keys []jwk `json:"keys"`
 	}
-	if err := o.getJSON(ctx, o.jwksURL, &set); err != nil {
+	if err := o.getJSON(ctx, is.jwksURL, &set); err != nil {
 		return fmt.Errorf("fetching key set: %w", err)
 	}
 	keys := map[string]crypto.PublicKey{}
@@ -343,7 +401,7 @@ func (o *OAuth) refresh(ctx context.Context) error {
 	if len(keys) == 0 {
 		return errors.New("key set has no usable signing keys")
 	}
-	o.keys = keys
+	is.keys = keys
 	return nil
 }
 

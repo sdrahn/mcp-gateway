@@ -9,6 +9,15 @@ minor release (with a warning) and removed in the next.
 
 ### Added
 
+- Several identity providers, `http.issuers` (2.0, D23, roadmap step
+  46; chapter 3, "Remote access"; #373): tokens of each are validated
+  with its own key set, audience (any string, as a projected
+  ServiceAccount token's), groups claim and scopes (`[]` for none),
+  picked by the token's `iss`. `subject_prefix` keeps the names of two
+  issuers apart in the role data (`k8s:`). People sign in with
+  `http.issuer`, which may now be left out for the first of
+  `http.issuers`. Instances are kept apart by issuer too.
+
 - Container mode, `deployment: container` (2.0, D23, roadmap step 46;
   chapter 3, "Deployment"; #369): the gateway in a container or a
   Kubernetes pod serves remote principals over HTTPS and servers that

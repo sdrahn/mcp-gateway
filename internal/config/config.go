@@ -478,6 +478,11 @@ type HTTP struct {
 	// RequireBoundTokens refuses bearer tokens that are not bound to the
 	// client certificate (RFC 8705 cnf/x5t#S256).
 	RequireBoundTokens bool `yaml:"require_bound_tokens"`
+	// Issuers are further identity providers whose access tokens the
+	// listener accepts, besides Issuer (a cluster's ServiceAccount tokens
+	// next to the organization's identity provider; issuers.go). Without
+	// Issuer, the first of them is the one people sign in with.
+	Issuers []Issuer `yaml:"issuers"`
 }
 
 // Policy configures the connection to the policy decision point.
@@ -1052,7 +1057,7 @@ func (g *Gateway) Validate() error {
 		return fmt.Errorf("approvals.control_socket: must be an absolute path or \"-\", got %q", g.Approvals.ControlSocket)
 	}
 	if pg := g.Approvals.Page; pg.ClientID != "" {
-		if g.HTTP.Listen == "" || g.HTTP.Issuer == "" || g.PageOrigin() == "" {
+		if g.HTTP.Listen == "" || g.HTTP.SignInIssuer() == "" || g.PageOrigin() == "" {
 			return errors.New("approvals.page: needs the HTTP listener (http.listen, http.issuer and http.audience): approvers sign in with its identity provider and come back to <origin of http.audience>/approvals/callback")
 		}
 		if g.Approvals.ControlSocket == "-" {
@@ -1188,8 +1193,8 @@ func (g *Gateway) Validate() error {
 		if g.HTTP.CertFile == "" || g.HTTP.KeyFile == "" {
 			return errors.New("http: cert_file and key_file are required when listen is set")
 		}
-		if g.HTTP.Issuer == "" || g.HTTP.Audience == "" {
-			return errors.New("http: issuer and audience are required when listen is set")
+		if (g.HTTP.Issuer == "" && len(g.HTTP.Issuers) == 0) || g.HTTP.Audience == "" {
+			return errors.New("http: issuer (or issuers) and audience are required when listen is set")
 		}
 		switch g.HTTP.ClientAuth {
 		case "none":
@@ -1204,12 +1209,15 @@ func (g *Gateway) Validate() error {
 			return fmt.Errorf("http.client_auth: unknown value %q", g.HTTP.ClientAuth)
 		}
 		for name, v := range map[string]string{"issuer": g.HTTP.Issuer, "audience": g.HTTP.Audience, "jwks_url": g.HTTP.JWKSURL} {
-			if v == "" && name == "jwks_url" {
+			if v == "" && (name == "jwks_url" || name == "issuer") {
 				continue
 			}
 			if err := checkURL(v); err != nil {
 				return fmt.Errorf("http.%s: %w", name, err)
 			}
+		}
+		if err := g.HTTP.validateIssuers(); err != nil {
+			return err
 		}
 		if g.HTTP.SessionIdleTimeout < 0 {
 			return errors.New("http.session_idle_timeout: must not be negative")
