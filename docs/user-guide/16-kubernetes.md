@@ -11,8 +11,9 @@ the cluster, and configuration from ConfigMaps.
 *Status: container mode serves servers that speak HTTP, and with the
 Kubernetes launcher servers that speak stdio, each instance in a pod of
 its own (roadmap step 47); the manifests and the chart set the launcher
-up. The console, the management page for operators, follows with step
-48.*
+up. The console, the management page for operators (chapter 7, "The
+console"), and the doctor's checks in the gateway (Operating, below)
+complete it (roadmap step 48).*
 
 ## What is different from a host
 
