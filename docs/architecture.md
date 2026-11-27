@@ -1592,10 +1592,11 @@ there and nothing else.
 - **The sandbox, translated:** each systemd property of §5.7 maps to the
   pod: `NoNewPrivileges` to `allowPrivilegeEscalation: false`,
   `ProtectSystem=strict` to `readOnlyRootFilesystem`, `PrivateTmp` to an
-  `emptyDir`, `CapabilityBoundingSet=` to `capabilities.drop: [ALL]`
-  (and `sandbox.capabilities` to `add`), `SystemCallFilter` to the
-  `RuntimeDefault` seccomp profile, `MemoryMax` and `TasksMax` to
-  resource limits, `RuntimeMaxSec` to `activeDeadlineSeconds`, "no
+  `emptyDir`, `CapabilityBoundingSet=` to `capabilities.drop: [ALL]`,
+  `SystemCallFilter` to the
+  `RuntimeDefault` seccomp profile, `MemoryMax` to a memory limit
+  (`TasksMax` has no field in a pod: the nodes' `podPidsLimit` bounds
+  it), `RuntimeMaxSec` to `activeDeadlineSeconds`, "no
   network" to a NetworkPolicy that denies all egress, `network: true` to
   one that allows it, `IPAddressAllow` of a connector to one naming the
   server's addresses. `run_as` becomes `runAsUser` / `runAsNonRoot`
@@ -1605,6 +1606,25 @@ there and nothing else.
   server (`selinux_type`) needs the node's policy, which the cluster
   administrator owns: the launcher passes `seLinuxOptions.type` only
   where the definition names one and a setting allows it.
+- **As built (part 1, #380):** `supervisor.InstancePod` turns a
+  definition and its principal into the instance's Pod, NetworkPolicy and
+  Secret (`internal/kube`: the API's objects, sent over its REST
+  interface, without client-go), and its tests compare each with the
+  systemd properties of the same definition. The pod runs as
+  `runAsNonRoot` with a uid of its own (`InstanceUID`, from the instance's
+  id), no ServiceAccount token, no service links, `restartPolicy: Never`
+  (the pool restarts instances, with its backoff); an init container
+  copies `mcp-stdio-bridge` from the gateway's image, so a server's
+  image needs nothing of the gateway's. The NetworkPolicy lets only the
+  gateway's pods reach the bridge's port. What a pod cannot give is
+  refused with the reason (`config.Backend.PodProblems`), not dropped:
+  `privileged`, `run_as` other than the principal or dynamic,
+  `network_view`, `landlock`, `requires`, `sandbox.protect_home`,
+  `read_write_paths`, `state_directory`, `read_devices`, and
+  `sandbox.capabilities`: Kubernetes gives a container that does not run
+  as root no ambient capabilities, so an added capability would reach
+  its bounding set only, never the server (the design's
+  `sandbox.capabilities` to `add` does not hold).
 - **Lifecycle:** the pool (idle timeout, limits per principal, restart
   backoff, stopping on session end) is the gateway's, as now; the
   launcher creates and deletes pods and reports a pod that ended. Image,
@@ -4884,7 +4904,8 @@ Kubernetes cluster's MCP servers (D23, §5.12). Planned:
       with a test identity provider and a server that speaks HTTP, and a
       kind (Kubernetes in Docker) job in CI with a ServiceAccount token
       as the agent's credential; live reload from a ConfigMap (§12).
-47. **A Kubernetes launcher for stdio servers** (2.0; D23; planned):
+47. **A Kubernetes launcher for stdio servers** (2.0; D23; in progress:
+    the definition keys and the translation to a pod, #380):
     - an instance as a pod in the gateway's instance namespace, created
       and deleted by the pool as instances are now; the sandbox of §5.7
       translated (§5.12.3); an MCS level per instance where the nodes run

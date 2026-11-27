@@ -84,8 +84,12 @@ func (g *Gateway) validateDeployment() error {
 func CheckDeployment(g *Gateway, backends map[string]*Backend) error {
 	var errs []error
 	if !g.Container() {
-		// On a host, plain http:// reaches the local host only.
+		// On a host, plain http:// reaches the local host only, and an
+		// instance is a systemd unit, not a pod.
 		for _, name := range slices.Sorted(maps.Keys(backends)) {
+			if backends[name].HasPod() {
+				errs = append(errs, fmt.Errorf("server %s: image, resources, node_selector, tolerations: only with the Kubernetes launcher in container mode (deployment: container, roadmap step 47); on a host an instance is a systemd unit", name))
+			}
 			if u, err := url.Parse(backends[name].URL); err == nil && u.Scheme == "http" && egress.ClusterName(u.Hostname()) {
 				errs = append(errs, fmt.Errorf("server %s: url: http:// to a cluster's Service (%s) only in container mode (deployment: container); use https:// on a host", name, u.Hostname()))
 			}

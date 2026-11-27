@@ -43,6 +43,12 @@ minor release (with a warning) and removed in the next.
   `audit.kernel: "on"` and `http.local_user_claim`. The default,
   `deployment: host`, changes nothing.
 
+- The definition keys of the Kubernetes launcher (2.0, D23, roadmap
+  step 47; chapter 4; #380): `image`, `resources`, `node_selector`,
+  `tolerations`, checked as definitions are, and refused until the
+  launcher is in place; the translation of a definition to its pod,
+  NetworkPolicy and Secret, the systemd sandbox property by property.
+
 ### Changed
 
 - `mcp-policy-render` skips hidden directories below the role data's
