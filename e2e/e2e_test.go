@@ -85,6 +85,34 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
+// wait polls the collected output until ok holds for it, for up to 5 s,
+// and returns the output as last read. The gateway writes a call's audit
+// record as it answers, and its output reaches the buffer asynchronously:
+// a line can arrive a moment after the client got the response. The
+// caller still checks the returned output; wait only gives it the time.
+func (s *syncBuffer) wait(ok func(logs string) bool) string {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		logs := s.String()
+		if ok(logs) || time.Now().After(deadline) {
+			return logs
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// waitContains waits as wait does until the output contains each of wants.
+func (s *syncBuffer) waitContains(wants ...string) string {
+	return s.wait(func(logs string) bool {
+		for _, w := range wants {
+			if !strings.Contains(logs, w) {
+				return false
+			}
+		}
+		return true
+	})
+}
+
 func start(t *testing.T, name string, args ...string) (*exec.Cmd, *syncBuffer) {
 	t.Helper()
 	cmd := exec.Command(name, args...)
@@ -480,8 +508,9 @@ func TestEndToEnd(t *testing.T) {
 	})
 
 	t.Run("audit records", func(t *testing.T) {
-		logs := gwLogs.String()
-		for _, want := range []string{`"effect":"allow"`, `"effect":"deny"`, `"grant":"g-`, `"args_hmac"`} {
+		wants := []string{`"effect":"allow"`, `"effect":"deny"`, `"grant":"g-`, `"args_hmac"`}
+		logs := gwLogs.waitContains(wants...)
+		for _, want := range wants {
 			if !strings.Contains(logs, want) {
 				t.Errorf("gateway logs lack %s", want)
 			}

@@ -178,7 +178,7 @@ func TestContexts(t *testing.T) {
 	if text, isErr := toolResult(t, call("read_text_file", map[string]any{"path": read, "gateway_context": b})); isErr {
 		t.Fatalf("the other context: %q", text)
 	}
-	if !strings.Contains(e.gwLogs.String(), "context opened") {
+	if !strings.Contains(e.gwLogs.waitContains("context opened"), "context opened") {
 		t.Errorf("not logged")
 	}
 

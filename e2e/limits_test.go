@@ -69,7 +69,8 @@ http:
 			t.Fatalf("session %s: %+v", c.session, m.Error)
 		}
 	}
-	if !strings.Contains(e.gwLogs.String(), "ended an idle session for a new one at the session limit") {
+	if !strings.Contains(e.gwLogs.waitContains("ended an idle session for a new one at the session limit"),
+		"ended an idle session for a new one at the session limit") {
 		t.Errorf("no log line for the ended session:\n%s", e.gwLogs.String())
 	}
 
