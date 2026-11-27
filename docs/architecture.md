@@ -3052,7 +3052,7 @@ choose); contexts that survive a restart (the instances do not).
 
 **D23 — The gateway in containers and Kubernetes: one gateway, a
 launcher per platform.**
-*Decision (proposed 2026-11-27 for 2.0.0, roadmap steps 46–48):* the
+*Decision (accepted 2026-11-27 for 2.0.0, roadmap steps 46–48):* the
 gateway runs in a container and in front of a Kubernetes cluster's MCP
 servers as the same program, with `deployment: container`: the router,
 policy, approvals, obligations and audit are unchanged; what depends on
