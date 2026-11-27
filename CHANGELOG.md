@@ -22,6 +22,10 @@ minor release (with a warning) and removed in the next.
   them, as escapes (`\u202E`): an agent could make an argument read as
   other than it was (#410). `tools/check-tree` refuses such characters
   in the sources.
+- Approval and notice mail is quoted-printable instead of 8bit, so its
+  lines stay within what SMTP allows: a long argument (with
+  `include_args`) or notice text could make a line longer than 998
+  characters, and a mail server refuse the mail (#411).
 
 ## v1.17.2 — 2026-11-26
 
