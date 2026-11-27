@@ -3282,12 +3282,13 @@ standby still loses the instances); redirecting the client to the owner
 instead of forwarding (needs every replica reachable at an address of
 its own, and clients that follow redirects of a POST with an SSE
 response).
-*Open for review:* whether the store should be PostgreSQL from the start
-rather than the Kubernetes API; whether a forwarded request that finds
-the receiver no longer the owner should be served by it (taking the
-principal) instead of failing for the client to retry; whether
-`limits.instances` should bound the gateway as a whole (a counter in the
-store) rather than each replica.
+*Settled in review (2026-11-27):* the store is the Kubernetes API
+(Leases and Secrets), behind an interface, with no second store for now;
+a forwarded request that finds the receiver no longer the owner fails,
+and the client's retry is forwarded to the new owner, so that no replica takes a
+principal on a peer's word; `limits.instances` bounds each replica, so
+that starting an instance needs no store round trip (the chart's
+replicas times the limit bounds the gateway).
 
 ## 10. Repository layout
 
