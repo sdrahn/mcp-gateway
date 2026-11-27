@@ -47,7 +47,11 @@ func findCommand(name string) *command {
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	// serve speaks MCP on its standard output, which is no terminal.
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	}
+	os.Exit(run(os.Args[1:], terminal(os.Stdout), terminal(os.Stderr)))
 }
 
 func run(args []string, stdout, stderr io.Writer) int {

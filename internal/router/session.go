@@ -607,6 +607,8 @@ func (s *Session) initialize(ctx context.Context, m *jsonrpc.Message) (any, *jso
 	if err := json.Unmarshal(m.Params, &p); err != nil {
 		return nil, rpcError(jsonrpc.CodeInvalidParams, "invalid params")
 	}
+	// What the client says of itself is shown to administrators.
+	p.ClientInfo = p.ClientInfo.Clean()
 	s.mu.Lock()
 	s.clientCaps = p.Capabilities
 	s.principal.Client = p.ClientInfo
