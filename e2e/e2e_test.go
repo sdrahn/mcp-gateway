@@ -308,9 +308,14 @@ func setupWith(t *testing.T, rbac string, roots map[string]string, extra string,
 	if !strings.Contains(approvalsExtra, "self_needs_password:") {
 		approvalsExtra += "  self_needs_password: false\n"
 	}
+	// Container mode (deployment: container in extra) has no Unix socket.
+	container := strings.Contains(extra, "deployment: container")
+	socketLine := "socket: " + gwSock + "\n"
+	if container {
+		socketLine = ""
+	}
 	writeFile(t, filepath.Join(tmp, "gateway.yaml"), fmt.Sprintf(`
-socket: %s
-servers_dir: %s
+%sservers_dir: %s
 state_dir: %s
 policy:
   opa_socket: %s
@@ -322,10 +327,14 @@ policy:
 approvals:
   control_socket: %s
 %s  progress_interval: 1s
-%s%s`, gwSock, filepath.Join(tmp, "servers.d"), filepath.Join(tmp, "state"), opaSock, approvalTimeout, filepath.Join(tmp, "control.sock"),
+%s%s`, socketLine, filepath.Join(tmp, "servers.d"), filepath.Join(tmp, "state"), opaSock, approvalTimeout, filepath.Join(tmp, "control.sock"),
 		urlTemplate, approvalsExtra, extra))
 	gwCmd, gwLogs := start(t, gateway, "--config", filepath.Join(tmp, "gateway.yaml"))
-	waitFor(t, gwSock)
+	if container {
+		waitFor(t, filepath.Join(tmp, "control.sock"))
+	} else {
+		waitFor(t, gwSock)
+	}
 	return &env{tmp: tmp, connect: connect, gwSock: gwSock, ctlSock: filepath.Join(tmp, "control.sock"), opa: opaCmd,
 		gwLogs: gwLogs, opaLogs: opaLogs, gateway: gwCmd, gwBin: gateway, gwConfig: filepath.Join(tmp, "gateway.yaml")}
 }

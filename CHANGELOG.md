@@ -7,6 +7,19 @@ minor release (with a warning) and removed in the next.
 
 ## Unreleased
 
+### Added
+
+- Container mode, `deployment: container` (2.0, D23, roadmap step 46;
+  chapter 3, "Deployment"; #369): the gateway in a container or a
+  Kubernetes pod serves remote principals over HTTPS and servers that
+  speak HTTP, whose connectors run as child processes. It has no Unix
+  socket, and kernel audit is off. Stdio servers and the keys of a
+  host's sandbox (`run_as`, `selinux_type`, `sandbox.*`,
+  `network_view`, `landlock`, `requires`) are refused with the reason,
+  as are `socket`, `socket_group`, `supervisor.mode: systemd`,
+  `audit.kernel: "on"` and `http.local_user_claim`. The default,
+  `deployment: host`, changes nothing.
+
 ## v1.17.2 — 2026-11-26
 
 A tool call may be sent again without running twice: a client names it

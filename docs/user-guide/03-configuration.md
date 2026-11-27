@@ -178,6 +178,42 @@ to write instead, and the release notes list it under "Deprecated".
 Server definitions and role data have a `version` of their own and
 follow the same rules.
 
+### Deployment
+
+```yaml
+deployment: host
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `deployment` | `host` | `host`: the gateway runs on a host, starts instances as systemd units confined with SELinux, and serves local agents on the Unix socket. `container`: it runs in a container or a Kubernetes pod (see below). Read at start only. |
+
+In container mode (`deployment: container`, 2.0) every principal is
+remote: agents and people reach the gateway over HTTPS (`http.listen`
+is required), with a token of an identity provider. MCP servers that
+speak HTTP (`url`) are served; their connectors run as child processes
+of the gateway, as the gateway's account. What a host gives and a
+container does not is refused with the reason, at start, with
+`mcp-gateway --check` and on a reload, rather than ignored:
+
+- **servers that speak stdio** (definitions with `command`, privileged
+  ones too): a child process would share the gateway's container, its
+  account and its secrets, which isolates nothing. They are served in
+  pods of their own once the Kubernetes launcher is there (roadmap step
+  47);
+- in a server definition: `run_as` (other than the default),
+  `selinux_type`, `sandbox.*`, `network_view`, `landlock` and
+  `requires`;
+- in `gateway.yaml`: `socket` and `socket_group` (no Unix socket and no
+  local agents), `supervisor.mode: systemd`, `audit.kernel: "on"` and
+  `http.local_user_claim` (no local accounts).
+
+The defaults change with it: no Unix socket, `supervisor.mode: exec`
+and `audit.kernel: "off"`. The audit records go to the standard error,
+as on a host, where the container runtime collects them. The control
+socket stays, inside the container; approvers use the approval page,
+`mcp-gateway-admin approvals --gateway`, webhooks or mail.
+
 ### Local socket
 
 ```yaml
@@ -187,7 +223,7 @@ socket_group: mcp-users     # default: empty (the gateway's own group)
 
 | Key | Default | Meaning |
 |---|---|---|
-| `socket` | `/run/mcp-gateway/mcp.sock` | unix socket for local agents (mode 0660) |
+| `socket` | `/run/mcp-gateway/mcp.sock` | unix socket for local agents (mode 0660); none in container mode |
 | `socket_group` | empty | group owning the socket and the control socket; its members may connect. The shipped file sets `mcp-users`. |
 
 The gateway must be a member of `socket_group` to give it the sockets;

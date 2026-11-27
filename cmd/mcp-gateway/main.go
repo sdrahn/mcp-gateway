@@ -203,6 +203,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if err := config.CheckSignIn(gw, backends); err != nil {
 		return err
 	}
+	if err := config.CheckDeployment(gw, backends); err != nil {
+		return err
+	}
 	if checkOnly {
 		files, err := jsonFiles(policyData)
 		if err != nil {
@@ -220,7 +223,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		return nil
 	}
 
-	launcher, err := supervisor.NewLauncher(log, gw.Supervisor)
+	launcher, err := newLauncher(log, gw)
 	if err != nil {
 		return err
 	}
@@ -234,11 +237,16 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if err := checkStateOwnership(gw.StateDir, os.Geteuid()); err != nil {
 		return err
 	}
-	l, err := transport.ListenUnix(gw.Socket, 0o660, gw.SocketGroup)
-	if err != nil {
-		return fmt.Errorf("listening on %s: %w", gw.Socket, err)
+	// No Unix socket in container mode: every principal is remote.
+	var l *transport.UnixListener
+	if gw.Socket != "" {
+		if l, err = transport.ListenUnix(gw.Socket, 0o660, gw.SocketGroup); err != nil {
+			return fmt.Errorf("listening on %s: %w", gw.Socket, err)
+		}
+		log.Info("listening", "socket", gw.Socket, "version", version.Version)
+	} else {
+		log.Info("container mode: no Unix socket; principals connect to the HTTP listener", "version", version.Version)
 	}
-	log.Info("listening", "socket", gw.Socket, "version", version.Version)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -383,6 +391,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 			if err == nil {
 				err = config.CheckSignIn(gw, next)
 			}
+			if err == nil {
+				err = config.CheckDeployment(gw, next)
+			}
 			return next, err
 		}, set: r.SetBackends,
 		loadConfig: func() (*config.Gateway, error) {
@@ -511,6 +522,17 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	return errors.Join(httpErr, <-served)
 }
 
+// newLauncher returns the launcher of instances: in container mode
+// child processes (the connectors of servers that speak HTTP; stdio
+// servers are refused there), else the supervisor's mode.
+func newLauncher(log *slog.Logger, gw *config.Gateway) (supervisor.Launcher, error) {
+	if gw.Container() {
+		log.Info("container mode: instances of servers that speak HTTP run as child processes")
+		return &supervisor.Exec{Log: log}, nil
+	}
+	return supervisor.NewLauncher(log, gw.Supervisor)
+}
+
 // newSignIns sets up signing principals in to servers with sign_in: with
 // the HTTP listener, which receives the callback (nil without).
 func newSignIns(log *slog.Logger, gw *config.Gateway, launcher supervisor.Launcher, auditLog *audit.Logger) (*signin.Manager, error) {
@@ -527,7 +549,7 @@ func newSignIns(log *slog.Logger, gw *config.Gateway, launcher supervisor.Launch
 	}
 	// The access tokens handed to instances, until their units started:
 	// next to the socket, /run/mcp-gateway/credentials.
-	runDir := filepath.Join(filepath.Dir(gw.Socket), "credentials")
+	runDir := filepath.Join(gw.RuntimeDir(), "credentials")
 	if err := os.MkdirAll(runDir, 0o700); err != nil {
 		log.Warn("sign-in: no runtime directory for tokens", "dir", runDir, "err", err)
 	}

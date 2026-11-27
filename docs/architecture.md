@@ -1496,8 +1496,9 @@ first call's decision id, `answered`, `waiting` or `refused`).
 
 ### 5.12 Containers and Kubernetes (2.0)
 
-*Status: design for 2.0 (D23, roadmap steps 46–48); nothing of it is
-implemented yet.*
+*Status: design for 2.0 (D23, roadmap steps 46–48). Implemented:
+`deployment: container` with its checks (step 46, #369); the rest is
+planned.*
 
 The gateway is built for a host: it starts instances as systemd units,
 confines them with SELinux domains and MCS pairs, knows local clients by
@@ -1520,7 +1521,7 @@ inputs and audit records on both levels.
 | Starting instances | systemd transient units over D-Bus (`supervisor.Systemd`) | the container launcher (§5.12.2) or the Kubernetes launcher (§5.12.3) |
 | Confining an instance | `DynamicUser`, `run_as: principal` or an account, the systemd sandbox, `DeviceAllow`, a SELinux domain per server and an MCS pair per instance, Landlock | step 1: none beyond the gateway's own pod (so only servers that speak HTTP); step 2: a pod per instance with its `securityContext`, a NetworkPolicy, seccomp and an MCS level (§5.12.3) |
 | Local principals | the Unix socket, `SO_PEERCRED` / `SO_PEERSEC`, local accounts, polkit | none: every principal is remote (§5.12.4) |
-| Audit | the journal and the kernel audit log (`TRUSTED_APP`) | the same records as JSON on stdout, for the cluster's log pipeline; no kernel audit (`audit.kernel: auto` already does without, §12) |
+| Audit | the journal and the kernel audit log (`TRUSTED_APP`) | the same records as JSON on the standard error, as on a host, for the cluster's log pipeline; no kernel audit (`audit.kernel: off`) |
 | Approvers | Cockpit, the CLI on the host, the approval page, webhooks, mail | the approval page, `approvals --gateway`, webhooks and mail (D21): no Cockpit |
 | State | `/var/lib/mcp-gateway` (grants, keys, clients, reviews); in memory: sessions, pending approvals, tasks, idempotency keys, contexts | a persistent volume, one replica (§5.12.5) |
 | Configuration | `/usr/etc` and `/etc/mcp-gateway`, watched with inotify | the same files from ConfigMaps (role data, server definitions, `gateway.yaml`) and Secrets (TLS key, credentials) |
@@ -1543,11 +1544,15 @@ the `mcp-opa` service is on a host).
   `network_view`, `landlock`, `requires` with a host path, the Unix
   socket listener and local principals, polkit, Cockpit. `mcp-gateway
   --check` names each key it refuses and why.
+  The control socket stays, inside the pod: the approval page and the
+  url channel go through the broker it serves, and nothing outside the
+  pod reaches it (approvers outside use `--gateway`, D21).
 - **Principals** come from the HTTP listener only (§5.12.4); policy
   inputs are unchanged (`transport: http`), so the shipped policy and
   custom ones work as they are.
-- **Audit:** the journal records go to stdout (they are JSON already);
-  kernel audit is off. The doctor checks what applies to a container
+- **Audit:** the records go to the standard error as on a host (they
+  are JSON already), which the container runtime collects; kernel audit
+  is off (`audit.kernel: "on"` is refused). The doctor checks what applies to a container
   (the listener, OPA, the identity provider, the servers' URLs) and
   skips the host's (SELinux labels, units, polkit).
 - **Packaging:** an OCI image built from the same sources as the RPMs
@@ -4717,7 +4722,8 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
 Steps 46–48 lead to 2.0: the gateway in containers and in front of a
 Kubernetes cluster's MCP servers (D23, §5.12). Planned:
 
-46. **Container mode** (2.0; D23; planned):
+46. **Container mode** (2.0; D23; in progress: the setting and its
+    checks are done, #369):
     - `deployment: container`: instances as child processes (the exec
       launcher, for connectors only); definitions with `command` and the
       host-only keys refused with the reason (`mcp-gateway --check`);
