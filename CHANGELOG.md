@@ -85,6 +85,11 @@ minor release (with a warning) and removed in the next.
   `mcp-gateway-admin doctor --gateway URL` show them; the plain doctor
   asks the gateway when its configuration is of container mode.
 
+- The gateway's containers on one host (2.0; chapter 17, "Containers on
+  one host"): `deploy/podman` is the pod for `podman kube play` with a
+  Quadlet unit for systemd, `deploy/docker/compose.yaml` the same for
+  Docker Compose, both configured from a directory of the host that the
+  gateway reloads.
 - The chart's `secrets` (chapter 16): Secrets mounted read-only into
   the gateway's container for the files `gateway.yaml` and the server
   definitions name (the approval page's client secret, webhooks'
