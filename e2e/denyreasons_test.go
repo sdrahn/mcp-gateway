@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // A policy module gives the reason for a denial it causes
@@ -75,15 +74,11 @@ unmatched_reasons contains "task category files-cleanup is not enabled on this h
 			!strings.Contains(string(m.Result), "mcp-gateway: "+tc.reason) {
 			t.Errorf("%s: the client got %s %v, want the reason %q", tc.tool, m.Result, m.Error, tc.reason)
 		}
-		// The gateway writes the audit record after it answers, through a
-		// pipe: wait for it.
 		audited := false
-		for deadline := time.Now().Add(5 * time.Second); !audited && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-			for _, line := range strings.Split(e.gwLogs.String(), "\n") {
-				if strings.Contains(line, `"audit":true`) && strings.Contains(line, `"name":"`+tc.tool+`"`) &&
-					strings.Contains(line, `"effect":"deny"`) && strings.Contains(line, `"reason":"`+tc.reason+`"`) {
-					audited = true
-				}
+		for _, line := range strings.Split(e.gwLogs.String(), "\n") {
+			if strings.Contains(line, `"audit":true`) && strings.Contains(line, `"name":"`+tc.tool+`"`) &&
+				strings.Contains(line, `"effect":"deny"`) && strings.Contains(line, `"reason":"`+tc.reason+`"`) {
+				audited = true
 			}
 		}
 		if !audited {
