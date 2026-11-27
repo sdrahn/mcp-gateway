@@ -4,8 +4,13 @@
 # no file of more than 1 MiB. The one exception are the README's
 # screenshots, PNG files in docs/images (make screenshots), each under
 # 1 MiB too. 0.12.0 and 0.12.1 shipped two programs that
-# go build had written in the top directory. CI runs it on every change
-# and check-release before a tag:
+# go build had written in the top directory. Nor may a source hold a
+# character that does not show or turns text around (bidirectional
+# controls and isolates, zero-width characters, line and paragraph
+# separators, the byte order mark, C1 controls), which makes code read
+# as other than it is: write it as an escape (\u202e); vendored
+# node_modules are left out. CI runs it on every change and
+# check-release before a tag:
 #
 #   tools/check-tree [<commit>]
 #
@@ -30,6 +35,14 @@ git ls-tree -r -l "$rev" | awk '$1 != "120000" && $1 != "160000" && $4 > 0 { pri
 LC_ALL=C comm -23 "$tmp/all" "$tmp/text" | grep -v '^docs/images/[^/]*\.png$' >"$tmp/binary" || true
 if [ -s "$tmp/binary" ]; then
 	sed 's/^/check-tree: /; s/$/ is a binary file/' "$tmp/binary"
+	failed=1
+fi
+
+# UTF-8 of U+200B-U+200F, U+2028-U+202E, U+2060-U+2064, U+2066-U+2069,
+# U+FEFF and U+0080-U+009F.
+if LC_ALL=C git grep -I -n -P '\xe2\x80[\x8b-\x8f\xa8-\xae]|\xe2\x81[\xa0-\xa4\xa6-\xa9]|\xef\xbb\xbf|\xc2[\x80-\x9f]' \
+	"$rev" -- ':!:**/node_modules/**' >"$tmp/hidden"; then
+	sed "s|^$rev:||; s/^\([^:]*:[0-9]*\):.*/check-tree: \1 holds a hidden or bidirectional character/" "$tmp/hidden"
 	failed=1
 fi
 

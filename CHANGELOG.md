@@ -111,6 +111,13 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- A call's arguments, where approvers read them (the approval page and
+  its reviews, approval mail, `mcp-gateway-admin approvals show` and
+  `reviews show`, Cockpit's Approvals tab), show characters that do not
+  show as themselves, bidirectional controls and zero-width ones among
+  them, as escapes (`\u202E`): an agent could make an argument read as
+  other than it was (#410). `tools/check-tree` refuses such characters
+  in the sources.
 - Chapter 10 says what upgrading a host from 1.x to 2.0 changes:
   nothing in its configuration, role data or policy; the console is new
   where the approval page is set up.
