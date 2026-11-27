@@ -268,7 +268,7 @@ install-storage-server:
 # $(IMAGEROOT) and built on $(IMAGE_BASE) with $(CONTAINER) (docker or
 # podman). OPA runs beside it from its own image (deploy/kubernetes).
 IMAGE       ?= mcp-gateway:$(VERSION)
-IMAGE_BASE  ?= registry.suse.com/bci/bci-micro:15.7
+IMAGE_BASE  ?= registry.suse.com/bci/bci-micro:16.0
 CONTAINER   ?= docker
 IMAGEROOT   := build/image
 

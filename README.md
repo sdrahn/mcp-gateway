@@ -19,7 +19,8 @@ through a proxy, optionally with each user's own OAuth sign-in), with:
 
 Target distributions: SLES 16 and openSUSE Leap 16 (openSUSE Tumbleweed
 for development), packaged with the Open Build Service; see
-[packaging/suse](packaging/suse/README.md).
+[packaging/suse](packaging/suse/README.md); the container image (2.0):
+[packaging/container](packaging/container/README.md).
 
 Status: released (1.17.2) for SLES 16 and Leap 16, ready to be used
 (roadmap in [docs/architecture.md](docs/architecture.md), section 11).
@@ -94,7 +95,7 @@ The screenshots are made with demo data by `make screenshots`.
 | `systemd/` | `mcp-gateway.service`, `mcp-opa.service` |
 | `tools/` | `mcp-policy-bundle`: builds and signs a policy bundle; `check-release`: checks a commit is ready to be tagged (run by the Release workflow); `check-tree`: checks a commit holds sources only (run by CI) |
 | `config/` | example `gateway.yaml` and backend definitions (`servers.d/`) |
-| `packaging/` | OBS package for openSUSE/SLES (`suse/`), `mcp-opa.service` drop-ins for signed bundles (`opa/`), sysusers.d, tmpfiles.d, polkit rule, the shipped servers' definitions and roles (`fs-server/`, with the server of the gateway's own docs; `exec-server/`; `admin/`), MCS settings for libvirt (`mcs/`), the notification agent's autostart (`desktop/`) |
+| `packaging/` | OBS package for openSUSE/SLES (`suse/`), the container image and how to build it on SUSE systems (`container/`), `mcp-opa.service` drop-ins for signed bundles (`opa/`), sysusers.d, tmpfiles.d, polkit rule, the shipped servers' definitions and roles (`fs-server/`, with the server of the gateway's own docs; `exec-server/`; `admin/`), MCS settings for libvirt (`mcs/`), the notification agent's autostart (`desktop/`) |
 | `docs/` | [user guide](docs/user-guide/README.md), [architecture](docs/architecture.md) |
 
 ## Development

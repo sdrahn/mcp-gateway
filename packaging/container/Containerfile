@@ -4,7 +4,7 @@
 # the policy, on SUSE's Base Container Image. Built by `make image` from
 # what `make install-container` staged, the same sources and binaries as
 # the RPMs; OPA runs beside it in the pod from its own image.
-ARG BASE=registry.suse.com/bci/bci-micro:15.7
+ARG BASE=registry.suse.com/bci/bci-micro:16.0
 FROM ${BASE}
 ARG VERSION=devel
 
