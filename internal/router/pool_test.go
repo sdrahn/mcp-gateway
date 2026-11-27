@@ -466,7 +466,10 @@ func TestInstanceKeyIssuer(t *testing.T) {
 	if instanceKey(b, org) == instanceKey(b, partner) {
 		t.Errorf("one instance key for two issuers: %q", instanceKey(b, org))
 	}
-	if instanceKey(b, org) != instanceKey(b, org) {
-		t.Error("instance key not stable")
+	// Another session of the same principal: the same instance.
+	again := org
+	again.SessionID = "s-2"
+	if instanceKey(b, org) != instanceKey(b, again) {
+		t.Errorf("two keys for one principal: %q %q", instanceKey(b, org), instanceKey(b, again))
 	}
 }
