@@ -12,6 +12,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mcp-gateway
+  namespace: mcp-gateway
 spec:
   replicas: 1
   strategy:

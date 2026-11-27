@@ -1,10 +1,10 @@
 # The kind test (run.sh): deploy/kubernetes with the image under test, a
 # server that speaks HTTP in the cluster (echo), the cluster's
-# ServiceAccount tokens as the only issuer, and role data that lets the
-# ServiceAccount agents/custos call echo.
+# ServiceAccount tokens as the only issuer, a stdio server (echo -stdio)
+# in pods of its own with the Kubernetes launcher, and role data that
+# lets the ServiceAccounts agents/custos and agents/other call them.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: mcp-gateway
 resources:
   - ../../deploy/kubernetes
   - echo.yaml

@@ -54,7 +54,10 @@ minor release (with a warning) and removed in the next.
   container copies in from the gateway's image; connectors of servers
   that speak HTTP stay child processes. The gateway speaks the
   Kubernetes API over REST as its ServiceAccount and deletes the pods of
-  an earlier run at start.
+  an earlier run at start. The manifests and the chart set it up (the
+  namespace `mcp-instances`, the gateway's Role there; the chart's
+  `kubernetesLauncher`), and the kind job runs a stdio server in pods of
+  their own (#384).
 
 ### Changed
 

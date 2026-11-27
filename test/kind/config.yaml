@@ -2,6 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: mcp-gateway-config
+  namespace: mcp-gateway
 data:
   gateway.yaml: |
     version: 1
@@ -11,6 +12,15 @@ data:
     policy:
       opa_socket: /run/mcp-gateway/opa.sock
       watch_interval: 2s
+    supervisor:
+      # An instance no session uses stops soon: the test sees its pod go.
+      idle_timeout: 20s
+      mode: kubernetes
+      kubernetes:
+        namespace: mcp-instances
+        bridge_image: mcp-gateway:test
+        gateway_namespace: mcp-gateway
+        gateway_labels: {app.kubernetes.io/name: mcp-gateway, app.kubernetes.io/component: gateway}
     http:
       listen: ":8443"
       cert_file: /etc/mcp-gateway/tls/tls.crt
@@ -32,15 +42,21 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: mcp-gateway-servers
+  namespace: mcp-gateway
 data:
   echo.yaml: |
     name: echo
     url: http://mcp-echo.mcp-gateway.svc:8080/mcp
+  stdio.yaml: |
+    name: stdio
+    command: [/usr/bin/echo-server, -stdio]
+    image: mcp-echo:test
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: mcp-gateway-rbac
+  namespace: mcp-gateway
 data:
   data.yaml: |
     version: 1
@@ -49,7 +65,9 @@ data:
         permissions:
           - {server: echo, tool: echo}
           - {server: echo2, tool: echo}
+          - {server: stdio, tool: '*'}
     bindings:
       users:
         "k8s:system:serviceaccount:agents:custos": [echoer]
+        "k8s:system:serviceaccount:agents:other": [echoer]
       groups: {}

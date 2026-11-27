@@ -10,9 +10,9 @@ the cluster, and configuration from ConfigMaps.
 
 *Status: container mode serves servers that speak HTTP, and with the
 Kubernetes launcher servers that speak stdio, each instance in a pod of
-its own (roadmap step 47; the manifests and the chart set it up with its
-last part). The console, the management page for operators, follows
-with step 48.*
+its own (roadmap step 47); the manifests and the chart set the launcher
+up. The console, the management page for operators, follows with step
+48.*
 
 ## What is different from a host
 
@@ -233,7 +233,10 @@ node_selector: {kubernetes.io/arch: amd64}
   with an MCS level of its own. Its NetworkPolicy lets only the
   gateway's pods reach it, and lets it reach nothing unless the
   definition says `network: true`. Your cluster's network plugin must
-  enforce NetworkPolicies.
+  enforce NetworkPolicies. Whether a policy also covers addresses on the
+  nodes' host network, the API server's among them, depends on the
+  plugin (Calico and Cilium apply it there; kind's kindnet does not); an
+  instance has no ServiceAccount token for the API server in any case.
 - **Credentials** (`credentials`) are read by the gateway and become the
   instance's Secret, mounted at `$CREDENTIALS_DIRECTORY`; the Secret and
   the NetworkPolicy belong to the pod and go with it.
@@ -249,8 +252,16 @@ node_selector: {kubernetes.io/arch: amd64}
   with the reason. At start, the gateway deletes the pods an earlier run
   left.
 
-The gateway's ServiceAccount needs these rights in the instances'
-namespace, and nothing else:
+The manifests and the chart set this up: the namespace `mcp-instances`,
+held to the restricted Pod Security Standard (the chart's
+`kubernetesLauncher.createNamespace`), and `supervisor.mode: kubernetes`
+in `gateway.yaml`, with the gateway's image as `bridge_image` (with
+`kubectl apply -k`, keep it the image `kustomization.yaml` names; the
+chart takes it from `image`). `kubernetesLauncher.enabled: false` in the
+chart's values turns the launcher off: stdio servers are refused then,
+servers that speak HTTP are served. The gateway's ServiceAccount gets
+these rights in the instances' namespace, and nothing else
+(`deploy/kubernetes/rbac.yaml`, the chart's `launcher.yaml`):
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -304,5 +315,6 @@ and the last good one stays in force (`kubectl logs deploy/mcp-gateway
   `mcp-gateway-state`; back it up as you would `/var/lib/mcp-gateway`.
 
 `test/kind/run.sh` deploys all of this to a kind cluster and checks it,
-with the manifests and with the chart (`DEPLOY=helm`); CI runs both on
-every change.
+with the manifests and with the chart (`DEPLOY=helm`), a stdio server in
+pods of their own among it (one per principal, no egress to other pods,
+gone after the idle timeout); CI runs both on every change.

@@ -9,6 +9,10 @@
 #   - a server added to the servers ConfigMap is served once the kubelet
 #     updates the mounted files (the ..data swap; docs/architecture.md,
 #     section 12);
+#   - a stdio server runs in pods of its own (the Kubernetes launcher):
+#     one per principal, each with a NetworkPolicy without egress (the
+#     server cannot reach another pod), owned by the pod, and deleted
+#     after the idle timeout;
 #   - role data changed in its ConfigMap takes effect (mcp-policy-render
 #     and OPA follow the swap too).
 # DEPLOY=helm deploys the chart (deploy/helm/mcp-gateway, with
@@ -39,6 +43,12 @@ cleanup() {
 			echo "--- $c" >&2
 			k -n "$NS" logs deploy/mcp-gateway -c "$c" --tail=60 >&2 || true
 		done
+		echo "--- mcp-instances" >&2
+		k -n mcp-instances get pods,networkpolicies,secrets -o wide >&2 || true
+		for pod in $(k -n mcp-instances get pods -o name 2>/dev/null); do
+			k -n mcp-instances describe "$pod" | tail -20 >&2 || true
+			k -n mcp-instances logs "$pod" --all-containers --tail=20 >&2 || true
+		done
 	fi
 	[ -n "$pf" ] && kill "$pf" 2>/dev/null || true
 	rm -rf "$work"
@@ -65,6 +75,7 @@ echo "--- cluster"
 k create namespace "$NS" --dry-run=client -o yaml | apply
 k create namespace agents --dry-run=client -o yaml | apply
 k -n agents create serviceaccount custos --dry-run=client -o yaml | apply
+k -n agents create serviceaccount other --dry-run=client -o yaml | apply
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 -subj /CN=mcp-gateway \
 	-addext "subjectAltName=IP:127.0.0.1,DNS:mcp-gateway.$NS.svc" \
 	-keyout "$work/tls.key" -out "$work/tls.crt" 2>/dev/null
@@ -107,16 +118,21 @@ post() {
 		"${h[@]}" -d "$3" "https://127.0.0.1:$PORT/mcp/$1"
 	tr -d '\r' <"$work/headers" | sed -n 's/^[Mm]cp-[Ss]ession-[Ii]d: //p' >"$work/session"
 }
-# call SERVER TEXT: the echo tool's answer through the gateway, as custos.
-call() {
+# call_as TOKEN SERVER TOOL ARGUMENTS: the tool's answer through the
+# gateway, in a session of its own, which it ends.
+call_as() {
 	local out session
-	out=$(post "$1" "$token" '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"kind-test"}}}')
+	out=$(post "$2" "$1" '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"kind-test"}}}')
 	[ "$(tail -n1 <<<"$out")" = 200 ] || { echo "initialize: $out"; return; }
 	session=$(cat "$work/session")
-	post "$1" "$token" '{"jsonrpc":"2.0","method":"notifications/initialized"}' "$session" >/dev/null
-	out=$(post "$1" "$token" "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"echo\",\"arguments\":{\"text\":\"$2\"}}}" "$session")
+	post "$2" "$1" '{"jsonrpc":"2.0","method":"notifications/initialized"}' "$session" >/dev/null
+	out=$(post "$2" "$1" "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"$3\",\"arguments\":$4}}" "$session")
 	head -n -1 <<<"$out" | jq -r 'if .result then (if .result.isError then "error: " else "" end) + .result.content[0].text else "error: " + .error.message end'
+	curl -s --cacert "$work/tls.crt" -o /dev/null -X DELETE -H "Authorization: Bearer $1" -H "Mcp-Session-Id: $session" \
+		-H "MCP-Protocol-Version: 2025-06-18" "https://127.0.0.1:$PORT/mcp/$2"
 }
+# call SERVER TEXT: the echo tool's answer, as custos.
+call() { call_as "$token" "$1" echo "{\"text\":\"$2\"}"; }
 # until SECONDS COMMAND...: retries COMMAND until it succeeds.
 until_ok() {
 	local deadline=$((SECONDS + $1))
@@ -142,6 +158,59 @@ k -n "$NS" patch configmap mcp-gateway-servers --type merge \
 echo2_served() { [[ "$(call echo2 again)" == "echo: again"* ]]; }
 until_ok 180 echo2_served || fail "echo2 not served after the ConfigMap changed: $(call echo2 again)"
 pass "the gateway reloads the servers ConfigMap"
+
+echo "--- a stdio server in pods of its own"
+INS=mcp-instances
+other=$(k -n agents create token other --audience mcp-gateway --duration 30m)
+pods() {
+	k -n "$INS" get pods -l mcp-gateway.sdrahn.github.io/server=stdio \
+		-o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort
+}
+before=$(pods)
+got=$(call_as "$token" stdio echo '{"text":"in a pod"}')
+[[ "$got" == "echo: in a pod (call 1)" ]] || fail "call to the stdio server as custos: $got"
+got=$(call_as "$other" stdio echo '{"text":"in a pod"}')
+# Another principal's instance: its own count.
+[[ "$got" == "echo: in a pod (call 1)" ]] || fail "call to the stdio server as other: $got"
+# The principals' pods (a shared discovery instance may have come too):
+# whom each serves is in its MCP_GATEWAY_PRINCIPAL.
+serves() {
+	k -n "$INS" get pod "$1" -o json |
+		jq -r '.spec.containers[0].env[] | select(.name == "MCP_GATEWAY_PRINCIPAL") | .value | fromjson | .sub // ""'
+}
+mine=$(for pod in $(comm -13 <(echo "$before") <(pods)); do
+	case "$(serves "$pod")" in *agents:custos | *agents:other) echo "$pod" ;; esac
+done)
+[ "$(grep -c . <<<"$mine")" = 2 ] || fail "pods of the two principals: $mine (all: $(pods | tr '\n' ' '))"
+[ "$(for pod in $mine; do serves "$pod"; done | sort -u | wc -l)" = 2 ] || fail "both pods serve one principal: $mine"
+pass "a stdio server runs in a pod per principal"
+
+for pod in $mine; do
+	np=$(k -n "$INS" get networkpolicy "$pod" -o json) || fail "no NetworkPolicy for $pod"
+	[ "$(jq '.spec.egress | length' <<<"$np")" = 0 ] && [ "$(jq -r '.metadata.ownerReferences[0].kind' <<<"$np")" = Pod ] ||
+		fail "NetworkPolicy of $pod: $np"
+	spec=$(k -n "$INS" get pod "$pod" -o json)
+	[ "$(jq '.spec.securityContext.runAsUser >= 100000 and .spec.securityContext.runAsNonRoot and
+		(.spec.containers[0].securityContext.readOnlyRootFilesystem) and
+		(.spec.automountServiceAccountToken == false)' <<<"$spec")" = true ] || fail "pod $pod: $(jq .spec <<<"$spec")"
+done
+pass "each pod: its own NetworkPolicy without egress, a uid of its own, read-only, no token"
+
+# Another pod (the echo server's Service, which the gateway reaches):
+# denied by the instance's NetworkPolicy, as everything is.
+echo_ip=$(k -n "$NS" get service mcp-echo -o jsonpath='{.spec.clusterIP}')
+got=$(call_as "$token" stdio reach "{\"address\":\"$echo_ip:8080\"}")
+[[ "$got" == unreachable* ]] || fail "the stdio server reached another pod, $echo_ip:8080: $got"
+pass "the stdio server reaches no other pod (no egress)"
+# The API server's endpoint is on the host network, which a NetworkPolicy
+# covers or not as the network plugin implements it (kind's kindnet does
+# not): informational. The instance has no token for it in any case.
+api=$(k get service kubernetes -o jsonpath='{.spec.clusterIP}')
+echo "info: the API server at $api:443 from an instance: $(call_as "$token" stdio reach "{\"address\":\"$api:443\"}")"
+
+gone() { [ -z "$(comm -12 <(echo "$mine") <(pods) | grep . || true)" ]; }
+until_ok 150 gone || fail "pods still there after the idle timeout: $(pods | tr '\n' ' ')"
+pass "the pods go after the idle timeout"
 
 echo "--- role data changed in the ConfigMap"
 k -n "$NS" patch configmap mcp-gateway-rbac --type merge -p '{"data":{"data.yaml":"version: 1\nroles: {}\nbindings: {users: {}, groups: {}}\n"}}' >/dev/null

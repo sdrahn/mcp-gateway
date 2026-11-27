@@ -7,6 +7,9 @@ image:
 config:
   policy:
     watch_interval: 2s
+  supervisor:
+    # An instance no session uses stops soon: the test sees its pod go.
+    idle_timeout: 20s
   http:
     # The cluster's ServiceAccount tokens only: no other identity
     # provider, none of its scopes (null removes the chart's defaults).
@@ -18,6 +21,10 @@ servers:
   echo:
     name: echo
     url: http://mcp-echo.mcp-gateway.svc:8080/mcp
+  stdio:
+    name: stdio
+    command: [/usr/bin/echo-server, -stdio]
+    image: mcp-echo:test
 rbac:
   version: 1
   roles:
@@ -25,7 +32,9 @@ rbac:
       permissions:
         - {server: echo, tool: echo}
         - {server: echo2, tool: echo}
+        - {server: stdio, tool: '*'}
   bindings:
     users:
       "k8s:system:serviceaccount:agents:custos": [echoer]
+      "k8s:system:serviceaccount:agents:other": [echoer]
     groups: {}

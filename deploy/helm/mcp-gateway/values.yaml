@@ -34,7 +34,22 @@ clusterIssuer:
   audience: mcp-gateway
   subjectPrefix: "k8s:"
 
-# Server definitions, by file name: name, url, ... (chapter 4).
+# Stdio servers in pods of their own (supervisor.mode: kubernetes, user
+# guide chapter 16): the instances' namespace, the gateway's rights there
+# (a Role), and the launcher's settings. Off: stdio servers are refused,
+# servers that speak HTTP are served.
+kubernetesLauncher:
+  enabled: true
+  namespace: mcp-instances
+  # Create the namespace, held to the restricted Pod Security Standard.
+  createNamespace: true
+  imagePullPolicy: IfNotPresent
+  startTimeout: 2m
+  # on: an MCS level per instance, for nodes that run SELinux.
+  selinux: "off"
+
+# Server definitions, by file name: name, url, ... (chapter 4); a stdio
+# server names its image.
 servers: {}
 #  tickets:
 #    name: tickets
