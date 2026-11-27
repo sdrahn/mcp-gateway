@@ -3285,10 +3285,10 @@ response).
 *Settled in review (2026-11-27):* the store is the Kubernetes API
 (Leases and Secrets), behind an interface, with no second store for now;
 a forwarded request that finds the receiver no longer the owner fails,
-and the client's retry is forwarded to the new owner, so that no replica takes a
-principal on a peer's word; `limits.instances` bounds each replica, so
-that starting an instance needs no store round trip (the chart's
-replicas times the limit bounds the gateway).
+and the client's retry is forwarded to the new owner, so that no replica
+takes a principal on a peer's word; `limits.instances` bounds each
+replica, so that starting an instance needs no store round trip (the
+chart's replicas times the limit bounds the gateway).
 
 ## 10. Repository layout
 
