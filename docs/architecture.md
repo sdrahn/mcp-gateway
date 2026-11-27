@@ -71,7 +71,7 @@ Access must be governed. The gateway shall
   detection etc.). The design leaves a hook for it (obligations, §6.4).
 - High availability / multi-host clustering. One gateway per host; in
   Kubernetes (2.0, §5.12) one replica per deployment; several
-  replicas, each principal served by one, are proposed for after 2.0
+  replicas, each principal served by one, are planned for after 2.0
   (step 49, D24).
 - SLES 15 and Leap 15, and with them AppArmor: the confinement model is
   SELinux.
@@ -1499,7 +1499,7 @@ first call's decision id, `answered`, `waiting` or `refused`).
 
 *Status: implemented in 2.0 (D23, roadmap steps 46–48): container mode
 (step 46), the Kubernetes launcher (step 47) and the console (step 48).
-Several replicas (§5.12.5) are step 49, after 2.0 (D24, proposed).*
+Several replicas (§5.12.5) are step 49, after 2.0 (D24, accepted).*
 
 The gateway is built for a host: it starts instances as systemd units,
 confines them with SELinux domains and MCS pairs, knows local clients by
@@ -1524,7 +1524,7 @@ inputs and audit records on both levels.
 | Local principals | the Unix socket, `SO_PEERCRED` / `SO_PEERSEC`, local accounts, polkit | none: every principal is remote (§5.12.4) |
 | Audit | the journal and the kernel audit log (`TRUSTED_APP`) | the same records as JSON on the standard error, as on a host, for the cluster's log pipeline; no kernel audit (`audit.kernel: off`) |
 | Approvers | Cockpit, the CLI on the host, the approval page, webhooks, mail | the approval page, `approvals --gateway`, webhooks and mail (D21): no Cockpit |
-| State | `/var/lib/mcp-gateway` (grants, keys, clients, reviews); in memory: sessions, pending approvals, tasks, idempotency keys, contexts | a persistent volume, one replica; several replicas with a shared store proposed (§5.12.5, D24) |
+| State | `/var/lib/mcp-gateway` (grants, keys, clients, reviews); in memory: sessions, pending approvals, tasks, idempotency keys, contexts | a persistent volume, one replica; several replicas with a shared store planned (§5.12.5, D24) |
 | Configuration | `/usr/etc` and `/etc/mcp-gateway`, watched with inotify | the same files from ConfigMaps (role data, server definitions, `gateway.yaml`) and Secrets (TLS key, credentials) |
 
 #### 5.12.2 Container mode (step 46)
@@ -1714,7 +1714,7 @@ host runs one gateway; a restart ends what lives in memory there as it
 does on a host. That stays the default, and needs nothing of what
 follows.
 
-**Several replicas** (step 49, D24, proposed) serve more principals than
+**Several replicas** (step 49, D24) serve more principals than
 one pod can, and keep the gateway answering while one replica is
 replaced or lost. They are for container mode only: a host runs one
 gateway, as before.
@@ -3233,7 +3233,7 @@ accounts).
 
 **D24 — Several replicas: each principal served by one, what people
 reach shared.**
-*Decision (proposed 2026-11-27, roadmap step 49; open since D23):* in
+*Decision (accepted 2026-11-27, roadmap step 49; open since D23):* in
 container mode the gateway may run as several replicas of one
 Deployment (`replication` in `gateway.yaml`; one replica stays the
 default and needs none of it). Each principal has an owner, one replica
@@ -5169,7 +5169,7 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       admin, refused), CSRF and framing as for the approval page, a
       browser test (Playwright) of the views and one action, the probes
       in the kind job.
-49. **Several replicas** (after 2.0; D24, proposed; open; §5.12.5): each
+49. **Several replicas** (after 2.0; D24; open; §5.12.5): each
     principal's requests served by one replica, its owner, and what other
     people reach in a shared store, the Kubernetes API:
     - stage A, the shared store: `replication` in `gateway.yaml`
