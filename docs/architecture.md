@@ -4976,7 +4976,7 @@ Kubernetes cluster's MCP servers (D23, §5.12). Planned:
       definition), the bridge, and the kind job with a stdio server per
       principal: one pod each, a NetworkPolicy without egress, the pod
       deleted after the idle timeout.
-48. **The console** (2.0; D23; in progress: the probes, #386; the
+48. **The console** (2.0; D23; done: the probes, #386; the
     console's API, #388; the pages, #390; the doctor in the gateway,
     #391; §5.12.7):
     - the approval page grown into the gateway's management page at
