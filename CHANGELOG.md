@@ -111,6 +111,10 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- The sign-ins of the control API (`GET /v1/sign-ins`, also on the
+  console's API) list no pending sign-ins for an approver signed in
+  without a local account; they listed root's (uid 0), with their
+  links (#408).
 - Chapter 10 says what upgrading a host from 1.x to 2.0 changes:
   nothing in its configuration, role data or policy; the console is new
   where the approval page is set up.
