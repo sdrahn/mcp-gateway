@@ -2884,6 +2884,15 @@ memory today).
 *Why a major version:* a new deployment target with its own
 configuration keys and a multi-issuer `http` block; the host package
 stays compatible, so upgrading a host from 1.x needs no changes.
+*Settled in review (2026-11-27):* the mode is one explicit setting,
+`deployment: container` (default `host`), not detected from the
+environment; stdio servers (definitions with `command`) are refused in
+container mode until the Kubernetes launcher (step 47) runs them in pods
+of their own, never as unisolated child processes in the gateway's pod;
+more than one token issuer is supported (`http.issuers`, with
+`http.issuer` kept as the one-issuer form); a server definition names
+its pod with the keys `image`, `resources`, `node_selector` and
+`tolerations`.
 
 ## 10. Repository layout
 
