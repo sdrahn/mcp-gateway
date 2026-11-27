@@ -93,6 +93,26 @@ func (h HTTP) SignInIssuer() string {
 	return ""
 }
 
+// signInIssuerWarning warns when the issuer people sign in with looks
+// like a cluster's (#412): without http.issuer that is the first of
+// http.issuers, and one that asks for no scope (as ServiceAccount
+// tokens carry none) or fetches its keys with a token_file is one. Anyone
+// who may create a pod in that cluster can have a token of it for any
+// audience, the device client's (approvals.page.device_client_id) too,
+// and would be taken for a person signing in.
+func (h HTTP) signInIssuerWarning() string {
+	if h.Issuer != "" || len(h.Issuers) == 0 {
+		return ""
+	}
+	is := h.Issuers[0]
+	if (is.Scopes == nil || len(is.Scopes) > 0) && is.TokenFile == "" {
+		return ""
+	}
+	return fmt.Sprintf("http.issuers[0] (%s) is the issuer people sign in with (there is no http.issuer), and looks like a cluster's "+
+		"(no scopes, or a token_file): anyone who may create a pod there could sign in as a person with its ServiceAccount token; "+
+		"set the people's identity provider as http.issuer, or first in http.issuers", is.Issuer)
+}
+
 // validateIssuers checks http.issuers: URLs, no issuer twice, prefixes.
 func (h HTTP) validateIssuers() error {
 	seen := []string{h.Issuer}

@@ -567,7 +567,11 @@ http:
 cluster's ServiceAccount tokens while people sign in with the
 organization's provider. `http.issuers` adds issuers to `http.issuer`;
 without `http.issuer`, the first of them is the one people sign in with
-(the approval page, `mcp-gateway-admin --gateway`):
+(the approval page, `mcp-gateway-admin --gateway`). That one must be the
+people's identity provider, never a cluster's: anyone who may create a
+pod can have a ServiceAccount token for any audience, and would sign in
+as a person. `mcp-gateway --check` and the doctor warn about a first
+issuer without scopes or with a `token_file`, as a cluster's is:
 
 ```yaml
 http:

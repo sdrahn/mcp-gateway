@@ -209,6 +209,14 @@ func (c *selfCheck) configuration() doctor.Result {
 		r.Status, r.Summary = doctor.Warn, "keys changed that take effect at the next start: "+strings.Join(keys, ", ")
 		r.Details = []string{"roll the Deployment (the chart does with a change of gateway.yaml), or restart the service"}
 	}
+	// What gateway.yaml says that works but should be changed: deprecated
+	// keys, a cluster's issuer as the one people sign in with (#412).
+	if c.gw != nil && len(c.gw.Warnings) > 0 {
+		if r.Status == doctor.OK {
+			r.Status, r.Summary = doctor.Warn, "gateway.yaml is in force, with warnings"
+		}
+		r.Details = append(r.Details, c.gw.Warnings...)
+	}
 	return r
 }
 
