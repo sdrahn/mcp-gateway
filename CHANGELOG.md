@@ -43,6 +43,12 @@ minor release (with a warning) and removed in the next.
   `audit.kernel: "on"` and `http.local_user_claim`. The default,
   `deployment: host`, changes nothing.
 
+### Changed
+
+- `mcp-policy-render` skips hidden directories below the role data's
+  directory (a ConfigMap's `..<timestamp>` directory, `.git`): they are
+  not role data of their own (#375).
+
 ## v1.17.2 — 2026-11-26
 
 A tool call may be sent again without running twice: a client names it
