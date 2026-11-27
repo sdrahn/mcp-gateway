@@ -463,7 +463,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	}
 	var self *selfCheck
 	if gw.Container() {
-		self = &selfCheck{log: log, gw: gw, backends: r.CurrentBackends, reloader: reloader, opa: opa, tokens: tokens}
+		self = &selfCheck{log: log, gw: gw, backends: r.CurrentBackends, reloader: reloader, opa: opa, tokens: tokens, ready: opa.Health}
 		if s, ok := launcher.(supervisor.Split); ok {
 			self.kube, _ = s.Stdio.(*supervisor.Kubernetes)
 		}
