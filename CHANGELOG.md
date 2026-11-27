@@ -111,6 +111,16 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- The sign-ins of the control API (`GET /v1/sign-ins`, also on the
+  console's API) list no pending sign-ins for an approver signed in
+  without a local account; they listed root's (uid 0), with their
+  links (#408).
+- What a client says of itself (`clientInfo`, of an `initialize` or a
+  modern agent's `_meta`) is kept without control and format characters,
+  each field up to 128 characters; `mcp-gateway-admin` writes control
+  and format characters to a terminal as escapes (`\u001B`). Escape
+  sequences in a client's name reached the terminal of whoever listed
+  clients or approvals (#409).
 - A call's arguments, where approvers read them (the approval page and
   its reviews, approval mail, `mcp-gateway-admin approvals show` and
   `reviews show`, Cockpit's Approvals tab), show characters that do not
