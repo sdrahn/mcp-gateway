@@ -1625,6 +1625,21 @@ there and nothing else.
   as root no ambient capabilities, so an added capability would reach
   its bounding set only, never the server (the design's
   `sandbox.capabilities` to `add` does not hold).
+- **As built (part 2, #382):** `supervisor.mode: kubernetes` (container
+  mode only, `supervisor.kubernetes`): `supervisor.Split` starts the
+  connectors of servers that speak HTTP as child processes and stdio
+  servers with `supervisor.Kubernetes`. It creates the pod, then its
+  NetworkPolicy and its Secret, both owned by the pod (deleting the pod
+  deletes them; the policy is in place before the pod can start, which
+  waits for its Secret), waits until the pod runs (an image that does
+  not pull fails at once), and dials its bridge. `mcp-stdio-bridge`
+  answers one `GET /stdio` with the instance's token and `Upgrade:
+  mcp-stdio`, starts the server, and relays; either side ending ends the
+  other, and the pod. The Kubernetes API is spoken over REST
+  (`internal/kube.Client`) with the pod's projected token, read anew
+  for each request. At start the gateway deletes the pods of an earlier
+  run. The bridge is a static binary in the gateway's image
+  (`make image`).
 - **Lifecycle:** the pool (idle timeout, limits per principal, restart
   backoff, stopping on session end) is the gateway's, as now; the
   launcher creates and deletes pods and reports a pod that ended. Image,
@@ -4905,7 +4920,8 @@ Kubernetes cluster's MCP servers (D23, §5.12). Planned:
       kind (Kubernetes in Docker) job in CI with a ServiceAccount token
       as the agent's credential; live reload from a ConfigMap (§12).
 47. **A Kubernetes launcher for stdio servers** (2.0; D23; in progress:
-    the definition keys and the translation to a pod, #380):
+    the definition keys and the translation to a pod, #380; the
+    launcher and the bridge, #382):
     - an instance as a pod in the gateway's instance namespace, created
       and deleted by the pool as instances are now; the sandbox of §5.7
       translated (§5.12.3); an MCS level per instance where the nodes run

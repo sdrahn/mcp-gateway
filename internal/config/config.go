@@ -418,6 +418,9 @@ type Supervisor struct {
 	// virtual machines, and replace an instance whose pair one of them
 	// takes later) or "off".
 	MCSAvoid string `yaml:"mcs_avoid"`
+	// Kubernetes configures the Kubernetes launcher (mode: kubernetes,
+	// container mode only; kubernetes.go).
+	Kubernetes Kubernetes `yaml:"kubernetes"`
 }
 
 // MCSCategories returns the bounds of MCSRange.
@@ -1127,6 +1130,10 @@ func (g *Gateway) Validate() error {
 	}
 	switch g.Supervisor.Mode {
 	case "systemd", "exec":
+	case "kubernetes":
+		if err := g.Supervisor.Kubernetes.validate(g.Container()); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("supervisor.mode: unknown value %q", g.Supervisor.Mode)
 	}

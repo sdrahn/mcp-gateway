@@ -77,7 +77,7 @@ func TestCheckDeployment(t *testing.T) {
 	}
 	err := CheckDeployment(container, map[string]*Backend{"fs": stdio, "remote": remote})
 	if err == nil || !strings.Contains(err.Error(), "server fs: command: not in container mode") ||
-		!strings.Contains(err.Error(), "step 47") || strings.Contains(err.Error(), "server remote") {
+		!strings.Contains(err.Error(), "supervisor.mode: kubernetes") || strings.Contains(err.Error(), "server remote") {
 		t.Errorf("container, stdio: %v", err)
 	}
 

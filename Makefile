@@ -56,6 +56,11 @@ build: $(BINARIES)
 bin/%: FORCE
 	$(GOBUILD) -ldflags '$(LDFLAGS)' -o $@ ./cmd/$*
 
+# The pod entrypoint of the Kubernetes launcher runs in any server's
+# image: static, without cgo (and so not PIE).
+bin/mcp-stdio-bridge: FORCE
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $@ ./cmd/mcp-stdio-bridge
+
 build-tests: $(TESTBINARIES)
 
 bin/tests/%: FORCE
@@ -274,6 +279,7 @@ install-container:
 	install -Dm0755 bin/mcp-http-connector $(DESTDIR)/usr/libexec/mcp-gateway/mcp-http-connector
 	install -Dm0755 bin/mcp-oauth-helper $(DESTDIR)/usr/libexec/mcp-gateway/mcp-oauth-helper
 	install -Dm0755 bin/mcp-policy-render $(DESTDIR)/usr/libexec/mcp-gateway/mcp-policy-render
+	install -Dm0755 bin/mcp-stdio-bridge $(DESTDIR)/usr/libexec/mcp-gateway/mcp-stdio-bridge
 	install -d $(DESTDIR)/usr/share/mcp-gateway/policy/mcp
 	install -m0644 $(filter-out %_test.rego,$(wildcard policy/mcp/*.rego)) $(DESTDIR)/usr/share/mcp-gateway/policy/mcp/
 	install -Dm0644 internal/policydata/rbac.schema.json $(DESTDIR)/usr/share/mcp-gateway/schema/rbac.schema.json
@@ -281,7 +287,7 @@ install-container:
 	install -d $(DESTDIR)/usr/share/mcp-gateway/servers.d
 
 image:
-	$(MAKE) build
+	$(MAKE) build bin/mcp-stdio-bridge
 	rm -rf $(IMAGEROOT)
 	$(MAKE) install-container DESTDIR=$(CURDIR)/$(IMAGEROOT)/root
 	$(CONTAINER) build -f packaging/container/Containerfile \

@@ -8,10 +8,11 @@ decision D23). This chapter covers the image, the manifests, agents
 that authenticate with the cluster's ServiceAccount tokens, servers in
 the cluster, and configuration from ConfigMaps.
 
-*Status: container mode serves servers that speak HTTP. Servers that
-speak stdio follow with the Kubernetes launcher, which runs each
-instance in a pod of its own (roadmap step 47); the console, the
-management page for operators, with step 48.*
+*Status: container mode serves servers that speak HTTP, and with the
+Kubernetes launcher servers that speak stdio, each instance in a pod of
+its own (roadmap step 47; the manifests and the chart set it up with its
+last part). The console, the management page for operators, follows
+with step 48.*
 
 ## What is different from a host
 
@@ -201,6 +202,78 @@ a private CA signed names that CA with `ca_file`. Let only the gateway's
 pods reach the servers (a NetworkPolicy on the servers' namespace that
 admits `app.kubernetes.io/name: mcp-gateway`), so that policy cannot be
 bypassed.
+
+## Stdio servers in pods of their own
+
+With `supervisor.mode: kubernetes` (chapter 3) an instance of a server
+that speaks stdio is a pod of its own, in a namespace for instances,
+created when the instance starts and deleted when it stops, as a unit is
+on a host. The server's definition names its image:
+
+```yaml
+# a file in the mcp-gateway-servers ConfigMap
+name: git
+command: [/usr/bin/mcp-server-git, --stdio]
+image: registry.example.com/mcp-server-git:1.4
+resources:
+  limits: {memory: 256Mi, cpu: "1"}
+node_selector: {kubernetes.io/arch: amd64}
+```
+
+- **The server needs no change:** an init container copies
+  `mcp-stdio-bridge` from the gateway's image into the pod, which starts
+  the server with the definition's command line and carries its stdin
+  and stdout to the gateway over one connection, authenticated with a
+  token of the instance's. The image needs nothing of the gateway's.
+- **The sandbox, translated:** the pod runs as a uid of its own, never
+  root, without privilege escalation, capabilities, a ServiceAccount
+  token or other Services' addresses, on a read-only root with an
+  empty `/tmp`, under the runtime's default seccomp profile, within a
+  memory limit and eight hours; with `supervisor.kubernetes.selinux: on`
+  with an MCS level of its own. Its NetworkPolicy lets only the
+  gateway's pods reach it, and lets it reach nothing unless the
+  definition says `network: true`. Your cluster's network plugin must
+  enforce NetworkPolicies.
+- **Credentials** (`credentials`) are read by the gateway and become the
+  instance's Secret, mounted at `$CREDENTIALS_DIRECTORY`; the Secret and
+  the NetworkPolicy belong to the pod and go with it.
+- **Refused, with the reason** (`mcp-gateway --check`): what a pod
+  cannot give, `privileged`, `run_as` other than the default,
+  `network_view`, `landlock`, `requires`, `sandbox.*` (also
+  `sandbox.capabilities`: Kubernetes gives a container that does not run
+  as root no ambient capabilities), and `selinux_type` unless
+  `allow_selinux_type`.
+- **Lifecycle:** idle timeouts, limits per principal and restarts are
+  the gateway's, as on a host. An instance whose pod does not run within
+  `start_timeout` fails; one whose image does not pull fails at once,
+  with the reason. At start, the gateway deletes the pods an earlier run
+  left.
+
+The gateway's ServiceAccount needs these rights in the instances'
+namespace, and nothing else:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: mcp-gateway-instances, namespace: mcp-instances}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [create, get, list, delete, deletecollection]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [create, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: mcp-gateway-instances, namespace: mcp-instances}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: mcp-gateway-instances}
+subjects:
+  - {kind: ServiceAccount, name: mcp-gateway, namespace: mcp-gateway}
+```
 
 ## Configuration from ConfigMaps
 

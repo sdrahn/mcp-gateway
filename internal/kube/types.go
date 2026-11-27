@@ -7,10 +7,22 @@ package kube
 
 // ObjectMeta is an object's name, namespace, labels and annotations.
 type ObjectMeta struct {
-	Name        string            `json:"name"`
-	Namespace   string            `json:"namespace,omitempty"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	Annotations map[string]string `json:"annotations,omitempty"`
+	Name string `json:"name"`
+	// UID is set by the API server; OwnerReferences make an object go
+	// with its owner (an instance's Secret and NetworkPolicy with its pod).
+	UID             string            `json:"uid,omitempty"`
+	OwnerReferences []OwnerReference  `json:"ownerReferences,omitempty"`
+	Namespace       string            `json:"namespace,omitempty"`
+	Labels          map[string]string `json:"labels,omitempty"`
+	Annotations     map[string]string `json:"annotations,omitempty"`
+}
+
+// OwnerReference names an object's owner.
+type OwnerReference struct {
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	UID        string `json:"uid"`
 }
 
 // Pod is a v1 Pod.
@@ -19,6 +31,47 @@ type Pod struct {
 	Kind       string     `json:"kind"`
 	Metadata   ObjectMeta `json:"metadata"`
 	Spec       PodSpec    `json:"spec"`
+	Status     *PodStatus `json:"status,omitempty"`
+}
+
+// PodStatus is what the launcher reads of a pod's status.
+type PodStatus struct {
+	Phase                 string            `json:"phase,omitempty"`
+	Reason                string            `json:"reason,omitempty"`
+	Message               string            `json:"message,omitempty"`
+	PodIP                 string            `json:"podIP,omitempty"`
+	InitContainerStatuses []ContainerStatus `json:"initContainerStatuses,omitempty"`
+	ContainerStatuses     []ContainerStatus `json:"containerStatuses,omitempty"`
+}
+
+// ContainerStatus is a container's state.
+type ContainerStatus struct {
+	Name  string         `json:"name"`
+	State ContainerState `json:"state"`
+}
+
+// ContainerState is waiting, running or terminated.
+type ContainerState struct {
+	Waiting    *ContainerStateWaiting    `json:"waiting,omitempty"`
+	Terminated *ContainerStateTerminated `json:"terminated,omitempty"`
+}
+
+// ContainerStateWaiting says why a container does not run yet.
+type ContainerStateWaiting struct {
+	Reason  string `json:"reason,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// ContainerStateTerminated says how a container ended.
+type ContainerStateTerminated struct {
+	ExitCode int32  `json:"exitCode"`
+	Reason   string `json:"reason,omitempty"`
+	Message  string `json:"message,omitempty"`
+}
+
+// PodList is a list of pods.
+type PodList struct {
+	Items []Pod `json:"items"`
 }
 
 // PodSpec is the part of a pod's spec the launcher sets.

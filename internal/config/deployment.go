@@ -58,8 +58,8 @@ func (g *Gateway) validateDeployment() error {
 	if g.SocketGroup != "" {
 		refuse("socket_group", "there is no Unix socket for local clients")
 	}
-	if g.Supervisor.Mode != "exec" {
-		refuse("supervisor.mode", "instances run as child processes of the gateway (exec); there is no systemd to start units")
+	if g.Supervisor.Mode != "exec" && g.Supervisor.Mode != "kubernetes" {
+		refuse("supervisor.mode", "instances run as child processes of the gateway (exec), or in pods of their own (kubernetes); there is no systemd to start units")
 	}
 	if g.Audit.Kernel == "on" {
 		refuse("audit.kernel", "a container has no kernel audit of its own; the audit records go to the standard error, which the container runtime collects")
@@ -97,7 +97,16 @@ func CheckDeployment(g *Gateway, backends map[string]*Backend) error {
 		return errors.Join(errs...)
 	}
 	for _, name := range slices.Sorted(maps.Keys(backends)) {
-		for _, p := range backends[name].ContainerProblems() {
+		b := backends[name]
+		problems := b.ContainerProblems()
+		if b.URL == "" && g.KubernetesLauncher() {
+			// A stdio server in a pod of its own: what a pod cannot give.
+			problems = b.PodProblems()
+			if b.SELinuxType != DefaultSELinuxType && !g.Supervisor.Kubernetes.AllowSELinuxType {
+				problems = append(problems, "selinux_type: not with the Kubernetes launcher unless supervisor.kubernetes.allow_selinux_type: the nodes' SELinux policy must have the type")
+			}
+		}
+		for _, p := range problems {
 			errs = append(errs, fmt.Errorf("server %s: %s", name, p))
 		}
 	}
@@ -111,7 +120,7 @@ func (b *Backend) ContainerProblems() []string {
 	const mode = "not in container mode (deployment: container): "
 	if b.URL == "" {
 		// Privileged servers too: they have a command.
-		return []string{"command: " + mode + "a server that speaks stdio would run as a child process in the gateway's container, with its account and secrets, which isolates nothing; run it as a server that speaks HTTP, or wait for the Kubernetes launcher (pods of their own, roadmap step 47)"}
+		return []string{"command: " + mode + "a server that speaks stdio would run as a child process in the gateway's container, with its account and secrets, which isolates nothing; run it as a server that speaks HTTP, or in a pod of its own with supervisor.mode: kubernetes and image"}
 	}
 	var out []string
 	refuse := func(key, why string) { out = append(out, key+": "+mode+why) }

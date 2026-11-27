@@ -385,13 +385,40 @@ supervisor:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `supervisor.mode` | `systemd` | `systemd`: each instance is a confined transient unit. `exec`: plain child processes without systemd's sandbox and SELinux, under their definitions' `landlock` only (development only). |
+| `supervisor.mode` | `systemd` (`exec` in container mode) | `systemd`: each instance is a confined transient unit. `exec`: plain child processes without systemd's sandbox and SELinux, under their definitions' `landlock` only (development only on a host; in container mode the connectors of servers that speak HTTP). `kubernetes` (container mode only): instances of stdio servers run in pods of their own, those of servers that speak HTTP as child processes (below, and chapter 16). |
 | `supervisor.selinux` | `auto` | set each instance's SELinux domain and MCS pair: `auto` (when SELinux is enabled), `on`, `off` |
 | `supervisor.idle_timeout` | `15m` | stop an instance this long after its last session ended |
 | `supervisor.start_timeout` | `30s` | how long a new instance may take to answer MCP's `initialize` (at least `1s`); a slower start fails with "*name* did not answer initialize within 30s (supervisor.start_timeout)". Raise it on small hosts (a Raspberry Pi), where interpreted servers (Python, Node) start slowly |
 | `supervisor.warm_up` | `false` | start every server's shared discovery instance when the gateway starts (and those of servers a reload adds or changes) and fill their lists in the background, so that the first listing does not wait for them; for small hosts, with a longer `idle_timeout` (chapter 14, "Tuning") |
 | `supervisor.mcs_range` | `c768.c1023` | the MCS categories instances get their pairs from (at least 8 categories within `c0.c1023`); see chapter 9 on coordinating with libvirt |
 | `supervisor.mcs_avoid` | `auto` | skip category pairs held by running containers and virtual machines, and replace an instance whose pair one of them takes later; `off` |
+
+With `supervisor.mode: kubernetes`:
+
+```yaml
+supervisor:
+  mode: kubernetes
+  kubernetes:
+    namespace: mcp-instances
+    bridge_image: registry.example.com/mcp-gateway:2.0.0
+    gateway_namespace: mcp-gateway
+    gateway_labels: {app.kubernetes.io/name: mcp-gateway}
+    image_pull_policy: IfNotPresent
+    start_timeout: 2m
+    selinux: "off"
+    allow_selinux_type: false
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `supervisor.kubernetes.namespace` | — (required) | where instances' pods run: a namespace of their own, in which the gateway's ServiceAccount may create, get and delete pods, Secrets and NetworkPolicies (chapter 16) |
+| `supervisor.kubernetes.bridge_image` | — (required) | the gateway's own image: an init container copies `mcp-stdio-bridge` from it into each pod |
+| `supervisor.kubernetes.gateway_namespace`, `gateway_labels` | — (required) | the namespace and labels of the gateway's pods: an instance's NetworkPolicy lets only them reach it |
+| `supervisor.kubernetes.image_pull_policy` | `IfNotPresent` | of the instances' containers: `IfNotPresent`, `Always`, `Never` |
+| `supervisor.kubernetes.start_timeout` | `2m` | how long a pod may take to run (scheduling, the image pull), between `10s` and `1h`; an image that does not pull fails at once |
+| `supervisor.kubernetes.selinux` | `off` | `on`: each instance gets an MCS level of its own from `supervisor.mcs_range`, for nodes that run SELinux |
+| `supervisor.kubernetes.allow_selinux_type` | `false` | pass a definition's `selinux_type` to its pod; the nodes' policy must have the type |
+| `supervisor.kubernetes.api_server`, `token_file`, `ca_file` | `https://kubernetes.default.svc`, `/var/run/secrets/mcp-gateway/token/token`, `/etc/mcp-gateway/cluster-ca/ca.crt` | how the gateway reaches the Kubernetes API, as its ServiceAccount |
 
 ### Limits
 

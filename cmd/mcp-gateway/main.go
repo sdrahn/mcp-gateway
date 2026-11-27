@@ -40,6 +40,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	controlapi "github.com/sdrahn/mcp-gateway/internal/control"
 	"github.com/sdrahn/mcp-gateway/internal/fswatch"
+	"github.com/sdrahn/mcp-gateway/internal/kube"
 	"github.com/sdrahn/mcp-gateway/internal/metrics"
 	"github.com/sdrahn/mcp-gateway/internal/notify"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
@@ -342,7 +343,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if hooks != nil {
 		go hooks.Run(ctx)
 	}
-	signIns, err := newSignIns(log, gw, launcher, auditLog)
+	signIns, err := newSignIns(log, gw, helperLauncher(launcher), auditLog)
 	if err != nil {
 		return err
 	}
@@ -530,11 +531,58 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 // child processes (the connectors of servers that speak HTTP; stdio
 // servers are refused there), else the supervisor's mode.
 func newLauncher(log *slog.Logger, gw *config.Gateway) (supervisor.Launcher, error) {
-	if gw.Container() {
-		log.Info("container mode: instances of servers that speak HTTP run as child processes")
-		return &supervisor.Exec{Log: log}, nil
+	if !gw.Container() {
+		return supervisor.NewLauncher(log, gw.Supervisor)
 	}
-	return supervisor.NewLauncher(log, gw.Supervisor)
+	exec := &supervisor.Exec{Log: log}
+	if !gw.KubernetesLauncher() {
+		log.Info("container mode: instances of servers that speak HTTP run as child processes")
+		return exec, nil
+	}
+	k, err := newKubernetes(log, gw)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("container mode: instances of stdio servers run in pods of their own, those of servers that speak HTTP as child processes",
+		"namespace", k.Options.Namespace)
+	return supervisor.Split{HTTP: exec, Stdio: k}, nil
+}
+
+// newKubernetes sets up the Kubernetes launcher and deletes the pods an
+// earlier run left: their instances ended with it.
+func newKubernetes(log *slog.Logger, gw *config.Gateway) (*supervisor.Kubernetes, error) {
+	kc := gw.Supervisor.Kubernetes.WithDefaults()
+	client, err := kube.NewClient(kc.APIServer, kc.TokenFile, kc.CAFile)
+	if err != nil {
+		return nil, err
+	}
+	k := &supervisor.Kubernetes{Client: client, Log: log, StartTimeout: kc.StartTimeout, Options: supervisor.PodOptions{
+		Namespace: kc.Namespace, BridgeImage: kc.BridgeImage, ImagePullPolicy: kc.ImagePullPolicy,
+		GatewayNamespace: kc.GatewayNamespace, GatewayLabels: kc.GatewayLabels, AllowSELinuxType: kc.AllowSELinuxType,
+	}}
+	if kc.SELinux == "on" {
+		lo, hi, err := gw.Supervisor.MCSCategories()
+		if err != nil {
+			return nil, err
+		}
+		k.MCS = supervisor.NewMCSAllocator(lo, hi)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := k.Cleanup(ctx); err != nil {
+		return nil, fmt.Errorf("kubernetes launcher: removing the pods of an earlier run in %s: %w", kc.Namespace, err)
+	}
+	return k, nil
+}
+
+// helperLauncher is the launcher of mcp-oauth-helper: a child process
+// beside the gateway, as the connectors are, with the Kubernetes
+// launcher too.
+func helperLauncher(l supervisor.Launcher) supervisor.Launcher {
+	if s, ok := l.(supervisor.Split); ok {
+		return s.HTTP
+	}
+	return l
 }
 
 // newSignIns sets up signing principals in to servers with sign_in: with
