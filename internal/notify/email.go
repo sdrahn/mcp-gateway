@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"maps"
 	"mime"
+	"mime/quotedprintable"
 	"net"
 	"net/smtp"
 	"os"
@@ -251,15 +252,16 @@ func (e *Email) NoticeMessage(n broker.Notice) []byte {
 	hdr("Auto-Submitted", "auto-generated")
 	hdr("MIME-Version", "1.0")
 	hdr("Content-Type", "text/plain; charset=utf-8")
-	hdr("Content-Transfer-Encoding", "8bit")
+	hdr("Content-Transfer-Encoding", "quoted-printable")
 	b.WriteString("\r\n")
+	var body bytes.Buffer
 	line := func(format string, a ...any) {
 		for i, v := range a {
 			if s, ok := v.(string); ok {
 				a[i] = clean(s)
 			}
 		}
-		fmt.Fprintf(&b, format+"\r\n", a...)
+		fmt.Fprintf(&body, format+"\r\n", a...)
 	}
 	line("%s posted a notice for the approvers of %s:", n.PostedBy, n.Principal.Sub)
 	line("")
@@ -280,6 +282,16 @@ func (e *Email) NoticeMessage(n broker.Notice) []byte {
 		}
 	}
 	line("This notice asks for no decision.")
+	return finish(&b, body.Bytes())
+}
+
+// finish writes body after the header in b, quoted-printable: lines stay
+// within what SMTP allows (RFC 5322, 998 characters) whatever the text,
+// a long argument too (#411).
+func finish(b *bytes.Buffer, body []byte) []byte {
+	w := quotedprintable.NewWriter(b)
+	_, _ = w.Write(body)
+	_ = w.Close()
 	return b.Bytes()
 }
 
@@ -321,8 +333,9 @@ func (e *Email) Message(p broker.Pending) []byte {
 	hdr("Auto-Submitted", "auto-generated")
 	hdr("MIME-Version", "1.0")
 	hdr("Content-Type", "text/plain; charset=utf-8")
-	hdr("Content-Transfer-Encoding", "8bit")
+	hdr("Content-Transfer-Encoding", "quoted-printable")
 	b.WriteString("\r\n")
+	var body bytes.Buffer
 
 	// Values come from clients and backends: one line each.
 	line := func(format string, a ...any) {
@@ -331,7 +344,7 @@ func (e *Email) Message(p broker.Pending) []byte {
 				a[i] = clean(s)
 			}
 		}
-		fmt.Fprintf(&b, format+"\r\n", a...)
+		fmt.Fprintf(&body, format+"\r\n", a...)
 	}
 	line("An AI agent asks for approval:")
 	line("")
@@ -349,7 +362,7 @@ func (e *Email) Message(p broker.Pending) []byte {
 	}
 	if e.config().IncludeArgs && len(p.Args) > 0 {
 		args, _ := json.MarshalIndent(p.Args, "              ", "  ")
-		fmt.Fprintf(&b, "  Arguments:  %s\r\n", strings.ReplaceAll(string(args), "\n", "\r\n"))
+		fmt.Fprintf(&body, "  Arguments:  %s\r\n", strings.ReplaceAll(string(args), "\n", "\r\n"))
 	}
 	line("  Times out:  %s", p.Expires.Local().Format(time.RFC1123))
 	line("")
@@ -386,7 +399,7 @@ func (e *Email) Message(p broker.Pending) []byte {
 	line("")
 	line("Only approve what you expect. This mail is informational: approving")
 	line("happens on the page, where you authenticate.")
-	return b.Bytes()
+	return finish(&b, body.Bytes())
 }
 
 // smtpSend delivers msg through the configured mail server.

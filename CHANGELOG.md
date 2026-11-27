@@ -111,6 +111,10 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- Approval and notice mail is quoted-printable instead of 8bit, so its
+  lines stay within what SMTP allows: a long argument (with
+  `include_args`) or notice text could make a line longer than 998
+  characters, and a mail server refuse the mail (#411).
 - Chapter 10 says what upgrading a host from 1.x to 2.0 changes:
   nothing in its configuration, role data or policy; the console is new
   where the approval page is set up.
