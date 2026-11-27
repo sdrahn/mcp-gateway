@@ -71,6 +71,11 @@ minor release (with a warning) and removed in the next.
   with `approvals login` (bearer ID token). The approver rules decide as
   on the control socket (`remote-user:`, `remote-group:`); decisions are
   audited with `via=console`, changes with `mcp-console-action`.
+- The console (2.0, D23, roadmap step 48; chapter 7, "The console";
+  #390): the gateway's management page at `/console/`, signed in as on
+  the approval page: the status and reload errors, servers and their
+  instances, sessions, tasks, sign-ins, the policy and its what-if, with
+  the actions the approver rules allow (stop, end, cancel, sign out).
 
 ### Changed
 

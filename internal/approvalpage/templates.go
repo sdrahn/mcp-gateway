@@ -2,6 +2,7 @@ package approvalpage
 
 import (
 	"bytes"
+	"fmt"
 	"html/template"
 	"net/http"
 	"strings"
@@ -11,6 +12,35 @@ import (
 var funcs = template.FuncMap{
 	"clock": func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") },
 	"join":  strings.Join,
+	"tabs":  func() []tab { return consoleTabs },
+	"ago":   ago,
+}
+
+// tab is an entry of the console's navigation.
+type tab struct{ Nav, Label, Path string }
+
+var consoleTabs = []tab{
+	{"overview", "Gateway", "/console/"},
+	{"servers", "Servers", "/console/servers"},
+	{"sessions", "Sessions", "/console/sessions"},
+	{"tasks", "Tasks", "/console/tasks"},
+	{"sign-ins", "Sign-ins", "/console/sign-ins"},
+	{"policy", "Policy", "/console/policy"},
+	{"approvals", "Approvals", "/approvals/"},
+}
+
+// ago is how long before now t was, roughly.
+func ago(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%d min ago", int(d/time.Minute))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%d h ago", int(d/time.Hour))
+	}
+	return fmt.Sprintf("%d days ago", int(d/(24*time.Hour)))
 }
 
 // style is the page's look, the Cockpit plugin's (cockpit/mcp-gateway/
@@ -73,6 +103,15 @@ form.inline { display: inline; margin: 0; }
 .proposal { border-left: 3px solid var(--muted); }
 .proposal .text { white-space: pre-wrap; }
 .proposal .warning { color: var(--danger); margin: 0 0 0.5rem; }
+.tabs { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; padding: 0.4rem 1.5rem; border-bottom: 1px solid var(--border); }
+.tabs a { text-decoration: none; padding: 0.2rem 0; }
+.tabs a[aria-current] { color: var(--fg); border-bottom: 2px solid var(--accent); font-weight: 500; }
+.note.error { background: var(--error-bg); border-left-color: var(--danger); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; }
+.stats .card { margin: 0; display: block; color: inherit; text-decoration: none; }
+.stats .card:hover { border-color: var(--accent); }
+.stats .n { font-size: 1.6rem; font-weight: 500; }
+textarea.data { width: 100%; box-sizing: border-box; font: 13px monospace; }
 fieldset { border: 0; padding: 0; margin: 0.75rem 0 0; }
 label { margin-right: 1rem; }
 @media (max-width: 600px) {
@@ -88,19 +127,21 @@ label { margin-right: 1rem; }
 
 const layout = `{{define "top"}}<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.Title}} – MCP Gateway approvals</title>
+<title>{{.Title}} – MCP Gateway {{if .Console}}console{{else}}approvals{{end}}</title>
 {{if .B.Icon}}<link rel="icon" href="/approvals/static/favicon.ico">{{end}}
 <style>` + style + `</style></head><body>
 <header class="masthead">
 {{if .B.Logo}}<img src="/approvals/static/logo.png" alt="">{{end}}
-<div><div class="product">MCP Gateway approvals</div>
+<div><div class="product">MCP Gateway {{if .Console}}console{{else}}approvals{{end}}</div>
 {{if .S}}{{if or .B.OSName .B.Host}}<div class="muted">{{.B.OSName}}{{if and .B.OSName .B.Host}} · {{end}}{{.B.Host}}</div>{{end}}{{end}}</div>
 {{if .S}}<div class="who"><span>Signed in as <b>{{.S.Approver.Name}}</b>{{if .S.Approver.Groups}} <span class="muted">(groups {{join .S.Approver.Groups ", "}})</span>{{end}}</span>
-<a href="/approvals/">Approvals</a>
+{{if and .HasConsole (not .Console)}}<a href="/console/">Console</a>{{end}}<a href="/approvals/">Approvals</a>
 <form class="inline" method="post" action="/approvals/logout"><input type="hidden" name="csrf" value="{{.S.CSRF}}"><button class="secondary">Sign out</button></form></div>{{end}}
 </header>
+{{if .Console}}<nav class="tabs">{{range $t := tabs}}<a href="{{$t.Path}}"{{if eq $t.Nav $.Nav}} aria-current="page"{{end}}>{{$t.Label}}</a>{{end}}</nav>{{end}}
 <main>
 <h1>{{.Title}}</h1>
+{{if .Console}}{{if .Msg}}<p class="note">Done: {{.Msg}}</p>{{end}}{{range .Errors}}<p class="note error">Not shown: {{.}}</p>{{end}}{{end}}
 {{end}}
 {{define "bottom"}}</main></body></html>
 {{end}}
@@ -196,6 +237,7 @@ func (pg *Page) page(w http.ResponseWriter, status int, title, text string, s *s
 // page rather than half of one.
 func (pg *Page) render(w http.ResponseWriter, status int, t *template.Template, data map[string]any) {
 	data["B"] = pg.Branding
+	data["HasConsole"] = pg.Control != nil
 	if _, ok := data["Title"]; !ok {
 		switch t {
 		case inboxTmpl:

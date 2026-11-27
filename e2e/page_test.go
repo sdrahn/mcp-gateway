@@ -519,7 +519,7 @@ approvals:
 
 	operator, csrf := signIn("u-operator")
 	if code := consoleCall(t, operator, "GET", origin+"/console/api/v1/servers", "", "", &servers); code != 200 || len(servers) != 1 || len(servers[0].Instances) != 1 {
-		t.Errorf("u-operator's servers: %d %+v", code, servers)
+		t.Fatalf("u-operator's servers: %d %+v", code, servers)
 	}
 	var st struct{ Version string }
 	if code := consoleCall(t, operator, "GET", origin+"/console/api/v1/status", "", "", &st); code != 200 || st.Version == "" {
@@ -542,6 +542,19 @@ approvals:
 	}
 	if text, isErr := toolResult(t, result); isErr || !strings.HasPrefix(text, "wrote") {
 		t.Fatalf("the call: %q %v", text, isErr)
+	}
+	// The console's pages show the same, as the operator's.
+	for path, want := range map[string]string{"/console/": "MCP Gateway console", "/console/servers": servers[0].Instances[0].ID,
+		"/console/sessions": "console-e2e", "/console/policy": "What if"} {
+		resp, err := operator.Get(origin + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != 200 || !strings.Contains(string(b), want) {
+			t.Errorf("%s: %d, lacks %q:\n%s", path, resp.StatusCode, want, b)
+		}
 	}
 	wants := []string{`"event":"mcp-approval"`, `"via":"console"`, `"by":"u-operator"`, `"event":"mcp-console-action"`, `"route":"/v1/approvals/`}
 	logs := e.gwLogs.waitContains(wants...)
