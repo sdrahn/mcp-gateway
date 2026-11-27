@@ -87,6 +87,8 @@ case "$DEPLOY" in
 kustomize) k apply -k test/kind >/dev/null ;;
 helm)
 	k -n "$NS" apply -f test/kind/echo.yaml >/dev/null
+	# A Secret the chart mounts (values.yaml, secrets).
+	k -n "$NS" create secret generic mcp-gateway-kind --from-literal=value=kind-secret-value --dry-run=client -o yaml | apply
 	"$HELM" --kube-context "kind-$CLUSTER" -n "$NS" upgrade --install mcp-gateway deploy/helm/mcp-gateway \
 		-f test/kind/values.yaml >/dev/null
 	;;
@@ -112,6 +114,15 @@ pass "metadata names the cluster's issuer"
 	fail "probes: $(curl -s "http://127.0.0.1:$MPORT/readyz")"
 curl -s "http://127.0.0.1:$MPORT/metrics" | grep -q '^mcp_gateway_instances ' || fail "no metrics"
 pass "/readyz, /healthz and /metrics on the metrics port"
+
+if [ "$DEPLOY" = helm ]; then
+	# The chart's secrets: mounted for the gateway's account, for no one else.
+	got=$(k -n "$NS" exec deploy/mcp-gateway -c gateway -- cat /etc/mcp-gateway/secrets/mcp-gateway-kind/value)
+	[ "$got" = kind-secret-value ] || fail "the Secret as the gateway's account reads it: $got"
+	mode=$(k -n "$NS" exec deploy/mcp-gateway -c gateway -- stat -L -c '%a %g' /etc/mcp-gateway/secrets/mcp-gateway-kind/value)
+	[ "$mode" = "440 10001" ] || fail "the Secret's file: mode and group $mode, want 440 10001"
+	pass "a Secret of the chart's secrets: the gateway's account reads it, others do not ($mode)"
+fi
 
 # The doctor in the gateway, asked as the gateway's account in its
 # container (the control socket): nothing fails, and the cluster's
