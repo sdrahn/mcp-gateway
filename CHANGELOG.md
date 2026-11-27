@@ -9,6 +9,13 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
+- Built with Go 1.26.11 (`toolchain`), and `golang.org/x/sys` v0.47.0
+  and `golang.org/x/text` v0.41.0: govulncheck found 49 vulnerabilities
+  of Go 1.24.7's standard library that the gateway's code reaches (in
+  `net/http`, `crypto/tls`, `crypto/x509`, `net/url` and others), and
+  some in the two modules it does not call; none are left. Go 1.24 no
+  longer has fixes. Building now needs Go 1.25 or later (`go 1.25.0`;
+  the spec's `golang(API) >= 1.25`; SLES and Leap 16 ship 1.27).
 - What a client says of itself (`clientInfo`, of an `initialize` or a
   modern agent's `_meta`) is kept without control and format characters,
   each field up to 128 characters; `mcp-gateway-admin` writes control
