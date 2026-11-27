@@ -216,7 +216,7 @@ func (c *selfCheck) issuers(ctx context.Context) []doctor.Result {
 		case st.Err != nil:
 			r.Status, r.Summary = doctor.Warn, fmt.Sprintf("the key set was not fetched again (%v); the %d keys fetched before stay", st.Err, st.Keys)
 		default:
-			r.Status, r.Summary = doctor.OK, fmt.Sprintf("key set with %d keys", st.Keys)
+			r.Status, r.Summary = doctor.OK, fmt.Sprintf("key set with %d key%s", st.Keys, map[bool]string{true: "s"}[st.Keys != 1])
 		}
 		rs = append(rs, r)
 	}
