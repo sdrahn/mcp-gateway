@@ -882,3 +882,15 @@ func TestProposalShown(t *testing.T) {
 		t.Fatal("the proposal comes before the gateway's facts")
 	}
 }
+
+// The page shows an argument's bidirectional controls as escapes (#410).
+func TestArgsHidden(t *testing.T) {
+	f := newFixture(t)
+	p := f.broker.pending["a-1"]
+	p.Args = map[string]any{"path": "/home/ivy/report\u202efdp.sh"}
+	f.broker.pending["a-1"] = p
+	code, body, _ := get(t, f.browser(t), f.srv.URL+"/approvals/a-1")
+	if code != http.StatusOK || !strings.Contains(body, `report\u202Efdp.sh`) || strings.ContainsRune(body, 0x202e) {
+		t.Fatalf("%d %s", code, body)
+	}
+}

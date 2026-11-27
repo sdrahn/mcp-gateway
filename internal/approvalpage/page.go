@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
+	"github.com/sdrahn/mcp-gateway/internal/display"
 	"github.com/sdrahn/mcp-gateway/internal/oauth"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
@@ -631,8 +632,7 @@ func (pg *Page) show(w http.ResponseWriter, r *http.Request) {
 	}
 	args := ""
 	if p.Args != nil {
-		b, _ := json.MarshalIndent(p.Args, "", "  ")
-		args = string(b)
+		args, _ = display.JSON(p.Args, "", "  ")
 	}
 	pg.render(w, http.StatusOK, showTmpl, map[string]any{"S": s, "P": p, "Args": args})
 }
@@ -695,8 +695,7 @@ func (pg *Page) showReview(w http.ResponseWriter, r *http.Request) {
 	}
 	args := ""
 	if rv.Args != nil {
-		b, _ := json.MarshalIndent(rv.Args, "", "  ")
-		args = string(b)
+		args, _ = display.JSON(rv.Args, "", "  ")
 	}
 	pg.render(w, http.StatusOK, reviewTmpl, map[string]any{"S": s, "R": rv, "Args": args})
 }

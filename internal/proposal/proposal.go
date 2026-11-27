@@ -120,8 +120,8 @@ func plain(s string, lines bool) bool {
 	for _, r := range s {
 		switch {
 		case lines && (r == '\n' || r == '\t'):
-		case unicode.IsControl(r), r == ' ', r == ' ',
-			r >= '‪' && r <= '‮', r >= '⁦' && r <= '⁩':
+		case unicode.IsControl(r), r == '\u2028', r == '\u2029',
+			r >= '\u202a' && r <= '\u202e', r >= '\u2066' && r <= '\u2069':
 			return false
 		}
 	}

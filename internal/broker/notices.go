@@ -152,7 +152,7 @@ func plainText(s string, lines bool) bool {
 		if lines && (r == '\n' || r == '\t') {
 			continue
 		}
-		if unicode.IsControl(r) || r == ' ' || r == ' ' {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
 			return false
 		}
 	}

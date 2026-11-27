@@ -418,3 +418,14 @@ func TestApprovalsShowOverRate(t *testing.T) {
 		t.Fatalf("%d\n%s", rc, out)
 	}
 }
+
+// approvals show writes an argument's bidirectional controls as escapes,
+// also where its output is no terminal (#410).
+func TestApprovalsShowHidden(t *testing.T) {
+	api := newApprovalsAPI(t)
+	api.pending[0].Args = map[string]any{"path": "/home/alice/report\u202efdp.sh"}
+	rc, out, errs := runApprovalsCmd(t, api, "", "approvals", "show", "a-7f3e9")
+	if rc != 0 || !strings.Contains(out, `report\u202Efdp.sh`) || strings.ContainsRune(out, 0x202e) {
+		t.Fatalf("rc %d: %s%s", rc, out, errs)
+	}
+}

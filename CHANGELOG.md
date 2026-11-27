@@ -5,6 +5,28 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
+## Unreleased
+
+### Changed
+
+- What a client says of itself (`clientInfo`, of an `initialize` or a
+  modern agent's `_meta`) is kept without control and format characters,
+  each field up to 128 characters; `mcp-gateway-admin` writes control
+  and format characters to a terminal as escapes (`\u001B`). Escape
+  sequences in a client's name reached the terminal of whoever listed
+  clients or approvals (#409).
+- A call's arguments, where approvers read them (the approval page and
+  its reviews, approval mail, `mcp-gateway-admin approvals show` and
+  `reviews show`, Cockpit's Approvals tab), show characters that do not
+  show as themselves, bidirectional controls and zero-width ones among
+  them, as escapes (`\u202E`): an agent could make an argument read as
+  other than it was (#410). `tools/check-tree` refuses such characters
+  in the sources.
+- Approval and notice mail is quoted-printable instead of 8bit, so its
+  lines stay within what SMTP allows: a long argument (with
+  `include_args`) or notice text could make a line longer than 998
+  characters, and a mail server refuse the mail (#411).
+
 ## v1.17.2 — 2026-11-26
 
 A tool call may be sent again without running twice: a client names it

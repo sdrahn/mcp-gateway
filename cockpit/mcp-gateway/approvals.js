@@ -153,7 +153,7 @@ function renderApprovals(pending) {
             el("dl", null,
                el("dt", null, "Principal"), el("dd", null, principalText(p.principal)),
                el("dt", null, "Action"), el("dd", null, p.action),
-               el("dt", null, "Arguments"), el("dd", null, el("pre", null, JSON.stringify(p.args || {}, null, 2))),
+               el("dt", null, "Arguments"), el("dd", null, el("pre", null, shownJSON(p.args || {}))),
                el("dt", null, "Asked via"), el("dd", null, p.channel),
                el("dt", null, "Times out"), el("dd", null, relative(p.expires))),
             proposalBox(p.proposal),
