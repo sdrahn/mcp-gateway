@@ -56,7 +56,7 @@ denied if e2e_conflict == 3
 	if !listed["read_text_file"] || !listed["list_directory"] || listed["write_file"] {
 		t.Fatalf("listed %v, want all but write_file\n%s", listed, e.gwLogs.String())
 	}
-	logs := e.gwLogs.String()
+	logs := e.gwLogs.waitContains("filtering failed; hiding what the policy cannot decide", "hidden=write_file", "eval_conflict_error")
 	if !strings.Contains(logs, "filtering failed; hiding what the policy cannot decide") ||
 		!strings.Contains(logs, "hidden=write_file") || !strings.Contains(logs, "eval_conflict_error") {
 		t.Errorf("the journal does not name the hidden tool and OPA's error:\n%s", logs)

@@ -74,14 +74,16 @@ unmatched_reasons contains "task category files-cleanup is not enabled on this h
 			!strings.Contains(string(m.Result), "mcp-gateway: "+tc.reason) {
 			t.Errorf("%s: the client got %s %v, want the reason %q", tc.tool, m.Result, m.Error, tc.reason)
 		}
-		audited := false
-		for _, line := range strings.Split(e.gwLogs.String(), "\n") {
-			if strings.Contains(line, `"audit":true`) && strings.Contains(line, `"name":"`+tc.tool+`"`) &&
-				strings.Contains(line, `"effect":"deny"`) && strings.Contains(line, `"reason":"`+tc.reason+`"`) {
-				audited = true
+		audited := func(logs string) bool {
+			for _, line := range strings.Split(logs, "\n") {
+				if strings.Contains(line, `"audit":true`) && strings.Contains(line, `"name":"`+tc.tool+`"`) &&
+					strings.Contains(line, `"effect":"deny"`) && strings.Contains(line, `"reason":"`+tc.reason+`"`) {
+					return true
+				}
 			}
+			return false
 		}
-		if !audited {
+		if !audited(e.gwLogs.wait(audited)) {
 			t.Errorf("%s: no audit record of the denial with the reason %q", tc.tool, tc.reason)
 		}
 	}

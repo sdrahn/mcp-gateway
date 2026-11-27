@@ -166,8 +166,10 @@ sign_in:
 	if got := listNames(t, readResponse(t, c, 102), "tools", "name"); got != "sign_in" {
 		t.Errorf("tools after signing out: %s", got)
 	}
-	for _, ev := range []string{`"event":"mcp-sign-in"`, `"event":"mcp-sign-out"`} {
-		if !strings.Contains(e.gwLogs.String(), ev) {
+	signs := []string{`"event":"mcp-sign-in"`, `"event":"mcp-sign-out"`}
+	logs := e.gwLogs.waitContains(signs...)
+	for _, ev := range signs {
+		if !strings.Contains(logs, ev) {
 			t.Errorf("no %s audit record", ev)
 		}
 	}
@@ -216,7 +218,7 @@ sign_in:
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	if !strings.Contains(e.gwLogs.String(), `"by":"mcp-gateway"`) {
+	if !strings.Contains(e.gwLogs.waitContains(`"by":"mcp-gateway"`), `"by":"mcp-gateway"`) {
 		t.Errorf("no sign-out by the gateway in the audit records")
 	}
 }

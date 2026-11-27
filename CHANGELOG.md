@@ -5,7 +5,24 @@ All notable changes to mcp-gateway. Versions follow
 role data and APIs change compatibly: what goes away is deprecated in one
 minor release (with a warning) and removed in the next.
 
-## Unreleased
+## v1.17.3 — 2026-11-27
+
+Security fixes. What agents send is shown to the people who decide on it
+as it is: escape sequences in a client's self-reported name no longer
+reach the terminal of whoever runs `mcp-gateway-admin clients` or
+`approvals`, and bidirectional and zero-width characters in a call's
+arguments are shown as escapes, so an argument cannot read as other than
+it is on the approval page, in approval mail, in the CLI or in Cockpit
+(#409, #410). Approval mail with a long argument is no longer refused for
+its line length (#411). The gateway is built with Go 1.26.11, which fixes
+49 vulnerabilities of the standard library of Go 1.24.7 that govulncheck
+found the gateway reaching (#422).
+
+Upgrading from 1.17.2 needs no changes to `gateway.yaml`, server
+definitions, role data or custom policies. After the update, restart the
+gateway (`systemctl restart mcp-gateway.service`); the package does not.
+The SELinux modules do not change. Building from source now needs Go
+1.25 or later.
 
 ### Changed
 
@@ -15,7 +32,8 @@ minor release (with a warning) and removed in the next.
   `net/http`, `crypto/tls`, `crypto/x509`, `net/url` and others), and
   some in the two modules it does not call; none are left. Go 1.24 no
   longer has fixes. Building now needs Go 1.25 or later (`go 1.25.0`;
-  the spec's `golang(API) >= 1.25`; SLES and Leap 16 ship 1.27).
+  the spec's `golang(API) >= 1.25`; SLES and Leap 16 ship 1.27)
+  (#422).
 - What a client says of itself (`clientInfo`, of an `initialize` or a
   modern agent's `_meta`) is kept without control and format characters,
   each field up to 128 characters; `mcp-gateway-admin` writes control

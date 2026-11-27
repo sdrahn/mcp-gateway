@@ -133,7 +133,7 @@ approvals:
 	if b, err := os.ReadFile(target); err != nil || string(b) != "approved in a browser" {
 		t.Fatalf("file %q %v", b, err)
 	}
-	if logs := e.gwLogs.String(); !strings.Contains(logs, `"via":"page"`) || !strings.Contains(logs, `"by":"u-approver"`) {
+	if logs := e.gwLogs.waitContains(`"via":"page"`, `"by":"u-approver"`); !strings.Contains(logs, `"via":"page"`) || !strings.Contains(logs, `"by":"u-approver"`) {
 		t.Errorf("audit lacks the page's decision")
 	}
 }

@@ -182,9 +182,10 @@ approvals:
 	case <-time.After(10 * time.Second):
 		t.Error("the decision was not posted")
 	}
-	logs := e.gwLogs.String()
-	for _, want := range []string{`"event":"mcp-webhook-callback"`, `"webhook":"chat"`, `"approver":"remote-user:chat-approver"`,
-		`"approver":"remote-user:someone-else"`, `"via":"webhook"`, `"by":"chat-approver"`} {
+	wants := []string{`"event":"mcp-webhook-callback"`, `"webhook":"chat"`, `"approver":"remote-user:chat-approver"`,
+		`"approver":"remote-user:someone-else"`, `"via":"webhook"`, `"by":"chat-approver"`}
+	logs := e.gwLogs.waitContains(wants...)
+	for _, want := range wants {
 		if !strings.Contains(logs, want) {
 			t.Errorf("audit lacks %s", want)
 		}

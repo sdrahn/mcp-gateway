@@ -58,7 +58,7 @@ func TestPseudonymization(t *testing.T) {
 		t.Fatalf("file content %q, %v", b, err)
 	}
 
-	logs := e.gwLogs.String()
+	logs := e.gwLogs.waitContains(`"event":"mcp-pseudonymize"`, `"reidentified":1`)
 	if !strings.Contains(logs, `"event":"mcp-pseudonymize"`) || !strings.Contains(logs, `"reidentified":1`) {
 		t.Errorf("audit records missing: %s", logs)
 	}
