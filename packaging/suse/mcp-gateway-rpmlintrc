@@ -11,3 +11,6 @@ addFilter("non-standard-gid")
 # erase, never created (the shipped default in /usr/share is in force
 # while there is none).
 addFilter("ghost-files-without-postin .*/etc/mcp-gateway/policy/rbac/data\.(json|yaml)")
+# The stdio bridge runs in the pods of stdio servers, in any image: it is
+# linked statically on purpose (mcp-gateway-container only).
+addFilter("mcp-gateway-container\\..*statically-linked-binary .*/mcp-stdio-bridge")

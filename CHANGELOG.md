@@ -91,7 +91,19 @@ minor release (with a warning) and removed in the next.
   Docker Compose, both configured from a directory of the host that the
   gateway reloads.
 
+- The container image from the packages (2.0; `packaging/container`,
+  "Building in OBS"): the subpackage `mcp-gateway-container` holds the
+  image's files, the stdio bridge among them, without services or
+  dependencies; `packaging/container/obs/Dockerfile` installs it into
+  BCI-Micro in an OBS container repository. `packaging/container/README.md`
+  is the guide to building, verifying and publishing the image on SUSE
+  systems.
+
 ### Changed
+
+- The container image builds on SLES 16's BCI-Micro
+  (`registry.suse.com/bci/bci-micro:16.0`) by default, instead of SLE 15
+  SP7's (`IMAGE_BASE`).
 
 - `mcp-policy-render` skips hidden directories below the role data's
   directory (a ConfigMap's `..<timestamp>` directory, `.git`): they are

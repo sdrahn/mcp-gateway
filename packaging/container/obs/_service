@@ -1,0 +1,10 @@
+<!-- Puts the version of mcp-gateway-container, as the project built it,
+     into the Dockerfile's tags and label (%PKG_VERSION%), at build time. -->
+<services>
+  <service mode="buildtime" name="replace_using_package_version">
+    <param name="file">Dockerfile</param>
+    <param name="regex">%PKG_VERSION%</param>
+    <param name="parse-version">patch</param>
+    <param name="package">mcp-gateway-container</param>
+  </service>
+</services>

@@ -29,7 +29,7 @@ make image CONTAINER=podman IMAGE=registry.example.com/mcp-gateway:2.0.0
 | Variable | Default | Meaning |
 |---|---|---|
 | `IMAGE` | `mcp-gateway:$(VERSION)` | the image's name and tag |
-| `IMAGE_BASE` | `registry.suse.com/bci/bci-micro:15.7` | the base image |
+| `IMAGE_BASE` | `registry.suse.com/bci/bci-micro:16.0` | the base image |
 | `CONTAINER` | `docker` | `podman` or `docker` |
 | `VERSION` | `git describe --tags --always --dirty` | the version in the binaries and the image's label |
 
@@ -45,8 +45,8 @@ coreutils, and no package manager. These bases are tested:
 
 | Base | For | Note |
 |---|---|---|
-| `registry.suse.com/bci/bci-micro:15.7` | SLE 15 SP7 | the default; the CI's kind jobs build on it |
-| `registry.suse.com/bci/bci-micro:16.0` | SLES 16 | `IMAGE_BASE=registry.suse.com/bci/bci-micro:16.0` |
+| `registry.suse.com/bci/bci-micro:16.0` | SLES 16 | the default; the CI's kind jobs build on it |
+| `registry.suse.com/bci/bci-micro:15.7` | SLE 15 SP7 | `IMAGE_BASE=registry.suse.com/bci/bci-micro:15.7` |
 | `registry.opensuse.org/opensuse/bci/bci-micro:latest` | openSUSE Tumbleweed | rolling: rebuild often |
 
 The other BCI variants (BCI-Base with zypper, BCI-Minimal with rpm,
@@ -84,8 +84,7 @@ Tag the release's version, and the minor version for those who follow
 fixes, then push:
 
 ```bash
-make image CONTAINER=podman IMAGE=registry.example.com/mcp-gateway:2.0.0 \
-    IMAGE_BASE=registry.suse.com/bci/bci-micro:16.0
+make image CONTAINER=podman IMAGE=registry.example.com/mcp-gateway:2.0.0
 podman tag registry.example.com/mcp-gateway:2.0.0 registry.example.com/mcp-gateway:2.0
 podman push registry.example.com/mcp-gateway:2.0.0
 podman push registry.example.com/mcp-gateway:2.0
@@ -106,9 +105,95 @@ base (security fixes), not only for a new gateway release:
 `podman pull` the base and run `make image` again with the same
 `VERSION`.
 
-## Not covered here: OBS
+## Building in OBS
 
-The Open Build Service builds the RPMs (`packaging/suse`). Building this
-image in OBS as well needs a project set up for container builds and a
-Dockerfile that installs the gateway from the project's RPMs. Neither is
-part of this directory yet.
+The Open Build Service builds the RPMs (`packaging/suse`), and can build
+the image from them too: the subpackage `mcp-gateway-container` holds
+exactly what `make install-container` stages, without services, accounts
+or dependencies. `obs/Dockerfile` installs it into BCI-Micro. Steps, for
+a project such as `home:sdrahn:testing`, whose repository
+`openSUSE_Tumbleweed` builds the RPMs:
+
+1. **The package `mcp-gateway`** from this checkout's spec (the
+   `container` subpackage and the stdio bridge are new in 2.0): copy
+   `packaging/suse/{mcp-gateway.spec,_service,mcp-gateway-rpmlintrc}`
+   into the OBS package and run `osc service manualrun`
+   (`packaging/suse/README.md`). To keep a released version published,
+   build this one in a subproject, such as `home:sdrahn:testing:main`.
+
+2. **A repository for the image** in the project's meta
+   (`osc meta prj -e home:sdrahn:testing`): the RPMs, and the base
+   images from `openSUSE:Containers:Tumbleweed`:
+
+   ```xml
+   <repository name="containerfile">
+     <path project="home:sdrahn:testing" repository="openSUSE_Tumbleweed"/>
+     <path project="openSUSE:Containers:Tumbleweed" repository="containers"/>
+     <arch>x86_64</arch>
+     <arch>aarch64</arch>
+   </repository>
+   ```
+
+   The RPM packages build in it no more (`<disable
+   repository="containerfile"/>` in each package's build flags), and
+   the image's package builds there only (`<disable
+   repository="openSUSE_Tumbleweed"/>`).
+
+3. **The project config** (`osc meta prjconf -e home:sdrahn:testing`):
+   Dockerfile builds with Podman in that repository:
+
+   ```
+   %if "%_repository" == "containerfile"
+   Type: docker
+   BuildEngine: podman
+   %endif
+   ```
+
+4. **The package `mcp-gateway-container`** with `obs/Dockerfile` and
+   `obs/_service`:
+
+   ```bash
+   osc mkpac mcp-gateway-container && cd mcp-gateway-container
+   cp <checkout>/packaging/container/obs/{Dockerfile,_service} .
+   osc add Dockerfile _service && osc commit
+   ```
+
+   - The Dockerfile names the images of the repository's path:
+     `opensuse/bci/bci-micro` and `opensuse/tumbleweed`, Tumbleweed's
+     image with zypper; Tumbleweed has no `bci-base`. If a build does
+     not find them, list what the path offers:
+     `osc ls -b openSUSE:Containers:Tumbleweed containers x86_64 | grep -E 'bci|tumbleweed'`.
+   - It tags `sdrahn/mcp-gateway` as `latest`, `%PKG_VERSION%` and
+     `%PKG_VERSION%-%RELEASE%`. `_service` puts the version of
+     `mcp-gateway-container` into `%PKG_VERSION%` at build time.
+   - The image is the one `make image` builds: uid 10001, port 8443,
+     the same entry point. Its RPM database names the package, so
+     scanners see the gateway's version.
+
+OBS publishes images at
+`registry.opensuse.org/<project, ":" as "/">/<repository>/<image>:<tag>`,
+here
+`registry.opensuse.org/home/sdrahn/testing/containerfile/sdrahn/mcp-gateway:<tag>`.
+OBS signs what it publishes. Images built in an openSUSE project are
+openSUSE's, not SUSE's supported BCI-based images.
+
+The installation from the package is tested here with a local stand-in
+for the project's repository: the same Dockerfile, its `FROM` lines by
+registry name, a repository of an `mcp-gateway-container` built from
+`make install-container`'s files. One package is installed (BCI-Micro's
+RPM database already holds what it needs), and the image runs as the
+gateway's pod (`deploy/podman`).
+
+### Using the published image
+
+- **Helm**: `image.repository:
+  registry.opensuse.org/home/sdrahn/testing/containerfile/sdrahn/mcp-gateway`
+  and a fixed `image.tag` (a version, not `latest`). The chart names the
+  same image as the Kubernetes launcher's `bridge_image`.
+- **kubectl**: in `deploy/kubernetes/kustomization.yaml`, set the
+  `images` entry's `newName` and `newTag` to it, and the same image as
+  `supervisor.kubernetes.bridge_image` in `configmap.yaml`: the launcher
+  copies the stdio bridge from that image into each stdio server's pod,
+  so it has to be the gateway's own.
+- **Podman and Compose**: the `image` lines of `deploy/podman` and
+  `MCP_GATEWAY_IMAGE` (user guide, chapter 17).
