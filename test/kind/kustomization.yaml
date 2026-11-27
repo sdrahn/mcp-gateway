@@ -4,6 +4,7 @@
 # ServiceAccount agents/custos call echo.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: mcp-gateway
 resources:
   - ../../deploy/kubernetes
   - echo.yaml
