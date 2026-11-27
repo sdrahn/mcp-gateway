@@ -45,7 +45,7 @@ TESTBINARIES := bin/tests/mcpcall bin/tests/privsrv
 # packaged as mcp-gateway-profile-<name>.
 PROFILES := systemd firewalld zypp suseconnect snapper podman
 
-.PHONY: all build test vet lint fmt-check policy-check policy-test selinux check image install-container \
+.PHONY: all build test vet lint fmt-check policy-check policy-test selinux check image install-container screenshots \
 	install install-gateway install-tools install-selinux install-cockpit install-desktop install-fs-server install-demo install-exec-server install-restarts-server install-storage-server \
 	install-profiles build-tests install-tests clean
 
@@ -285,6 +285,15 @@ install-container:
 	install -Dm0644 internal/policydata/rbac.schema.json $(DESTDIR)/usr/share/mcp-gateway/schema/rbac.schema.json
 	install -Dm0644 policy/mcp/rbac/data.yaml $(DESTDIR)/usr/share/mcp-gateway/rbac/data.yaml
 	install -d $(DESTDIR)/usr/share/mcp-gateway/servers.d
+
+# The README's screenshots (docs/images): the console's pages as the
+# gateway renders them with demo data, and the Cockpit pages with the
+# stub's fixtures, in a headless browser. Needs node, playwright and
+# Chromium (CHROME names the binary for playwright-core).
+screenshots:
+	rm -rf build/screenshots && mkdir -p build/screenshots docs/images
+	SCREENSHOTS_DIR=$(CURDIR)/build/screenshots $(GO) test -tags screenshots -run TestScreenshots -count=1 ./internal/approvalpage
+	node tools/screenshots/shoot.js build/screenshots docs/images
 
 image:
 	$(MAKE) build bin/mcp-stdio-bridge

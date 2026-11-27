@@ -1,7 +1,9 @@
 #!/bin/sh
 # check-tree: check that a commit holds sources only: no program or other
 # binary file (as git tells them: a NUL byte in the first 8000 bytes) and
-# no file of more than 1 MiB. 0.12.0 and 0.12.1 shipped two programs that
+# no file of more than 1 MiB. The one exception are the README's
+# screenshots, PNG files in docs/images (make screenshots), each under
+# 1 MiB too. 0.12.0 and 0.12.1 shipped two programs that
 # go build had written in the top directory. CI runs it on every change
 # and check-release before a tag:
 #
@@ -25,7 +27,7 @@ trap 'rm -rf "$tmp"' EXIT
 git grep -I -l -e '' "$rev" -- | sed "s|^$rev:||" | LC_ALL=C sort >"$tmp/text"
 git ls-tree -r -l "$rev" | awk '$1 != "120000" && $1 != "160000" && $4 > 0 { print substr($0, index($0, "\t") + 1) }' |
 	LC_ALL=C sort >"$tmp/all"
-LC_ALL=C comm -23 "$tmp/all" "$tmp/text" >"$tmp/binary"
+LC_ALL=C comm -23 "$tmp/all" "$tmp/text" | grep -v '^docs/images/[^/]*\.png$' >"$tmp/binary" || true
 if [ -s "$tmp/binary" ]; then
 	sed 's/^/check-tree: /; s/$/ is a binary file/' "$tmp/binary"
 	failed=1
