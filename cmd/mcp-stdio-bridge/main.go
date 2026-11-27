@@ -107,7 +107,13 @@ type bridge struct {
 func (b *bridge) serve(ctx context.Context, l net.Listener, wait time.Duration) int {
 	srv := &http.Server{Handler: b, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(l) }()
-	defer func() { _ = srv.Close() }()
+	defer func() {
+		// An answer still being written (a refusal) goes out first.
+		shutdown, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdown)
+		_ = srv.Close()
+	}()
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	select {
@@ -167,8 +173,7 @@ func (b *bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	hj, ok := w.(http.Hijacker)
 	if !ok {
-		http.Error(w, "cannot upgrade", http.StatusInternalServerError)
-		b.done <- 1
+		b.refuse(w, "cannot upgrade", http.StatusInternalServerError, 1)
 		return
 	}
 	cmd := exec.Command(b.argv[0], b.argv[1:]...)
@@ -176,14 +181,12 @@ func (b *bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	stdin, err1 := cmd.StdinPipe()
 	stdout, err2 := cmd.StdoutPipe()
 	if err := errors.Join(err1, err2); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		b.done <- 1
+		b.refuse(w, err.Error(), http.StatusInternalServerError, 1)
 		return
 	}
 	if err := cmd.Start(); err != nil {
 		_, _ = fmt.Fprintf(b.stderr, "%s: starting %s: %v\n", name, b.argv[0], err)
-		http.Error(w, "the server did not start: "+err.Error(), http.StatusBadGateway)
-		b.done <- 127
+		b.refuse(w, "the server did not start: "+err.Error(), http.StatusBadGateway, 127)
 		return
 	}
 	b.mu.Lock()
@@ -199,6 +202,17 @@ func (b *bridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = buf.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: " + Upgrade + "\r\nConnection: Upgrade\r\n\r\n")
 	_ = buf.Flush()
 	b.relay(conn, buf.Reader, cmd, stdin, stdout)
+}
+
+// refuse answers the gateway with code and msg, and only then ends the
+// bridge with status: the gateway reads the refusal and does not retry
+// (serve's end would otherwise close the connection before the answer).
+func (b *bridge) refuse(w http.ResponseWriter, msg string, code, status int) {
+	http.Error(w, msg, code)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	b.done <- status
 }
 
 // relay copies between the connection and the server until one side
