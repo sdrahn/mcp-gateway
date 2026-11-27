@@ -321,8 +321,9 @@ and the last good one stays in force (`kubectl logs deploy/mcp-gateway
   instances' pods. The console's Doctor page shows them, as do
   `mcp-gateway-admin doctor --gateway https://mcp-gateway.example.com`
   and `kubectl -n mcp-gateway exec deploy/mcp-gateway -c gateway --
-  mcp-gateway-admin doctor`, for root and operators the approver rules
-  let review the policy (`review_policy`: the `default` rules other than
+  mcp-gateway-admin doctor --config /etc/mcp-gateway/config/gateway.yaml`
+  (as the gateway's own account), for operators the approver rules let
+  review the policy (`review_policy`: the `default` rules other than
   `self`).
 - Logs and audit records: `kubectl -n mcp-gateway logs deploy/mcp-gateway -c gateway`
   (OPA's decision log: `-c opa`).
@@ -338,9 +339,12 @@ and the last good one stays in force (`kubectl logs deploy/mcp-gateway
   as the approver rules allow them (`remote-user:`, `remote-group:`;
   chapter 7, "The console's API"). Unlike `kubectl exec`, it acts as the
   operator, not as the gateway's account.
-- The command line in the pod, as the gateway's account:
+- The command line in the pod, as the gateway's account (uid 10001,
+  which has no name in the image: the control API takes it as `10001`):
   `kubectl -n mcp-gateway exec deploy/mcp-gateway -c gateway --
-  mcp-gateway-admin clients` (the sessions and agents).
+  mcp-gateway-admin clients` (the sessions and agents the approver
+  rules let it see: `user:10001` names it; the doctor's results it
+  always sees).
 - State (grants, the audit key, sign-in tokens) is on the volume
   `mcp-gateway-state`; back it up as you would `/var/lib/mcp-gateway`.
 

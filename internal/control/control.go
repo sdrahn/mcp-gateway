@@ -49,6 +49,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"os/user"
 	"slices"
 	"sort"
@@ -371,14 +372,17 @@ type errorResponse struct {
 }
 
 // doctor answers the doctor's results in the gateway, run anew on POST:
-// to root and those review_policy allows, as they name the gateway's
-// files, issuers and servers' addresses.
+// to root, the gateway's own account (kubectl exec in its container,
+// which reads all the gateway reads anyway) and those review_policy
+// allows, as they name the gateway's files, issuers and servers'
+// addresses.
 func (s *Server) doctor(w http.ResponseWriter, r *http.Request, a broker.Approver) {
 	if s.Doctor == nil {
 		writeError(w, http.StatusNotFound, "the gateway runs no checks of its own here: run mcp-gateway-admin doctor on its host")
 		return
 	}
-	if !a.Root() && !s.Broker.MayReviewPolicy(r.Context(), a) {
+	own := !a.Remote && a.UID == uint32(os.Getuid())
+	if !a.Root() && !own && !s.Broker.MayReviewPolicy(r.Context(), a) {
 		writeError(w, http.StatusForbidden, "the doctor's results are for root and those data.mcp.approvals.review_policy allows")
 		return
 	}

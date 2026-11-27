@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -99,8 +100,13 @@ func TestDoctorRoute(t *testing.T) {
 	if rec := callAs(t, s, root, "", "POST", "/v1/doctor", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"trigger":"request"`) || d.runs != 1 {
 		t.Errorf("POST: %d %s", rec.Code, rec.Body)
 	}
-	// alice, and an operator signed in (never root): no review_policy, no results.
-	for _, a := range []broker.Approver{users[1001], {Name: "root", Remote: true}} {
+	// The gateway's own account (kubectl exec): its results.
+	if rec := callAs(t, s, broker.Approver{Name: "mcp-gateway", UID: uint32(os.Getuid())}, "", "GET", "/v1/doctor", ""); rec.Code != 200 {
+		t.Errorf("the gateway's account: %d", rec.Code)
+	}
+	// alice, and an operator signed in (never root, nor the gateway's
+	// account): no review_policy, no results.
+	for _, a := range []broker.Approver{users[1001], {Name: "root", Remote: true}, {Name: "x", UID: uint32(os.Getuid()), Remote: true}} {
 		if rec := callAs(t, s, a, "console", "GET", "/v1/doctor", ""); rec.Code != http.StatusForbidden {
 			t.Errorf("%+v: %d", a, rec.Code)
 		}

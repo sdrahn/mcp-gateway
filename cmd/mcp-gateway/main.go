@@ -436,6 +436,11 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	// console, docs/architecture.md, section 5.12.7).
 	identify := func(p transport.PeerCred) (broker.Approver, error) {
 		a, err := controlapi.Identify(p)
+		if err != nil && p.UID == uint32(os.Getuid()) {
+			// The gateway's own account without a name: in its image
+			// (uid 10001, kubectl exec into its container).
+			return broker.Approver{Name: strconv.FormatUint(uint64(p.UID), 10), UID: p.UID}, nil
+		}
 		if err == nil {
 			remember(a.Name)
 		}
