@@ -1,0 +1,23 @@
+# The gateway in container mode in a Kubernetes cluster (user guide,
+# chapter 16; docs/architecture.md, section 5.12): one replica, with OPA
+# and the role data renderer beside it in the pod. Apply with
+#   kubectl apply -k deploy/kubernetes
+# after creating the namespace and the TLS Secret (chapter 16). The
+# ConfigMaps carry no hash suffix: the gateway reloads them in place.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: mcp-gateway
+labels:
+  - pairs:
+      app.kubernetes.io/name: mcp-gateway
+    includeSelectors: true
+resources:
+  - serviceaccount.yaml
+  - configmap.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+images:
+  - name: mcp-gateway
+    newName: mcp-gateway
+    newTag: latest

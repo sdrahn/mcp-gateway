@@ -1555,10 +1555,20 @@ the `mcp-opa` service is on a host).
   is off (`audit.kernel: "on"` is refused). The doctor checks what applies to a container
   (the listener, OPA, the identity provider, the servers' URLs) and
   skips the host's (SELinux labels, units, polkit).
-- **Packaging:** an OCI image built from the same sources as the RPMs
-  (on openSUSE BCI), and a Helm chart or plain manifests: a Deployment
-  with one replica, the OPA container, a Service for the listener,
-  ConfigMaps and Secrets, a PersistentVolumeClaim for the state.
+- **Packaging** (as built, #375): an OCI image built from the same
+  sources as the RPMs on SUSE's BCI (`make image`,
+  `packaging/container/Containerfile`, uid 10001, no writable root),
+  and plain manifests for `kubectl apply -k` (`deploy/kubernetes`): a
+  Deployment with one replica, the gateway, OPA from its own image and
+  `mcp-policy-render` in one pod, the policy copied from the gateway's
+  image by an init container, a Service for the listener, ConfigMaps
+  and the TLS Secret, a PersistentVolumeClaim for the state. A Helm
+  chart can come when it is asked for.
+- **Servers in the cluster:** plain `http://` to a cluster's Service
+  names (`name.namespace.svc`, `….svc.cluster.local`) in container mode
+  only, the traffic staying on the cluster's network; `https://`
+  elsewhere, with a definition's `ca_file` for a private CA. Issuers
+  take a `ca_file` too (the cluster's CA, for its API server).
 
 #### 5.12.3 A Kubernetes launcher for stdio servers (step 47)
 
@@ -4850,8 +4860,9 @@ how they use sessions. Steps 10–15 lead to a 1.0 for SLES 16 and Leap 16.
 Steps 46–48 lead to 2.0: the gateway in containers and in front of a
 Kubernetes cluster's MCP servers (D23, §5.12). Planned:
 
-46. **Container mode** (2.0; D23; in progress: the setting and its
-    checks are done, #369; several issuers, #373):
+46. **Container mode** (2.0; D23; done: the setting and its checks,
+    #369; several issuers, #373; the image, the manifests and the kind
+    job, #375):
     - `deployment: container`: instances as child processes (the exec
       launcher, for connectors only); definitions with `command` and the
       host-only keys refused with the reason (`mcp-gateway --check`);
@@ -4939,7 +4950,9 @@ Kubernetes cluster's MCP servers (D23, §5.12). Planned:
 - Containers and Kubernetes (2.0, §5.12): whether the inotify watch of
   the configuration follows a ConfigMap's update (Kubernetes swaps the
   `..data` symlink of the mounted directory; the watched files do not
-  change themselves) is to be tested in step 46; a cluster gateway
+  change themselves) is tested by the kind job of step 46
+  (`test/kind/run.sh`: a server added to the servers' ConfigMap, role
+  data changed in its own); a cluster gateway
   reaches a host's privileged servers only through a host gateway.
 - Servers with `sign_in` (§5.7.3): from step 22 a running instance gets
   a new access token when its server refuses one, so the first request

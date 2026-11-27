@@ -8,6 +8,8 @@ package egress
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -92,6 +94,9 @@ type Options struct {
 	// with each CONNECT.
 	Proxy       *url.URL
 	ProxyHeader http.Header
+	// RootCAs, if set, are the CAs the server's certificate is checked
+	// against (the system's and a definition's ca_file).
+	RootCAs *x509.CertPool
 }
 
 // Transport returns an HTTP transport that dials the addresses of
@@ -126,11 +131,30 @@ func Transport(o Options) (*http.Transport, error) {
 	if o.Proxy != nil {
 		t.Proxy = http.ProxyURL(o.Proxy)
 	}
+	if o.RootCAs != nil {
+		t.TLSClientConfig = &tls.Config{RootCAs: o.RootCAs, MinVersion: tls.VersionTLS12}
+	}
 	return t, nil
 }
 
+// ClusterName reports whether host is a Kubernetes cluster's DNS name of a
+// Service (name.namespace.svc, or with the default cluster domain,
+// .svc.cluster.local): in container mode plain http:// may reach it, on
+// the cluster's network (docs/architecture.md, section 5.12.2).
+func ClusterName(host string) bool {
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	for _, suffix := range []string{".svc", ".svc.cluster.local"} {
+		if name, ok := strings.CutSuffix(h, suffix); ok && name != "" && !strings.HasSuffix(name, ".") &&
+			!strings.Contains(name, "..") && net.ParseIP(name) == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // Loopback reports whether host is the local host (localhost or a
-// loopback address), the only host plain http:// may reach.
+// loopback address), which plain http:// may reach (and, in container
+// mode, a cluster's Service names, ClusterName).
 func Loopback(host string) bool {
 	if host == "localhost" {
 		return true

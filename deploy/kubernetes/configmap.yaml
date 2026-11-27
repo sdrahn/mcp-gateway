@@ -1,0 +1,46 @@
+# gateway.yaml, the server definitions and the role data. Keep them in
+# Git and apply them with the rest; the gateway reloads them when the
+# kubelet updates the mounted files (keys that need a restart: kubectl
+# rollout restart deployment/mcp-gateway).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-gateway-config
+data:
+  gateway.yaml: |
+    version: 1
+    deployment: container
+    servers_dir: /etc/mcp-gateway/servers.d
+    state_dir: /var/lib/mcp-gateway
+    policy:
+      opa_socket: /run/mcp-gateway/opa.sock
+    http:
+      listen: ":8443"
+      cert_file: /etc/mcp-gateway/tls/tls.crt
+      key_file: /etc/mcp-gateway/tls/tls.key
+      # The organization's identity provider: people sign in with it.
+      issuer: https://idp.example.com/realms/mcp
+      audience: https://mcp-gateway.example.com/mcp
+      scopes: [mcp]
+      issuers:
+        # The cluster's ServiceAccount tokens, for agents in the cluster
+        # (a projected token with this audience).
+        - issuer: https://kubernetes.default.svc.cluster.local
+          audience: mcp-gateway
+          ca_file: /etc/mcp-gateway/cluster-ca/ca.crt
+          scopes: []
+          subject_prefix: "k8s:"
+---
+# One file per server that speaks HTTP (chapter 4): name, url, ...
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-gateway-servers
+data: {}
+---
+# The role data (data.yaml, chapter 6); empty: the shipped default.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-gateway-rbac
+data: {}

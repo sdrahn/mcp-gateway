@@ -1,0 +1,12 @@
+# The HTTPS listener: agents, the approval page, webhooks' callbacks.
+# Expose it with an Ingress, a Route or a Gateway API route that passes
+# TLS through or re-encrypts to it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-gateway
+spec:
+  ports:
+    - name: https
+      port: 443
+      targetPort: https

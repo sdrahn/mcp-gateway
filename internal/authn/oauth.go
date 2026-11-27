@@ -8,6 +8,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/subtle"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"os"
 	"os/user"
 	"slices"
 	"strconv"
@@ -67,6 +69,11 @@ type OAuth struct {
 type issuerKeys struct {
 	o   *OAuth
 	cfg config.Issuer
+	// client fetches the issuer's discovery document and key set: o's,
+	// or one trusting the issuer's ca_file (clientErr if it cannot be
+	// read).
+	client    *http.Client
+	clientErr error
 
 	mu        sync.Mutex
 	jwksURL   string
@@ -82,7 +89,11 @@ func NewOAuth(cfg config.HTTP, client *http.Client) *OAuth {
 	}
 	o := &OAuth{cfg: cfg, client: client, now: time.Now, issuers: map[string]*issuerKeys{}}
 	for _, is := range cfg.AllIssuers() {
-		o.issuers[is.Issuer] = &issuerKeys{o: o, cfg: is, jwksURL: is.JWKSURL}
+		k := &issuerKeys{o: o, cfg: is, jwksURL: is.JWKSURL, client: client}
+		if is.CAFile != "" {
+			k.client, k.clientErr = clientWithCA(client, is.CAFile)
+		}
+		o.issuers[is.Issuer] = k
 	}
 	o.signIn = o.issuers[cfg.SignInIssuer()]
 	if o.signIn == nil {
@@ -90,6 +101,27 @@ func NewOAuth(cfg config.HTTP, client *http.Client) *OAuth {
 		o.signIn = &issuerKeys{o: o}
 	}
 	return o
+}
+
+// clientWithCA is base trusting the CA certificates in caFile besides the
+// system's.
+func clientWithCA(base *http.Client, caFile string) (*http.Client, error) {
+	pem, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("ca_file: %w", err)
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("ca_file: %s has no PEM certificate", caFile)
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	c := *base
+	c.Transport = tr
+	return &c, nil
 }
 
 // issuerOf returns the issuer the token's iss claim names, read before
@@ -365,12 +397,15 @@ func (is *issuerKeys) lookup(kid string) (crypto.PublicKey, bool) {
 func (is *issuerKeys) refresh(ctx context.Context) error {
 	o := is.o
 	is.fetchedAt = o.now()
+	if is.clientErr != nil {
+		return is.clientErr
+	}
 	if is.jwksURL == "" {
 		var meta struct {
 			Issuer  string `json:"issuer"`
 			JWKSURI string `json:"jwks_uri"`
 		}
-		if err := o.getJSON(ctx, strings.TrimSuffix(is.cfg.Issuer, "/")+"/.well-known/openid-configuration", &meta); err != nil {
+		if err := is.getJSON(ctx, strings.TrimSuffix(is.cfg.Issuer, "/")+"/.well-known/openid-configuration", &meta); err != nil {
 			return fmt.Errorf("oidc discovery: %w", err)
 		}
 		if meta.Issuer != is.cfg.Issuer {
@@ -384,7 +419,7 @@ func (is *issuerKeys) refresh(ctx context.Context) error {
 	var set struct {
 		Keys []jwk `json:"keys"`
 	}
-	if err := o.getJSON(ctx, is.jwksURL, &set); err != nil {
+	if err := is.getJSON(ctx, is.jwksURL, &set); err != nil {
 		return fmt.Errorf("fetching key set: %w", err)
 	}
 	keys := map[string]crypto.PublicKey{}
@@ -405,13 +440,13 @@ func (is *issuerKeys) refresh(ctx context.Context) error {
 	return nil
 }
 
-func (o *OAuth) getJSON(ctx context.Context, url string, v any) error {
+func (is *issuerKeys) getJSON(ctx context.Context, url string, v any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := o.client.Do(req)
+	resp, err := is.client.Do(req)
 	if err != nil {
 		return err
 	}

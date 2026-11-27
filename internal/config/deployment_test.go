@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -102,6 +103,49 @@ func TestCheckDeployment(t *testing.T) {
 		}
 		if n := len(c.b.ContainerProblems()); n != len(c.want) {
 			t.Errorf("%+v: %d problems, want %d: %q", c.b, n, len(c.want), got)
+		}
+	}
+}
+
+// Plain http:// to a cluster's Service in container mode only; ca_file
+// for an https:// url.
+func TestClusterHTTP(t *testing.T) {
+	def := func(b Backend) (*Backend, error) {
+		b.Name = "x"
+		b.setDefaults()
+		return &b, b.Validate()
+	}
+	echo, err := def(Backend{URL: "http://echo.agents.svc:8080/mcp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckDeployment(&Gateway{Deployment: DeploymentContainer}, map[string]*Backend{"echo": echo}); err != nil {
+		t.Errorf("container: %v", err)
+	}
+	if err := CheckDeployment(&Gateway{Deployment: DeploymentHost}, map[string]*Backend{"echo": echo}); err == nil ||
+		!strings.Contains(err.Error(), "only in container mode") {
+		t.Errorf("host: %v", err)
+	}
+	if _, err := def(Backend{URL: "http://echo.agents.svc.evil.example/mcp"}); err == nil {
+		t.Error("http:// to a name that only looks like a cluster's accepted")
+	}
+
+	tls, err := def(Backend{URL: "https://echo.agents.svc:8443/mcp", CAFile: "/etc/mcp-gateway/ca/echo.crt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(tls.Command, "-ca-file") || tls.Command[slices.Index(tls.Command, "-ca-file")+1] != "/etc/mcp-gateway/ca/echo.crt" {
+		t.Errorf("connector command: %q", tls.Command)
+	}
+	for _, c := range []struct {
+		b    Backend
+		want string
+	}{
+		{Backend{URL: "http://echo.agents.svc/mcp", CAFile: "/ca.crt"}, "ca_file: only for an https:// url"},
+		{Backend{URL: "https://x.example.com/mcp", CAFile: "ca.crt"}, "ca_file: must be an absolute path"},
+	} {
+		if _, err := def(c.b); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%+v: %v, want %q", c.b, err, c.want)
 		}
 	}
 }

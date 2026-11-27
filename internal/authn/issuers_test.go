@@ -2,7 +2,14 @@ package authn
 
 import (
 	"context"
+	"encoding/pem"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -89,5 +96,35 @@ func TestOAuthIssuersOnly(t *testing.T) {
 	}
 	if _, err := none.IDToken(ctx, a.rsaToken(t, id), "page-client", "n-1"); err == nil {
 		t.Error("an ID token accepted without an issuer")
+	}
+}
+
+// ca_file: an issuer whose key set a CA outside the system's trust store
+// signed (a cluster's API server) is reached with that CA.
+func TestOAuthIssuerCAFile(t *testing.T) {
+	idp := newIdP(t)
+	target, _ := url.Parse(idp.srv.URL)
+	keys := httptest.NewTLSServer(httputil.NewSingleHostReverseProxy(target))
+	t.Cleanup(keys.Close)
+	caFile := filepath.Join(t.TempDir(), "ca.crt")
+	if err := os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: keys.Certificate().Raw}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	token := idp.rsaToken(t, map[string]any{"aud": "mcp-gateway"})
+	oauth := func(ca string) *OAuth {
+		return NewOAuth(config.HTTP{Audience: audience, GroupsClaim: "groups",
+			Issuers: []config.Issuer{{Issuer: idp.srv.URL, Audience: "mcp-gateway", JWKSURL: keys.URL + "/jwks", CAFile: ca}}},
+			&http.Client{})
+	}
+	if _, err := oauth(caFile).Authenticate(ctx, token, nil); err != nil {
+		t.Errorf("with ca_file: %v", err)
+	}
+	if _, err := oauth("").Authenticate(ctx, token, nil); err == nil {
+		t.Error("accepted without the CA")
+	}
+	if _, err := oauth(filepath.Join(t.TempDir(), "missing.crt")).Authenticate(ctx, token, nil); err == nil ||
+		!strings.Contains(err.Error(), "ca_file") {
+		t.Errorf("a missing ca_file: %v", err)
 	}
 }

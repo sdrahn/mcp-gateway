@@ -55,6 +55,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	fs.Var(&resolve, "resolve", `connect to host:port at address, "host:port:address" (repeatable): the addresses the gateway resolved and the instance may reach`)
 	proxy := fs.String("proxy", "", "tunnel to the server through this HTTP proxy (http://host:port or https://host:port; CONNECT, for an https:// -url); none is taken from the environment")
 	fs.Var(&proxyHeaders, "proxy-header", `a header sent to the proxy with CONNECT, "Name: value", with ${CREDENTIAL:name} as in -header (repeatable)`)
+	caFile := fs.String("ca-file", "", "CA certificates (PEM) the server's certificate may chain to, besides the system's (a definition's ca_file)")
 	signIn := fs.Bool("sign-in", false, "the Authorization header is a principal's access token (sign_in): after a 401 the connector asks the gateway for a new one (mcp-gateway/token on stdout) and sends the request again; it ends with status 77 if the gateway has none")
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	fs.Usage = func() {
@@ -73,6 +74,16 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	log := slog.New(slog.NewTextHandler(stderr, nil))
 	credDir := os.Getenv("CREDENTIALS_DIRECTORY")
+	// Read before Landlock, which keeps the connector to its
+	// credentials.
+	var caPEM []byte
+	if *caFile != "" {
+		var err error
+		if caPEM, err = os.ReadFile(*caFile); err != nil {
+			log.Error("cannot start", "err", fmt.Errorf("-ca-file: %w", err))
+			return 2
+		}
+	}
 	if restrict != nil {
 		// The kernel keeps the connector to its credentials and the
 		// ports of the server or proxy (Landlock, D19). Before any
@@ -96,6 +107,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		proxyHeaders: proxyHeaders,
 		credDir:      credDir,
 		signIn:       *signIn,
+		caPEM:        caPEM,
 	})
 	if err != nil {
 		log.Error("cannot start", "err", err)

@@ -553,6 +553,7 @@ http:
 | `issuer` | — (required) | the issuer URL its tokens carry as `iss`; each issuer once |
 | `audience` | `http.audience` | the `aud` its tokens must carry; any string |
 | `jwks_url` | discovered | its key set |
+| `ca_file` | none | CA certificates (PEM) its discovery document and key set are trusted with besides the system's: a cluster's API server (chapter 16) |
 | `groups_claim` | `http.groups_claim` | the claim with the groups |
 | `scopes` | `http.scopes` | scopes its tokens must carry; `[]` for none |
 | `local_user_claim` | empty (not inherited) | as `http.local_user_claim`, for this issuer's tokens |

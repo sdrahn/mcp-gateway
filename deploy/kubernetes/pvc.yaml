@@ -1,0 +1,11 @@
+# The gateway's state (grants, pending approvals, the audit key, sign-in
+# tokens, clients): /var/lib/mcp-gateway on a host.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mcp-gateway-state
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi

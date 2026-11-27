@@ -1,0 +1,15 @@
+# The kind test (run.sh): deploy/kubernetes with the image under test, a
+# server that speaks HTTP in the cluster (echo), the cluster's
+# ServiceAccount tokens as the only issuer, and role data that lets the
+# ServiceAccount agents/custos call echo.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../deploy/kubernetes
+  - echo.yaml
+images:
+  - name: mcp-gateway
+    newName: mcp-gateway
+    newTag: test
+patches:
+  - path: config.yaml
