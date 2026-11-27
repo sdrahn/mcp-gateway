@@ -111,34 +111,10 @@ minor release (with a warning) and removed in the next.
 
 ### Changed
 
-- Built with Go 1.26.11 (`toolchain`), and `golang.org/x/sys` v0.47.0
-  and `golang.org/x/text` v0.41.0: govulncheck found 49 vulnerabilities
-  of Go 1.24.7's standard library that the gateway's code reaches (in
-  `net/http`, `crypto/tls`, `crypto/x509`, `net/url` and others), and
-  some in the two modules it does not call; none are left. Go 1.24 no
-  longer has fixes. Building now needs Go 1.25 or later (`go 1.25.0`;
-  the spec's `golang(API) >= 1.25`; SLES and Leap 16 ship 1.27).
 - The sign-ins of the control API (`GET /v1/sign-ins`, also on the
   console's API) list no pending sign-ins for an approver signed in
   without a local account; they listed root's (uid 0), with their
   links (#408).
-- What a client says of itself (`clientInfo`, of an `initialize` or a
-  modern agent's `_meta`) is kept without control and format characters,
-  each field up to 128 characters; `mcp-gateway-admin` writes control
-  and format characters to a terminal as escapes (`\u001B`). Escape
-  sequences in a client's name reached the terminal of whoever listed
-  clients or approvals (#409).
-- A call's arguments, where approvers read them (the approval page and
-  its reviews, approval mail, `mcp-gateway-admin approvals show` and
-  `reviews show`, Cockpit's Approvals tab), show characters that do not
-  show as themselves, bidirectional controls and zero-width ones among
-  them, as escapes (`\u202E`): an agent could make an argument read as
-  other than it was (#410). `tools/check-tree` refuses such characters
-  in the sources.
-- Approval and notice mail is quoted-printable instead of 8bit, so its
-  lines stay within what SMTP allows: a long argument (with
-  `include_args`) or notice text could make a line longer than 998
-  characters, and a mail server refuse the mail (#411).
 - `mcp-gateway --check`, the gateway's log at start and both doctors
   warn when, without `http.issuer`, the first of `http.issuers` (the
   issuer people sign in with) looks like a cluster's: no scopes, or a
@@ -160,6 +136,53 @@ minor release (with a warning) and removed in the next.
 - `mcp-policy-render` skips hidden directories below the role data's
   directory (a ConfigMap's `..<timestamp>` directory, `.git`): they are
   not role data of their own (#375).
+
+## v1.17.3 — 2026-11-27
+
+Security fixes. What agents send is shown to the people who decide on it
+as it is: escape sequences in a client's self-reported name no longer
+reach the terminal of whoever runs `mcp-gateway-admin clients` or
+`approvals`, and bidirectional and zero-width characters in a call's
+arguments are shown as escapes, so an argument cannot read as other than
+it is on the approval page, in approval mail, in the CLI or in Cockpit
+(#409, #410). Approval mail with a long argument is no longer refused for
+its line length (#411). The gateway is built with Go 1.26.11, which fixes
+49 vulnerabilities of the standard library of Go 1.24.7 that govulncheck
+found the gateway reaching (#422).
+
+Upgrading from 1.17.2 needs no changes to `gateway.yaml`, server
+definitions, role data or custom policies. After the update, restart the
+gateway (`systemctl restart mcp-gateway.service`); the package does not.
+The SELinux modules do not change. Building from source now needs Go
+1.25 or later.
+
+### Changed
+
+- Built with Go 1.26.11 (`toolchain`), and `golang.org/x/sys` v0.47.0
+  and `golang.org/x/text` v0.41.0: govulncheck found 49 vulnerabilities
+  of Go 1.24.7's standard library that the gateway's code reaches (in
+  `net/http`, `crypto/tls`, `crypto/x509`, `net/url` and others), and
+  some in the two modules it does not call; none are left. Go 1.24 no
+  longer has fixes. Building now needs Go 1.25 or later (`go 1.25.0`;
+  the spec's `golang(API) >= 1.25`; SLES and Leap 16 ship 1.27)
+  (#422).
+- What a client says of itself (`clientInfo`, of an `initialize` or a
+  modern agent's `_meta`) is kept without control and format characters,
+  each field up to 128 characters; `mcp-gateway-admin` writes control
+  and format characters to a terminal as escapes (`\u001B`). Escape
+  sequences in a client's name reached the terminal of whoever listed
+  clients or approvals (#409).
+- A call's arguments, where approvers read them (the approval page and
+  its reviews, approval mail, `mcp-gateway-admin approvals show` and
+  `reviews show`, Cockpit's Approvals tab), show characters that do not
+  show as themselves, bidirectional controls and zero-width ones among
+  them, as escapes (`\u202E`): an agent could make an argument read as
+  other than it was (#410). `tools/check-tree` refuses such characters
+  in the sources.
+- Approval and notice mail is quoted-printable instead of 8bit, so its
+  lines stay within what SMTP allows: a long argument (with
+  `include_args`) or notice text could make a line longer than 998
+  characters, and a mail server refuse the mail (#411).
 
 ## v1.17.2 — 2026-11-26
 
