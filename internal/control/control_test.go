@@ -710,8 +710,11 @@ type fakeSignIns struct {
 
 func (f *fakeSignIns) List() []signin.Entry { return f.entries }
 func (f *fakeSignIns) PendingFor(uid uint32) []signin.PendingInfo {
-	if uid == 1001 {
+	switch uid {
+	case 1001:
 		return []signin.PendingInfo{{Server: "tickets", URL: "https://as/authorize?state=x"}}
+	case 0:
+		return []signin.PendingInfo{{Server: "tickets", URL: "https://as/authorize?state=root"}}
 	}
 	return nil
 }
@@ -758,5 +761,37 @@ func TestSignIns(t *testing.T) {
 	// The servers list marks servers with sign_in.
 	if rec := call(t, s, 1001, "GET", "/v1/servers", ""); !strings.Contains(rec.Body.String(), `"sign_in":true`) {
 		t.Errorf("servers: %s", rec.Body)
+	}
+}
+
+// A remote approver without a local account has no uid: it sees no
+// principal's pending sign-ins, root's (uid 0) neither, and signs no
+// sign-in out as its own (#408). One with a local account sees its own.
+func TestSignInsRemoteWithoutAccount(t *testing.T) {
+	s, _, _ := setup(t)
+	root := uint32(0)
+	si := &fakeSignIns{entries: []signin.Entry{
+		{Server: "tickets", Principal: signin.Key{Transport: "unix", Sub: "root", UID: &root}},
+	}}
+	s.SignIns = si
+	s.Backends = func() map[string]*config.Backend {
+		return map[string]*config.Backend{"tickets": {Name: "tickets", SignIn: &config.SignIn{}}}
+	}
+	remote := broker.Approver{Name: "u-someone", Remote: true, NoUID: true}
+	rec := callAs(t, s, remote, "console", "GET", "/v1/sign-ins", "")
+	var got signInsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if len(got.Pending) != 0 || len(got.SignIns) != 0 || strings.Contains(rec.Body.String(), "state=root") {
+		t.Errorf("a remote approver without an account sees %s", rec.Body)
+	}
+	if rec := callAs(t, s, remote, "console", "DELETE", "/v1/sign-ins/tickets", ""); rec.Code != 404 || len(si.out) != 0 {
+		t.Errorf("a remote approver without an account signs out %v: %d %s", si.out, rec.Code, rec.Body)
+	}
+	mapped := broker.Approver{Name: "alice", UID: 1001, Remote: true}
+	rec = callAs(t, s, mapped, "console", "GET", "/v1/sign-ins", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || len(got.Pending) != 1 || got.Pending[0].URL != "https://as/authorize?state=x" {
+		t.Errorf("a remote approver with alice's account sees %s", rec.Body)
 	}
 }
