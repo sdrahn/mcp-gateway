@@ -1646,8 +1646,12 @@ there and nothing else.
   delete, deletecollection; Secrets and NetworkPolicies: create,
   delete), and set `supervisor.mode: kubernetes`. The kind job runs a
   stdio server in pods of its own: one per principal, each with a
-  NetworkPolicy without egress (the server cannot reach the API server's
-  address), owned by its pod, deleted after the idle timeout.
+  NetworkPolicy without egress (the server cannot reach another pod),
+  owned by its pod, deleted after the idle timeout. Addresses on the
+  nodes' host network, the API server's among them, are covered by a
+  NetworkPolicy or not as the network plugin implements it (kind's
+  kindnet does not); instances have no token for the API server either
+  way.
 - **Lifecycle:** the pool (idle timeout, limits per principal, restart
   backoff, stopping on session end) is the gateway's, as now; the
   launcher creates and deletes pods and reports a pod that ended. Image,

@@ -233,7 +233,10 @@ node_selector: {kubernetes.io/arch: amd64}
   with an MCS level of its own. Its NetworkPolicy lets only the
   gateway's pods reach it, and lets it reach nothing unless the
   definition says `network: true`. Your cluster's network plugin must
-  enforce NetworkPolicies.
+  enforce NetworkPolicies. Whether a policy also covers addresses on the
+  nodes' host network, the API server's among them, depends on the
+  plugin (Calico and Cilium apply it there; kind's kindnet does not); an
+  instance has no ServiceAccount token for the API server in any case.
 - **Credentials** (`credentials`) are read by the gateway and become the
   instance's Secret, mounted at `$CREDENTIALS_DIRECTORY`; the Secret and
   the NetworkPolicy belong to the pod and go with it.
@@ -313,5 +316,5 @@ and the last good one stays in force (`kubectl logs deploy/mcp-gateway
 
 `test/kind/run.sh` deploys all of this to a kind cluster and checks it,
 with the manifests and with the chart (`DEPLOY=helm`), a stdio server in
-pods of their own among it (one per principal, no egress, gone after the
-idle timeout); CI runs both on every change.
+pods of their own among it (one per principal, no egress to other pods,
+gone after the idle timeout); CI runs both on every change.
