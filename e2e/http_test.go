@@ -420,7 +420,7 @@ func TestRemoteHTTP(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(home, "scoped.txt")); err == nil {
 			t.Fatal("write outside the ceiling happened")
 		}
-		if !strings.Contains(e.gwLogs.String(), `"outside_scopes":true`) {
+		if !strings.Contains(e.gwLogs.waitContains(`"outside_scopes":true`), `"outside_scopes":true`) {
 			t.Error("no audit record of the outside-scope denial")
 		}
 	})
@@ -472,7 +472,7 @@ func TestRemoteHTTP(t *testing.T) {
 	})
 
 	t.Run("audit shows the remote principal", func(t *testing.T) {
-		if !strings.Contains(e.gwLogs.String(), `"sub":"u-remote"`) {
+		if !strings.Contains(e.gwLogs.waitContains(`"sub":"u-remote"`), `"sub":"u-remote"`) {
 			t.Fatal("no audit record for u-remote")
 		}
 	})

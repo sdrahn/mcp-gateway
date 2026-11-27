@@ -274,8 +274,9 @@ approvals:
 	if b, err := os.ReadFile(target); err != nil || string(b) != "via the page" {
 		t.Fatalf("file %q %v", b, err)
 	}
-	logs := e.gwLogs.String()
-	for _, want := range []string{`"event":"mcp-approver-sign-in"`, `"principal":"u-approver"`, `"event":"mcp-approval"`, `"via":"page"`, `"by":"u-approver"`} {
+	wants := []string{`"event":"mcp-approver-sign-in"`, `"principal":"u-approver"`, `"event":"mcp-approval"`, `"via":"page"`, `"by":"u-approver"`}
+	logs := e.gwLogs.waitContains(wants...)
+	for _, want := range wants {
 		if !strings.Contains(logs, want) {
 			t.Errorf("audit lacks %s", want)
 		}
@@ -387,7 +388,7 @@ approvals:
 	if text, isErr := toolResult(t, result); isErr || !strings.HasPrefix(text, "wrote") {
 		t.Fatalf("the call: %q %v", text, isErr)
 	}
-	if logs := e.gwLogs.String(); !strings.Contains(logs, `"via":"remote-cli"`) || !strings.Contains(logs, `"by":"u-approver"`) {
+	if logs := e.gwLogs.waitContains(`"via":"remote-cli"`, `"by":"u-approver"`); !strings.Contains(logs, `"via":"remote-cli"`) || !strings.Contains(logs, `"by":"u-approver"`) {
 		t.Errorf("audit lacks via=remote-cli by=u-approver")
 	}
 
