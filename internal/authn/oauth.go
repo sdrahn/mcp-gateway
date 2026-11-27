@@ -446,7 +446,10 @@ func (is *issuerKeys) getJSON(ctx context.Context, url string, v any) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Accept", "application/json")
+	// A key set comes as application/jwk-set+json (RFC 7517) from some
+	// providers, a cluster's API server among them, which refuses a
+	// request that accepts application/json only (406).
+	req.Header.Set("Accept", "application/json, application/jwk-set+json")
 	if is.cfg.TokenFile != "" && sameOrigin(url, is.cfg.Issuer) {
 		tok, err := os.ReadFile(is.cfg.TokenFile)
 		if err != nil {

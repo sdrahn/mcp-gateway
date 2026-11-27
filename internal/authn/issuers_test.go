@@ -150,6 +150,11 @@ func TestOAuthIssuerTokenFile(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"issuer": issuer.URL, "jwks_uri": issuer.URL + "/jwks"})
 			return
 		}
+		// As a cluster's API server: the key set only to who accepts it.
+		if r.URL.Path == "/jwks" && !strings.Contains(r.Header.Get("Accept"), "application/jwk-set+json") {
+			w.WriteHeader(http.StatusNotAcceptable)
+			return
+		}
 		proxy.ServeHTTP(w, r)
 	}))
 	t.Cleanup(issuer.Close)

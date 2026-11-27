@@ -8,6 +8,10 @@ config:
   policy:
     watch_interval: 2s
   http:
+    # The cluster's ServiceAccount tokens only: no other identity
+    # provider, none of its scopes (null removes the chart's defaults).
+    issuer: null
+    scopes: null
     # Reached through kubectl port-forward in the test.
     audience: https://127.0.0.1:8443/mcp
 servers:
