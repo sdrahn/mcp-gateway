@@ -67,6 +67,11 @@ func (g *Gateway) validateDeployment() error {
 	if g.HTTP.LocalUserClaim != "" {
 		refuse("http.local_user_claim", "there are no local accounts to map principals to")
 	}
+	for i, is := range g.HTTP.Issuers {
+		if is.LocalUserClaim != "" {
+			refuse(fmt.Sprintf("http.issuers[%d].local_user_claim", i), "there are no local accounts to map principals to")
+		}
+	}
 	return errors.Join(errs...)
 }
 

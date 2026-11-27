@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/principal"
 )
 
 // fakeClock is a settable time source.
@@ -452,5 +453,23 @@ func TestRetiredInstancesTracked(t *testing.T) {
 	p.closeAll()
 	if !isClosed(l.started("git")[0].closed, time.Second) {
 		t.Fatal("closeAll left a retired instance running")
+	}
+}
+
+// Principals of two issuers with the same subject get instances of their
+// own (http.issuers).
+func TestInstanceKeyIssuer(t *testing.T) {
+	b := &config.Backend{Name: "fs", Isolation: config.IsolationPrincipal}
+	org := principal.Principal{Sub: "alice", Issuer: "https://idp.example.com", Transport: principal.TransportHTTP}
+	partner := org
+	partner.Issuer = "https://partner.example.com"
+	if instanceKey(b, org) == instanceKey(b, partner) {
+		t.Errorf("one instance key for two issuers: %q", instanceKey(b, org))
+	}
+	// Another session of the same principal: the same instance.
+	again := org
+	again.SessionID = "s-2"
+	if instanceKey(b, org) != instanceKey(b, again) {
+		t.Errorf("two keys for one principal: %q %q", instanceKey(b, org), instanceKey(b, again))
 	}
 }

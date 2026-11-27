@@ -244,7 +244,9 @@ func instanceKey(b *config.Backend, p principal.Principal) string {
 	case config.IsolationContext:
 		return "context:" + p.Context + ":" + b.Name
 	}
-	return "principal:" + string(p.Transport) + ":" + p.Sub + ":" + b.Name
+	// The issuer too: two identity providers may name different people
+	// alike (http.issuers).
+	return "principal:" + string(p.Transport) + "\x00" + p.Issuer + "\x00" + p.Sub + "\x00" + b.Name
 }
 
 // isolation is how instances of b are shared for p: per principal for a

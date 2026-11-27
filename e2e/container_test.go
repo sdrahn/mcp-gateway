@@ -62,16 +62,18 @@ func echoServer(t *testing.T) *httptest.Server {
 // In container mode (deployment: container) the gateway has no Unix
 // socket and serves remote principals over HTTP; a server that speaks
 // HTTP is reached through its connector, a child process; a stdio server
-// is refused with the reason.
+// is refused with the reason. An agent in the cluster presents a token
+// of the cluster's issuer (http.issuers), a person one of the
+// organization's.
 func TestContainerMode(t *testing.T) {
 	dir := t.TempDir()
-	provider := newIdP(t)
+	provider, cluster := newIdP(t), newIdP(t)
 	certFile, keyFile, pool := selfSigned(t, dir)
 	port := freePort(t)
 	audience := fmt.Sprintf("https://127.0.0.1:%d/mcp", port)
 	rbac := `{
 	  "roles": {"echoer": {"permissions": [{"server": "echo", "tool": "echo"}]}},
-	  "bindings": {"groups": {}, "users": {"u-agent": ["echoer"]}}
+	  "bindings": {"groups": {}, "users": {"u-agent": ["echoer"], "k8s:system:serviceaccount:agents:custos": ["echoer"]}}
 	}`
 	e := setup(t, rbac, nil, fmt.Sprintf(`deployment: container
 http:
@@ -80,7 +82,12 @@ http:
   key_file: %s
   issuer: %s
   audience: %s
-`, port, certFile, keyFile, provider.srv.URL, audience))
+  issuers:
+    - issuer: %s
+      audience: mcp-gateway
+      scopes: []
+      subject_prefix: "k8s:"
+`, port, certFile, keyFile, provider.srv.URL, audience, cluster.srv.URL))
 	if _, err := os.Stat(e.gwSock); !os.IsNotExist(err) {
 		t.Fatalf("a Unix socket in container mode: %v", err)
 	}
@@ -112,7 +119,14 @@ http:
 	for {
 		resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%d/.well-known/oauth-protected-resource/mcp", port))
 		if err == nil {
+			var meta struct {
+				AuthorizationServers []string `json:"authorization_servers"`
+			}
+			_ = json.NewDecoder(resp.Body).Decode(&meta)
 			_ = resp.Body.Close()
+			if len(meta.AuthorizationServers) != 2 || meta.AuthorizationServers[0] != provider.srv.URL || meta.AuthorizationServers[1] != cluster.srv.URL {
+				t.Fatalf("authorization servers: %v", meta.AuthorizationServers)
+			}
 			break
 		}
 		if time.Now().After(deadline) {
@@ -130,6 +144,25 @@ http:
 	text, isErr := toolResult(t, c.call(2, "tools/call", map[string]any{"name": "echo", "arguments": map[string]any{"text": "hi"}}))
 	if isErr || text != "echo: hi" {
 		t.Fatalf("echo: %q %v\n%s", text, isErr, e.gwLogs.String())
+	}
+
+	// A ServiceAccount's token of the cluster's issuer: its audience, no
+	// scope, its subject with the prefix the role data binds.
+	saToken := cluster.tokenWith(t, "system:serviceaccount:agents:custos", "mcp-gateway", map[string]any{"scope": nil})
+	sa := &remote{t: t, client: client, url: audience + "/echo", token: saToken}
+	sa.call(1, "initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{},
+		"clientInfo": map[string]any{"name": "container-e2e-sa"}})
+	resp = sa.post(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"}, false)
+	_ = resp.Body.Close()
+	if text, isErr := toolResult(t, sa.call(2, "tools/call", map[string]any{"name": "echo", "arguments": map[string]any{"text": "sa"}})); isErr || text != "echo: sa" {
+		t.Fatalf("echo as the ServiceAccount: %q %v\n%s", text, isErr, e.gwLogs.String())
+	}
+	// The cluster's token for the organization's audience is refused.
+	wrong := &remote{t: t, client: client, url: audience + "/echo", token: cluster.tokenWith(t, "system:serviceaccount:agents:custos", audience, nil)}
+	resp = wrong.post(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{}}, false)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("the cluster's token for another audience: HTTP %d", resp.StatusCode)
 	}
 
 	// A stdio server is refused, in mcp-gateway --check and on reload.

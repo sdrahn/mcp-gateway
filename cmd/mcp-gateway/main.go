@@ -569,7 +569,7 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Ro
 	tokens := authn.NewOAuth(cfg, nil)
 	h, err := transport.NewHTTPHandler(transport.HTTPConfig{
 		Resource:             cfg.Audience,
-		AuthorizationServers: []string{cfg.Issuer},
+		AuthorizationServers: authorizationServers(cfg),
 		Scopes:               cfg.Scopes,
 		AllowedOrigins:       cfg.AllowedOrigins,
 		// Clients with a certificate can present certificate-bound tokens.
@@ -644,6 +644,17 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Ro
 	}, nil
 }
 
+// authorizationServers are the issuers the protected resource metadata
+// names (RFC 9728): every one whose tokens the listener accepts, the one
+// people sign in with first.
+func authorizationServers(cfg config.HTTP) []string {
+	var out []string
+	for _, is := range cfg.AllIssuers() {
+		out = append(out, is.Issuer)
+	}
+	return out
+}
+
 // newApprovalPage sets up the gateway's approval page (approvals.page),
 // or returns nil without one. The client secret is read once, at start.
 func newApprovalPage(log *slog.Logger, gw *config.Gateway, b *broker.Broker, auditLog *audit.Logger) (*approvalpage.Page, error) {
@@ -663,7 +674,7 @@ func newApprovalPage(log *slog.Logger, gw *config.Gateway, b *broker.Broker, aud
 		}
 	}
 	pg := &approvalpage.Page{
-		Issuer: gw.HTTP.Issuer, Origin: gw.PageOrigin(),
+		Issuer: gw.HTTP.SignInIssuer(), Origin: gw.PageOrigin(),
 		ClientID: pc.ClientID, ClientSecret: secret, DeviceClientID: pc.DeviceClientID,
 		Scopes: pc.Scopes, SessionTTL: pc.SessionTTL, Broker: b, Audit: auditLog, Log: log,
 		// The gateway reaches the identity provider directly, as for its

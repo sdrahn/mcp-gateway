@@ -1605,18 +1605,31 @@ There is no local client: every principal is remote, authenticated by
 the HTTP listener (§5.1, §5.2) with a bearer token, or mTLS.
 
 - **Agents in the cluster** present projected ServiceAccount tokens
-  (audience: the gateway's resource), validated against the cluster's
-  OIDC issuer, which is configured as an issuer like any other. Their
+  (their audience is what the pod asks for, a name such as
+  `mcp-gateway`), validated against the cluster's OIDC issuer, which is
+  configured as an issuer like any other. Their
   subject is `system:serviceaccount:<namespace>:<name>`; role data binds
   roles to those names, or to the groups the token carries.
 - **People and outside agents** sign in with the organization's
   identity provider as on a host.
-- **More than one issuer:** a cluster's agents and its people usually
-  have different issuers, while a host gateway has one (`http.issuer`).
-  2.0 accepts a list of issuers, each with its own audience and claims;
-  `iss` is already part of a principal and of its key (`principalKey`),
-  and `MCP_GATEWAY_PRINCIPAL` names it (§5.7). The instance key of
-  §5.7 takes the issuer too, which a single issuer made unnecessary.
+- **More than one issuer** (as built, #373): a cluster's agents and its
+  people usually have different issuers, while a host gateway has one
+  (`http.issuer`). `http.issuers` adds more, each with its own
+  `audience` (any string), `jwks_url`, `groups_claim`, `scopes` (`[]`
+  for none: ServiceAccount tokens carry no scope) and
+  `local_user_claim` (never inherited from `http`). A token is validated
+  by the issuer its `iss` names, with that issuer's keys only; an
+  issuer not configured is refused. People sign in (the approval page,
+  `--gateway`) with `http.issuer`, else the first of `http.issuers`;
+  the protected resource metadata names them all. `iss` is already part
+  of a principal and of its key (`principalKey`, grants, sign-ins), and
+  `MCP_GATEWAY_PRINCIPAL` names it (§5.7); the instance key of §5.7
+  takes it too now, which a single issuer made unnecessary.
+- **Names in the role data:** bindings name subjects and groups, not
+  issuers, so two issuers that name different people alike would meet
+  there. An issuer's `subject_prefix` (`"k8s:"`, `"partner:"`) goes
+  before its tokens' subjects and groups, so that role data binds
+  `k8s:system:serviceaccount:agents:custos`; policy also sees `iss`.
 - `local_user_claim` has no meaning (no local accounts) and is refused
   in container mode.
 
@@ -2994,6 +3007,10 @@ what the gateway is told (ConfigMaps and Secrets from Git, rolled out
 with the Deployment); the console manages what it does and never edits
 the configuration. Probes (`/healthz`, `/readyz`) and the doctor's
 container checks run in the gateway. Several replicas move to step 49.
+*Settled in review (2026-11-27):* the console at `/console/`, beside the
+approval page at `/approvals/`; `/healthz` and `/readyz` on the metrics
+listener; the configuration read-only in the console, changed through
+Git.
 *Rationale:* without Cockpit and a host's shell, a cluster gateway
 would leave its operators the command line through `kubectl exec`,
 which needs exec rights on the namespace and acts as the gateway's
@@ -4834,7 +4851,7 @@ Steps 46–48 lead to 2.0: the gateway in containers and in front of a
 Kubernetes cluster's MCP servers (D23, §5.12). Planned:
 
 46. **Container mode** (2.0; D23; in progress: the setting and its
-    checks are done, #369):
+    checks are done, #369; several issuers, #373):
     - `deployment: container`: instances as child processes (the exec
       launcher, for connectors only); definitions with `command` and the
       host-only keys refused with the reason (`mcp-gateway --check`);
