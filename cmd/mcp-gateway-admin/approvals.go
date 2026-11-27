@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
+	"github.com/sdrahn/mcp-gateway/internal/display"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/proposal"
 )
@@ -467,9 +468,9 @@ func printApproval(w io.Writer, p broker.Pending) {
 	}
 	_ = tw.Flush()
 	if len(p.Args) > 0 {
-		data, _ := json.MarshalIndent(p.Args, "  ", "  ")
+		data, _ := display.JSON(p.Args, "  ", "  ")
 		say(w, "Arguments:")
-		say(w, "  "+string(data))
+		say(w, "  "+data)
 	} else {
 		say(w, "Arguments: none (or left out by policy)")
 	}
