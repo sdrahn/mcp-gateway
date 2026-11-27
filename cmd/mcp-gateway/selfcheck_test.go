@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/doctor"
@@ -117,6 +118,29 @@ func TestSelfCheckWebhooksOnRequest(t *testing.T) {
 	}
 	if r := byCheck(c.Run(context.Background()).Results)["webhook chat"]; r.Status != doctor.Fail || !strings.Contains(r.Summary, "secret_file") {
 		t.Errorf("on request: %+v", r)
+	}
+}
+
+// The run at the start waits for the policy engine, at most startWait.
+func TestSelfCheckWaitsForOPA(t *testing.T) {
+	defer func(w, p time.Duration) { startWait, readyPoll = w, p }(startWait, readyPoll)
+	startWait, readyPoll = time.Second, time.Millisecond
+	asked := 0
+	c := &selfCheck{ready: func(context.Context) error {
+		if asked++; asked < 3 {
+			return errors.New("no socket yet")
+		}
+		return nil
+	}}
+	c.waitReady(context.Background())
+	if asked != 3 {
+		t.Errorf("asked %d times", asked)
+	}
+	c.ready = func(context.Context) error { return errors.New("never") }
+	start := time.Now()
+	c.waitReady(context.Background())
+	if d := time.Since(start); d < startWait || d > 5*startWait {
+		t.Errorf("waited %v", d)
 	}
 }
 

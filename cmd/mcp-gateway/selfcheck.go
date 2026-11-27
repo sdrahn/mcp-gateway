@@ -56,6 +56,10 @@ type selfCheck struct {
 	opa      decider
 	tokens   *authn.OAuth           // nil without the HTTP listener
 	kube     *supervisor.Kubernetes // nil without the Kubernetes launcher
+	// ready, if set, tells whether the policy engine answers (pep.OPA.
+	// Health): the run at the start waits for it, as OPA starts beside
+	// the gateway in the pod.
+	ready func(context.Context) error
 	// dial connects to a server's address (net.Dialer by default).
 	dial func(ctx context.Context, network, addr string) (net.Conn, error)
 	now  func() time.Time
@@ -85,6 +89,9 @@ func (c *selfCheck) Run(ctx context.Context) controlapi.DoctorReport {
 // logs what fails or warns.
 func (c *selfCheck) background(trigger string) {
 	go func() {
+		if trigger == "start" {
+			c.waitReady(context.Background())
+		}
 		rep := c.check(context.Background(), trigger)
 		for _, r := range rep.Results {
 			switch r.Status {
@@ -95,6 +102,30 @@ func (c *selfCheck) background(trigger string) {
 			}
 		}
 	}()
+}
+
+// startWait bounds how long the run at the start waits for the policy
+// engine; readyPoll is how often it asks.
+var (
+	startWait = 30 * time.Second
+	readyPoll = time.Second
+)
+
+// waitReady waits until the policy engine answers, or startWait has
+// passed: then the checks run and say what fails.
+func (c *selfCheck) waitReady(ctx context.Context) {
+	if c.ready == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, startWait)
+	defer cancel()
+	for c.ready(ctx) != nil {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(readyPoll):
+		}
+	}
 }
 
 func (c *selfCheck) check(ctx context.Context, trigger string) controlapi.DoctorReport {
@@ -257,7 +288,7 @@ func (c *selfCheck) servers(ctx context.Context) []doctor.Result {
 		cancel()
 		if err != nil {
 			r.Status, r.Summary = doctor.Fail, fmt.Sprintf("%s%s does not answer: %v", addr, via, err)
-			r.Details = []string{"calls to this server fail; check its url, the Service or DNS name, and the gateway pod's NetworkPolicy"}
+			r.Details = []string{"calls to this server fail; check its url, its host name, and what the network lets the gateway reach (in a cluster: the Service and the gateway pod's NetworkPolicy)"}
 		} else {
 			_ = conn.Close()
 			r.Status, r.Summary = doctor.OK, addr+via+" accepts connections"
