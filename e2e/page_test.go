@@ -410,3 +410,171 @@ approvals:
 		}
 	}
 }
+
+// TestConsoleAPI (step 48): the control API on the HTTPS listener below
+// /console/api/v1/, signed in as on the approval page. The approver
+// rules decide what a signed-in operator sees and does, as on the
+// control socket; a change needs the session's CSRF token, and decisions
+// are audited with via=console.
+func TestConsoleAPI(t *testing.T) {
+	home, err := os.MkdirTemp("", "mcpgw-console")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	provider, flow := newCodeFlowIdP(t)
+	certFile, keyFile, pool := selfSigned(t, home)
+	port := freePort(t)
+	origin := fmt.Sprintf("https://127.0.0.1:%d", port)
+	audience := origin + "/mcp"
+	flow.redirectURI = origin + "/approvals/callback"
+	rbac := fmt.Sprintf(`{
+	  "roles": {"writer": {"permissions": [
+	    {"server": "fs", "tool": "write_file", "require_approval": true, "approval_channel": "url",
+	     "approval_scopes": ["once"], "args": {"path": %q}}
+	  ]}},
+	  "bindings": {"groups": {}, "users": {"u-agent": ["writer"]}},
+	  "approvers": {"fs": ["remote-user:u-operator"]}
+	}`, "^"+regexp.QuoteMeta(home)+"/")
+	e := setup(t, rbac, map[string]string{"fs": home}, fmt.Sprintf(`http:
+  listen: 127.0.0.1:%d
+  cert_file: %s
+  key_file: %s
+  issuer: %s
+  audience: %s
+approvals:
+  page:
+    client_id: approvals
+`, port, certFile, keyFile, provider.srv.URL, audience))
+
+	tlsConf := &tls.Config{RootCAs: pool}
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: tlsConf}}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		resp, err := client.Get(audience)
+		if err == nil {
+			_ = resp.Body.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("gateway HTTPS not up: %v\n%s", err, e.gwLogs.String())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	// signIn signs user in on the approval page and returns their
+	// browser and the session's CSRF token.
+	signIn := func(user string) (*http.Client, string) {
+		t.Helper()
+		jar, _ := cookiejar.New(nil)
+		flow.mu.Lock()
+		flow.user = user
+		flow.mu.Unlock()
+		c := &http.Client{Jar: jar, Transport: &http.Transport{TLSClientConfig: tlsConf}}
+		resp, err := c.Get(origin + "/approvals/")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		var s struct{ Name, CSRF string }
+		if code := consoleCall(t, c, "GET", origin+"/console/api/v1/session", "", "", &s); code != 200 || s.Name != user || s.CSRF == "" {
+			t.Fatalf("%s's session: %d %+v", user, code, s)
+		}
+		return c, s.CSRF
+	}
+
+	agent := &remote{t: t, client: client, url: audience + "/fs", token: provider.token(t, "u-agent", audience)}
+	agent.call(1, "initialize", map[string]any{"protocolVersion": "2025-06-18",
+		"capabilities": map[string]any{"elicitation": map[string]any{"url": map[string]any{}}},
+		"clientInfo":   map[string]any{"name": "console-e2e"}})
+	_ = agent.post(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"}, false).Body.Close()
+	target := filepath.Join(home, "approved.txt")
+	resp := agent.post(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{
+		"name": "write_file", "arguments": map[string]any{"path": target, "content": "via the console"}}}, true)
+	events := sse(t, resp)
+	el := nextEvent(t, events)
+	if el.Method != "elicitation/create" {
+		t.Fatalf("want an elicitation, got %s", el.Method)
+	}
+	_ = agent.post(map[string]any{"jsonrpc": "2.0", "id": el.ID, "result": map[string]any{"action": "accept"}}, false).Body.Close()
+
+	type server struct {
+		Name      string
+		Instances []struct{ ID string }
+	}
+	// Not signed in: nothing.
+	if code := consoleCall(t, client, "GET", origin+"/console/api/v1/servers", "", "", nil); code != 401 {
+		t.Errorf("not signed in: %d", code)
+	}
+	// u-nobody, signed in without an approver rule, sees the servers
+	// but no instance, and no approval.
+	nobody, _ := signIn("u-nobody")
+	var servers []server
+	if code := consoleCall(t, nobody, "GET", origin+"/console/api/v1/servers", "", "", &servers); code != 200 || len(servers) != 1 || len(servers[0].Instances) != 0 {
+		t.Errorf("u-nobody's servers: %d %+v", code, servers)
+	}
+	var pending []struct{ ID string }
+	if code := consoleCall(t, nobody, "GET", origin+"/console/api/v1/approvals", "", "", &pending); code != 200 || len(pending) != 0 {
+		t.Errorf("u-nobody's approvals: %d %+v", code, pending)
+	}
+
+	operator, csrf := signIn("u-operator")
+	if code := consoleCall(t, operator, "GET", origin+"/console/api/v1/servers", "", "", &servers); code != 200 || len(servers) != 1 || len(servers[0].Instances) != 1 {
+		t.Errorf("u-operator's servers: %d %+v", code, servers)
+	}
+	var st struct{ Version string }
+	if code := consoleCall(t, operator, "GET", origin+"/console/api/v1/status", "", "", &st); code != 200 || st.Version == "" {
+		t.Errorf("status: %d %+v", code, st)
+	}
+	if code := consoleCall(t, operator, "GET", origin+"/console/api/v1/approvals", "", "", &pending); code != 200 || len(pending) != 1 {
+		t.Fatalf("u-operator's approvals: %d %+v", code, pending)
+	}
+	decide := origin + "/console/api/v1/approvals/" + pending[0].ID
+	body := `{"decision":"approve","scope":"once","via":"cli"}`
+	if code := consoleCall(t, operator, "POST", decide, body, "", nil); code != 403 {
+		t.Errorf("without the CSRF token: %d", code)
+	}
+	if code := consoleCall(t, operator, "POST", decide, body, csrf, nil); code != 200 {
+		t.Fatalf("approve: %d\n%s", code, e.gwLogs.String())
+	}
+	var result msg
+	for result.ID == nil || string(result.ID) != "2" {
+		result = nextEvent(t, events)
+	}
+	if text, isErr := toolResult(t, result); isErr || !strings.HasPrefix(text, "wrote") {
+		t.Fatalf("the call: %q %v", text, isErr)
+	}
+	wants := []string{`"event":"mcp-approval"`, `"via":"console"`, `"by":"u-operator"`, `"event":"mcp-console-action"`, `"route":"/v1/approvals/`}
+	logs := e.gwLogs.waitContains(wants...)
+	for _, want := range wants {
+		if !strings.Contains(logs, want) {
+			t.Errorf("audit lacks %s", want)
+		}
+	}
+}
+
+// consoleCall calls the console API with c, a JSON body and the CSRF
+// token if given, decodes the answer into out if given, and returns the
+// status.
+func consoleCall(t *testing.T, c *http.Client, method, u, body, csrf string, out any) int {
+	t.Helper()
+	req, err := http.NewRequest(method, u, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if csrf != "" {
+		req.Header.Set("X-CSRF-Token", csrf)
+		req.Header.Set("Origin", req.URL.Scheme+"://"+req.URL.Host)
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(resp.Body)
+	if out != nil && resp.StatusCode == 200 {
+		if err := json.Unmarshal(b, out); err != nil {
+			t.Fatalf("%s %s: %v %s", method, u, err, b)
+		}
+	}
+	return resp.StatusCode
+}

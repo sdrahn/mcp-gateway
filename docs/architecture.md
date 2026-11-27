@@ -1784,7 +1784,15 @@ serves it too, next to Cockpit.
   listener (below `/console/api/v1/`, as the page does below
   `/approvals/api/v1/`), the routes `mcp-gateway-admin --gateway` uses;
   the console, the command line and the Cockpit page stay three faces of
-  one interface, and nothing is managed only in one of them.
+  one interface, and nothing is managed only in one of them. As built
+  (#388): the approval page serves `/console/api/v1/<route>` as the
+  control API's `/v1/<route>` (`control.WithCaller`), signed in by the
+  page's session cookie (with `X-CSRF-Token` and the page's origin for
+  anything but `GET`; `GET /console/api/v1/session` gives the token) or
+  by the device client's ID token as the bearer token; the caller is the
+  page's remote approver, never root and asked for no local password;
+  `via` is `console` (`remote-cli` with a bearer token) whatever the
+  request names, and every change adds an `mcp-console-action` record.
 - **The doctor in the gateway:** in container mode the checks that apply
   (the listener and its certificate, OPA, the identity providers, the
   servers' URLs, the state volume) run in the gateway itself, on start,
@@ -4950,7 +4958,8 @@ Kubernetes cluster's MCP servers (D23, §5.12). Planned:
       definition), the bridge, and the kind job with a stdio server per
       principal: one pod each, a NetworkPolicy without egress, the pod
       deleted after the idle timeout.
-48. **The console** (2.0; D23; in progress: the probes, #386; §5.12.7):
+48. **The console** (2.0; D23; in progress: the probes, #386; the
+    console's API, #388; §5.12.7):
     - the approval page grown into the gateway's management page at
       `/console/`: views of the status, the servers and their
       instances, sessions, tasks, sign-ins, approvals, grants, reviews,

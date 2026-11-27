@@ -431,28 +431,34 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		defer stopMetrics()
 	}
 
+	// The control API: on the control socket, and on the HTTPS listener
+	// below /console/api/v1/ for the approval page's sign-ins (the
+	// console, docs/architecture.md, section 5.12.7).
+	identify := func(p transport.PeerCred) (broker.Approver, error) {
+		a, err := controlapi.Identify(p)
+		if err == nil {
+			remember(a.Name)
+		}
+		return a, err
+	}
+	cs := &controlapi.Server{Broker: b, Identify: identify, Backends: r.CurrentBackends, ServersError: reloader.Err,
+		ConfigError: reloader.ConfigErr, RestartNeeded: reloader.RestartNeeded, ConfigReloads: reloader.ConfigReloads, Instances: r, Tasks: r, Sessions: r, Policy: opa,
+		Review: opa, Catalog: r, Log: log, RestartPending: restartPending, Metrics: metrics.Default}
+	if signIns != nil {
+		cs.SignIns = signIns
+	}
+	if gw.OwnApprovalsNeedPassword() {
+		cs.OwnPassword = ownPassword(&polkit.Authority{})
+	}
+	if page != nil {
+		page.Control = cs.Handler()
+	}
 	if control {
 		cl, err := transport.ListenUnix(gw.Approvals.ControlSocket, 0o660, gw.SocketGroup)
 		if err != nil {
 			return fmt.Errorf("listening on %s: %w", gw.Approvals.ControlSocket, err)
 		}
 		log.Info("listening", "control", gw.Approvals.ControlSocket)
-		identify := func(p transport.PeerCred) (broker.Approver, error) {
-			a, err := controlapi.Identify(p)
-			if err == nil {
-				remember(a.Name)
-			}
-			return a, err
-		}
-		cs := &controlapi.Server{Broker: b, Identify: identify, Backends: r.CurrentBackends, ServersError: reloader.Err,
-			ConfigError: reloader.ConfigErr, RestartNeeded: reloader.RestartNeeded, ConfigReloads: reloader.ConfigReloads, Instances: r, Tasks: r, Sessions: r, Policy: opa,
-			Review: opa, Catalog: r, Log: log, RestartPending: restartPending, Metrics: metrics.Default}
-		if signIns != nil {
-			cs.SignIns = signIns
-		}
-		if gw.OwnApprovalsNeedPassword() {
-			cs.OwnPassword = ownPassword(&polkit.Authority{})
-		}
 		go func() {
 			if err := cs.Serve(ctx, cl); err != nil {
 				log.Error("control API failed", "err", err)
@@ -656,7 +662,12 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, certs *certStore, r *router.Ro
 			// The approval page, beside MCP; it validates ID tokens with
 			// the key set the listener validates access tokens with.
 			page.Tokens = tokens
-			mux.Handle("/approvals/", page.Handler())
+			ph := page.Handler()
+			mux.Handle("/approvals/", ph)
+			if page.Control != nil {
+				// The console's API, signed in as on the page.
+				mux.Handle("/console/", ph)
+			}
 		}
 		if hooks != nil {
 			// The webhooks' signed callbacks.

@@ -115,6 +115,10 @@ type Page struct {
 	Client *http.Client
 	Audit  Auditor
 	Log    *slog.Logger
+	// Control is the control API's handler (control.Server.Handler),
+	// served to signed-in callers below /console/api/v1/ (console.go);
+	// nil: no console API.
+	Control http.Handler
 	// Branding is the system's logo, name and host name, shown as
 	// Cockpit's login page does (LoadBranding).
 	Branding Branding
@@ -238,6 +242,7 @@ func (pg *Page) Handler() http.Handler {
 	mux.HandleFunc("GET /approvals/reviews/{id}", pg.showReview)
 	mux.HandleFunc("POST /approvals/reviews/{id}", pg.judge)
 	pg.apiRoutes(mux)
+	pg.consoleRoutes(mux)
 	mux.HandleFunc("/approvals/", func(w http.ResponseWriter, r *http.Request) {
 		pg.page(w, http.StatusNotFound, "Not found", "There is no such page.", nil)
 	})

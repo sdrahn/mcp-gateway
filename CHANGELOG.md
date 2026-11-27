@@ -64,6 +64,13 @@ minor release (with a warning) and removed in the next.
   answers. The manifests and the chart probe there and serve the
   metrics on the Service's `metrics` port; the chart's
   `serviceMonitor.enabled` adds a ServiceMonitor.
+- The console's API (2.0, D23, roadmap step 48; chapter 7, "The
+  console's API", and chapter 11; #388): with the approval page set up,
+  the HTTPS listener serves the control API below `/console/api/v1/`
+  to people signed in on the page (session cookie and CSRF token) or
+  with `approvals login` (bearer ID token). The approver rules decide as
+  on the control socket (`remote-user:`, `remote-group:`); decisions are
+  audited with `via=console`, changes with `mcp-console-action`.
 
 ### Changed
 
