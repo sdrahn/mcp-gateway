@@ -119,19 +119,8 @@ sensitive_blocked("client", p) if {
 
 server_ok(p) if {
 	glob.match(p.server, null, input.resource.server)
-	discovered_ok(p)
+	discovered_ok(p) # discovered.rego
 }
-
-# A server discovered from a cluster's Service (input.resource.discovered;
-# docs/architecture.md, section 5.12.8, D25) is matched by a permission
-# that names it, or whose server glob says "discovered": true: discovery
-# grants no access, so a glob written for the servers the administrator
-# defined ('*', 'git-*') does not reach what a team's Service adds.
-discovered_ok(_) if not input.resource.discovered
-
-discovered_ok(p) if not has_glob(p.server)
-
-discovered_ok(p) if p.discovered == true
 
 # Resource URIs with ".." segments (plain or percent-encoded) never match,
 # so "file://${home}/*" cannot be escaped.
