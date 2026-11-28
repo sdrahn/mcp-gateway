@@ -19,7 +19,7 @@ install, configure and run it is the [user guide](user-guide/README.md);
 | 6 | policy model: packages, input and decision documents, role data, policy lifecycle |
 | 7 | key flows: a call needing approval, remote session setup, discovery |
 | 8 | threat model (summary) |
-| 9 | decisions D1–D24, each with its rationale |
+| 9 | decisions D1–D25, each with its rationale |
 | 10 | repository layout |
 | 11 | roadmap: the steps by release, with what each delivered |
 | 12 | open items |
@@ -1499,7 +1499,9 @@ first call's decision id, `answered`, `waiting` or `refused`).
 
 *Status: implemented in 2.0 (D23, roadmap steps 46–48): container mode
 (step 46), the Kubernetes launcher (step 47) and the console (step 48).
-Several replicas (§5.12.5) are step 49, after 2.0 (D24, accepted).*
+Several replicas (§5.12.5) are step 49, after 2.0 (D24, accepted);
+servers discovered from labelled Services (§5.12.8) step 50 (D25,
+proposed).*
 
 The gateway is built for a host: it starts instances as systemd units,
 confines them with SELinux domains and MCS pairs, knows local clients by
@@ -1854,7 +1856,8 @@ two, by what Kubernetes already does well:
   chart puts a checksum of the ConfigMap into the pod template).
   Declaring servers as custom resources (an `MCPServer` kind, turned
   into definitions by a controller) can come later; files in a
-  ConfigMap are what both levels share.
+  ConfigMap are what both levels share. Servers discovered from
+  labelled Services (§5.12.8, D25) join them, the ConfigMap winning.
 - **What the gateway does (operated): its console, the command line
   over `--gateway`, and the platform's probes and metrics.** Approvals,
   reviews, grants, sessions, instances, tasks and sign-ins live in the
@@ -1946,6 +1949,91 @@ serves it too, next to Cockpit.
   mcp-gateway-admin …` reaches the control socket as on a host, as the
   gateway's account: for an operator with exec rights on the
   namespace, an emergency path, not the daily one.
+
+#### 5.12.8 Servers discovered in the cluster (step 50, D25, proposed)
+
+A cluster gateway serves the servers of its `mcp-gateway-servers`
+ConfigMap (§5.12.7). In a cluster where teams run their own MCP servers,
+each new one then needs a change to the gateway's ConfigMap, made by
+whoever owns the gateway. With discovery, a team marks its server's
+Service, and the gateway serves it without that change. The ConfigMap
+stays the one source of what the gateway serves on purpose: a definition
+there overrides or masks a discovered one, and discovery grants no
+access.
+
+*What is discovered.* Services, in namespaces the gateway's
+configuration names and in no other, that carry a label:
+
+```yaml
+# gateway.yaml
+server_discovery:
+  namespaces:
+    - namespace: team-a
+      prefix: team-a-        # discovered servers are named team-a-<name>
+    - namespace: mcp-servers # prefix: mcp-servers- by default
+  selector: mcp-gateway.io/server=true   # the default
+```
+
+```yaml
+# a team's Service, in team-a
+apiVersion: v1
+kind: Service
+metadata:
+  name: tickets
+  namespace: team-a
+  labels: {mcp-gateway.io/server: "true"}
+  annotations:
+    mcp-gateway.io/name: tickets     # default: the Service's name
+    mcp-gateway.io/port: mcp         # a port's name or number; default: the port named mcp, else the only one
+    mcp-gateway.io/path: /mcp        # the default
+spec: ...
+```
+
+The Service becomes a definition of a server that speaks HTTP, named
+`team-a-tickets`, with `url: http://tickets.team-a.svc:<port>/mcp`
+(plain HTTP to a cluster Service, as container mode allows, §5.12.2),
+and nothing else: its other keys have their defaults. The annotations
+set the name, the port and the path, and no other key, because the
+Service's owner writes them: keys that carry credentials, widen what the
+server reaches or change how the gateway trusts it (`credentials`,
+`headers`, `sign_in`, `proxy`, `ca_file`, `isolation`, a URL to
+elsewhere) come from the ConfigMap only. A team that needs them asks for
+a definition there, which then replaces the discovered one.
+
+*How.* The gateway lists and watches the Services of each namespace
+(the API's watch, as the shared store does, §5.12.5), with a Role in
+each that allows get, list and watch of Services and nothing else; no
+ClusterRole, and no namespace the configuration does not name. The
+definitions found join the vendor and the administrator's files in the
+reload of server definitions (step 18): checked as any definition, put
+in force as a reload puts them, so that a Service added, changed or
+deleted adds, changes or removes its server as a changed file does,
+instances and sessions included. A definition in the ConfigMap with the
+same name wins, and masks the discovered one, as an administrator's file
+masks a vendor file (an empty file masks it without replacing it). Two
+Services that would give one name, or a Service whose definition fails
+its checks, give no server; the doctor names them.
+
+*No access by discovery.* A discovered server is in the policy's input
+as discovered (`input.resource.discovered`, with its namespace and
+Service). In the shipped policy, a permission whose `server` is a glob
+does not match a discovered server unless it says so
+(`discovered: true`): the default role data's `viewer`, which may list,
+read and get on `'*'`, does not reach a team's server by that, and
+neither does any custom role written before discovery existed. A
+permission that names the server, or a glob with `discovered: true`
+(`{server: 'team-a-*', discovered: true, tool: '*'}`), grants it. The
+prefix keeps a Service from taking a name role data already grants (a
+team cannot call its Service `git`). Approval rules, obligations and
+audit apply as to any server.
+
+*Seen as such.* The console's Servers view, `mcp-gateway-admin servers`
+and the doctor show a discovered server with its namespace and Service;
+the audit records a server discovered, changed and gone
+(`mcp-server-discovered`, with the Service and its resource version).
+
+*What stays out.* Stdio servers (a Service is a network endpoint); a
+Service of another kind than ClusterIP; a cluster-wide watch.
 
 ## 6. Policy model
 
@@ -3289,6 +3377,50 @@ and the client's retry is forwarded to the new owner, so that no replica
 takes a principal on a peer's word; `limits.instances` bounds each
 replica, so that starting an instance needs no store round trip (the
 chart's replicas times the limit bounds the gateway).
+
+**D25 — Servers discovered from labelled Services, granted by name.**
+*Decision (proposed 2026-11-28, roadmap step 50):* a cluster gateway may
+discover MCP servers from Services that carry a label
+(`mcp-gateway.io/server=true` by default) in namespaces its
+configuration names (`server_discovery.namespaces`), each with a prefix
+for the servers' names (`<namespace>-` by default). A Service becomes a
+definition of a server that speaks HTTP at its cluster address; its
+annotations set the name, the port and the path, nothing else. The
+gateway watches the Services with a Role per namespace (get, list,
+watch), and the definitions found join the reload of server definitions,
+checked and put in force as files are. A definition in the ConfigMap of
+the same name overrides or masks the discovered one. Discovery grants no
+access: in the shipped policy a permission whose server is a glob
+matches a discovered server only with `discovered: true`, so a server
+is reached only by permissions that name it or say they mean discovered
+ones. The console, the CLI, the doctor and the audit show a discovered
+server's namespace and Service. Container mode only; hosts unchanged.
+*Rationale:* in a cluster, a team adding an MCP server should not need
+a change to the gateway's own configuration to make it reachable, but
+it must not be able to give itself, or anyone, access by doing so: what
+a server may do stays decided in the role data, which the gateway's
+owner reviews. Services are what a team already creates for a server;
+a label and three annotations are all it adds. The reload of definitions
+already handles servers that come, change and go, so discovery is one
+more source of definitions, not a new path. The ConfigMap staying in
+charge keeps D23's one source for what the gateway is told.
+*Considered:* an `MCPServer` custom resource with a controller (more
+explicit, but a CRD, a controller and cluster-admin to install them;
+it can still come, on top of the same reload); a generator outside the
+gateway that writes the ConfigMap from the labelled Services (keeps Git
+as the only path, but is not live, and needs a job with rights to write
+the gateway's ConfigMap); discovery across the whole cluster (a
+ClusterRole to read every Service, and any namespace could add servers);
+taking all definition keys from annotations (a Service's owner could set
+credentials, headers or a URL elsewhere); letting `server: '*'` match
+discovered servers (the default viewer role would reach every team's
+server the moment it is labelled); the MCP server card at a well-known
+URL (not settled in the specification; it can feed the same definitions
+later).
+*Open for review:* the key's name (`server_discovery`) and the
+annotations' prefix (`mcp-gateway.io/`); whether the prefix may be empty
+for a namespace the gateway's owner trusts; whether HTTPS to a
+discovered Service (with the cluster's CA) is in scope.
 
 ## 10. Repository layout
 
@@ -5246,6 +5378,23 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       them), draining on `SIGTERM`, the chart's `replicas` with a
       PodDisruptionBudget and spread over nodes, the Deployment's
       `RollingUpdate`; the user guide (chapter 16).
+
+50. **Servers discovered in the cluster** (after 2.0; D25, proposed;
+    open; §5.12.8): `server_discovery` with its namespaces, prefixes and
+    selector (container mode); the Services of those namespaces watched
+    and turned into definitions of servers that speak HTTP (name, port
+    and path from annotations), joined to the reload of definitions, a
+    ConfigMap definition of the same name winning; `input.resource.discovered`
+    and the shipped policy's globs matching discovered servers only with
+    `discovered: true` in the permission; the servers' namespace and
+    Service in the console, the CLI, the doctor and the audit; a Role
+    per namespace in the chart and the manifests. Tests: definitions
+    from Services against the fake API (names, ports, collisions, a
+    ConfigMap definition winning, a Service deleted); the policy (a glob
+    without `discovered: true` does not match, the default viewer
+    reaches nothing discovered); the kind job (a labelled Service
+    served, then denied until role data names it, then gone with its
+    Service).
 
 ## 12. Open items
 
