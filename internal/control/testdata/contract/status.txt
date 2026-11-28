@@ -2,6 +2,8 @@
 # Fields may be added, never renamed or removed (docs/architecture.md, D10).
 config_error
 config_reloads
+replica
+replicas
 restart_needed
 restart_pending
 servers_error

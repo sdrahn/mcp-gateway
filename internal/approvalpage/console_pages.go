@@ -68,6 +68,8 @@ type consoleStatus struct {
 	ConfigError    string   `json:"config_error"`
 	RestartNeeded  []string `json:"restart_needed"`
 	ConfigReloads  int      `json:"config_reloads"`
+	Replica        string   `json:"replica"`
+	Replicas       []string `json:"replicas"`
 }
 
 // consolePolicy is GET /v1/policy.

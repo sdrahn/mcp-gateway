@@ -164,3 +164,15 @@ func TestNoteAndReidentified(t *testing.T) {
 		t.Errorf("notes must not reach the kernel: %v", k.msgs)
 	}
 }
+
+// With several replicas each record names the replica that wrote it;
+// with one, records have no such field.
+func TestLogReplica(t *testing.T) {
+	var out bytes.Buffer
+	New(&out, Options{Replica: "gw-b"}).Log(Record{Sub: "alice", Action: "tools.call", Server: "fs", Effect: "allow"})
+	New(&out, Options{}).Log(Record{Sub: "bob", Action: "tools.call", Server: "fs", Effect: "allow"})
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 || !strings.Contains(lines[0], `"replica":"gw-b"`) || strings.Contains(lines[1], "replica") {
+		t.Fatalf("records: %s", out.String())
+	}
+}

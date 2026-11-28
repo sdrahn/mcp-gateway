@@ -542,7 +542,7 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | Method and path | Body / result |
 |---|---|
 | `GET /v1/whoami` | the caller: `{"name", "uid", "groups"}` |
-| `GET /v1/status` | `{"version", "restart_pending", "servers_error", "config_error", "restart_needed", "config_reloads"}`: the running gateway's version; `true` when its program was updated and the gateway not yet restarted; why the last reload of the server definitions, or of `gateway.yaml`, failed (absent when it did not); the keys of `gateway.yaml` changed since the start that take effect at the next start (absent when none); how often `gateway.yaml` and its drop-ins were reloaded since the start, failed reloads too (from 1.3) |
+| `GET /v1/status` | `{"version", "restart_pending", "servers_error", "config_error", "restart_needed", "config_reloads"}`: the running gateway's version; `true` when its program was updated and the gateway not yet restarted; why the last reload of the server definitions, or of `gateway.yaml`, failed (absent when it did not); the keys of `gateway.yaml` changed since the start that take effect at the next start (absent when none); how often `gateway.yaml` and its drop-ins were reloaded since the start, failed reloads too (from 1.3); with several replicas, `"replica"` (the one that answers) and `"replicas"` (the live ones, sorted) |
 | `GET /v1/approvals` | pending approvals the caller may decide on (list of approvals, below) |
 | `GET /v1/approvals/{id}` | one approval; `404` if unknown or not the caller's to decide |
 | `POST /v1/approvals/{id}` | `{"decision": "approve"\|"deny", "scope": "once"\|"session"\|<duration>, "via": "cockpit"\|"cli"}`; returns the grant (`200`) or nothing (`204`, denied); `400 scope not offered`; `403` with `"code": "password_required"` when approving the caller's own request, which only the approver rule `self` allows, without their password (polkit; chapter 7). `via` (optional) names the way the decision came, for the audit; anything else is recorded as `api` |
@@ -560,7 +560,7 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `GET /v1/policy` | `{"mode": "directories"\|"bundle", "bundles": {name: revision}, "shipped_roles": {role: {"setup", "description", "permissions"}}}`; `502` if OPA is unavailable |
 | `POST /v1/policy/whatif` | body: proposed role data (as `data.json`); returns `{"changes": [{"principal", "server", "kind", "name", "before", "after"}], "principals", "resources", "unchecked": {server: reason}}`: the decisions that would change, for the users (`user:<name>`) and groups (`group:<name>`) either role data binds; `403` unless `data.mcp.approvals.review_policy` allows the caller |
 | `GET /v1/metrics` | metrics in the Prometheus text format (chapter 10); `403` unless the caller is root |
-| `GET /v1/doctor` | container mode: the doctor's checks the gateway runs itself (chapter 16, "Operating"), as last run (at the start, after a reload, on request): `{"checked", "trigger": "start"\|"reload"\|"request", "results"}`, `results` as `mcp-gateway-admin doctor --json`'s; `403` unless the caller is root or `data.mcp.approvals.review_policy` allows them; `404` on a host (run `mcp-gateway-admin doctor`) |
+| `GET /v1/doctor` | container mode: the doctor's checks the gateway runs itself (chapter 16, "Operating"), as last run (at the start, after a reload, on request): `{"checked", "trigger": "start"\|"reload"\|"request", "replica", "results"}` (`replica`: with several replicas, the one that ran the checks), `results` as `mcp-gateway-admin doctor --json`'s; `403` unless the caller is root or `data.mcp.approvals.review_policy` allows them; `404` on a host (run `mcp-gateway-admin doctor`) |
 | `POST /v1/doctor` | run those checks now and answer as `GET` (up to a minute) |
 | `POST /v1/notices` | post a notice (chapter 7, "Notices"): `{"principal", "servers", "severity": "info"\|"warning", "title", "text"}`; returns the notice (`201`): `{"id", "principal": {"sub", "uid"}, "servers", "severity", "title", "text", "posted_by", "created", "expires"}`; `400` with what is wrong; `403` unless the caller is root or `data.mcp.approvals.post_notice` allows them |
 | `GET /v1/notices` | the unexpired notices the caller may read and has not dismissed, oldest first |
@@ -650,6 +650,10 @@ Decision records (journal of `mcp-gateway.service`, `"audit": true`):
 | `proposal_digest` | SHA-256 of the client's proposal for the call, if it sent one (chapter 7, "The agent's account of a call") |
 | `proposal` | the proposal itself, only with the obligation `audit: "full"` |
 | `idempotency_key` | the client's idempotency key for the call, if it gave one (chapter 5, "Calls sent again: idempotency keys") |
+
+With several replicas (chapter 16, "Several replicas") every audit
+record, decision or event, also carries `replica`, the replica that
+wrote it (its pod's name).
 
 Event records carry `event` (the operation below), `ok` and fields of
 the event. The event `mcp-pseudonymize` is recorded in the journal only

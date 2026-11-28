@@ -159,10 +159,13 @@ func TestConsolePagesOthers(t *testing.T) {
 	}
 }
 
-type pageDoctor struct{ runs int }
+type pageDoctor struct {
+	runs    int
+	replica string
+}
 
 func (d *pageDoctor) Report(context.Context) control.DoctorReport {
-	return control.DoctorReport{Checked: time.Now(), Trigger: "start", Results: []doctor.Result{
+	return control.DoctorReport{Checked: time.Now(), Trigger: "start", Replica: d.replica, Results: []doctor.Result{
 		{Check: "policy", Status: doctor.OK, Summary: "OPA decides"},
 		{Check: "server tickets", Status: doctor.Fail, Summary: "tickets.svc:80 does not answer", Details: []string{"check its url"}}}}
 }
@@ -191,11 +194,36 @@ func TestConsoleDoctor(t *testing.T) {
 	c = f.browser(t)
 	code, body, _ := get(t, c, f.srv.URL+"/console/doctor")
 	if code != 200 || !strings.Contains(body, `<span class="status fail">fail</span>`) || !strings.Contains(body, "tickets.svc:80 does not answer") ||
-		!strings.Contains(body, "at the start") || d.runs != 0 {
+		!strings.Contains(body, "at the start") || strings.Contains(body, "by the replica") || d.runs != 0 {
 		t.Fatalf("doctor: %d %s", code, body)
 	}
 	_, body = post(t, c, f.srv.URL+"/console/doctor", url.Values{"csrf": {csrfOf(t, body)}}, map[string]string{"Origin": f.srv.URL})
 	if d.runs != 1 || !strings.Contains(body, "on request") {
 		t.Errorf("check again: %d %s", d.runs, body)
+	}
+	// One of several replicas: the one that ran the checks.
+	d.replica = "gw-b"
+	if _, body, _ := get(t, c, f.srv.URL+"/console/doctor"); !strings.Contains(body, "(at the start) by the replica gw-b.") {
+		t.Errorf("replica: %s", body)
+	}
+}
+
+// With several replicas the status names the replica that serves the
+// page and the live ones.
+func TestConsoleReplicas(t *testing.T) {
+	b, err := broker.New(broker.Options{Timeout: time.Minute, Policy: jackOnly{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs := &control.Server{Broker: b, Replicas: func() (string, []string) { return "gw-b", []string{"gw-a", "gw-b", "gw-c"} }}
+	f := newFixture(t, func(pg *Page) { pg.Control = cs.Handler() })
+	c := f.browser(t)
+	if code, body, _ := get(t, c, f.srv.URL+"/console/"); code != 200 || !strings.Contains(body, "<dt>Replica</dt><dd>gw-b") ||
+		!strings.Contains(body, "3 live: gw-a, gw-b, gw-c") {
+		t.Fatalf("status: %d %s", code, body)
+	}
+	cs.Replicas = nil
+	if _, body, _ := get(t, c, f.srv.URL+"/console/"); strings.Contains(body, "<dt>Replica</dt>") {
+		t.Errorf("one replica: %s", body)
 	}
 }

@@ -319,6 +319,11 @@ custos_pod() {
 [ "$(custos_pod | grep -c .)" = 1 ] || fail "custos's instance pods: $(custos_pod | tr '\n' ' ')"
 owner=$(replica_of "$(custos_pod)")
 pass "custos's calls through each of the $REPLICAS replicas reach one instance, at $owner"
+# The owner wrote their audit records, which name it.
+owner_log=$(k -n "$NS" logs "$owner" -c gateway)
+grep '"audit":true' <<<"$owner_log" | grep 'agents:custos"' | grep "\"replica\":\"$owner\"" >/dev/null ||
+	fail "no audit record of custos names $owner"
+pass "the audit records of custos's calls name $owner"
 
 # The replica that serves custos goes: its instance pod is reaped, and
 # the next call, through another replica, is served by the one that
