@@ -26,7 +26,11 @@ minor release (with a warning) and removed in the next.
   (`replication.replica`, by default the pod's name), and the instance
   pods of the Kubernetes launcher name their replica; the replicas
   delete the pods of a replica that is gone instead of every pod at the
-  start. The Role adds Leases (#441).
+  start. The Role adds Leases. With `replication.listen` and the
+  replicas' certificate (`replication.peer_*`), each principal is
+  served by one replica, which holds its Lease, and the others forward
+  its requests there over mTLS; sign-in callbacks go to the replica that
+  started the sign-in (#441).
 
 ## v2.0.0 — 2026-11-27
 

@@ -5373,6 +5373,24 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       (`supervisor.Kubernetes.Reap`), instead of every pod at the start;
       the Role has Leases; the kind job checks the label and the Lease
       handed over in a restart;
+      as built (part 2): a Lease per principal key
+      (`mcp-gateway-owner-<digest>`, the key not in it), taken by the
+      first replica a request reaches, or when its holder's replica
+      Lease ran out, renewed while the principal has sessions, instances
+      or working tasks there or made a request within
+      `supervisor.idle_timeout`, given up then and at a stop; the owner
+      of another replica's principal is remembered 5 s
+      (`replicas.Owners`); the peer listener (`replication.listen`)
+      with TLS 1.3 and the replicas' certificate required of clients;
+      the public listener's `Forwarder` validates a request's token
+      only to find the owner, forwards it with a reverse proxy (streams
+      flushed as they come) and the client's certificate (DER), its
+      address and the forwarding replica in headers it drops from
+      clients; the `PeerHandler` puts them in place of the peer's,
+      checks that this replica is the owner (421 otherwise) and serves
+      the request as the public listener would; a sign-in's state
+      starts with its replica's name (`<replica>~`), and its start page
+      and callback are forwarded there;
     - stage C, the console and the control API across replicas (views
       merged from the peers, actions forwarded to the replica that holds
       them), draining on `SIGTERM`, the chart's `replicas` with a

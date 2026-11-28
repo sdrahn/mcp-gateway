@@ -503,6 +503,14 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if gw.HTTP.Listen != "" {
 		tokens = authn.NewOAuth(gw.HTTP, nil)
 	}
+	fwd, err := shared.forwarding(log, gw, r, tokens)
+	if err != nil {
+		return err
+	}
+	if signIns != nil && fwd != nil {
+		// The callback may reach any replica: its state names this one.
+		signIns.StatePrefix = fwd.members.Name + replicas.StateSeparator
+	}
 	var self *selfCheck
 	if gw.Container() {
 		self = &selfCheck{log: log, gw: gw, backends: r.CurrentBackends, reloader: reloader, opa: opa, tokens: tokens, ready: opa.Health}
@@ -573,7 +581,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	stopHTTP := func() {}
 	if gw.HTTP.Listen != "" {
 		httpErrs = make(chan error, 1)
-		if stopHTTP, err = serveHTTP(log, gw.HTTP, tokens, certs, r, signIns, page, hooks, httpErrs); err != nil {
+		if stopHTTP, err = serveHTTP(log, gw.HTTP, tokens, certs, r, signIns, page, hooks, fwd, httpErrs); err != nil {
 			stop()
 			return errors.Join(err, <-served)
 		}
@@ -761,7 +769,7 @@ func newSignIns(log *slog.Logger, gw *config.Gateway, launcher supervisor.Launch
 // resource server). The returned function ends all HTTP sessions and
 // shuts the server down.
 func serveHTTP(log *slog.Logger, cfg config.HTTP, tokens *authn.OAuth, certs *certStore, r *router.Router, signIns *signin.Manager,
-	page *approvalpage.Page, hooks *webhook.Hooks, errc chan<- error) (func(), error) {
+	page *approvalpage.Page, hooks *webhook.Hooks, fwd *forwarding, errc chan<- error) (func(), error) {
 	h, err := transport.NewHTTPHandler(transport.HTTPConfig{
 		Resource:             cfg.Audience,
 		AuthorizationServers: authorizationServers(cfg),
@@ -813,6 +821,20 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, tokens *authn.OAuth, certs *ce
 		mux.Handle("/", h)
 		handler = mux
 	}
+	stopPeer := func() {}
+	if fwd != nil {
+		// Several replicas: a principal's requests go to the replica that
+		// owns it, over the peer listener (docs/architecture.md, section
+		// 5.12.5).
+		u, _ := url.Parse(cfg.Audience)
+		f := &replicas.Forwarder{Members: fwd.members, Owners: fwd.owners, Auth: tokens, MCPPath: u.Path,
+			SignInPaths: []string{"/oauth/start/", "/oauth/callback"}, Local: handler, Transport: fwd.transport, Log: log}
+		handler = f
+		var err error
+		if stopPeer, err = fwd.serve(log, f, errc); err != nil {
+			return nil, err
+		}
+	}
 	// Unauthenticated clients reach the listener (the metadata, webhook
 	// callbacks, the approval page's sign-in): headers and bodies have to
 	// come in time, idle connections close, and the connections are
@@ -838,6 +860,7 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, tokens *authn.OAuth, certs *ce
 	return func() {
 		// Sessions first: open SSE streams only end with their session.
 		h.Close()
+		stopPeer()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
@@ -1004,6 +1027,8 @@ type sharedStore struct {
 	// replica gave its Lease up.
 	members *replicas.Members
 	left    chan struct{}
+	// owned is closed when this replica gave up its principals' Leases.
+	owned chan struct{}
 }
 
 func newShared(gw *config.Gateway) (*sharedStore, error) {
@@ -1027,7 +1052,14 @@ func (s *sharedStore) join(ctx context.Context, log *slog.Logger, gw *config.Gat
 		return nil, nil, err
 	}
 	changed := make(chan struct{}, 1)
-	m := &replicas.Members{Client: s.client, Namespace: s.namespace, Name: name, Address: replicaAddress(gw), Log: log,
+	address := replicaAddress(gw)
+	if gw.Replication.Forwarding() {
+		if _, _, err := net.SplitHostPort(address); err != nil {
+			_, port, _ := net.SplitHostPort(gw.Replication.Listen)
+			address = net.JoinHostPort(address, port)
+		}
+	}
+	m := &replicas.Members{Client: s.client, Namespace: s.namespace, Name: name, Address: address, Log: log,
 		OnChange: func() {
 			select {
 			case changed <- struct{}{}:
@@ -1059,11 +1091,14 @@ func (s *sharedStore) stop() {
 		_ = t.Flush(ctx)
 	}
 	s.cancel()
-	if s.left != nil {
-		// The others take over at once, not when the Lease runs out.
-		select {
-		case <-s.left:
-		case <-time.After(6 * time.Second):
+	// The others take over at once, not when the Leases run out.
+	deadline := time.After(6 * time.Second)
+	for _, done := range []chan struct{}{s.owned, s.left} {
+		if done != nil {
+			select {
+			case <-done:
+			case <-deadline:
+			}
 		}
 	}
 }

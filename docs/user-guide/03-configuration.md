@@ -244,7 +244,19 @@ may have been revoked. Each replica holds a Lease of its own in the
 namespace (its ServiceAccount must get, list, create, update and delete
 Leases there too); with the Kubernetes launcher, the replicas delete
 the instance pods of a replica whose Lease ran out, instead of every
-pod at the start. Chapter 16, "The state in the Kubernetes API",
+pod at the start.
+
+With `replication.listen`, a principal's requests (`/mcp`) are served by
+the replica that holds the principal's Lease: the first a request
+reaches takes it, it keeps it while the principal has instances,
+sessions or tasks there, or made a request within
+`supervisor.idle_timeout`, and another takes it over when its replica is
+gone. A replica that receives a request of a principal another owns
+forwards it there as it came, the client's certificate and address in
+headers the peer listener alone trusts; the owner validates the token
+itself. A request forwarded to a replica that no longer owns the
+principal is refused (421), and the client sends it again. A sign-in's
+callback goes to the replica that started it. Chapter 16, "The state in the Kubernetes API",
 sets it up with the chart or the manifests.
 
 | Key | Default | Meaning |
@@ -253,7 +265,10 @@ sets it up with the chart or the manifests.
 | `replication.namespace` | none | the gateway's own namespace, required with the store; its ServiceAccount must get, list, watch, create, update and delete Secrets there |
 | `replication.api_server`, `replication.token_file`, `replication.ca_file` | as `supervisor.kubernetes` | reach the Kubernetes API as the gateway's ServiceAccount |
 | `replication.replica` | `$POD_NAME` | this replica's name: it holds a Lease of that name in the namespace, renewed every few seconds, and the instance pods it starts carry it; the manifests and the chart set `POD_NAME` from the pod's name |
-| `replication.address` | `$POD_IP` | where the other replicas reach this one (in its Lease) |
+| `replication.address` | `$POD_IP` | where the other replicas reach this one (in its Lease); with `replication.listen`, its port is added |
+| `replication.listen` | none | the peer listener (`":8444"`): with it, each principal is served by one replica, its owner, and the others forward its requests there, streams included; unset, no forwarding (one replica) |
+| `replication.peer_cert_file`, `replication.peer_key_file`, `replication.peer_ca_file` | none | the replicas' certificate and key, which they present on the peer listener and as its clients, and the CA that issued it: required with `replication.listen` (a Secret mounted in each pod) |
+| `replication.peer_server_name` | `mcp-gateway-peer` | the name in the replicas' certificate |
 
 ### Local socket
 
