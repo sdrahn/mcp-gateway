@@ -2,7 +2,8 @@
 {{- $image := include "mcp-gateway.image" . -}}
 # One replica (docs/architecture.md, section 5.12.5), Recreate as its
 # volume is ReadWriteOnce: the gateway, OPA and mcp-policy-render in one
-# pod, the policy copied from the gateway's image by the init container.
+# pod (the last two sidecars, which stop after the gateway), the policy
+# copied from the gateway's image by the first init container.
 # As deploy/kubernetes/deployment.yaml. Several replicas (on the shared
 # store, no volume): a rolling update, one new pod before an old one
 # drains, spread over the nodes.
@@ -63,6 +64,40 @@ spec:
           securityContext: {{- include "mcp-gateway.restricted" . | nindent 12 }}
           volumeMounts:
             - {name: policy, mountPath: /policy}
+        # OPA and mcp-policy-render as sidecars (Kubernetes 1.29 and later):
+        # they start before the gateway and stop after it, so that a
+        # replica that drains still decides.
+        - name: policy-render
+          restartPolicy: Always
+          image: {{ $image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/libexec/mcp-gateway/mcp-policy-render", "-watch"]
+          resources: {{- toYaml .Values.resources.policyRender | nindent 12 }}
+          securityContext: {{- include "mcp-gateway.restricted" . | nindent 12 }}
+          volumeMounts:
+            - {name: rbac, mountPath: /etc/mcp-gateway/policy/rbac, readOnly: true}
+            - {name: rendered, mountPath: /run/mcp-opa}
+        - name: opa
+          restartPolicy: Always
+          image: {{ printf "%s:%s" .Values.opaImage.repository .Values.opaImage.tag }}
+          imagePullPolicy: {{ .Values.opaImage.pullPolicy }}
+          args:
+            - run
+            - --server
+            - --addr=unix:///run/mcp-gateway/opa.sock
+            - --unix-socket-perm=0660
+            - --watch
+            - --log-format=json
+            - --set=decision_logs.console=true
+            - --set=decision_logs.mask_decision=/mcp/log/mask
+            - /policy
+            - mcp.rbac:/run/mcp-opa/rbac
+          resources: {{- toYaml .Values.resources.opa | nindent 12 }}
+          securityContext: {{- include "mcp-gateway.restricted" . | nindent 12 }}
+          volumeMounts:
+            - {name: policy, mountPath: /policy, readOnly: true}
+            - {name: rendered, mountPath: /run/mcp-opa, readOnly: true}
+            - {name: run, mountPath: /run/mcp-gateway}
       containers:
         - name: gateway
           image: {{ $image }}
@@ -112,35 +147,6 @@ spec:
             - {name: run, mountPath: /run/mcp-gateway}
             - {name: rendered, mountPath: /run/mcp-opa, readOnly: true}
             - {name: tmp, mountPath: /tmp}
-        - name: policy-render
-          image: {{ $image }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/usr/libexec/mcp-gateway/mcp-policy-render", "-watch"]
-          resources: {{- toYaml .Values.resources.policyRender | nindent 12 }}
-          securityContext: {{- include "mcp-gateway.restricted" . | nindent 12 }}
-          volumeMounts:
-            - {name: rbac, mountPath: /etc/mcp-gateway/policy/rbac, readOnly: true}
-            - {name: rendered, mountPath: /run/mcp-opa}
-        - name: opa
-          image: {{ printf "%s:%s" .Values.opaImage.repository .Values.opaImage.tag }}
-          imagePullPolicy: {{ .Values.opaImage.pullPolicy }}
-          args:
-            - run
-            - --server
-            - --addr=unix:///run/mcp-gateway/opa.sock
-            - --unix-socket-perm=0660
-            - --watch
-            - --log-format=json
-            - --set=decision_logs.console=true
-            - --set=decision_logs.mask_decision=/mcp/log/mask
-            - /policy
-            - mcp.rbac:/run/mcp-opa/rbac
-          resources: {{- toYaml .Values.resources.opa | nindent 12 }}
-          securityContext: {{- include "mcp-gateway.restricted" . | nindent 12 }}
-          volumeMounts:
-            - {name: policy, mountPath: /policy, readOnly: true}
-            - {name: rendered, mountPath: /run/mcp-opa, readOnly: true}
-            - {name: run, mountPath: /run/mcp-gateway}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}

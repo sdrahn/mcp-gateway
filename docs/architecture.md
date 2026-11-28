@@ -5497,7 +5497,12 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       for the owner anew, four tries in all; the kind job's caller
       (`echo -call`, a pod of the agents' namespace with a projected
       token) calls the stdio server through the Service during a
-      `rollout restart`, and no call fails;
+      `rollout restart`, and no call fails; OPA and
+      `mcp-policy-render` are the pod's sidecars (init containers with
+      `restartPolicy: Always`), which stop after the gateway: as plain
+      containers they got `SIGTERM` with it, and OPA closed its socket at
+      once, so a draining replica denied every call it decided ("policy
+      evaluation failed", seen in the kind job);
 
 50. **Servers discovered in the cluster** (after 2.0; D25, proposed;
     open; §5.12.8): `server_discovery` with its namespaces, prefixes and

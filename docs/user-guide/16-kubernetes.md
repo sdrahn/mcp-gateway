@@ -431,9 +431,12 @@ Deployment of one replica (sessions, pending approvals and tasks live in
 its memory), a Service for the HTTPS listener, a volume for the state,
 and three ConfigMaps. The pod has three containers that share two
 in-memory volumes, as the three services do on a host: the gateway, OPA,
-and `mcp-policy-render`, which renders the role data for OPA. An init
-container copies the policy from the gateway's image, so gateway and
-policy are always of one version.
+and `mcp-policy-render`, which renders the role data for OPA. OPA and
+`mcp-policy-render` are sidecars (init containers that keep running,
+Kubernetes 1.29 or later): they start before the gateway and stop after
+it, so that a replica told to stop still decides while it drains. An
+init container copies the policy from the gateway's image, so gateway
+and policy are always of one version.
 
 ```bash
 kubectl create namespace mcp-gateway

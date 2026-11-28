@@ -85,7 +85,12 @@ minor release (with a warning) and removed in the next.
   that has just gone or given the principal up sends it again to the
   new one, instead of answering 502 or 421: a client with short
   sessions sees no failed call while the replicas roll. The kind job
-  calls through the Service from a pod during a rolling update (#452).
+  calls through the Service from a pod during a rolling update. OPA and
+  `mcp-policy-render` are now sidecars of the gateway's pod (init
+  containers that keep running; Kubernetes 1.29 or later), in the chart
+  and the manifests: they stop after the gateway, where before OPA
+  stopped with it, and a replica that drained denied the calls it
+  decided meanwhile (#452).
 
 ### Fixed
 

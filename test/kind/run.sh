@@ -49,6 +49,11 @@ cleanup() {
 			echo "--- $c" >&2
 			k -n "$NS" logs deploy/mcp-gateway -c "$c" --tail=60 >&2 || true
 		done
+		# Each replica's warnings and errors, not only one pod's.
+		for pod in $(k -n "$NS" get pods -o name 2>/dev/null | grep '^pod/mcp-gateway-'); do
+			echo "--- $pod: warnings" >&2
+			k -n "$NS" logs "$pod" -c gateway --tail=400 2>/dev/null | grep -E 'level=(WARN|ERROR)|"level":"(WARN|ERROR)"' | tail -20 >&2 || true
+		done
 		if k -n agents get pod caller >/dev/null 2>&1; then
 			echo "--- the caller" >&2
 			k -n agents logs caller --tail=30 >&2 || true
