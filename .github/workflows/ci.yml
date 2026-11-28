@@ -123,27 +123,35 @@ jobs:
           MCPGW_SERVERS: go,py,ts
           GOTOOLCHAIN: auto
 
-  # Fuzzing (roadmap step 14): each target for a minute, with its seeds and
-  # the inputs that failed before (testdata/fuzz). A failing input is
-  # uploaded; add it to testdata/fuzz with the fix.
+  # Fuzzing (roadmap step 14): each target for about a minute, with its
+  # seeds and the inputs that failed before (testdata/fuzz). A failing
+  # input is uploaded; add it to testdata/fuzz with the fix.
+  #
+  # A count of executions (-fuzztime <n>x), not a time: with a time, Go's
+  # fuzz coordinator can report its own deadline as the run's failure
+  # ("context deadline exceeded", no input), when the deadline's context
+  # closes before its child the workers run on is cancelled
+  # (internal/fuzz). Each count is what the target reaches in about a
+  # minute on these runners.
   fuzz:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         target:
-          - { pkg: ./internal/jsonrpc, name: FuzzRead }
-          - { pkg: ./internal/jsonrpc, name: FuzzCheckKeys }
-          - { pkg: ./internal/router, name: FuzzCallTarget }
-          - { pkg: ./internal/transport, name: FuzzHTTPHandler }
-          - { pkg: ./internal/pep, name: FuzzVersioned }
+          - { pkg: ./internal/jsonrpc, name: FuzzRead, execs: 4500000 }
+          - { pkg: ./internal/jsonrpc, name: FuzzCheckKeys, execs: 6000000 }
+          - { pkg: ./internal/router, name: FuzzCallTarget, execs: 700000 }
+          - { pkg: ./internal/transport, name: FuzzHTTPHandler, execs: 140000 }
+          - { pkg: ./internal/pep, name: FuzzVersioned, execs: 2000000 }
     name: fuzz (${{ matrix.target.name }})
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go test -run '^$' -fuzz '^${{ matrix.target.name }}$' -fuzztime 60s ${{ matrix.target.pkg }}
+      - run: go test -run '^$' -fuzz '^${{ matrix.target.name }}$' -fuzztime ${{ matrix.target.execs }}x ${{ matrix.target.pkg }}
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
