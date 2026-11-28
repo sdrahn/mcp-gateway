@@ -42,8 +42,9 @@ token, and operators who approve its calls in the console. The sections
 after this one explain each part. `test/kind/run.sh` runs the same flow
 in CI on every change.
 
-**You need** a cluster whose network plugin enforces NetworkPolicies
-(Calico, Cilium; most managed clusters), `kubectl` and `helm`, a
+**You need** a cluster of Kubernetes 1.29 or later (the pod's sidecars)
+whose network plugin enforces NetworkPolicies (Calico, Cilium; most
+managed clusters), `kubectl` and `helm`, a
 registry for the gateway's image, and a TLS certificate for the name
 agents connect to. For people and approvals, add an OpenID Connect
 identity provider (chapter 15 sets up Keycloak).
@@ -333,7 +334,8 @@ rbac:
 
 | You see | Look at |
 |---|---|
-| The pod is not ready | `kubectl -n mcp-gateway logs deploy/mcp-gateway -c opa`: OPA must start and load the policy; `-c gateway` for a configuration the gateway refuses |
+| The pod is not ready | `kubectl -n mcp-gateway logs deploy/mcp-gateway -c policy-render`: OPA starts only once the role data is rendered, and role data that does not parse is not; `-c opa`: OPA must start and load the policy; `-c gateway` for a configuration the gateway refuses |
+| Calls fail or are denied while the replicas roll | `kubectl -n mcp-gateway get pdb,deploy` (`RollingUpdate`, the budget), each replica's `-c gateway` warnings; a client that keeps one session open loses it when its replica stops, as in a restart |
 | 401 for an agent | the token's audience (`mcp-gateway` for ServiceAccounts, `http.audience` for the identity provider's) and issuer; the doctor's identity provider checks |
 | A tool the agent does not see, or a call denied | the role data's binding of the principal (`k8s:system:serviceaccount:<namespace>:<name>`); the audit record names the decision and its reason |
 | A server's calls fail | the doctor's check of the server: its Service's name and port, the servers' NetworkPolicy (it must admit the gateway's pods) |
@@ -434,9 +436,14 @@ in-memory volumes, as the three services do on a host: the gateway, OPA,
 and `mcp-policy-render`, which renders the role data for OPA. OPA and
 `mcp-policy-render` are sidecars (init containers that keep running,
 Kubernetes 1.29 or later): they start before the gateway and stop after
-it, so that a replica told to stop still decides while it drains. An
-init container copies the policy from the gateway's image, so gateway
-and policy are always of one version.
+it, so that a replica told to stop still decides while it drains. OPA
+starts once the role data is rendered (a startup probe on
+`mcp-policy-render`, its `-check`), as on a host, where systemd starts
+it after `mcp-policy-render`; role data that does not parse when a pod
+starts keeps the pod from becoming ready, and
+`kubectl logs <pod> -c policy-render` says why. An init container
+copies the policy from the gateway's image, so gateway and policy are
+always of one version.
 
 ```bash
 kubectl create namespace mcp-gateway

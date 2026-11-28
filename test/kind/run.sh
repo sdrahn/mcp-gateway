@@ -5,6 +5,8 @@
 # a ServiceAccount token of the cluster (no other identity provider):
 #   - the call reaches echo through the gateway, which runs as one pod
 #     with OPA and the role data renderer beside it;
+#   - OPA and mcp-policy-render run as sidecars, OPA started once the
+#     role data is rendered (no restart);
 #   - a token for another audience is refused;
 #   - a server added to the servers ConfigMap is served once the kubelet
 #     updates the mounted files (the ..data swap; docs/architecture.md,
@@ -146,6 +148,12 @@ pass "metadata names the cluster's issuer"
 	fail "probes: $(curl -s "http://127.0.0.1:$MPORT/readyz")"
 curl -s "http://127.0.0.1:$MPORT/metrics" | grep -q '^mcp_gateway_instances ' || fail "no metrics"
 pass "/readyz, /healthz and /metrics on the metrics port"
+# OPA starts once the role data is rendered (policy-render's startup
+# probe): it never failed to start for want of it.
+restarts=$(k -n "$NS" get pods -o json | jq -r '[.items[] | select(.metadata.name | startswith("mcp-gateway-")) |
+	.status.initContainerStatuses[]? | select(.name == "opa" or .name == "policy-render") | .restartCount] | add // -1')
+[ "$restarts" = 0 ] || fail "the sidecars restarted at the start ($restarts): $(k -n "$NS" logs deploy/mcp-gateway -c opa --previous --tail=5 2>&1)"
+pass "OPA and policy-render, sidecars, started once in each replica"
 
 if [ "$DEPLOY" = helm ]; then
 	# The chart's secrets: mounted for the gateway's account, for no one else.

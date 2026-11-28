@@ -5502,7 +5502,12 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       `restartPolicy: Always`), which stop after the gateway: as plain
       containers they got `SIGTERM` with it, and OPA closed its socket at
       once, so a draining replica denied every call it decided ("policy
-      evaluation failed", seen in the kind job);
+      evaluation failed", seen in the kind job); OPA starts after
+      `mcp-policy-render -check` passes (a startup probe on the
+      renderer): before, OPA either did not start (the rendered
+      directory not there yet; restarted 10 s later) or, in the moment
+      between the directory and its file, started with no role data,
+      ready and denying every call ("no matching permission");
 
 50. **Servers discovered in the cluster** (after 2.0; D25, proposed;
     open; §5.12.8): `server_discovery` with its namespaces, prefixes and

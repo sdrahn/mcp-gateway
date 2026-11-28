@@ -90,7 +90,9 @@ minor release (with a warning) and removed in the next.
   containers that keep running; Kubernetes 1.29 or later), in the chart
   and the manifests: they stop after the gateway, where before OPA
   stopped with it, and a replica that drained denied the calls it
-  decided meanwhile (#452).
+  decided meanwhile. OPA starts once the role data is rendered (a
+  startup probe on `mcp-policy-render -check`): before, it could start
+  with none and deny every call while the pod counted as ready (#452).
 
 ### Fixed
 

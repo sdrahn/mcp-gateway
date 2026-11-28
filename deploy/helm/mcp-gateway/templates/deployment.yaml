@@ -72,6 +72,13 @@ spec:
           image: {{ $image }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["/usr/libexec/mcp-gateway/mcp-policy-render", "-watch"]
+          # OPA starts once the role data is rendered (as on a host, where
+          # systemd starts it after mcp-policy-render is ready): before,
+          # OPA did not start, or started with no role data and denied.
+          startupProbe:
+            exec: {command: ["/usr/libexec/mcp-gateway/mcp-policy-render", "-check"]}
+            periodSeconds: 1
+            failureThreshold: 120
           resources: {{- toYaml .Values.resources.policyRender | nindent 12 }}
           securityContext: {{- include "mcp-gateway.restricted" . | nindent 12 }}
           volumeMounts:
