@@ -161,29 +161,52 @@ func gatewayDoctor(gateway string, asJSON, strict bool, stdout, stderr io.Writer
 		say(stderr, "mcp-gateway-admin doctor:", cc.message(status, data))
 		return 1
 	}
-	var rep struct {
-		Checked time.Time       `json:"checked"`
-		Replica string          `json:"replica"`
-		Results []doctor.Result `json:"results"`
+	type report struct {
+		Checked     time.Time       `json:"checked"`
+		Replica     string          `json:"replica"`
+		Results     []doctor.Result `json:"results"`
+		Unreachable string          `json:"unreachable"`
+		Replicas    []report        `json:"replicas"`
 	}
+	var rep report
 	if err := json.Unmarshal(data, &rep); err != nil {
 		say(stderr, "mcp-gateway-admin doctor:", err)
 		return 1
+	}
+	// With several replicas, each ran its own checks: the exit status
+	// counts all; --json writes those of the replica that answered.
+	all := slices.Clone(rep.Results)
+	for _, o := range rep.Replicas {
+		all = append(all, o.Results...)
+		if o.Unreachable != "" {
+			all = append(all, doctor.Result{Status: doctor.Fail})
+		}
 	}
 	if asJSON {
 		err = doctor.WriteJSON(stdout, rep.Results)
 	} else {
 		if rep.Replica != "" {
-			// One of several replicas ran them (the others: their own).
 			say(stdout, "checked by the replica", display.Escape(rep.Replica))
 		}
 		err = doctor.WriteText(stdout, rep.Results, colorful(stdout))
+		for _, o := range rep.Replicas {
+			if err != nil {
+				break
+			}
+			say(stdout)
+			if o.Unreachable != "" {
+				say(stdout, "the replica", display.Escape(o.Replica), "does not answer:", display.Escape(o.Unreachable))
+				continue
+			}
+			say(stdout, "checked by the replica", display.Escape(o.Replica))
+			err = doctor.WriteText(stdout, o.Results, colorful(stdout))
+		}
 	}
 	if err != nil {
 		say(stderr, err)
 		return 1
 	}
-	return doctorExit(rep.Results, strict)
+	return doctorExit(all, strict)
 }
 
 // doctorExit is the doctor's exit status: 1 if a check failed, 3 if one

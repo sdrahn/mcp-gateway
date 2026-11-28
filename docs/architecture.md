@@ -5442,6 +5442,18 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       state), and the public listener forwards a request with one to
       that replica; one of a replica that is gone is served where it
       lands, which does not know it;
+      as built (part 3): `internal/cluster` wraps the router for the
+      control API: its lists are this replica's rows and those the other
+      live replicas serve on their peer listeners (below `/peer/v1/`,
+      unfiltered, to replicas only), each naming its replica, another
+      replica's id qualified as `<replica>~<id>`; the control API filters
+      them by the approver rules as its own, and an action on another
+      replica's row is carried out there (the replica that holds it
+      does not decide again: the one that answers the caller did); a
+      replica that does not answer within 3 s is left out and logged;
+      the doctor's report carries the others' (`replicas`); sign-ins
+      need nothing (their tokens are in the shared store) and neither
+      does the clients' history;
 
 50. **Servers discovered in the cluster** (after 2.0; D25, proposed;
     open; §5.12.8): `server_discovery` with its namespaces, prefixes and

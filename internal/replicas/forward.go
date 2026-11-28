@@ -201,12 +201,21 @@ func (f *Forwarder) forward(w http.ResponseWriter, r *http.Request, m Member) {
 // (D24): no replica takes a principal on a peer's word.
 type PeerHandler struct {
 	Forwarder *Forwarder
+	// Internal, if set, serves the paths below InternalPrefix: what the
+	// replicas ask each other themselves (internal/cluster), not
+	// clients' requests.
+	Internal       http.Handler
+	InternalPrefix string
 }
 
 func (h *PeerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f := h.Forwarder
 	if r.Header.Get(ForwardedByHeader) == "" || r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
 		http.Error(w, "the peer listener serves the gateway's replicas only", http.StatusForbidden)
+		return
+	}
+	if h.Internal != nil && h.InternalPrefix != "" && strings.HasPrefix(r.URL.Path, h.InternalPrefix) {
+		h.Internal.ServeHTTP(w, r)
 		return
 	}
 	// The client's view, not the forwarding replica's.

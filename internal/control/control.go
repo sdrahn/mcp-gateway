@@ -133,6 +133,11 @@ type DoctorReport struct {
 	// Replica names the replica of several that ran the checks.
 	Replica string          `json:"replica,omitempty"`
 	Results []doctor.Result `json:"results"`
+	// Unreachable, in a report of another replica, tells why it did not
+	// answer (it has no results then).
+	Unreachable string `json:"unreachable,omitempty"`
+	// Replicas are the other replicas' reports, with several replicas.
+	Replicas []DoctorReport `json:"replicas,omitempty"`
 }
 
 // Catalog lists what the MCP servers offer (router.Router).

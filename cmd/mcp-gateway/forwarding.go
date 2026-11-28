@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/authn"
+	"github.com/sdrahn/mcp-gateway/internal/cluster"
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	"github.com/sdrahn/mcp-gateway/internal/replicas"
 	"github.com/sdrahn/mcp-gateway/internal/router"
@@ -29,6 +30,8 @@ type forwarding struct {
 	listen    string
 	serverTLS *tls.Config
 	transport http.RoundTripper
+	// internal serves what the replicas ask each other (cluster.Prefix).
+	internal http.Handler
 }
 
 // forwarding sets up the forwarding between replicas, nil without it
@@ -91,8 +94,9 @@ func busyPrincipals(r *router.Router) map[string]bool {
 // function stops it.
 func (fw *forwarding) serve(log *slog.Logger, f *replicas.Forwarder, errc chan<- error) (func(), error) {
 	srv := &http.Server{
-		Addr:              fw.listen,
-		Handler:           transport.BodyDeadline(&replicas.PeerHandler{Forwarder: f}, httpBodyTimeout),
+		Addr: fw.listen,
+		Handler: transport.BodyDeadline(&replicas.PeerHandler{Forwarder: f, Internal: fw.internal, InternalPrefix: cluster.Prefix},
+			httpBodyTimeout),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       httpIdleTimeout,
 		TLSConfig:         fw.serverTLS,

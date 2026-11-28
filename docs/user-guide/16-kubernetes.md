@@ -721,8 +721,10 @@ the replica it was made on, and its cookies name that replica: a
 browser's requests reach it whichever replica the Service picks (a
 replica that went takes its sign-ins along: sign in again). Each replica's audit records carry `replica`, its name;
 the console's status names the replica that serves the page and the
-live ones, and the doctor's results the replica that ran them (each
-replica runs its own checks). The replicas reach each other on their pod addresses: a
+live ones. The console and the control API list every replica's
+instances, tasks and clients, each naming its replica, and stop, cancel
+or end one on the replica that holds it; the Doctor page and
+`doctor --gateway` show every replica's checks (each runs its own). The replicas reach each other on their pod addresses: a
 NetworkPolicy in the gateway's namespace must let them reach port
 `8444`.
 

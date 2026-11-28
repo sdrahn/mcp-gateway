@@ -5,6 +5,7 @@
 [].ended
 [].id
 [].iss
+[].replica
 [].server
 [].status
 [].status_message

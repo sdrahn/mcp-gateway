@@ -9,6 +9,7 @@
 [].instances[].isolation
 [].instances[].iss
 [].instances[].privileged
+[].instances[].replica
 [].instances[].server
 [].instances[].session_id
 [].instances[].sessions

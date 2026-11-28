@@ -28,7 +28,7 @@ var consoleServersTmpl = template.Must(template.New("servers").Funcs(funcs).Pars
 {{range .List}}<div class="card"><div><b>{{.Name}}</b>{{if .Removed}} <span class="muted">(removed from the configuration; its instances stop once their calls are answered)</span>{{end}}</div>
 {{if not .Removed}}<div class="muted">isolation {{.Isolation}} · network {{if .Network}}yes{{else}}no{{end}}{{if .SignIn}} · each user signs in{{end}}{{if .Landlock}} · Landlock{{end}}{{if .Privileged}} · privileged{{end}}{{if .Capabilities}} · capabilities {{join .Capabilities ", "}}{{end}}</div>{{end}}
 {{if .Instances}}<table><tr><th>Instance</th><th>For</th><th>Started</th><th>Sessions</th><th>Definition</th><th></th></tr>
-{{range .Instances}}<tr><td>{{.ID}}</td><td>{{.Sub}}{{if .Issuer}} <span class="muted">({{.Issuer}})</span>{{end}}</td><td>{{ago .Started}}</td><td>{{.Sessions}}{{if .Busy}} · busy{{end}}</td><td>{{.Definition}}</td>
+{{range .Instances}}<tr><td>{{.ID}}{{if .Replica}} <span class="muted">on {{.Replica}}</span>{{end}}</td><td>{{.Sub}}{{if .Issuer}} <span class="muted">({{.Issuer}})</span>{{end}}</td><td>{{ago .Started}}</td><td>{{.Sessions}}{{if .Busy}} · busy{{end}}</td><td>{{.Definition}}</td>
 <td><form class="inline" method="post" action="/console/instances/{{.ID}}/stop"><input type="hidden" name="csrf" value="{{$.S.CSRF}}"><button class="danger">Stop</button></form></td></tr>
 {{end}}</table>{{else}}<p class="muted">No instances you manage.</p>{{end}}</div>
 {{else}}<p class="muted">No servers.</p>{{end}}
@@ -36,7 +36,7 @@ var consoleServersTmpl = template.Must(template.New("servers").Funcs(funcs).Pars
 
 var consoleSessionsTmpl = template.Must(template.New("sessions").Funcs(funcs).Parse(layout + `{{template "top" .}}
 {{if .List}}<table><tr><th>Client</th><th>For</th><th>Endpoint</th><th>Protocol</th><th>Since</th><th>Last active</th><th></th></tr>
-{{range .List}}<tr><td>{{.Client.Name}} {{.Client.Version}}</td><td>{{.Sub}}{{if .Issuer}} <span class="muted">({{.Issuer}})</span>{{end}}</td><td>{{.Endpoint}}</td><td>{{.Protocol}}{{if eq .Kind "agent"}} <span class="muted">(agent)</span>{{end}}</td>
+{{range .List}}<tr><td>{{.Client.Name}} {{.Client.Version}}{{if .Replica}} <span class="muted">on {{.Replica}}</span>{{end}}</td><td>{{.Sub}}{{if .Issuer}} <span class="muted">({{.Issuer}})</span>{{end}}</td><td>{{.Endpoint}}</td><td>{{.Protocol}}{{if eq .Kind "agent"}} <span class="muted">(agent)</span>{{end}}</td>
 <td>{{ago .Started}}</td><td>{{ago .LastActive}}</td>
 <td><form class="inline" method="post" action="/console/sessions/{{.ID}}/end"><input type="hidden" name="csrf" value="{{$.S.CSRF}}"><button class="danger">End</button></form></td></tr>
 {{end}}</table>{{else}}<p class="muted">No clients you manage are connected.</p>{{end}}
@@ -48,7 +48,7 @@ var consoleSessionsTmpl = template.Must(template.New("sessions").Funcs(funcs).Pa
 
 var consoleTasksTmpl = template.Must(template.New("tasks").Funcs(funcs).Parse(layout + `{{template "top" .}}
 {{if .List}}<table><tr><th>Call</th><th>For</th><th>Status</th><th>Created</th><th>Updated</th><th></th></tr>
-{{range .List}}<tr><td>{{.Server}}/{{.Tool}}</td><td>{{.Sub}}</td><td>{{.Status}}{{if .Message}} <span class="muted">({{.Message}})</span>{{end}}</td><td>{{ago .Created}}</td><td>{{ago .Updated}}</td>
+{{range .List}}<tr><td>{{.Server}}/{{.Tool}}{{if .Replica}} <span class="muted">on {{.Replica}}</span>{{end}}</td><td>{{.Sub}}</td><td>{{.Status}}{{if .Message}} <span class="muted">({{.Message}})</span>{{end}}</td><td>{{ago .Created}}</td><td>{{ago .Updated}}</td>
 <td>{{if not .Ended}}<form class="inline" method="post" action="/console/tasks/{{.ID}}/cancel"><input type="hidden" name="csrf" value="{{$.S.CSRF}}"><button class="danger">Cancel</button></form>{{end}}</td></tr>
 {{end}}</table>{{else}}<p class="muted">No tasks you manage.</p>{{end}}
 {{template "bottom" .}}`))
@@ -88,9 +88,12 @@ var consolePolicyTmpl = template.Must(template.New("policy").Funcs(funcs).Parse(
 
 var consoleDoctorTmpl = template.Must(template.New("doctor").Funcs(funcs).Parse(layout + `{{template "top" .}}
 {{if .DoctorError}}<p class="note error">{{.DoctorError}}</p>{{end}}
-{{with .Report}}<p class="muted">Checked {{clock .Checked}} ({{if eq .Trigger "start"}}at the start{{else if eq .Trigger "reload"}}after a reload{{else}}on request{{end}}){{if .Replica}} by the replica {{.Replica}}{{end}}.</p>
+{{with .Report}}{{template "doctorReport" .}}
+{{range .Replicas}}<h2>Replica {{.Replica}}</h2>{{if .Unreachable}}<p class="note error">It does not answer: {{.Unreachable}}</p>{{else}}{{template "doctorReport" .}}{{end}}
+{{end}}{{end}}
+{{if .Report}}<form method="post" action="/console/doctor"><input type="hidden" name="csrf" value="{{.S.CSRF}}"><div class="actions"><button>Check again</button></div></form>{{end}}
+{{template "bottom" .}}
+{{define "doctorReport"}}<p class="muted">Checked {{clock .Checked}} ({{if eq .Trigger "start"}}at the start{{else if eq .Trigger "reload"}}after a reload{{else}}on request{{end}}){{if .Replica}} by the replica {{.Replica}}{{end}}.</p>
 <table><tr><th></th><th>Check</th><th>Result</th></tr>
 {{range .Results}}<tr><td><span class="status {{.Status}}">{{.Status}}</span></td><td>{{.Check}}</td><td>{{.Summary}}{{range .Details}}<div class="muted">{{.}}</div>{{end}}</td></tr>
-{{end}}</table>{{end}}
-{{if .Report}}<form method="post" action="/console/doctor"><input type="hidden" name="csrf" value="{{.S.CSRF}}"><div class="actions"><button>Check again</button></div></form>{{end}}
-{{template "bottom" .}}`))
+{{end}}</table>{{end}}`))

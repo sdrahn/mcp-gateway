@@ -30,10 +30,17 @@ type gateway struct {
 	mu      sync.Mutex
 	stopped []string
 	ended   []string
+	// replica, if set, runs the instance: another of several, as the
+	// merged views (internal/cluster) name it.
+	replica string
 }
 
 func (g *gateway) Instances() []router.InstanceInfo {
-	return []router.InstanceInfo{{ID: "fs-ivy-1", Server: "fs", Sub: "ivy", Isolation: "principal", Started: time.Now().Add(-time.Hour), Sessions: 1, Definition: "current"}}
+	in := router.InstanceInfo{ID: "fs-ivy-1", Server: "fs", Sub: "ivy", Isolation: "principal", Started: time.Now().Add(-time.Hour), Sessions: 1, Definition: "current"}
+	if g.replica != "" {
+		in.ID, in.Replica = g.replica+"~"+in.ID, g.replica
+	}
+	return []router.InstanceInfo{in}
 }
 
 func (g *gateway) StopInstance(id string) bool {
@@ -162,10 +169,11 @@ func TestConsolePagesOthers(t *testing.T) {
 type pageDoctor struct {
 	runs    int
 	replica string
+	others  []control.DoctorReport
 }
 
 func (d *pageDoctor) Report(context.Context) control.DoctorReport {
-	return control.DoctorReport{Checked: time.Now(), Trigger: "start", Replica: d.replica, Results: []doctor.Result{
+	return control.DoctorReport{Checked: time.Now(), Trigger: "start", Replica: d.replica, Replicas: d.others, Results: []doctor.Result{
 		{Check: "policy", Status: doctor.OK, Summary: "OPA decides"},
 		{Check: "server tickets", Status: doctor.Fail, Summary: "tickets.svc:80 does not answer", Details: []string{"check its url"}}}}
 }
@@ -201,10 +209,34 @@ func TestConsoleDoctor(t *testing.T) {
 	if d.runs != 1 || !strings.Contains(body, "on request") {
 		t.Errorf("check again: %d %s", d.runs, body)
 	}
-	// One of several replicas: the one that ran the checks.
+	// One of several replicas: the one that ran the checks, and the
+	// others' reports.
 	d.replica = "gw-b"
-	if _, body, _ := get(t, c, f.srv.URL+"/console/doctor"); !strings.Contains(body, "(at the start) by the replica gw-b.") {
-		t.Errorf("replica: %s", body)
+	d.others = []control.DoctorReport{{Replica: "gw-c", Trigger: "start", Checked: time.Now(),
+		Results: []doctor.Result{{Check: "policy", Status: doctor.OK, Summary: "gw-c's OPA decides"}}},
+		{Replica: "gw-d", Unreachable: "connection refused"}}
+	_, body, _ = get(t, c, f.srv.URL+"/console/doctor")
+	for _, want := range []string{"(at the start) by the replica gw-b.", "<h2>Replica gw-c</h2>", "gw-c&#39;s OPA decides",
+		"<h2>Replica gw-d</h2>", "It does not answer: connection refused"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("replicas: lacks %q: %s", want, body)
+		}
+	}
+}
+
+// With several replicas a row of another names it, and an action on it
+// goes to the control API with its id as the merged view gave it.
+func TestConsoleOtherReplica(t *testing.T) {
+	f, g := consolePagesFixture(t)
+	g.replica = "gw-c"
+	c := f.browser(t)
+	_, body, _ := get(t, c, f.srv.URL+"/console/servers")
+	if !strings.Contains(body, `gw-c~fs-ivy-1 <span class="muted">on gw-c</span>`) {
+		t.Fatalf("servers: %s", body)
+	}
+	code, body := post(t, c, f.srv.URL+"/console/instances/gw-c~fs-ivy-1/stop", url.Values{"csrf": {csrfOf(t, body)}}, map[string]string{"Origin": f.srv.URL})
+	if code != 200 || len(g.stopped) != 1 || g.stopped[0] != "gw-c~fs-ivy-1" {
+		t.Errorf("stop: %d %v %s", code, g.stopped, body)
 	}
 }
 
