@@ -76,6 +76,9 @@ cleanup() {
 	exit "$status"
 }
 trap cleanup EXIT
+# A command that fails outside a check (set -e) says which, where fail
+# would have said why.
+trap 'echo "FAIL: line $LINENO: $BASH_COMMAND" >&2' ERR
 k() { "$KUBECTL" --context "kind-$CLUSTER" "$@"; }
 apply() { k apply -f - >/dev/null; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -348,7 +351,9 @@ pass "the audit records of custos's calls name $owner"
 # (mcp-gateway-admin instances, as the gateway's account: an approver in
 # the role data).
 admin() { k -n "$NS" exec "$1" -c gateway -- mcp-gateway-admin "${@:2}" --socket /run/mcp-gateway/control.sock; }
-other_pod=$(for r in $gws; do [ "$r" != "$owner" ] && echo "$r"; done | head -n1)
+# (if, not &&: a loop whose last test fails fails the pipeline, and set -e
+# ends the script without a word when the owner sorts last.)
+other_pod=$(for r in $gws; do if [ "$r" != "$owner" ]; then echo "$r"; fi; done | head -n1)
 listed=$(admin "$other_pod" instances --json) || fail "instances at $other_pod: $listed"
 id=$(jq -r --arg o "$owner" '[.[].instances[] | select(.replica == $o and (.sub | endswith("agents:custos")))][0].id // ""' <<<"$listed")
 [[ "$id" == "$owner~"* ]] || fail "custos's instance not listed at $other_pod as $owner's: $listed"
@@ -365,7 +370,7 @@ pass "stopped through $other_pod at $owner: custos's next call has a new instanc
 # the next call, through another replica, is served by the one that
 # takes custos over, with a new instance.
 k -n "$NS" delete pod "$owner" --wait=false >/dev/null
-reaped() { [ -z "$(for pod in $(pods); do [ "$(replica_of "$pod")" = "$owner" ] && echo "$pod"; done)" ]; }
+reaped() { [ -z "$(for pod in $(pods); do if [ "$(replica_of "$pod")" = "$owner" ]; then echo "$pod"; fi; done)" ]; }
 until_ok 120 reaped || fail "the instance pods of $owner are still there: $(pods | tr '\n' ' ')"
 other_port=
 i=0
