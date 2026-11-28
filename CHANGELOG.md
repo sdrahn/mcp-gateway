@@ -83,6 +83,14 @@ minor release (with a warning) and removed in the next.
   post-build check refused the build ("found conflict of mcp-gateway
   with mcp-gateway-container"). CI runs the same check on the RPMs it
   builds (`tools/check-packaged-twice`) (#448).
+- The image built in OBS (`packaging/container/obs`): the build failed
+  with "tag sdrahn/mcp-gateway:2.0.0-%RELEASE%: invalid reference
+  format", since nothing replaced `%RELEASE%`. `_service` runs
+  `kiwi_metainfo_helper` for it and `docker_label_helper` for the
+  image's own label prefix (`org.opensuse.mcp-gateway`); the built file
+  is named after the version (`#!BuildVersion`), not `latest`. The
+  README names the container-build-checks warnings to expect in a home
+  project (#462).
 
 ## v2.0.0 — 2026-11-27
 
