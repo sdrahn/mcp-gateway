@@ -243,6 +243,29 @@ with that id ("no such task"), the prefix names several, or it has
 ended ("the task has ended"); 2 on usage errors; 3 when the gateway does
 not answer.
 
+### mcp-gateway-admin instances
+
+```
+mcp-gateway-admin instances [options]
+mcp-gateway-admin instances stop ID [options]
+```
+
+Lists the instances of the servers you may manage (`GET /v1/servers`,
+`manage_instance`), with the replica that runs each when there are
+several, or stops one (`DELETE /v1/instances/{id}`); chapter 10, "Clients
+and tasks". IDs are shown whole; any prefix that names one will do.
+`--yes` stops without asking. Flags `--json` and `--socket` as for
+`clients`.
+
+Exit status 0; 1 when the instance is not yours to stop or there is none
+with that id ("no such instance"), the prefix names several, a call to
+it runs (a privileged server's) or the question was answered no; 2 on
+usage errors; 3 when the gateway does not answer.
+
+`clients`, `tasks` and `instances` take `--gateway URL`: a gateway's
+console API (signed in with `approvals login --gateway URL`) instead of
+the control socket, as in a cluster.
+
 ### mcp-gateway-admin approvals
 
 ```

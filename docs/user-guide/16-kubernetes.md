@@ -287,7 +287,9 @@ rbac:
   the call run. With webhooks (chapter 7), a chat or ticket system
   hears of it too.
 - From a laptop: `mcp-gateway-admin approvals login --gateway
-  https://mcp-gateway.example.com`, then `mcp-gateway-admin approvals`.
+  https://mcp-gateway.example.com`, then `mcp-gateway-admin approvals`;
+  `mcp-gateway-admin instances --gateway https://mcp-gateway.example.com`
+  lists the servers' instances (every replica's) and stops one.
 - A confidential client's secret comes from a Secret that the chart
   mounts (`secrets`, below):
 

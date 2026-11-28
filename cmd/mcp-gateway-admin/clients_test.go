@@ -24,8 +24,10 @@ type fixtureAPI struct {
 	mu        sync.Mutex
 	clients   []router.SessionInfo
 	tasks     []router.TaskInfo
+	instances []router.InstanceInfo
 	ended     []string
 	cancelled []string
+	stopped   []string
 	// refuse answers every end as the API does a client not the caller's.
 	refuse bool
 }
@@ -56,7 +58,41 @@ func newFixtureAPI(t *testing.T) *fixtureAPI {
 		{ID: "QZ7K3M2WXR5TB4N6YH8JD9CFGA", Server: "zypp", Tool: "update", Sub: "alice", Status: "working", Created: fixtureNow.Add(-10 * time.Minute)},
 		{ID: "B2C4D6F8H1J3K5L7M9N0P2Q4R6", Server: "fs", Tool: "search", Sub: "alice", Status: "completed", Created: fixtureNow.Add(-time.Hour)},
 	}
+	api.instances = []router.InstanceInfo{
+		{ID: "fs-alice-1", Server: "fs", Sub: "alice", Started: fixtureNow.Add(-time.Hour), Sessions: 2, Replica: "gw-a"},
+		{ID: "gw-b~fs-bob-1", Server: "fs", Sub: "bob@example.com", Started: fixtureNow.Add(-time.Minute), Sessions: 1, Replica: "gw-b"},
+		{ID: "zypp-root-1", Server: "zypp", Sub: "root", Started: fixtureNow.Add(-2 * time.Minute), Privileged: true, Busy: true, Replica: "gw-a"},
+	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/servers", func(w http.ResponseWriter, _ *http.Request) {
+		api.mu.Lock()
+		defer api.mu.Unlock()
+		byServer := map[string][]router.InstanceInfo{}
+		for _, in := range api.instances {
+			byServer[in.Server] = append(byServer[in.Server], in)
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"name": "fs", "instances": byServer["fs"]},
+			{"name": "git", "instances": []router.InstanceInfo{}}, {"name": "zypp", "instances": byServer["zypp"]}})
+	})
+	mux.HandleFunc("DELETE /v1/instances/{id}", func(w http.ResponseWriter, r *http.Request) {
+		api.mu.Lock()
+		defer api.mu.Unlock()
+		for _, in := range api.instances {
+			if in.ID != r.PathValue("id") {
+				continue
+			}
+			if in.Busy {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(`{"error":"a call to this privileged server is running; it stops when the call ends"}`))
+				return
+			}
+			api.stopped = append(api.stopped, in.ID)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"no such instance"}`))
+	})
 	mux.HandleFunc("GET /v1/sessions", func(w http.ResponseWriter, _ *http.Request) {
 		api.mu.Lock()
 		defer api.mu.Unlock()
@@ -221,22 +257,66 @@ func TestTasks(t *testing.T) {
 	}
 }
 
+// The instances of every server, with the replica that runs each; one
+// of another replica stopped by its id as the list gave it.
+func TestInstances(t *testing.T) {
+	api := newFixtureAPI(t)
+	rc, out, errs := runAdmin(t, api, "", "instances")
+	if rc != 0 || !strings.Contains(out, "REPLICA") {
+		t.Fatalf("rc %d: %s %s", rc, out, errs)
+	}
+	for _, w := range []string{"fs", "alice", "bob@example.com", "gw-b", "fs-alice-1", "gw-b~fs-bob-1", "zypp", "0 (busy)", "11:00"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("list lacks %q:\n%s", w, out)
+		}
+	}
+	if rc, out, _ := runAdmin(t, api, "", "instances", "--json"); rc != 0 || !strings.Contains(out, `"gw-b~fs-bob-1"`) {
+		t.Errorf("--json: %d %s", rc, out)
+	}
+	if rc, _, errs := runAdmin(t, api, "n\n", "instances", "stop", "gw-b"); rc != exitRefused || !strings.Contains(errs, "not stopped") {
+		t.Errorf("answered no: %d %s", rc, errs)
+	}
+	if rc, out, errs := runAdmin(t, api, "", "instances", "stop", "gw-b", "--yes"); rc != 0 || !strings.Contains(out, "stopped gw-b~fs-bob-1 (fs for bob@example.com)") {
+		t.Errorf("stop: %d %s %s", rc, out, errs)
+	}
+	if rc, _, errs := runAdmin(t, api, "", "instances", "stop", "zypp", "--yes"); rc != exitRefused || !strings.Contains(errs, "a call to this privileged server is running") {
+		t.Errorf("busy: %d %s", rc, errs)
+	}
+	if rc, _, errs := runAdmin(t, api, "", "instances", "stop", "nope", "--yes"); rc != exitRefused || !strings.Contains(errs, "no such instance: nope") {
+		t.Errorf("unknown: %d %s", rc, errs)
+	}
+	if len(api.stopped) != 1 || api.stopped[0] != "gw-b~fs-bob-1" {
+		t.Errorf("stopped %v", api.stopped)
+	}
+	// One replica: no replica column.
+	api.instances = api.instances[:1]
+	api.instances[0].Replica = ""
+	if _, out, _ := runAdmin(t, api, "", "instances"); strings.Contains(out, "REPLICA") {
+		t.Errorf("one replica: %s", out)
+	}
+	api.instances = nil
+	if _, out, _ := runAdmin(t, api, "", "instances"); !strings.Contains(out, "no instances") {
+		t.Errorf("none: %s", out)
+	}
+}
+
 // Wrong usage exits 2, -h 0; a gateway that does not answer, 3.
 func TestClientsUsageAndUnreachable(t *testing.T) {
 	api := newFixtureAPI(t)
 	for _, args := range [][]string{{"clients", "nope"}, {"clients", "end"}, {"clients", "end", "a", "b"},
-		{"tasks", "cancel"}, {"tasks", "end", "x"}, {"clients", "--nope"}, {"tasks", "--yes"}} {
+		{"tasks", "cancel"}, {"tasks", "end", "x"}, {"clients", "--nope"}, {"tasks", "--yes"},
+		{"instances", "stop"}, {"instances", "end", "x"}} {
 		if rc, _, errs := runAdmin(t, api, "", args...); rc != exitUsage || !strings.Contains(errs, "usage: mcp-gateway-admin "+args[0]) {
 			t.Errorf("%v: %d %s", args, rc, errs)
 		}
 	}
-	for _, name := range []string{"clients", "tasks"} {
+	for _, name := range []string{"clients", "tasks", "instances"} {
 		if rc, _, errs := runAdmin(t, api, "", name, "-h"); rc != 0 || !strings.Contains(errs, "Exit status:") {
 			t.Errorf("%s -h: %d %s", name, rc, errs)
 		}
 	}
 	gone := &fixtureAPI{sock: filepath.Join(t.TempDir(), "control.sock")}
-	for _, name := range []string{"clients", "tasks"} {
+	for _, name := range []string{"clients", "tasks", "instances"} {
 		if rc, _, errs := runAdmin(t, gone, "", name); rc != exitUnreachable ||
 			!strings.Contains(errs, "the gateway does not answer at "+gone.sock+": is it running?") {
 			t.Errorf("%s, not running: %d %s", name, rc, errs)

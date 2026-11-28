@@ -353,6 +353,25 @@ fs      search  alice  11:00    completed  B2C4D6F8
 finds the task cancelled. Ended tasks stay listed while the gateway keeps
 them (`tasks.retention`).
 
+```bash
+mcp-gateway-admin instances
+mcp-gateway-admin instances stop fs-alice-1
+```
+
+```
+SERVER  USER   STARTED  SESSIONS  ID
+fs      alice  11:00    2         fs-alice-1
+zypp    root   11:58    0 (busy)  zypp-root-1
+```
+
+`instances stop` stops an instance as **Stop** in Cockpit does: its
+sessions end, and the next call starts a new one. An instance of a
+privileged server is not stopped while a call to it runs. With several
+replicas (chapter 16) the list has a `REPLICA` column, and the id of
+another replica's instance starts with its name (`gw-b~fs-bob-1`).
+`clients`, `tasks` and `instances` take `--gateway URL` for a gateway
+reached over its console API, as in a cluster.
+
 - **Who may do what** is the control API's, as for Cockpit: the commands
   connect to the control socket as the user who runs them, and
   `manage_session` and `manage_task` decide (chapter 6, "Approver
