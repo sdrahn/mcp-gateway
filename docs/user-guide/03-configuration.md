@@ -228,8 +228,11 @@ step 49, D24), what people reach other than the principal it belongs
 to is kept in the Kubernetes API instead of `state_dir`: as Secrets in
 the gateway's namespace, one per record, written with their version
 and watched. So far that is the grants of scope `duration` and the
-stored `once` grants; the other files follow. A `once` grant is taken
-by one call only, whichever replica serves it. While the gateway cannot
+stored `once` grants, the pending approvals, the notices to approvers
+and the review items (`grants.json`, `pending.json`, `notices.json`,
+`reviews.json` on a host); the sign-in tokens and the clients seen
+follow. A `once` grant is taken by one call only, whichever replica
+serves it. While the gateway cannot
 follow the store (the API server out of reach), its grants count as
 absent: calls ask for approval again rather than run on a grant that
 may have been revoked.

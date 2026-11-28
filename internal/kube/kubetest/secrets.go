@@ -31,9 +31,8 @@ type Secrets struct {
 	// changed is closed and replaced at each change, waking watches.
 	changed chan struct{}
 	// broken is closed and replaced by Break, ending watches.
-	broken chan struct{}
-	// Requests counts the requests by method.
-	Requests map[string]int
+	broken   chan struct{}
+	requests map[string]int
 }
 
 type event struct {
@@ -46,7 +45,7 @@ type event struct {
 // NewSecrets starts a fake API server, stopped when t ends.
 func NewSecrets(t testing.TB) *Secrets {
 	f := &Secrets{objects: map[string]kube.Secret{}, changed: make(chan struct{}), broken: make(chan struct{}),
-		Requests: map[string]int{}}
+		requests: map[string]int{}}
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
 	f.URL = srv.URL
@@ -74,6 +73,13 @@ func (f *Secrets) Break() {
 	defer f.mu.Unlock()
 	close(f.broken)
 	f.broken = make(chan struct{})
+}
+
+// Requests returns the number of requests of method so far.
+func (f *Secrets) Requests(method string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.requests[method]
 }
 
 // Len returns the number of Secrets in ns.
@@ -143,7 +149,7 @@ func (f *Secrets) wake() {
 
 func (f *Secrets) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
-	f.Requests[r.Method]++
+	f.requests[r.Method]++
 	f.mu.Unlock()
 	// /api/v1/namespaces/{ns}/secrets[/{name}]
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/namespaces/"), "/")

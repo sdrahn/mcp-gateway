@@ -2,10 +2,8 @@ package broker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -278,20 +276,10 @@ func (b *Broker) dropOldestReview() {
 }
 
 // loadReviews restores the review items of a previous run.
-func (b *Broker) loadReviews() error {
-	if b.opts.ReviewsFile == "" {
-		return nil
-	}
-	data, err := os.ReadFile(b.opts.ReviewsFile)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+func (b *Broker) loadReviews(items map[string][]byte) error {
+	list, err := loadList[Review](b.reviewsStore, items, b.log)
 	if err != nil {
 		return err
-	}
-	var list []*Review
-	if err := json.Unmarshal(data, &list); err != nil {
-		return fmt.Errorf("broker: reading %s: %w", b.opts.ReviewsFile, err)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -306,21 +294,7 @@ func (b *Broker) loadReviews() error {
 
 // persistReviews writes the review items. Caller holds b.mu.
 func (b *Broker) persistReviews() {
-	if b.opts.ReviewsFile == "" {
-		return
-	}
-	list := make([]*Review, 0, len(b.reviews))
-	for _, r := range b.reviews {
-		list = append(list, r)
-	}
-	slices.SortFunc(list, func(x, y *Review) int { return x.Created.Compare(y.Created) })
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err == nil {
-		err = writeFileAtomic(b.opts.ReviewsFile, append(data, '\n'))
-	}
-	if err != nil {
-		b.log.Warn("persisting review items failed", "err", err)
-	}
+	saveMap(b.reviewsStore, b.reviews, func(r *Review) time.Time { return r.Created }, b.log)
 }
 
 // ReviewURL is the page of review item id on an approval page of the

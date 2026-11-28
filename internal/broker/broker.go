@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -110,17 +109,21 @@ type Options struct {
 	// Audit, if set, records approval decisions and grant revocations.
 	Audit *audit.Logger
 	Log   *slog.Logger
-	// Shared, if set, keeps the grants in a shared store instead of
-	// GrantsFile (docs/architecture.md, section 5.12.5).
+	// Shared, if set, keeps the grants, pending approvals, notices and
+	// reviews in a shared store instead of the files
+	// (docs/architecture.md, section 5.12.5).
 	Shared *Shared
 }
 
 // Shared is the shared store's collections a broker keeps its state in.
 type Shared struct {
-	// Context ends the collections' watches.
+	// Context ends the collections' watches and writers.
 	Context context.Context
 	// Grants holds the duration and stored once grants.
 	Grants store.Collection
+	// Pending, Notices and Reviews hold what PendingFile, NoticesFile and
+	// ReviewsFile do.
+	Pending, Notices, Reviews store.Collection
 }
 
 // BoolPolicy answers boolean policy queries (pep.OPA implements it).
@@ -149,6 +152,8 @@ type Broker struct {
 	now   func() time.Time
 	store *Store
 	log   *slog.Logger
+	// where pending approvals, notices and reviews are kept
+	pendingStore, noticesStore, reviewsStore stateKept
 
 	mu      sync.Mutex
 	pending map[string]*Pending
@@ -331,16 +336,44 @@ func New(opts Options) (*Broker, error) {
 		return nil, err
 	}
 	b.store = grants
-	if err := b.loadPending(); err != nil {
+	b.pendingStore = stateKept{file: opts.PendingFile, what: "pending approvals"}
+	b.noticesStore = stateKept{file: opts.NoticesFile, what: "notices"}
+	b.reviewsStore = stateKept{file: opts.ReviewsFile, what: "review items"}
+	var pendingItems, noticeItems, reviewItems map[string][]byte
+	if sh := opts.Shared; sh != nil {
+		for _, s := range []struct {
+			c     store.Collection
+			p     *stateKept
+			items *map[string][]byte
+		}{{sh.Pending, &b.pendingStore, &pendingItems}, {sh.Notices, &b.noticesStore, &noticeItems}, {sh.Reviews, &b.reviewsStore, &reviewItems}} {
+			if *s.p, *s.items, err = openTable(sh.Context, s.c, log, s.p.what); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := b.loadPending(pendingItems); err != nil {
 		return nil, err
 	}
-	if err := b.loadNotices(); err != nil {
+	if err := b.loadNotices(noticeItems); err != nil {
 		return nil, err
 	}
-	if err := b.loadReviews(); err != nil {
+	if err := b.loadReviews(reviewItems); err != nil {
 		return nil, err
 	}
 	return b, nil
+}
+
+// Flush waits until the state saved so far is in the shared store, or
+// ctx ends (at once without one).
+func (b *Broker) Flush(ctx context.Context) error {
+	for _, p := range []stateKept{b.pendingStore, b.noticesStore, b.reviewsStore} {
+		if p.table != nil {
+			if err := p.table.Flush(ctx); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // liveOptions are the options a configuration reload changes.
@@ -362,20 +395,10 @@ func (b *Broker) urlTemplate() string { return b.live.Load().urlTemplate }
 
 // loadPending restores the pending approvals of a previous run; no call
 // waits for them any more.
-func (b *Broker) loadPending() error {
-	if b.opts.PendingFile == "" {
-		return nil
-	}
-	data, err := os.ReadFile(b.opts.PendingFile)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+func (b *Broker) loadPending(items map[string][]byte) error {
+	list, err := loadList[Pending](b.pendingStore, items, b.log)
 	if err != nil {
 		return err
-	}
-	var list []*Pending
-	if err := json.Unmarshal(data, &list); err != nil {
-		return fmt.Errorf("broker: reading %s: %w", b.opts.PendingFile, err)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -404,21 +427,7 @@ func orphan(p *Pending) {
 
 // persistPending writes the pending approvals. Caller holds b.mu.
 func (b *Broker) persistPending() {
-	if b.opts.PendingFile == "" {
-		return
-	}
-	list := make([]*Pending, 0, len(b.pending))
-	for _, p := range b.pending {
-		list = append(list, p)
-	}
-	slices.SortFunc(list, func(x, y *Pending) int { return x.Created.Compare(y.Created) })
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err == nil {
-		err = writeFileAtomic(b.opts.PendingFile, append(data, '\n'))
-	}
-	if err != nil {
-		b.log.Warn("persisting pending approvals failed", "err", err)
-	}
+	saveMap(b.pendingStore, b.pending, func(p *Pending) time.Time { return p.Created }, b.log)
 }
 
 // pruneExpired drops orphaned approvals past their expiry (waiting ones
