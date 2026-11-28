@@ -145,6 +145,15 @@ func (o *Owners) Owner(ctx context.Context, key string) (string, error) {
 func (o *Owners) claim(ctx context.Context, key string, draining bool) (string, error) {
 	var cur kube.Lease
 	err := o.Client.Get(ctx, o.path(key), &cur)
+	if h := cur.Spec.HolderIdentity; err == nil && h != "" && h != o.Members.Name && cur.Spec.Expires().After(o.now()) &&
+		!o.Members.known(h) {
+		// A holder this replica has not seen: most likely a replica that
+		// came since the last list (a rolling update's), not one that went.
+		// List again rather than take its principal over.
+		if err := o.Members.refresh(ctx); err != nil {
+			return "", err
+		}
+	}
 	var out kube.Lease
 	free := kube.IsNotFound(err) || (err == nil && cur.Spec.HolderIdentity != o.Members.Name &&
 		(cur.Spec.HolderIdentity == "" || !cur.Spec.Expires().After(o.now()) || !o.Members.IsLive(cur.Spec.HolderIdentity)))

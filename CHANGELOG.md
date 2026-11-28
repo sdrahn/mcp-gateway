@@ -92,7 +92,11 @@ minor release (with a warning) and removed in the next.
   stopped with it, and a replica that drained denied the calls it
   decided meanwhile. OPA starts once the role data is rendered (a
   startup probe on `mcp-policy-render -check`): before, it could start
-  with none and deny every call while the pod counted as ready (#452).
+  with none and deny every call while the pod counted as ready. A
+  replica that finds a principal's Lease held by a replica it has not
+  listed yet (one a rolling update just started) lists the replicas
+  again instead of taking the principal over: two replicas served it,
+  and a session made on one was unknown on the other (#452).
 
 ### Fixed
 

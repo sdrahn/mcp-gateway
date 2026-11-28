@@ -5507,7 +5507,12 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       renderer): before, OPA either did not start (the rendered
       directory not there yet; restarted 10 s later) or, in the moment
       between the directory and its file, started with no role data,
-      ready and denying every call ("no matching permission");
+      ready and denying every call ("no matching permission"); a
+      principal's Lease held by a replica not in the last list makes
+      the replica list again before it counts the holder as gone (a new
+      replica of a rolling update took principals while the others,
+      listing every 5 s, did not know it yet, and took them over: two
+      owners, "unknown session" in the kind job);
 
 50. **Servers discovered in the cluster** (after 2.0; D25, proposed;
     open; §5.12.8): `server_discovery` with its namespaces, prefixes and

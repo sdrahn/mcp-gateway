@@ -253,3 +253,40 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// A replica that came after another's last list holds a principal: the
+// other lists again and sees it as the owner, rather than take the
+// principal over as from a replica that is gone (two owners, sessions on
+// one that requests then miss on the other).
+func TestOwnerNewReplica(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	c := &clock{t: time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC)}
+	ma := member(api, "gw-a", c)
+	ctx := context.Background()
+	if err := ma.Join(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := ma.refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// gw-b joins after a's list, and takes the principal.
+	mb := member(api, "gw-b", c)
+	if err := mb.Join(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_ = mb.refresh(ctx)
+	ob := owners(api, mb, c)
+	if got, err := ob.Owner(ctx, "p"); err != nil || got != "gw-b" {
+		t.Fatalf("at b: %q %v", got, err)
+	}
+	if ma.IsLive("gw-b") {
+		t.Fatal("a already sees b")
+	}
+	oa := owners(api, ma, c)
+	if got, err := oa.Owner(ctx, "p"); err != nil || got != "gw-b" {
+		t.Fatalf("at a: %q %v (a took b's principal over)", got, err)
+	}
+	if len(oa.Held()) != 0 {
+		t.Errorf("a holds %v", oa.Held())
+	}
+}

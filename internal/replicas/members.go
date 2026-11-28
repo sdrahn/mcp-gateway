@@ -305,6 +305,18 @@ func (m *Members) Live() map[string]Member {
 	return out
 }
 
+// known reports whether name is among the replicas of the last list,
+// live or not (or is this replica).
+func (m *Members) known(name string) bool {
+	if name == m.Name {
+		return true
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.members[name]
+	return ok
+}
+
 // IsLive reports whether the replica called name holds its Lease; this
 // replica always does.
 func (m *Members) IsLive(name string) bool {
