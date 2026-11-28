@@ -101,6 +101,9 @@ type Gateway struct {
 	// Replication configures the shared store of several replicas
 	// (container mode; replication.go).
 	Replication Replication `yaml:"replication"`
+	// ServerDiscovery configures servers discovered from the cluster's
+	// Services (container mode; discovery.go).
+	ServerDiscovery ServerDiscovery `yaml:"server_discovery"`
 	// Agents configures how the gateway speaks to agents.
 	Agents Agents `yaml:"agents"`
 
@@ -603,8 +606,19 @@ type Backend struct {
 	// for URL (egress.Public).
 	PublicOnly bool `yaml:"-"`
 
+	// Discovered, set for a server discovered from a Service
+	// (server_discovery; internal/discovery), names that Service; nil for
+	// a server file's.
+	Discovered *Discovered `yaml:"-"`
+
 	// Warnings are the deprecated keys the file uses (see deprecation).
 	Warnings []string `yaml:"-"`
+}
+
+// Discovered names the Service a discovered server comes from.
+type Discovered struct {
+	Namespace string `json:"namespace"`
+	Service   string `json:"service"`
 }
 
 // SignIn configures how principals sign in to a server defined with url.
@@ -1148,6 +1162,9 @@ func (g *Gateway) Validate() error {
 	if err := g.Replication.validate(g.Container()); err != nil {
 		return err
 	}
+	if err := g.ServerDiscovery.validate(g.Container()); err != nil {
+		return err
+	}
 	if _, _, err := g.Supervisor.MCSCategories(); err != nil {
 		return err
 	}
@@ -1341,6 +1358,34 @@ func LoadBackends(dirs ...string) (map[string]*Backend, error) {
 		from[b.Name] = p
 	}
 	return backends, nil
+}
+
+// MaskedNames returns the names of the definition files in dirs, without
+// .yaml, that are empty where LoadBackends reads them (a later
+// directory's file replacing an earlier one's of the same name): an
+// empty file masks a server of its name, a discovered one too.
+func MaskedNames(dirs ...string) (map[string]bool, error) {
+	byFile := map[string]string{}
+	for _, dir := range dirs {
+		paths, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range paths {
+			byFile[filepath.Base(p)] = p
+		}
+	}
+	out := map[string]bool{}
+	for base, p := range byFile {
+		fi, err := os.Stat(p)
+		if err != nil {
+			return nil, err
+		}
+		if fi.Size() == 0 {
+			out[strings.TrimSuffix(base, ".yaml")] = true
+		}
+	}
+	return out, nil
 }
 
 // removedPrograms are programs, or a program with its first argument,

@@ -275,6 +275,36 @@ sets it up with the chart or the manifests.
 | `replication.peer_server_name` | `mcp-gateway-peer` | the name in the replicas' certificate |
 | `replication.drain_timeout` | `30s` | with `replication.listen`: how long a replica told to stop (`SIGTERM`) drains. It takes no new principals (the others do), gives up those without an open session or a running task at once (an instance alone keeps none), and serves the others until they are done or this time is up, 5 s at least; `/readyz` fails meanwhile. Keep it below the pod's `terminationGracePeriodSeconds`, which is 30 s unless set: give the gateway's pods 45 s or more, or a shorter drain |
 
+### Servers discovered in the cluster
+
+```yaml
+server_discovery:
+  namespaces:
+    - namespace: team-a        # servers named team-a-<name>
+    - namespace: mcp-servers
+      prefix: tools-           # servers named tools-<name>
+  selector: mcp-gateway.io/server=true   # the default
+```
+
+In container mode, the Services of these namespaces, and of no other,
+that carry the selector's labels become servers that speak HTTP, at the
+Service's cluster address, beside the server files: a team adds a
+server by labelling its Service, without a change to the gateway's
+configuration. The Service's annotations set the server's name, its port
+and its path, and nothing else (chapter 16, "Servers discovered in the
+cluster"). A server file of the same name wins, and an empty one masks
+the name. Discovery grants no access: in the shipped policy, a
+permission whose `server` is a glob matches a discovered server only
+with `discovered: true` (chapter 6).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `server_discovery.namespaces` | none | the namespaces whose Services are discovered; none: no discovery. Container mode only. Read at start only |
+| `server_discovery.namespaces[].namespace` | none | a namespace's name; the gateway's ServiceAccount must get, list and watch Services there (a Role in that namespace) |
+| `server_discovery.namespaces[].prefix` | `<namespace>-` | starts the names of the namespace's servers, so that a Service cannot take a name the role data already grants (a team cannot call its Service `git`); `""` sets no prefix. Two namespaces cannot share one |
+| `server_discovery.selector` | `mcp-gateway.io/server=true` | the labels a Service carries to be discovered: equalities (`a=b`), inequalities (`a!=b`) and existences (`a`, `!a`), comma-separated |
+| `server_discovery.api_server`, `server_discovery.token_file`, `server_discovery.ca_file` | as `supervisor.kubernetes` | reach the Kubernetes API as the gateway's ServiceAccount |
+
 ### Local socket
 
 ```yaml

@@ -100,6 +100,23 @@ minor release (with a warning) and removed in the next.
   principal's request reaches as its owner or taker reads the Lease
   again before refusing it (421), instead of trusting an owner it
   remembered from moments before (#452).
+- Servers discovered in the cluster (roadmap step 50, D25; being
+  built): with `server_discovery` (container mode), the Services of the
+  namespaces it names that carry its label (`mcp-gateway.io/server=true`
+  by default) become servers that speak HTTP at the Service's cluster
+  address, named with the namespace's prefix (`<namespace>-` by
+  default); the annotations `mcp-gateway.io/name`, `mcp-gateway.io/port`
+  and `mcp-gateway.io/path` set the name, the port and the path, and
+  nothing else. A Service added, changed or deleted adds, changes or
+  removes its server; a server file of the same name wins, and an empty
+  one masks the name. Discovery grants no access: in the shipped policy
+  a permission whose `server` is a glob matches a discovered server only
+  with `discovered: true` (the policy's input has
+  `resource.discovered`), so the default `viewer` reaches none. The
+  chart's `serverDiscovery` values add a Role per namespace (get, list
+  and watch Services), the manifests' `deploy/kubernetes/discovery`
+  component one to copy (user guide, chapter 16, "Servers discovered in
+  the cluster") (#465).
 
 ### Fixed
 

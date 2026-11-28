@@ -24,6 +24,9 @@ resources
 resources[].annotations
 resources[].builtin
 resources[].context
+resources[].discovered
+resources[].discovered.namespace
+resources[].discovered.service
 resources[].kind
 resources[].name
 resources[].privileged

@@ -117,7 +117,10 @@ sensitive_blocked("client", p) if {
 	not p.allow_sensitive == true
 }
 
-server_ok(p) if glob.match(p.server, null, input.resource.server)
+server_ok(p) if {
+	glob.match(p.server, null, input.resource.server)
+	discovered_ok(p) # discovered.rego
+}
 
 # Resource URIs with ".." segments (plain or percent-encoded) never match,
 # so "file://${home}/*" cannot be escaped.

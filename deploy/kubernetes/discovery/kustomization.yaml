@@ -1,0 +1,14 @@
+# Servers discovered in the cluster (user guide, chapter 16, "Servers
+# discovered in the cluster"; roadmap step 50): the gateway's
+# ServiceAccount may read the Services of a namespace whose labelled
+# Services become servers, and nothing else. role.yaml is for the
+# namespace mcp-servers: copy it, with its RoleBinding, for each
+# namespace server_discovery names. Add it to an overlay
+# (components: [.../discovery]) and set in gateway.yaml:
+#   server_discovery:
+#     namespaces:
+#       - namespace: mcp-servers
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - role.yaml

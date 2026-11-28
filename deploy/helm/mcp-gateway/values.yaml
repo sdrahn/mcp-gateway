@@ -65,6 +65,21 @@ replication:
   replicas: 1
   peerSecret: ""
 
+# Servers discovered in the cluster (server_discovery; user guide chapter
+# 16, "Servers discovered in the cluster"; roadmap step 50): the Services
+# of these namespaces that carry the selector's label become servers that
+# speak HTTP, named with the namespace's prefix (<namespace>- unless
+# set), with a Role in each namespace that lets the gateway get, list and
+# watch its Services, and nothing else. A server file of the same name
+# wins. None: no discovery.
+serverDiscovery:
+  namespaces: []
+  #  - namespace: team-a
+  #  - namespace: mcp-servers
+  #    prefix: tools-
+  # Empty: mcp-gateway.io/server=true.
+  selector: ""
+
 # Server definitions, by file name: name, url, ... (chapter 4); a stdio
 # server names its image.
 servers: {}

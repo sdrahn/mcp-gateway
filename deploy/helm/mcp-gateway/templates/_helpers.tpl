@@ -63,6 +63,11 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end -}}
 {{- $_ := set $cfg "replication" $rep -}}
 {{- end -}}
+{{- with .Values.serverDiscovery.namespaces -}}
+{{- $sd := dict "namespaces" . -}}
+{{- with $.Values.serverDiscovery.selector }}{{ $_ := set $sd "selector" . }}{{ end -}}
+{{- $_ := set $cfg "server_discovery" $sd -}}
+{{- end -}}
 {{- $policy := deepCopy (default dict $cfg.policy) -}}
 {{- $_ := set $policy "opa_socket" "/run/mcp-gateway/opa.sock" -}}
 {{- $_ := set $cfg "version" 1 -}}

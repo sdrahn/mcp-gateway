@@ -63,6 +63,10 @@ type serverReloader struct {
 	// configDirs are directories watched besides those of the files, for
 	// files added there (gateway.d).
 	configDirs []string
+	// changes, if set, has a value when definitions from elsewhere than
+	// the files changed (the cluster's Services, server_discovery): the
+	// definitions are loaded again.
+	changes <-chan struct{}
 
 	mu        sync.Mutex
 	lastErr   string
@@ -238,12 +242,21 @@ func (l *serverReloader) watch(ctx context.Context, interval func() time.Duratio
 	defer settled.Stop()
 	unwatched := map[string]bool{}
 	l.watchDirs(fsw, unwatched)
+	// elsewhere is set when the Services changed: the next check reloads
+	// whether the files changed or not.
+	elsewhere := false
 	// check reloads if the files changed, and renews the watches: a
 	// directory may have been created, or replaced by another.
 	check := func() {
-		if fp := l.fingerprint(); fp != last {
+		fp := l.fingerprint()
+		switch {
+		case fp != last:
 			last = fp
+			elsewhere = false
 			_ = l.reload("file change")
+		case elsewhere:
+			elsewhere = false
+			_ = l.reload("Service change")
 		}
 		l.watchDirs(fsw, unwatched)
 	}
@@ -256,6 +269,9 @@ func (l *serverReloader) watch(ctx context.Context, interval func() time.Duratio
 			_ = l.reload("SIGHUP")
 			l.watchDirs(fsw, unwatched)
 		case <-fsw.Events():
+			settled.Reset(settle)
+		case <-l.changes:
+			elsewhere = true
 			settled.Reset(settle)
 		case <-settled.C:
 			check()

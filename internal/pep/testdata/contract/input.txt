@@ -48,6 +48,9 @@ resource
 resource.annotations
 resource.builtin
 resource.context
+resource.discovered
+resource.discovered.namespace
+resource.discovered.service
 resource.kind
 resource.name
 resource.privileged

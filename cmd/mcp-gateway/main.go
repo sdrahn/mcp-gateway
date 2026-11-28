@@ -228,6 +228,16 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		return nil
 	}
 
+	// The servers discovered from the cluster's Services join the files'
+	// (a file of the same name wins), here and at every reload.
+	disc, err := newDiscovery(log, gw)
+	if err != nil {
+		return err
+	}
+	if backends, err = disc.merge(backends, []string{gw.VendorServersDir, gw.ServersDir}); err != nil {
+		return fmt.Errorf("loading backend registry: %w", err)
+	}
+
 	launcher, err := newLauncher(log, gw)
 	if err != nil {
 		return err
@@ -408,12 +418,16 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if err != nil {
 		return err
 	}
-	r := &router.Router{
+	// The Guard names each resource's discovered Service from the
+	// definitions in force (r's, set just below).
+	var r *router.Router
+	discovered := func(server string) *pep.Discovered { return r.DiscoveredServer(server) }
+	r = &router.Router{
 		SharedHistory: history,
 		Seen:          remember,
 		Backends:      backends,
 		Launcher:      launcher,
-		PDP:           pep.Guard{PDP: opa, Blocked: guard.Blocked},
+		PDP:           pep.Guard{PDP: opa, Blocked: guard.Blocked, Discovered: discovered},
 		Broker:        b,
 		Audit:         auditLog,
 		Log:           log,
@@ -455,6 +469,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		log: log, audit: auditLog, dirs: []string{gw.VendorServersDir, gw.ServersDir},
 		load: func(dirs ...string) (map[string]*config.Backend, error) {
 			next, err := config.LoadBackends(dirs...)
+			if err == nil {
+				next, err = disc.merge(next, dirs)
+			}
 			if err == nil {
 				err = config.CheckSignIn(gw, next)
 			}
@@ -601,6 +618,8 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		log.Warn("changes to the configuration are noticed by polling only", "err", err)
 	}
 	defer func() { _ = fsw.Close() }()
+	reloader.changes = disc.Changes()
+	go disc.run(ctx)
 	go reloader.watch(ctx, reloader.Interval, reloadFP, hup, fsw)
 
 	// Clients learn about policy changes through list_changed: when a
