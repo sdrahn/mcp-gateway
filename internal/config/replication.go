@@ -121,9 +121,9 @@ func (r Replication) validate(container bool) error {
 		if _, port, err := net.SplitHostPort(r.Listen); err != nil || port == "" {
 			return fmt.Errorf("replication.listen: %q is not host:port (\":8444\")", r.Listen)
 		}
-		for key, v := range map[string]string{"peer_cert_file": r.PeerCertFile, "peer_key_file": r.PeerKeyFile, "peer_ca_file": r.PeerCAFile} {
-			if v == "" {
-				return fmt.Errorf("replication.%s: required with replication.listen (the replicas' certificate, key and CA)", key)
+		for _, f := range []struct{ key, v string }{{"peer_cert_file", r.PeerCertFile}, {"peer_key_file", r.PeerKeyFile}, {"peer_ca_file", r.PeerCAFile}} {
+			if f.v == "" {
+				return fmt.Errorf("replication.%s: required with replication.listen (the replicas' certificate, key and CA)", f.key)
 			}
 		}
 	} else if r.PeerCertFile != "" || r.PeerKeyFile != "" || r.PeerCAFile != "" || r.PeerServerName != "" {
