@@ -89,6 +89,10 @@ minor release (with a warning) and removed in the next.
 
 ### Fixed
 
+- With several replicas a replica's event streams could miss another
+  replica's approvals, notices and review items made just after it
+  started, until they changed again: what it had seen first was taken
+  when its follower started, not when the replica did (#452).
 - The package `mcp-gateway-container` conflicts with `mcp-gateway` and
   `mcp-gateway-tools`, whose files it shares: without that, OBS's
   post-build check refused the build ("found conflict of mcp-gateway
