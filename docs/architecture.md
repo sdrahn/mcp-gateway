@@ -5182,6 +5182,20 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       Role for Leases and Secrets in the manifests and the chart. Tests:
       the store against a fake API server; the kind job with one replica
       on the store;
+      as built (part 1, #436): `internal/store`, collections of records
+      (list, create, update and delete with a version, watch) and a
+      mirror that keeps one in memory from a list and a watch, not
+      synced while the watch is broken and the collection not listed
+      again, with what this process deleted kept gone against older
+      events and lists; the collection as Secrets (one per record, named
+      after the collection and a digest of the record's name, labelled
+      with the collection; `internal/kube` updates, deletes with a
+      precondition and watches); `replication.store: kubernetes` with
+      `replication.namespace`; `duration` and stored `once` grants as
+      records (a `once` grant taken by deleting it with its version;
+      while not synced, stored grants count as absent; expired ones
+      deleted); tests against a fake of the Secrets API
+      (`internal/kube/kubetest`), two and three brokers on one store;
     - stage B, owners and forwarding: the replicas' leases, a lease per
       principal, the peer listener with mTLS, forwarding of requests and
       their streams, sign-in callbacks forwarded by their `state`,

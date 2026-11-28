@@ -98,6 +98,9 @@ type Gateway struct {
 	// Idempotency configures the keys that let a client send a
 	// tools/call again without it running twice.
 	Idempotency Idempotency `yaml:"idempotency"`
+	// Replication configures the shared store of several replicas
+	// (container mode; replication.go).
+	Replication Replication `yaml:"replication"`
 	// Agents configures how the gateway speaks to agents.
 	Agents Agents `yaml:"agents"`
 
@@ -1141,6 +1144,9 @@ func (g *Gateway) Validate() error {
 	case "auto", "on", "off":
 	default:
 		return fmt.Errorf("supervisor.selinux: unknown value %q", g.Supervisor.SELinux)
+	}
+	if err := g.Replication.validate(g.Container()); err != nil {
+		return err
 	}
 	if _, _, err := g.Supervisor.MCSCategories(); err != nil {
 		return err

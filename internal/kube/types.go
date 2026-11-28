@@ -15,6 +15,14 @@ type ObjectMeta struct {
 	Namespace       string            `json:"namespace,omitempty"`
 	Labels          map[string]string `json:"labels,omitempty"`
 	Annotations     map[string]string `json:"annotations,omitempty"`
+	// ResourceVersion is set by the API server; an update or a delete
+	// that names it succeeds only on that version (compare-and-set).
+	ResourceVersion string `json:"resourceVersion,omitempty"`
+}
+
+// ListMeta is a list's resource version, from which a watch starts.
+type ListMeta struct {
+	ResourceVersion string `json:"resourceVersion,omitempty"`
 }
 
 // OwnerReference names an object's owner.
@@ -203,14 +211,22 @@ type Toleration struct {
 	TolerationSeconds *int64 `json:"tolerationSeconds,omitempty"`
 }
 
-// Secret is a v1 Secret, its data as strings (stringData).
+// Secret is a v1 Secret, its data as strings (stringData, written only)
+// or bytes (data, as the API server returns it).
 type Secret struct {
 	APIVersion string            `json:"apiVersion"`
 	Kind       string            `json:"kind"`
 	Metadata   ObjectMeta        `json:"metadata"`
 	Type       string            `json:"type"`
 	Immutable  bool              `json:"immutable"`
-	StringData map[string]string `json:"stringData"`
+	StringData map[string]string `json:"stringData,omitempty"`
+	Data       map[string][]byte `json:"data,omitempty"`
+}
+
+// SecretList is a v1 SecretList.
+type SecretList struct {
+	Metadata ListMeta `json:"metadata"`
+	Items    []Secret `json:"items"`
 }
 
 // NetworkPolicy is a networking.k8s.io/v1 NetworkPolicy.
