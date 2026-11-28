@@ -100,8 +100,7 @@ minor release (with a warning) and removed in the next.
   principal's request reaches as its owner or taker reads the Lease
   again before refusing it (421), instead of trusting an owner it
   remembered from moments before (#452).
-- Servers discovered in the cluster (roadmap step 50, D25; being
-  built): with `server_discovery` (container mode), the Services of the
+- Servers discovered in the cluster (roadmap step 50, D25): with `server_discovery` (container mode), the Services of the
   namespaces it names that carry its label (`mcp-gateway.io/server=true`
   by default) become servers that speak HTTP at the Service's cluster
   address, named with the namespace's prefix (`<namespace>-` by
@@ -116,7 +115,13 @@ minor release (with a warning) and removed in the next.
   chart's `serverDiscovery` values add a Role per namespace (get, list
   and watch Services), the manifests' `deploy/kubernetes/discovery`
   component one to copy (user guide, chapter 16, "Servers discovered in
-  the cluster") (#465).
+  the cluster"). `mcp-gateway-admin servers` lists the servers and
+  where each comes from, the console's Servers page and `GET /v1/servers`
+  name a discovered server's Service, the doctor's `server discovery`
+  check names the Services that give no server and the namespaces not
+  followed, and the audit records each discovered server that comes,
+  changes or goes (`mcp-server-discovered`). The kind job discovers,
+  serves, refuses and removes servers of labelled Services (#465).
 
 ### Fixed
 

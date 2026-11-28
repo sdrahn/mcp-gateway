@@ -539,8 +539,11 @@ type serverInfo struct {
 	Landlock bool `json:"landlock,omitempty"`
 	// Removed marks a server whose definition went away while instances
 	// of it still run (they stop once their calls are answered).
-	Removed   bool                  `json:"removed,omitempty"`
-	Instances []router.InstanceInfo `json:"instances"`
+	Removed bool `json:"removed,omitempty"`
+	// Discovered names the Service a server discovered in the cluster
+	// comes from (server_discovery); absent for a server file's.
+	Discovered *config.Discovered    `json:"discovered,omitempty"`
+	Instances  []router.InstanceInfo `json:"instances"`
 }
 
 func (s *Server) servers(w http.ResponseWriter, r *http.Request, a broker.Approver) {
@@ -564,7 +567,7 @@ func (s *Server) servers(w http.ResponseWriter, r *http.Request, a broker.Approv
 		}
 		out = append(out, serverInfo{Name: name, SELinuxType: b.SELinuxType, Isolation: b.Isolation,
 			Network: b.Network, NetworkView: b.NetworkView, Requires: b.Requires, RunAs: b.RunAs, Privileged: b.Privileged, Capabilities: b.Sandbox.Capabilities, ReadDevices: b.Sandbox.ReadDevices, SignIn: b.SignIn != nil,
-			Landlock: b.Landlock != nil, Instances: insts})
+			Landlock: b.Landlock != nil, Discovered: b.Discovered, Instances: insts})
 	}
 	for name, insts := range byServer {
 		if _, ok := backends[name]; !ok {

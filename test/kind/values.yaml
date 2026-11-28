@@ -25,6 +25,10 @@ replication:
   peerSecret: mcp-gateway-peer
 persistence:
   enabled: false
+# The labelled Services of mcp-servers are servers too.
+serverDiscovery:
+  namespaces:
+    - namespace: mcp-servers
 servers:
   echo:
     name: echo
@@ -44,6 +48,10 @@ rbac:
         - {server: echo, tool: echo}
         - {server: echo2, tool: echo}
         - {server: stdio, tool: '*'}
+        # Servers discovered in mcp-servers (run.sh): one named, the others
+        # under a glob without discovered: true, which does not reach them.
+        - {server: mcp-servers-tickets, tool: echo}
+        - {server: 'mcp-servers-*', tool: '*'}
   bindings:
     users:
       "k8s:system:serviceaccount:agents:custos": [echoer]

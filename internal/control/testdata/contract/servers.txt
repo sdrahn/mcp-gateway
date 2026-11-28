@@ -1,6 +1,9 @@
 # GET /v1/servers
 # Fields may be added, never renamed or removed (docs/architecture.md, D10).
 [].capabilities
+[].discovered
+[].discovered.namespace
+[].discovered.service
 [].instances
 [].instances[].busy
 [].instances[].context

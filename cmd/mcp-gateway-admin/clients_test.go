@@ -71,8 +71,11 @@ func newFixtureAPI(t *testing.T) *fixtureAPI {
 		for _, in := range api.instances {
 			byServer[in.Server] = append(byServer[in.Server], in)
 		}
-		_ = json.NewEncoder(w).Encode([]map[string]any{{"name": "fs", "instances": byServer["fs"]},
-			{"name": "git", "instances": []router.InstanceInfo{}}, {"name": "zypp", "instances": byServer["zypp"]}})
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"name": "fs", "isolation": "principal", "instances": byServer["fs"]},
+			{"name": "git", "isolation": "principal", "instances": []router.InstanceInfo{}},
+			{"name": "team-a-tickets", "isolation": "principal", "discovered": map[string]string{"namespace": "team-a", "service": "tickets"},
+				"instances": []router.InstanceInfo{}},
+			{"name": "zypp", "isolation": "principal", "privileged": true, "instances": byServer["zypp"]}})
 	})
 	mux.HandleFunc("DELETE /v1/instances/{id}", func(w http.ResponseWriter, r *http.Request) {
 		api.mu.Lock()
@@ -329,5 +332,24 @@ func TestShortIDs(t *testing.T) {
 	want := []string{"abcdef012", "abcdef019", "agent-01234567", "short", "abcdef01"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestServers(t *testing.T) {
+	api := newFixtureAPI(t)
+	rc, out, errs := runAdmin(t, api, "", "servers")
+	if rc != 0 {
+		t.Fatalf("rc %d: %s %s", rc, out, errs)
+	}
+	for _, w := range []string{"SERVER", "FROM", "team-a-tickets  Service team-a/tickets", "git             server file", "principal (privileged)"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("list lacks %q:\n%s", w, out)
+		}
+	}
+	if rc, out, _ := runAdmin(t, api, "", "servers", "--json"); rc != 0 || !strings.Contains(out, `"service":"tickets"`) {
+		t.Errorf("--json: %d %s", rc, out)
+	}
+	if rc, _, _ := runAdmin(t, api, "", "servers", "extra"); rc != exitUsage {
+		t.Errorf("an argument: %d", rc)
 	}
 }

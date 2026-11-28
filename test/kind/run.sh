@@ -11,6 +11,9 @@
 #   - a server added to the servers ConfigMap is served once the kubelet
 #     updates the mounted files (the ..data swap; docs/architecture.md,
 #     section 12);
+#   - labelled Services of mcp-servers are servers (server_discovery),
+#     reached only as the role data names them, and gone with their
+#     Service;
 #   - a stdio server runs in pods of its own (the Kubernetes launcher):
 #     one per principal, each with a NetworkPolicy without egress (the
 #     server cannot reach another pod), owned by the pod, and deleted
@@ -95,6 +98,9 @@ echo "--- cluster"
 
 k create namespace "$NS" --dry-run=client -o yaml | apply
 k create namespace agents --dry-run=client -o yaml | apply
+# The servers' namespace, whose labelled Services the gateway discovers
+# (its Role there comes with the deploy).
+k create namespace mcp-servers --dry-run=client -o yaml | apply
 k -n agents create serviceaccount custos --dry-run=client -o yaml | apply
 k -n agents create serviceaccount other --dry-run=client -o yaml | apply
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 -subj /CN=mcp-gateway \
@@ -240,6 +246,77 @@ echo2_served() { [[ "$(call echo2 again)" == "echo: again"* ]]; }
 until_ok 180 echo2_served || fail "echo2 not served after the ConfigMap changed: $(call echo2 again)"
 pass "the gateway reloads the servers ConfigMap"
 
+echo "--- servers discovered from labelled Services"
+# mcp-gateway-admin as the gateway's account (an approver in the role
+# data), in a replica's container: the control socket.
+admin() { k -n "$NS" exec "$1" -c gateway -- mcp-gateway-admin "${@:2}" --socket /run/mcp-gateway/control.sock; }
+# An echo server in mcp-servers behind three Services: tickets and wiki
+# labelled, db not. The role data names mcp-servers-tickets, and has
+# 'mcp-servers-*' without discovered: true, which reaches neither.
+apply <<EOF2
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: echo, namespace: mcp-servers}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: echo}}
+  template:
+    metadata: {labels: {app: echo}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: echo
+          image: mcp-echo:test
+          ports: [{name: http, containerPort: 8080}]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: tickets, namespace: mcp-servers, labels: {mcp-gateway.io/server: "true"}}
+spec:
+  selector: {app: echo}
+  ports: [{name: metrics, port: 9090, targetPort: http}, {name: mcp, port: 8080, targetPort: http}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: wiki, namespace: mcp-servers, labels: {mcp-gateway.io/server: "true"}}
+spec:
+  selector: {app: echo}
+  ports: [{name: web, port: 80, targetPort: http}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: db, namespace: mcp-servers}
+spec:
+  selector: {app: echo}
+  ports: [{name: mcp, port: 8080, targetPort: http}]
+EOF2
+k -n mcp-servers rollout status deploy/echo --timeout=120s >/dev/null
+servers_json() { admin deploy/mcp-gateway servers --json; }
+discovered() { servers_json | jq -r '[.[] | select(.discovered) | .name + " " + .discovered.namespace + "/" + .discovered.service] | sort | join(",")'; }
+both() { [ "$(discovered)" = "mcp-servers-tickets mcp-servers/tickets,mcp-servers-wiki mcp-servers/wiki" ]; }
+until_ok 60 both || fail "the discovered servers: $(discovered) ($(servers_json))"
+tickets_served() { [[ "$(call mcp-servers-tickets found)" == "echo: found"* ]]; }
+until_ok 30 tickets_served || fail "mcp-servers-tickets not served: $(call mcp-servers-tickets found)"
+pass "the labelled Services are servers (db, unlabelled, is not), and mcp-servers-tickets, named in the role data, is served"
+got=$(call mcp-servers-wiki found)
+[[ "$got" != "echo: "* ]] || fail "mcp-servers-wiki reached through 'mcp-servers-*' without discovered: true: $got"
+pass "mcp-servers-wiki, under a glob without discovered: true only, is not reached ($got)"
+# Each replica audits the servers it discovered.
+discovered_audit() {
+	for pod in $(k -n "$NS" get pods -o name | grep '^pod/mcp-gateway-'); do
+		k -n "$NS" logs "$pod" -c gateway | grep '"event":"mcp-server-discovered"' | grep '"service":"tickets"' | grep -q '"change":"added"' || return 1
+	done
+}
+until_ok 30 discovered_audit || fail "no audit record of mcp-servers-tickets discovered in every replica"
+pass "every replica audits mcp-servers-tickets as discovered"
+k -n mcp-servers delete service tickets --wait=false >/dev/null
+tickets_gone() { [ "$(discovered)" = "mcp-servers-wiki mcp-servers/wiki" ]; }
+until_ok 60 tickets_gone || fail "mcp-servers-tickets still there after its Service went: $(discovered)"
+[[ "$(call mcp-servers-tickets again)" != "echo: "* ]] || fail "mcp-servers-tickets still served after its Service went"
+pass "mcp-servers-tickets went with its Service"
+
 echo "--- a stdio server in pods of its own"
 INS=mcp-instances
 other=$(k -n agents create token other --audience mcp-gateway --duration 30m)
@@ -350,7 +427,6 @@ pass "the audit records of custos's calls name $owner"
 # Another replica lists custos's instance, as $owner's, and stops it there
 # (mcp-gateway-admin instances, as the gateway's account: an approver in
 # the role data).
-admin() { k -n "$NS" exec "$1" -c gateway -- mcp-gateway-admin "${@:2}" --socket /run/mcp-gateway/control.sock; }
 # (if, not &&: a loop whose last test fails fails the pipeline, and set -e
 # ends the script without a word when the owner sorts last.)
 other_pod=$(for r in $gws; do if [ "$r" != "$owner" ]; then echo "$r"; fi; done | head -n1)

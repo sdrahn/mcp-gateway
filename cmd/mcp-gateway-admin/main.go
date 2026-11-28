@@ -25,6 +25,7 @@ var commands = []command{
 	{"doctor", "check the installation: services, policy, servers, SELinux, polkit, principals", runDoctor},
 	{"clients", "list the clients using the gateway, or end one (clients end ID)", runClients},
 	{"tasks", "list the agents' tasks, or cancel one (tasks cancel ID)", runTasks},
+	{"servers", "list the servers, and where each comes from (a file, or a discovered Service)", runServers},
 	{"instances", "list the servers' instances, or stop one (instances stop ID)", runInstances},
 	{"approvals", "list, show and decide pending approvals (approvals approve ID), or watch them", runApprovals},
 	{"grants", "list the grants approvals left, or revoke one (grants revoke ID)", runGrants},

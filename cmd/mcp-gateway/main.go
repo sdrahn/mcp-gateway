@@ -317,6 +317,8 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		return err
 	}
 	defer closeAudit()
+	// The servers discovered at the start, as each reload's later.
+	disc.audit(auditLog, backends)
 
 	control := gw.Approvals.ControlSocket != "-"
 	opa := pep.NewOPA(gw.Policy.OPASocket, gw.Policy.Timeout)
@@ -492,6 +494,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		configFiles: func(c *config.Gateway) []string { return reloadFiles(configPath, c) },
 		configDirs:  reloadDirs(configPath),
 		loaded: func(next map[string]*config.Backend) {
+			disc.audit(auditLog, next)
 			for _, name := range slices.Sorted(maps.Keys(next)) {
 				warnElevated(log, name, next[name])
 			}
@@ -570,6 +573,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		self = &selfCheck{log: log, gw: gw, backends: r.CurrentBackends, reloader: reloader, opa: opa, tokens: tokens, ready: opa.Health}
 		if s, ok := launcher.(supervisor.Split); ok {
 			self.kube, _ = s.Stdio.(*supervisor.Kubernetes)
+		}
+		if disc != nil {
+			self.discovery = disc
 		}
 		if shared != nil {
 			if self.shared, err = shared.collection("keys"); err != nil {

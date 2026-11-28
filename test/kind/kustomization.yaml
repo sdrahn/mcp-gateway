@@ -12,6 +12,8 @@ resources:
 # The shared store (config.yaml, replication): one replica on it.
 components:
   - ../../deploy/kubernetes/replication
+  # Servers discovered in mcp-servers (config.yaml, server_discovery).
+  - ../../deploy/kubernetes/discovery
 images:
   - name: mcp-gateway
     newName: mcp-gateway
