@@ -6,6 +6,7 @@
 #!BuildTag: sdrahn/mcp-gateway:latest
 #!BuildTag: sdrahn/mcp-gateway:%PKG_VERSION%
 #!BuildTag: sdrahn/mcp-gateway:%PKG_VERSION%-%RELEASE%
+#!BuildVersion: %PKG_VERSION%
 #!UseOBSRepositories
 
 FROM opensuse/bci/bci-micro:latest AS micro
@@ -23,11 +24,22 @@ RUN zypper -n --installroot /target install --no-recommends mcp-gateway-containe
 FROM micro
 COPY --from=build /target /
 
-LABEL org.opencontainers.image.title="mcp-gateway" \
-      org.opencontainers.image.description="Policy-enforcing gateway for MCP servers, in container mode" \
-      org.opencontainers.image.source="https://github.com/sdrahn/mcp-gateway" \
-      org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.version="%PKG_VERSION%"
+# The labels between labelprefix and endlabelprefix are repeated with
+# the image's own prefix (docker_label_helper), as derived images'
+# labels are on openSUSE (https://en.opensuse.org/Building_derived_containers);
+# without them, the base's org.opensuse.bci.micro.* labels describe
+# this image. org.opensuse.reference names where this project publishes
+# the image: change it for another project (README, "Building in OBS").
+# labelprefix=org.opensuse.mcp-gateway
+LABEL org.opencontainers.image.title="mcp-gateway"
+LABEL org.opencontainers.image.description="Policy-enforcing gateway for MCP servers, in container mode"
+LABEL org.opencontainers.image.version="%PKG_VERSION%"
+LABEL org.opencontainers.image.source="https://github.com/sdrahn/mcp-gateway"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.created="%BUILDTIME%"
+LABEL org.opensuse.reference="registry.opensuse.org/home/sdrahn/testing/containerfile/sdrahn/mcp-gateway:%PKG_VERSION%-%RELEASE%"
+LABEL org.openbuildservice.disturl="%DISTURL%"
+# endlabelprefix
 
 # An account of its own, never root; the manifests set the same ids
 # (runAsUser, fsGroup).
