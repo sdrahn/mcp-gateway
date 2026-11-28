@@ -111,3 +111,24 @@ func TestTableRetries(t *testing.T) {
 		t.Fatalf("after the store came back: %v", got)
 	}
 }
+
+// A key is made once: later uses, and other writers, get the same.
+func TestKey(t *testing.T) {
+	c, _ := testCollection(t)
+	ctx := context.Background()
+	k1, err := Key(ctx, c, "audit", 32)
+	if err != nil || len(k1) != 32 {
+		t.Fatalf("made: %v %d", err, len(k1))
+	}
+	other, _ := NewKubernetes(c.Client, "gw", "grants")
+	k2, err := Key(ctx, other, "audit", 32)
+	if err != nil || string(k2) != string(k1) {
+		t.Fatalf("again: %v", err)
+	}
+	if k3, _ := Key(ctx, c, "tokens", 32); string(k3) == string(k1) {
+		t.Fatal("two keys alike")
+	}
+	if _, err := Key(ctx, c, "audit", 16); err == nil {
+		t.Fatal("a key of another size accepted")
+	}
+}

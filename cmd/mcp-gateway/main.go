@@ -262,7 +262,12 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if err := os.MkdirAll(gw.StateDir, 0o700); err != nil {
 		return fmt.Errorf("state directory: %w", err)
 	}
-	auditLog, closeAudit, err := newAudit(log, gw)
+	shared, err := newShared(gw)
+	if err != nil {
+		return err
+	}
+	defer shared.stop()
+	auditLog, closeAudit, err := newAudit(log, gw, shared)
 	if err != nil {
 		return err
 	}
@@ -280,13 +285,12 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		return len(b) > 0, err
 	}}
 	guard.Blocked()
-	shared, stopShared, err := newShared(gw)
+	brokerShared, err := shared.broker()
 	if err != nil {
 		return err
 	}
-	defer stopShared()
 	b, err := broker.New(broker.Options{
-		Shared:      shared,
+		Shared:      brokerShared,
 		Timeout:     gw.ApprovalTimeout,
 		GrantsFile:  filepath.Join(gw.StateDir, "grants.json"),
 		PendingFile: filepath.Join(gw.StateDir, "pending.json"),
@@ -301,7 +305,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if err != nil {
 		return err
 	}
-	if shared != nil {
+	if brokerShared != nil {
 		// What the broker saved last goes to the store before its writers
 		// stop (deferred before, so run after this).
 		defer func() {
@@ -361,7 +365,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if hooks != nil {
 		go hooks.Run(ctx)
 	}
-	signIns, err := newSignIns(log, gw, helperLauncher(launcher), auditLog)
+	signIns, err := newSignIns(log, gw, helperLauncher(launcher), auditLog, shared)
 	if err != nil {
 		return err
 	}
@@ -635,17 +639,32 @@ func helperLauncher(l supervisor.Launcher) supervisor.Launcher {
 
 // newSignIns sets up signing principals in to servers with sign_in: with
 // the HTTP listener, which receives the callback (nil without).
-func newSignIns(log *slog.Logger, gw *config.Gateway, launcher supervisor.Launcher, auditLog *audit.Logger) (*signin.Manager, error) {
+func newSignIns(log *slog.Logger, gw *config.Gateway, launcher supervisor.Launcher, auditLog *audit.Logger, shared *sharedStore) (*signin.Manager, error) {
 	if gw.HTTP.Listen == "" || gw.RedirectURI() == "" {
 		return nil, nil
 	}
-	dir := filepath.Join(gw.StateDir, "tokens")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("sign-in tokens: %w", err)
-	}
-	store, err := signin.OpenStore(dir)
-	if err != nil {
-		return nil, fmt.Errorf("sign-in tokens: %w", err)
+	var tokens *signin.Store
+	if shared != nil {
+		tc, err := shared.collection("tokens")
+		if err != nil {
+			return nil, err
+		}
+		kc, err := shared.collection("keys")
+		if err != nil {
+			return nil, err
+		}
+		if tokens, err = signin.OpenSharedStore(shared.ctx, tc, kc, log); err != nil {
+			return nil, err
+		}
+	} else {
+		dir := filepath.Join(gw.StateDir, "tokens")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("sign-in tokens: %w", err)
+		}
+		var err error
+		if tokens, err = signin.OpenStore(dir); err != nil {
+			return nil, fmt.Errorf("sign-in tokens: %w", err)
+		}
 	}
 	// The access tokens handed to instances, until their units started:
 	// next to the socket, /run/mcp-gateway/credentials.
@@ -653,7 +672,7 @@ func newSignIns(log *slog.Logger, gw *config.Gateway, launcher supervisor.Launch
 	if err := os.MkdirAll(runDir, 0o700); err != nil {
 		log.Warn("sign-in: no runtime directory for tokens", "dir", runDir, "err", err)
 	}
-	m := &signin.Manager{Store: store, Launcher: launcher, Log: log, Audit: auditLog,
+	m := &signin.Manager{Store: tokens, Launcher: launcher, Log: log, Audit: auditLog,
 		RedirectURI: gw.RedirectURI(), RunDir: runDir, Timeout: gw.SignIn.Timeout}
 	if strings.HasPrefix(gw.RedirectURI(), "https://") {
 		m.ClientMetadataURL = strings.TrimSuffix(gw.RedirectURI(), "/callback") + "/client.json"
@@ -893,39 +912,72 @@ func watchUpdate(ctx context.Context, log *slog.Logger) {
 	}
 }
 
-// newShared returns the broker's collections in the shared store
-// (replication.store: kubernetes; docs/architecture.md, section 5.12.5),
-// nil without one: the files in state_dir. Their watches and writers run
-// until stop: after the broker's last save is flushed, not with the
-// signal that ends the gateway.
-func newShared(gw *config.Gateway) (sh *broker.Shared, stop func(), err error) {
+// sharedStore is the shared store (replication.store: kubernetes;
+// docs/architecture.md, section 5.12.5): its collections' watches and
+// writers run until stop, after the last saves were flushed, not with the
+// signal that ends the gateway. nil without one: the files in state_dir.
+type sharedStore struct {
+	ctx       context.Context
+	cancel    context.CancelFunc
+	client    *kube.Client
+	namespace string
+}
+
+func newShared(gw *config.Gateway) (*sharedStore, error) {
 	if !gw.Replication.Shared() {
-		return nil, func() {}, nil
+		return nil, nil
 	}
 	r := gw.Replication.WithDefaults()
 	client, err := kube.NewClient(r.APIServer, r.TokenFile, r.CAFile)
 	if err != nil {
-		return nil, nil, fmt.Errorf("replication: %w", err)
+		return nil, fmt.Errorf("replication: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	sh = &broker.Shared{Context: ctx}
+	return &sharedStore{ctx: ctx, cancel: cancel, client: client, namespace: r.Namespace}, nil
+}
+
+func (s *sharedStore) stop() {
+	if s != nil {
+		s.cancel()
+	}
+}
+
+func (s *sharedStore) collection(name string) (store.Collection, error) {
+	return store.NewKubernetes(s.client, s.namespace, name)
+}
+
+// broker returns the broker's collections (nil without a shared store).
+func (s *sharedStore) broker() (*broker.Shared, error) {
+	if s == nil {
+		return nil, nil
+	}
+	sh := &broker.Shared{Context: s.ctx}
 	for name, c := range map[string]*store.Collection{"grants": &sh.Grants, "pending": &sh.Pending,
 		"notices": &sh.Notices, "reviews": &sh.Reviews} {
-		k, err := store.NewKubernetes(client, r.Namespace, name)
+		k, err := s.collection(name)
 		if err != nil {
-			cancel()
-			return nil, nil, err
+			return nil, err
 		}
 		*c = k
 	}
-	return sh, cancel, nil
+	return sh, nil
 }
 
 // newAudit sets up the audit trail: JSON records on stderr (journald),
 // argument digests keyed with the per-installation key in the state
-// directory, and security-relevant events to the kernel audit subsystem.
-func newAudit(log *slog.Logger, gw *config.Gateway) (*audit.Logger, func(), error) {
-	key, err := audit.LoadKey(filepath.Join(gw.StateDir, "audit.key"))
+// directory (or the shared store, so that the replicas' digests compare),
+// and security-relevant events to the kernel audit subsystem.
+func newAudit(log *slog.Logger, gw *config.Gateway, shared *sharedStore) (*audit.Logger, func(), error) {
+	var key []byte
+	var err error
+	if shared != nil {
+		var keys store.Collection
+		if keys, err = shared.collection("keys"); err == nil {
+			key, err = store.Key(shared.ctx, keys, "audit", 32)
+		}
+	} else {
+		key, err = audit.LoadKey(filepath.Join(gw.StateDir, "audit.key"))
+	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("audit key: %w", err)
 	}
