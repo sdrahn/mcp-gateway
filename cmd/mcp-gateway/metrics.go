@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/broker"
@@ -39,6 +40,21 @@ func registerGauges(r *router.Router, b *broker.Broker) {
 	)
 }
 
+// readiness is /readyz's check: the policy engine answers (health), and
+// the replica is not draining (several replicas: the Service then sends
+// it no new connections).
+func readiness(draining *atomic.Bool, health func(context.Context) error) func(context.Context) error {
+	return func(ctx context.Context) error {
+		if draining.Load() {
+			return errors.New("draining: the replica stops")
+		}
+		if err := health(ctx); err != nil {
+			return fmt.Errorf("the policy engine: %w", err)
+		}
+		return nil
+	}
+}
+
 // metricsHandler serves GET /metrics, and the probes of a container
 // platform (docs/architecture.md, section 5.12.7): GET /healthz, the
 // process serves; GET /readyz, it can decide, as OPA answers (ready).
@@ -61,7 +77,7 @@ func metricsHandler(ready func(context.Context) error) http.Handler {
 		if ready != nil {
 			if err := ready(ctx); err != nil {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				_, _ = fmt.Fprintln(w, "not ready: the policy engine:", err)
+				_, _ = fmt.Fprintln(w, "not ready:", err)
 				return
 			}
 		}

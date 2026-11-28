@@ -23,7 +23,10 @@ const (
 	RoleLabel         = "mcp-gateway.io/role"
 	RoleReplica       = "replica"
 	AddressAnnotation = "mcp-gateway.io/address"
-	leasePrefix       = "mcp-gateway-replica-"
+	// DrainingAnnotation marks the Lease of a replica that is stopping
+	// ("true"): it takes no new principals (Owners).
+	DrainingAnnotation = "mcp-gateway.io/draining"
+	leasePrefix        = "mcp-gateway-replica-"
 	// DefaultDuration is how long a replica's Lease lasts unrenewed.
 	DefaultDuration = 15 * time.Second
 )
@@ -33,6 +36,8 @@ type Member struct {
 	Name    string
 	Address string
 	Expires time.Time
+	// Draining is set while the replica stops (DrainingAnnotation).
+	Draining bool
 }
 
 // Members is this replica's Lease and its view of the others'.
@@ -54,6 +59,8 @@ type Members struct {
 	mu      sync.Mutex
 	members map[string]Member
 	version string // of this replica's Lease
+	// draining is set once this replica stops (Drain).
+	draining bool
 	// live are the live replicas' names at the last refresh, for
 	// OnChange.
 	live []string
@@ -89,10 +96,14 @@ func (m *Members) lease(version string, acquired *kube.MicroTime) kube.Lease {
 	if acquired == nil {
 		acquired = now
 	}
+	annotations := map[string]string{AddressAnnotation: m.Address}
+	if m.Draining() {
+		annotations[DrainingAnnotation] = "true"
+	}
 	return kube.Lease{APIVersion: "coordination.k8s.io/v1", Kind: "Lease",
 		Metadata: kube.ObjectMeta{Name: leasePrefix + m.Name, Namespace: m.Namespace, ResourceVersion: version,
 			Labels:      map[string]string{ManagedByLabel: ManagedBy, RoleLabel: RoleReplica},
-			Annotations: map[string]string{AddressAnnotation: m.Address}},
+			Annotations: annotations},
 		Spec: kube.LeaseSpec{HolderIdentity: m.Name, LeaseDurationSeconds: int(m.duration() / time.Second),
 			AcquireTime: acquired, RenewTime: now}}
 }
@@ -163,7 +174,7 @@ func (m *Members) refresh(ctx context.Context) error {
 			continue
 		}
 		members[l.Spec.HolderIdentity] = Member{Name: l.Spec.HolderIdentity, Address: l.Metadata.Annotations[AddressAnnotation],
-			Expires: l.Spec.Expires()}
+			Expires: l.Spec.Expires(), Draining: l.Metadata.Annotations[DrainingAnnotation] == "true"}
 	}
 	m.mu.Lock()
 	m.members = members
@@ -226,6 +237,36 @@ func (m *Members) leave() {
 	if err := m.Client.DeleteVersion(ctx, m.leasePath(m.Name), version); err != nil && !kube.IsNotFound(err) {
 		m.log().Warn("replicas: giving up this replica's Lease failed; the others take over when it runs out", "err", err)
 	}
+}
+
+// Drain marks this replica's Lease as draining, at once: the others
+// send it no new principals (Owners), and it takes none.
+func (m *Members) Drain(ctx context.Context) error {
+	m.mu.Lock()
+	m.draining = true
+	m.mu.Unlock()
+	return m.renew(ctx)
+}
+
+// Draining reports whether this replica is draining.
+func (m *Members) Draining() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.draining
+}
+
+// Takers returns the other live replicas that take new principals (not
+// draining), by name, sorted.
+func (m *Members) Takers() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []string
+	for _, name := range m.liveNames() {
+		if mb, ok := m.members[name]; name != m.Name && ok && !mb.Draining {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // Live returns the replicas whose Lease has not run out, this one among

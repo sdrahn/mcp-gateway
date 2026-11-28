@@ -63,6 +63,11 @@ minor release (with a warning) and removed in the next.
   page loads; mail and webhooks announce them where they are held, and
   an approval a replica adopts from one that is gone is not announced
   again (#452).
+- With several replicas a replica told to stop (`SIGTERM`) drains first,
+  for `replication.drain_timeout` (30 s) at most: it takes no new
+  principals (its Lease is marked draining, and the others take them),
+  gives up those with nothing running at once, and serves the busy ones
+  until they are done; `/readyz` fails meanwhile (#452).
 
 ### Fixed
 

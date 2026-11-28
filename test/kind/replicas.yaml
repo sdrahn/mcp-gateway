@@ -10,6 +10,9 @@ spec:
   replicas: 3
   template:
     spec:
+      # A replica drains for replication.drain_timeout (30 s) before it
+      # stops: 15 s more for the stop itself.
+      terminationGracePeriodSeconds: 45
       containers:
         - name: gateway
           ports:

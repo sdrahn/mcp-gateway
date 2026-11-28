@@ -121,7 +121,7 @@ func (o *Owners) Owner(ctx context.Context, key string) (string, error) {
 	}
 	o.mu.Unlock()
 	for range 3 {
-		holder, err := o.claim(ctx, key)
+		holder, err := o.claim(ctx, key, o.Members.Draining())
 		if err == nil {
 			return holder, nil
 		}
@@ -133,11 +133,20 @@ func (o *Owners) Owner(ctx context.Context, key string) (string, error) {
 	return "", ErrNoOwner
 }
 
-// claim reads key's Lease and takes it if no live replica holds it.
-func (o *Owners) claim(ctx context.Context, key string) (string, error) {
+// claim reads key's Lease and takes it if no live replica holds it. A
+// draining replica takes no principal another can take: it names one of
+// those instead (taker), which takes it when the request reaches it.
+func (o *Owners) claim(ctx context.Context, key string, draining bool) (string, error) {
 	var cur kube.Lease
 	err := o.Client.Get(ctx, o.path(key), &cur)
 	var out kube.Lease
+	free := kube.IsNotFound(err) || (err == nil && cur.Spec.HolderIdentity != o.Members.Name &&
+		(cur.Spec.HolderIdentity == "" || !cur.Spec.Expires().After(o.now()) || !o.Members.IsLive(cur.Spec.HolderIdentity)))
+	if draining && free {
+		if t := taker(key, o.Members.Takers()); t != "" {
+			return t, nil
+		}
+	}
 	switch {
 	case kube.IsNotFound(err):
 		if err := o.Client.Create(ctx, kube.LeasesPath(o.Namespace), o.lease(key, "", nil, 0), &out); err != nil {
@@ -176,6 +185,16 @@ func (o *Owners) claim(ctx context.Context, key string) (string, error) {
 	return o.Members.Name, nil
 }
 
+// taker picks the replica of takers for key: the same for the same key
+// on every draining replica ("" for none).
+func taker(key string, takers []string) string {
+	if len(takers) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(key))
+	return takers[int(sum[0])%len(takers)]
+}
+
 func (o *Owners) hold(key string, l kube.Lease, trans int) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -210,6 +229,43 @@ func (o *Owners) Run(ctx context.Context) {
 		case <-tick.C:
 		}
 		o.renew(ctx)
+	}
+}
+
+// Drain gives up the Leases of the principals that are not busy here, at
+// once and as they stop being busy, until none is held or ctx ends (the
+// pod's grace period); the busy ones keep what they have here until then.
+// Members.Drain first, so that no new principals come.
+func (o *Owners) Drain(ctx context.Context) {
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+	for {
+		var busy map[string]bool
+		if o.Busy != nil {
+			busy = o.Busy()
+		}
+		o.mu.Lock()
+		idle := map[string]string{}
+		for k, h := range o.held {
+			if !busy[k] {
+				idle[k] = h.version
+			}
+		}
+		left := len(o.held) - len(idle)
+		o.mu.Unlock()
+		for k, v := range idle {
+			rctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			o.release(rctx, k, v)
+			cancel()
+		}
+		if left == 0 {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
 	}
 }
 

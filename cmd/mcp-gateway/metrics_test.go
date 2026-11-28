@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -52,7 +53,8 @@ func TestServeMetrics(t *testing.T) {
 // policy engine answers.
 func TestProbes(t *testing.T) {
 	var opaErr error
-	h := metricsHandler(func(context.Context) error { return opaErr })
+	var draining atomic.Bool
+	h := metricsHandler(readiness(&draining, func(context.Context) error { return opaErr }))
 	get := func(path string) (int, string) {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
@@ -70,5 +72,14 @@ func TestProbes(t *testing.T) {
 	}
 	if code, _ := get("/healthz"); code != 200 {
 		t.Errorf("healthz without OPA %d", code)
+	}
+	// A replica that stops: not ready, still healthy.
+	opaErr = nil
+	draining.Store(true)
+	if code, body := get("/readyz"); code != http.StatusServiceUnavailable || !strings.Contains(body, "draining") {
+		t.Errorf("readyz while draining %d %q", code, body)
+	}
+	if code, _ := get("/healthz"); code != 200 {
+		t.Errorf("healthz while draining %d", code)
 	}
 }
