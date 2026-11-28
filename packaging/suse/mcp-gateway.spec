@@ -54,6 +54,11 @@ transient unit in its own SELinux domain.
 %package container
 Summary:        The gateway's files for its container image
 Group:          Productivity/Networking/Security
+# The same files as mcp-gateway's and mcp-gateway-tools', for an image's
+# root, not beside them on a host. Declared, OBS's packaged-twice check
+# lets them share the files.
+Conflicts:      %{name}
+Conflicts:      %{name}-tools
 
 %description container
 The files of the gateway's container image (container mode,
