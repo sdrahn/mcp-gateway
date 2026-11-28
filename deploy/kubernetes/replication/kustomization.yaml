@@ -1,0 +1,12 @@
+# The shared store (user guide, chapter 3, "Shared store"; roadmap step
+# 49): what the gateway's ServiceAccount may do with the Secrets of its
+# own namespace, where it keeps its records with replication.store:
+# kubernetes. Add it to an overlay (components: [.../replication]) and
+# set in gateway.yaml:
+#   replication:
+#     store: kubernetes
+#     namespace: mcp-gateway
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - role.yaml

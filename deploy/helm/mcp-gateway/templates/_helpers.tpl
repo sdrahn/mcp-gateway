@@ -53,6 +53,9 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
       "gateway_labels" (include "mcp-gateway.selectorLabels" . | fromYaml)) -}}
 {{- $_ := set $cfg "supervisor" $sup -}}
 {{- end -}}
+{{- if .Values.replication.enabled -}}
+{{- $_ := set $cfg "replication" (dict "store" "kubernetes" "namespace" .Release.Namespace) -}}
+{{- end -}}
 {{- $policy := deepCopy (default dict $cfg.policy) -}}
 {{- $_ := set $policy "opa_socket" "/run/mcp-gateway/opa.sock" -}}
 {{- $_ := set $cfg "version" 1 -}}

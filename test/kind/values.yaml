@@ -17,6 +17,9 @@ config:
     scopes: null
     # Reached through kubectl port-forward in the test.
     audience: https://127.0.0.1:8443/mcp
+# One replica on the shared store.
+replication:
+  enabled: true
 servers:
   echo:
     name: echo

@@ -230,15 +230,18 @@ the gateway's namespace, one per record, written with their version
 and watched. So far that is the grants of scope `duration` and the
 stored `once` grants, the pending approvals, the notices to approvers,
 the review items, and the principals' sign-in tokens with the clients
-registered for them (`grants.json`, `pending.json`, `notices.json`,
-`reviews.json` and `tokens/` on a host); the clients seen follow. The
-tokens stay encrypted as in `tokens/`; their key and the key of the
-audit's argument digests are records too, made at the first start, so
-that every replica uses the same. A `once` grant is taken by one call
-only, whichever replica serves it. While the gateway cannot
+registered for them, and the clients seen (`grants.json`,
+`pending.json`, `notices.json`, `reviews.json`, `tokens/` and
+`clients.json` on a host; of the clients the latest 2000). The tokens
+stay encrypted as in `tokens/`; their key and the key of the audit's
+argument digests are records too, made at the first start, so that
+every replica uses the same. At that first start the files in
+`state_dir` are copied into the store, once. A `once` grant is taken by
+one call only, whichever replica serves it. While the gateway cannot
 follow the store (the API server out of reach), its grants count as
 absent: calls ask for approval again rather than run on a grant that
-may have been revoked.
+may have been revoked. Chapter 16, "The state in the Kubernetes API",
+sets it up with the chart or the manifests.
 
 | Key | Default | Meaning |
 |---|---|---|

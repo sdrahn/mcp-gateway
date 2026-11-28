@@ -129,8 +129,8 @@ fi
 # checks ran.
 doc=$(k -n "$NS" exec deploy/mcp-gateway -c gateway -- mcp-gateway-admin doctor --config /etc/mcp-gateway/config/gateway.yaml --json) || true
 [ "$(jq '[.[] | select(.status == "fail")] | length' <<<"$doc" 2>/dev/null)" = 0 ] || fail "doctor: $doc"
-[ "$(jq '[.[] | select(.id == "policy" or .id == "state-volume" or .id == "kubernetes-api" or .id == "identity-provider")] |
-	length >= 4 and all(.status == "ok")' <<<"$doc")" = true ] || fail "doctor: $doc"
+[ "$(jq '[.[] | select(.id == "policy" or .id == "state-volume" or .id == "kubernetes-api" or .id == "identity-provider" or
+	.id == "shared-store")] | length >= 5 and all(.status == "ok")' <<<"$doc")" = true ] || fail "doctor: $doc"
 pass "the doctor in the gateway: $(jq -r '[.[] | .id + " " + .status] | join(", ")' <<<"$doc")"
 
 token=$(k -n agents create token custos --audience mcp-gateway --duration 30m)
@@ -178,6 +178,17 @@ wrong=$(k -n agents create token custos --duration 10m)
 code=$(post echo "$wrong" '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | tail -n1)
 [ "$code" = 401 ] || fail "a token for the API server's audience: HTTP $code"
 pass "a token for another audience is refused"
+
+echo "--- the shared store"
+# records COLLECTION: the gateway's Secrets of that collection.
+records() {
+	k -n "$NS" get secrets -l "app.kubernetes.io/managed-by=mcp-gateway,mcp-gateway.io/collection=$1" -o json
+}
+[ "$(records keys | jq '[.items[].metadata.annotations["mcp-gateway.io/name"]] | index("audit") != null and index("imported") != null')" = true ] ||
+	fail "keys in the shared store: $(records keys | jq -c '[.items[].metadata.annotations]')"
+kept() { [ "$(records clients | jq '.items | length')" -ge 1 ]; }
+until_ok 30 kept || fail "the client of the call is not in the shared store"
+pass "the audit key and the client of the call are records of the shared store"
 
 echo "--- a server added to the ConfigMap"
 k -n "$NS" patch configmap mcp-gateway-servers --type merge \
@@ -244,5 +255,17 @@ k -n "$NS" patch configmap mcp-gateway-rbac --type merge -p '{"data":{"data.yaml
 denied() { [[ "$(call echo bye)" != "echo: "* ]]; }
 until_ok 180 denied || fail "still allowed after the role data changed: $(call echo bye)"
 pass "role data from the ConfigMap takes effect"
+
+echo "--- the shared store across a restart"
+audit_key() { records keys | jq -r '.items[] | select(.metadata.annotations["mcp-gateway.io/name"] == "audit") | .data.record'; }
+key=$(audit_key)
+clients=$(records clients | jq '.items | length')
+k -n "$NS" rollout restart deploy/mcp-gateway >/dev/null
+k -n "$NS" rollout status deploy/mcp-gateway --timeout=240s
+[ "$(audit_key)" = "$key" ] || fail "another audit key after the restart"
+[ "$(records clients | jq '.items | length')" -ge "$clients" ] || fail "client records lost in the restart"
+logs=$(k -n "$NS" logs deploy/mcp-gateway -c gateway)
+! grep -q "files of state_dir imported" <<<"$logs" || fail "the files imported again after the restart"
+pass "a restarted gateway keeps its audit key and the clients seen, and imports nothing again"
 
 echo "PASS"

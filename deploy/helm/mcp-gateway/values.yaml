@@ -48,6 +48,14 @@ kubernetesLauncher:
   # on: an MCS level per instance, for nodes that run SELinux.
   selinux: "off"
 
+# The shared store (replication.store: kubernetes; user guide chapter 3,
+# "Shared store"; roadmap step 49): grants, approvals, notices, reviews,
+# sign-in tokens, the clients seen and the keys as Secrets in the
+# release's namespace, with a Role for them there. At its first start the
+# gateway imports the files of the volume. Off: the files on the volume.
+replication:
+  enabled: false
+
 # Server definitions, by file name: name, url, ... (chapter 4); a stdio
 # server names its image.
 servers: {}

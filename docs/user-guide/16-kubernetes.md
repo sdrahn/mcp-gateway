@@ -612,6 +612,54 @@ subjects:
   - {kind: ServiceAccount, name: mcp-gateway, namespace: mcp-gateway}
 ```
 
+## The state in the Kubernetes API
+
+By default the gateway keeps its state (grants, pending approvals,
+notices, reviews, sign-in tokens, the clients seen, the audit key) on
+the volume `mcp-gateway-state`, as on a host. With the shared store it
+keeps it as Secrets of its own namespace instead, one per record, which
+the cluster backs up with the rest of its objects; several replicas
+(roadmap step 49) will need it, and one replica can use it already:
+
+```yaml
+# my-values.yaml (Helm): a Role for the Secrets, and replication in
+# gateway.yaml
+replication:
+  enabled: true
+```
+
+With the manifests, add the component that holds the Role, and the key
+to `gateway.yaml` in the `mcp-gateway-config` ConfigMap:
+
+```yaml
+# kustomization.yaml of your overlay
+resources:
+  - ../../deploy/kubernetes
+components:
+  - ../../deploy/kubernetes/replication
+```
+
+```yaml
+# gateway.yaml
+replication:
+  store: kubernetes
+  namespace: mcp-gateway
+```
+
+At its first start with the store the gateway copies the files of the
+volume into it (once: a record `imported` says so), so that it keeps
+its grants, approvals, sign-ins and audit key; keep the volume for that
+start. Its records are Secrets labelled
+`app.kubernetes.io/managed-by=mcp-gateway`, one collection each
+(`mcp-gateway.io/collection`: `grants`, `pending`, `notices`, `reviews`,
+`tokens`, `clients`, `keys`); the sign-in tokens in them are encrypted
+under the `tokens` key, as on the volume. Who may read Secrets in the
+gateway's namespace may read the records, approvals' arguments among
+them: grant that to no one else, and where the API server encrypts
+Secrets at rest (an `EncryptionConfiguration`), they are encrypted in
+etcd too. The doctor checks that the gateway reaches them
+(`shared-store`). Chapter 3, "Shared store", has the settings.
+
 ## Configuration from ConfigMaps
 
 | ConfigMap | Mounted at | Holds |
@@ -673,8 +721,11 @@ and the last good one stays in force (`kubectl logs deploy/mcp-gateway
   always sees).
 - State (grants, the audit key, sign-in tokens) is on the volume
   `mcp-gateway-state`; back it up as you would `/var/lib/mcp-gateway`.
+  With the shared store it is in the Secrets of the gateway's namespace
+  (above), backed up with the cluster's objects.
 
 `test/kind/run.sh` deploys all of this to a kind cluster and checks it,
 with the manifests and with the chart (`DEPLOY=helm`), a stdio server in
 pods of their own among it (one per principal, no egress to other pods,
-gone after the idle timeout); CI runs both on every change.
+gone after the idle timeout), on the shared store (its records, kept
+across a restart); CI runs both on every change.

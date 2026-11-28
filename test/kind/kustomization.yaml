@@ -8,6 +8,9 @@ kind: Kustomization
 resources:
   - ../../deploy/kubernetes
   - echo.yaml
+# The shared store (config.yaml, replication): one replica on it.
+components:
+  - ../../deploy/kubernetes/replication
 images:
   - name: mcp-gateway
     newName: mcp-gateway
