@@ -5426,11 +5426,15 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       decided on another replica and a sign-in through another are
       tested against the fake API (they need an approver and a server
       with sign-in, which the kind job has not);
-    - stage C, the console and the control API across replicas (views
-      merged from the peers, actions forwarded to the replica that holds
-      them), draining on `SIGTERM`, the chart's `replicas` with a
+    - stage C (#452), the console and the control API across replicas
+      (views merged from the peers, actions forwarded to the replica that
+      holds them), draining on `SIGTERM`, the chart's `replicas` with a
       PodDisruptionBudget and spread over nodes, the Deployment's
-      `RollingUpdate`; the user guide (chapter 16).
+      `RollingUpdate`; the user guide (chapter 16);
+      as built (part 1): audit records carry `replica`; `GET /v1/status`
+      names the replica that answers and the live ones, the doctor's
+      report the replica that ran the checks; the console and
+      `doctor --gateway` show them;
 
 50. **Servers discovered in the cluster** (after 2.0; D25, proposed;
     open; §5.12.8): `server_discovery` with its namespaces, prefixes and

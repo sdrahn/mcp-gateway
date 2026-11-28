@@ -486,8 +486,13 @@ func TestServersRemovedWithInstances(t *testing.T) {
 func TestStatus(t *testing.T) {
 	s, _, _ := setup(t)
 	if rec := call(t, s, 1001, "GET", "/v1/status", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"restart_pending":false`) ||
-		strings.Contains(rec.Body.String(), "servers_error") {
+		strings.Contains(rec.Body.String(), "servers_error") || strings.Contains(rec.Body.String(), "replica") {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	// One of several replicas: it and the live ones.
+	s.Replicas = func() (string, []string) { return "gw-b", []string{"gw-a", "gw-b"} }
+	if rec := call(t, s, 1001, "GET", "/v1/status", ""); !strings.Contains(rec.Body.String(), `"replica":"gw-b","replicas":["gw-a","gw-b"]`) {
+		t.Fatalf("replicas: %s", rec.Body)
 	}
 	s.RestartPending = func() bool { return true }
 	s.ServersError = func() string { return "web.yaml: unknown key" }

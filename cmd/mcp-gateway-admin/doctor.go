@@ -23,6 +23,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/authn"
 	"github.com/sdrahn/mcp-gateway/internal/config"
+	"github.com/sdrahn/mcp-gateway/internal/display"
 	"github.com/sdrahn/mcp-gateway/internal/doctor"
 	"github.com/sdrahn/mcp-gateway/internal/httpsetup"
 	"github.com/sdrahn/mcp-gateway/internal/inspect"
@@ -162,6 +163,7 @@ func gatewayDoctor(gateway string, asJSON, strict bool, stdout, stderr io.Writer
 	}
 	var rep struct {
 		Checked time.Time       `json:"checked"`
+		Replica string          `json:"replica"`
 		Results []doctor.Result `json:"results"`
 	}
 	if err := json.Unmarshal(data, &rep); err != nil {
@@ -171,6 +173,10 @@ func gatewayDoctor(gateway string, asJSON, strict bool, stdout, stderr io.Writer
 	if asJSON {
 		err = doctor.WriteJSON(stdout, rep.Results)
 	} else {
+		if rep.Replica != "" {
+			// One of several replicas ran them (the others: their own).
+			say(stdout, "checked by the replica", display.Escape(rep.Replica))
+		}
 		err = doctor.WriteText(stdout, rep.Results, colorful(stdout))
 	}
 	if err != nil {

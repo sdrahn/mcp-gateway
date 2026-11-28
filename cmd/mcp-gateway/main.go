@@ -494,6 +494,11 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if signIns != nil {
 		cs.SignIns = signIns
 	}
+	if shared != nil && shared.members != nil {
+		cs.Replicas = func() (string, []string) {
+			return shared.replica, slices.Sorted(maps.Keys(shared.members.Live()))
+		}
+	}
 	if gw.OwnApprovalsNeedPassword() {
 		cs.OwnPassword = ownPassword(&polkit.Authority{})
 	}
@@ -524,6 +529,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 			if self.shared, err = shared.collection("keys"); err != nil {
 				return err
 			}
+			self.replica = shared.replica
 		}
 		cs.Doctor = self
 		reloader.reloaded = func() { self.background("reload") }
@@ -1188,6 +1194,9 @@ func newAudit(log *slog.Logger, gw *config.Gateway, shared *sharedStore) (*audit
 		return nil, nil, fmt.Errorf("audit key: %w", err)
 	}
 	opts := audit.Options{Key: key}
+	if shared != nil {
+		opts.Replica = shared.replica
+	}
 	closeFn := func() {}
 	if gw.Audit.Kernel != "off" {
 		nl, err := audit.OpenNetlink()

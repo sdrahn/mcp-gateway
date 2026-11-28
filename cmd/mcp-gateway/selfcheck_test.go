@@ -54,8 +54,9 @@ func TestSelfCheck(t *testing.T) {
 			_ = b.Close()
 			return a, nil
 		}}
+	c.replica = "gw-b"
 	rep := c.Report(context.Background())
-	if rep.Trigger != "request" || rep.Checked.IsZero() {
+	if rep.Trigger != "request" || rep.Checked.IsZero() || rep.Replica != "gw-b" {
 		t.Errorf("report %+v", rep)
 	}
 	m := byCheck(rep.Results)

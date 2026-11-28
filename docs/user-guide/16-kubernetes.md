@@ -716,7 +716,10 @@ next request of each is served by another replica, with new instances;
 what lived in its memory (sessions, running tasks, contexts) ends as
 in a restart, and its instance pods are deleted. Its pending approvals
 are taken over by another replica, and an approval can be decided on
-any replica. The replicas reach each other on their pod addresses: a
+any replica. Each replica's audit records carry `replica`, its name;
+the console's status names the replica that serves the page and the
+live ones, and the doctor's results the replica that ran them (each
+replica runs its own checks). The replicas reach each other on their pod addresses: a
 NetworkPolicy in the gateway's namespace must let them reach port
 `8444`.
 

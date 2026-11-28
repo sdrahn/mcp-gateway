@@ -39,6 +39,12 @@ minor release (with a warning) and removed in the next.
   `replication.replicas`, `replication.peerSecret` and
   `persistence.enabled: false` (user guide, chapter 16, "Several
   replicas") (#441).
+- With several replicas each audit record carries `replica`, the
+  replica that wrote it; `GET /v1/status` names the replica that
+  answers and the live ones (`replica`, `replicas`), and the console's
+  status page shows them; the doctor's report names the replica that
+  ran the checks (`replica`), on the console's Doctor page and in
+  `doctor --gateway` (roadmap step 49 stage C) (#452).
 
 ### Fixed
 

@@ -63,6 +63,8 @@ type selfCheck struct {
 	// Health): the run at the start waits for it, as OPA starts beside
 	// the gateway in the pod.
 	ready func(context.Context) error
+	// replica names this replica of several in its reports.
+	replica string
 	// dial connects to a server's address (net.Dialer by default).
 	dial func(ctx context.Context, network, addr string) (net.Conn, error)
 	now  func() time.Time
@@ -142,7 +144,7 @@ func (c *selfCheck) check(ctx context.Context, trigger string) controlapi.Doctor
 	}
 	rs := c.results(ctx, trigger)
 	doctor.Identify(rs)
-	rep := controlapi.DoctorReport{Checked: now().UTC(), Trigger: trigger, Results: rs}
+	rep := controlapi.DoctorReport{Checked: now().UTC(), Trigger: trigger, Replica: c.replica, Results: rs}
 	c.mu.Lock()
 	c.rep = &rep
 	c.mu.Unlock()

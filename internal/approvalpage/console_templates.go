@@ -15,6 +15,7 @@ var consoleOverviewTmpl = template.Must(template.New("overview").Funcs(funcs).Pa
 <h2>Status</h2>
 <div class="card"><dl>
 <dt>Version</dt><dd>{{.Status.Version}}{{if .Status.RestartPending}} <b>(updated: restart the gateway)</b>{{end}}</dd>
+{{if .Status.Replica}}<dt>Replica</dt><dd>{{.Status.Replica}} <span class="muted">(this page's; {{len .Status.Replicas}} live: {{join .Status.Replicas ", "}})</span></dd>{{end}}
 <dt>Configuration</dt><dd>{{if .Status.ConfigError}}<b>the last change was refused</b>: {{.Status.ConfigError}}; the gateway runs with what it had{{else}}loaded{{end}} <span class="muted">({{.Status.ConfigReloads}} reloads since the start)</span></dd>
 <dt>Server definitions</dt><dd>{{if .Status.ServersError}}<b>the last change was refused</b>: {{.Status.ServersError}}; the gateway serves the definitions it had{{else}}loaded{{end}}</dd>
 {{if .Status.RestartNeeded}}<dt>Waiting for a restart</dt><dd>{{join .Status.RestartNeeded ", "}} <span class="muted">(take effect at the next start: roll the Deployment, or restart the service)</span></dd>{{end}}
@@ -87,7 +88,7 @@ var consolePolicyTmpl = template.Must(template.New("policy").Funcs(funcs).Parse(
 
 var consoleDoctorTmpl = template.Must(template.New("doctor").Funcs(funcs).Parse(layout + `{{template "top" .}}
 {{if .DoctorError}}<p class="note error">{{.DoctorError}}</p>{{end}}
-{{with .Report}}<p class="muted">Checked {{clock .Checked}} ({{if eq .Trigger "start"}}at the start{{else if eq .Trigger "reload"}}after a reload{{else}}on request{{end}}).</p>
+{{with .Report}}<p class="muted">Checked {{clock .Checked}} ({{if eq .Trigger "start"}}at the start{{else if eq .Trigger "reload"}}after a reload{{else}}on request{{end}}){{if .Replica}} by the replica {{.Replica}}{{end}}.</p>
 <table><tr><th></th><th>Check</th><th>Result</th></tr>
 {{range .Results}}<tr><td><span class="status {{.Status}}">{{.Status}}</span></td><td>{{.Check}}</td><td>{{.Summary}}{{range .Details}}<div class="muted">{{.}}</div>{{end}}</td></tr>
 {{end}}</table>{{end}}

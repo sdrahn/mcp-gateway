@@ -14,7 +14,9 @@
 //	                            "servers_error" when servers.d could not be reloaded,
 //	                            "config_error" when gateway.yaml could not be,
 //	                            "restart_needed": keys of gateway.yaml changed since the start,
-//	                            "config_reloads": how often gateway.yaml was reloaded since
+//	                            "config_reloads": how often gateway.yaml was reloaded since,
+//	                            "replica" and "replicas": with several replicas, the one that
+//	                            answers and the live ones
 //	GET    /v1/approvals
 //	GET    /v1/approvals/{id}
 //	POST   /v1/approvals/{id}   {"decision": "approve"|"deny", "scope": "session", "via": "cli"}
@@ -126,8 +128,10 @@ type Doctor interface {
 type DoctorReport struct {
 	// Checked is when the checks ran; Trigger what ran them: "start",
 	// "reload" or "request".
-	Checked time.Time       `json:"checked"`
-	Trigger string          `json:"trigger"`
+	Checked time.Time `json:"checked"`
+	Trigger string    `json:"trigger"`
+	// Replica names the replica of several that ran the checks.
+	Replica string          `json:"replica,omitempty"`
 	Results []doctor.Result `json:"results"`
 }
 
@@ -176,6 +180,9 @@ type Server struct {
 	// Doctor serves /v1/doctor; optional (a host's doctor is the
 	// command, mcp-gateway-admin doctor).
 	Doctor Doctor
+	// Replicas, with several replicas, returns this one's name and the
+	// live ones' (GET /v1/status); optional.
+	Replicas func() (string, []string)
 	// Metrics serves GET /v1/metrics; optional.
 	Metrics *metrics.Registry
 	// SignIns serves /v1/sign-ins; optional.
@@ -295,6 +302,9 @@ func (s *Server) Handler() http.Handler {
 		if s.ConfigReloads != nil {
 			st.ConfigReloads = s.ConfigReloads()
 		}
+		if s.Replicas != nil {
+			st.Replica, st.Replicas = s.Replicas()
+		}
 		writeJSON(w, http.StatusOK, st)
 	}))
 	mux.HandleFunc("GET /v1/approvals", s.with(func(w http.ResponseWriter, r *http.Request, a broker.Approver) {
@@ -379,6 +389,10 @@ type statusResponse struct {
 	// ConfigReloads counts the reloads of gateway.yaml since the start,
 	// failed ones too; a command that changed it waits for it to grow.
 	ConfigReloads int `json:"config_reloads"`
+	// Replica names the replica of several that answers; Replicas are
+	// the live ones, it among them, sorted.
+	Replica  string   `json:"replica,omitempty"`
+	Replicas []string `json:"replicas,omitempty"`
 }
 
 // policyResponse is the body of GET /v1/policy.

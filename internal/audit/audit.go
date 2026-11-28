@@ -72,6 +72,10 @@ type Options struct {
 	// Kernel, if set, receives security-relevant events: denials,
 	// approval decisions, grant revocations, policy changes.
 	Kernel KernelSender
+	// Replica, if set, names the replica of several that writes the
+	// records (field replica), so that the records of several replicas
+	// tell where each call ran (docs/architecture.md, section 5.12.5).
+	Replica string
 }
 
 // Logger writes audit records as JSON lines to w (journald picks them up
@@ -90,7 +94,11 @@ func New(w io.Writer, opts ...Options) *Logger {
 	if len(opts) > 0 {
 		o = opts[0]
 	}
-	return &Logger{l: slog.New(slog.NewJSONHandler(w, nil)).With("audit", true), opts: o}
+	l := slog.New(slog.NewJSONHandler(w, nil)).With("audit", true)
+	if o.Replica != "" {
+		l = l.With("replica", o.Replica)
+	}
+	return &Logger{l: l, opts: o}
 }
 
 // Log writes r; denials also go to the kernel audit subsystem.
