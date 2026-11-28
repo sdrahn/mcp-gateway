@@ -241,6 +241,10 @@ jobs:
         run: |
           { cat packaging/suse/mcp-gateway-rpmlintrc; echo 'addFilter("no-changelogname-tag")'; } >/tmp/rpmlintrc
           rpmlint -r /tmp/rpmlintrc ~/rpmbuild/RPMS/*/*.rpm
+      - name: Files in two packages
+        # OBS's post-build check 50-check-packaged-twice, which rpmbuild
+        # does not run: a file in two packages needs a Conflicts between them.
+        run: tools/check-packaged-twice ~/rpmbuild/RPMS/*/*.rpm
       - name: Install and smoke-test
         run: |
           # opa is a runtime dependency only; not needed for this test.
