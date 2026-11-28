@@ -50,3 +50,51 @@ func TestGuard(t *testing.T) {
 		t.Errorf("blocked hints: %v, %v", hs, err)
 	}
 }
+
+// recorder is a PDP that keeps what it was asked.
+type recorder struct {
+	in Input
+	rs []Resource
+}
+
+func (r *recorder) Decide(_ context.Context, in Input) (Decision, error) {
+	r.in = in
+	return Decision{Effect: Allow}, nil
+}
+
+func (r *recorder) Visible(_ context.Context, _ principal.Principal, rs []Resource) ([]Resource, error) {
+	r.rs = rs
+	return rs, nil
+}
+
+// The Guard names a discovered server's Service in every resource it
+// passes on, and leaves the caller's resources as they were.
+func TestGuardDiscovered(t *testing.T) {
+	ctx := context.Background()
+	rec := &recorder{}
+	found := &Discovered{Namespace: "team-a", Service: "tickets"}
+	g := Guard{PDP: rec, Blocked: func() string { return "" }, Discovered: func(server string) *Discovered {
+		if server == "team-a-tickets" {
+			return found
+		}
+		return nil
+	}}
+	Evaluate(ctx, g, Input{Action: "tools.call", Resource: Resource{Server: "team-a-tickets", Kind: "tool", Name: "open"}})
+	if rec.in.Resource.Discovered != found {
+		t.Errorf("decide: %+v", rec.in.Resource)
+	}
+	Evaluate(ctx, g, Input{Action: "tools.call", Resource: Resource{Server: "git", Kind: "tool", Name: "log"}})
+	if rec.in.Resource.Discovered != nil {
+		t.Errorf("a server file's: %+v", rec.in.Resource)
+	}
+	rs := []Resource{{Server: "git", Kind: "tool", Name: "log"}, {Server: "team-a-tickets", Kind: "tool", Name: "open"}}
+	if _, err := g.Visible(ctx, principal.Principal{}, rs); err != nil {
+		t.Fatal(err)
+	}
+	if rec.rs[0].Discovered != nil || rec.rs[1].Discovered != found {
+		t.Errorf("visible: %+v", rec.rs)
+	}
+	if rs[1].Discovered != nil {
+		t.Error("the caller's resources changed")
+	}
+}

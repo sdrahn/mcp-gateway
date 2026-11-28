@@ -339,6 +339,7 @@ rbac:
 | 401 for an agent | the token's audience (`mcp-gateway` for ServiceAccounts, `http.audience` for the identity provider's) and issuer; the doctor's identity provider checks |
 | A tool the agent does not see, or a call denied | the role data's binding of the principal (`k8s:system:serviceaccount:<namespace>:<name>`); the audit record names the decision and its reason |
 | A server's calls fail | the doctor's check of the server: its Service's name and port, the servers' NetworkPolicy (it must admit the gateway's pods) |
+| A labelled Service gives no server | `kubectl -n mcp-gateway logs deploy/mcp-gateway -c gateway \| grep server_discovery`: the namespace not in `server_discovery.namespaces` or without its Role, the Service's ports, type or name, or a server file of the same name in force; a discovered server reachable by no one is the role data's doing (`discovered: true`, chapter 6) |
 | A stdio server's instance does not start | `kubectl -n mcp-instances get pods`, `describe pod`: an image that does not pull, the namespace's Pod Security; the definition's limits |
 | A change does not take | the console's Gateway page or the doctor's configuration check: the gateway refused it and says why; keys that need a restart roll with `helm upgrade` |
 | Approvals do not reach anyone | `approvals.page.client_id`, the redirect URI at the identity provider, and the approver rules (`remote-group:`, `remote-user:`); the doctor's approval page check |
@@ -541,6 +542,114 @@ a private CA signed names that CA with `ca_file`. Let only the gateway's
 pods reach the servers (a NetworkPolicy on the servers' namespace that
 admits `app.kubernetes.io/name: mcp-gateway`), so that policy cannot be
 bypassed.
+
+## Servers discovered in the cluster
+
+A server in the cluster is otherwise a file in the `mcp-gateway-servers`
+ConfigMap, which whoever owns the gateway changes. Where teams run their
+own MCP servers, the gateway can instead discover them: a team labels
+its server's Service, and the gateway serves it without a change to its
+own configuration. Discovery grants no access, though: who may call a
+discovered server is still decided by the role data, which the gateway's
+owner keeps.
+
+**1. Name the namespaces.** The gateway discovers Services only in the
+namespaces its configuration names, each with a prefix for its servers'
+names (`<namespace>-` unless set), and only with a Role in each that
+lets it read Services there and nothing else. With the chart, both come
+from the values:
+
+```yaml
+# my-values.yaml (Helm)
+serverDiscovery:
+  namespaces:
+    - namespace: team-a          # servers named team-a-<name>
+    - namespace: mcp-servers
+      prefix: tools-             # servers named tools-<name>
+  # selector: mcp-gateway.io/server=true   # the default
+```
+
+With the manifests, add the `deploy/kubernetes/discovery` component to
+your overlay, one copy of its `role.yaml` (a Role and a RoleBinding) for
+each namespace, and set `server_discovery` in `gateway.yaml` (chapter 3,
+"Servers discovered in the cluster"):
+
+```yaml
+server_discovery:
+  namespaces:
+    - namespace: team-a
+    - namespace: mcp-servers
+      prefix: tools-
+```
+
+The keys take effect at the gateway's next start.
+
+**2. Label the Service.** In a named namespace, a Service of type
+`ClusterIP` with the label `mcp-gateway.io/server: "true"` becomes a
+server that speaks HTTP, `http://<service>.<namespace>.svc:<port><path>`:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: tickets
+  namespace: team-a
+  labels: {mcp-gateway.io/server: "true"}
+  annotations:
+    mcp-gateway.io/name: tickets   # the server's name after the prefix; default: the Service's name
+    mcp-gateway.io/port: http      # a port's name or number; default: the port named mcp, else the only one
+    mcp-gateway.io/path: /mcp      # the default
+spec:
+  selector: {app: tickets}
+  ports: [{name: http, port: 8080, targetPort: http}]
+```
+
+This Service gives the server `team-a-tickets`, at
+`http://tickets.team-a.svc:8080/mcp`, within a few seconds of being
+created; changed, it changes the server, and deleted, it removes it,
+as a changed server file does (its instances and sessions included).
+The annotations set the name, the port and the path, and no other key:
+everything else has its default. What carries credentials or changes
+how the gateway trusts a server (`credentials`, `headers`, `sign_in`,
+`proxy`, `ca_file`, `isolation`, a URL elsewhere) comes from a server
+file only, which the gateway's owner writes.
+
+**3. Grant it.** A discovered server is reachable by no one until the
+role data says so (chapter 6). A permission that names it grants it, as
+for any server; a permission whose `server` is a glob reaches it only
+with `discovered: true`:
+
+```yaml
+roles:
+  tickets-user:
+    permissions:
+      - {server: team-a-tickets, tool: '*'}
+  team-a:
+    permissions:
+      - {server: 'team-a-*', discovered: true, tool: '*'}
+```
+
+The default role data's `viewer`, which may list, read and get on
+`'*'`, does not reach a discovered server by that, and neither does a
+role written before discovery existed. The prefix keeps a team's
+Service from taking the name of a server the role data already grants:
+in `team-a` it cannot become `git`.
+
+**A server file wins.** A file in the `mcp-gateway-servers` ConfigMap
+that defines a server of the same name (`team-a-tickets`) replaces the
+discovered one, for a server that needs keys the annotations cannot set;
+an empty file of that name (`team-a-tickets.yaml`) masks it. Two
+Services that would give one name give no server, and neither does a
+Service the gateway cannot make a definition of: several ports and none
+named `mcp` (name it with `mcp-gateway.io/port`), no TCP port, a type
+other than `ClusterIP`, or a name longer than 32 characters with its
+prefix. The gateway logs each (`kubectl -n mcp-gateway logs
+deploy/mcp-gateway -c gateway | grep server_discovery`), and says
+which namespace it cannot list (a missing Role).
+
+Let only the gateway's pods reach the discovered servers, as for any
+server in the cluster (above): a NetworkPolicy in each namespace that
+admits `app.kubernetes.io/name: mcp-gateway`.
 
 ## Stdio servers in pods of their own
 

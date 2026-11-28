@@ -72,6 +72,7 @@
       "properties": {
         "description": { "type": "string" },
         "server": { "description": "Server name glob.", "type": "string" },
+        "discovered": { "description": "With a server glob: it also matches servers discovered from the cluster's Services (server_discovery); without, a glob matches only servers of the server files.", "type": "boolean" },
         "tool": { "description": "Tool name glob.", "type": "string" },
         "prompt": { "description": "Prompt name glob.", "type": "string" },
         "resource": { "description": "Resource URI glob; ${home} is the principal's home directory.", "type": "string" },
@@ -188,6 +189,7 @@
       "properties": {
         "description": { "type": "string" },
         "server": { "description": "Server name glob.", "type": "string" },
+        "discovered": { "description": "With a server glob: it also matches servers discovered from the cluster's Services (server_discovery); without, a glob matches only servers of the server files.", "type": "boolean" },
         "tool": { "description": "Tool name glob.", "type": "string" },
         "prompt": { "description": "Prompt name glob.", "type": "string" },
         "resource": { "description": "Resource URI glob.", "type": "string" },

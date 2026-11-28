@@ -267,6 +267,20 @@ func (r *Router) WatchPolicy(ctx context.Context, interval func() time.Duration,
 // privileged reports whether server is a privileged backend or one with
 // capabilities (config.Backend.Elevated): the policy input's
 // resource.privileged.
+// Discovered is the policy's name for the Service b was discovered from
+// (pep.Resource.Discovered), nil for a server file's or no server.
+func Discovered(b *config.Backend) *pep.Discovered {
+	if b == nil || b.Discovered == nil {
+		return nil
+	}
+	return &pep.Discovered{Namespace: b.Discovered.Namespace, Service: b.Discovered.Service}
+}
+
+// DiscoveredServer is Discovered for the server in force of that name.
+func (r *Router) DiscoveredServer(server string) *pep.Discovered {
+	return Discovered(r.backends()[server])
+}
+
 func (r *Router) privileged(server string) bool {
 	b := r.backends()[server]
 	return b != nil && b.Elevated()

@@ -521,3 +521,46 @@ func TestReloadDropIns(t *testing.T) {
 	}
 	waitFor("removing the broken drop-in did not recover", func() bool { return l.configErr == "" })
 }
+
+// A change elsewhere than the files (the cluster's Services) reloads the
+// definitions although no file changed.
+func TestReloadWatchChanges(t *testing.T) {
+	l, r, a, _, _ := testReloader(t)
+	var mu sync.Mutex
+	extra := map[string]*config.Backend{}
+	l.load = func(dirs ...string) (map[string]*config.Backend, error) {
+		next, err := config.LoadBackends(dirs...)
+		if err != nil {
+			return nil, err
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		for k, v := range extra {
+			next[k] = v
+		}
+		return next, nil
+	}
+	changes := make(chan struct{}, 1)
+	l.changes = changes
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go l.watch(ctx, func() time.Duration { return time.Hour }, l.fingerprint(), make(chan os.Signal), nil)
+	b := &config.Backend{Version: 1, Name: "team-a-tickets", URL: "http://tickets.team-a.svc:80/mcp"}
+	b.ApplyDefaults()
+	mu.Lock()
+	extra[b.Name] = b
+	mu.Unlock()
+	changes <- struct{}{}
+	for range 500 {
+		if serverNames(r) == "fs,git,team-a-tickets" {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := serverNames(r); got != "fs,git,team-a-tickets" {
+		t.Fatalf("servers %s", got)
+	}
+	if last := a.last(); last.fields["trigger"] != "Service change" || last.fields["added"] != "team-a-tickets" {
+		t.Errorf("audit %+v", last)
+	}
+}

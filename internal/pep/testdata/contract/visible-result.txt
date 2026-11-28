@@ -3,6 +3,9 @@
 [].annotations
 [].builtin
 [].context
+[].discovered
+[].discovered.namespace
+[].discovered.service
 [].kind
 [].name
 [].privileged

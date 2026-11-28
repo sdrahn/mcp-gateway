@@ -169,6 +169,7 @@ Further fields:
 | `obligations` | conditions on an allowed call, see [Obligations](#obligations) |
 | `require_client_cert: true` | applies only to remote clients that presented a verified client certificate (mTLS) |
 | `allow_sensitive: true` | for `client` permissions: also covers elicitation requests that appear to ask the user for secrets (passwords, tokens), which are otherwise refused |
+| `discovered: true` | with a `server` glob: it also matches servers discovered from a cluster's Services (`server_discovery`, chapter 16). Without it a glob such as `'*'` or `'team-a-*'` matches only the servers of the server files, so a Service a team labels gives no one access by itself; a permission that names a discovered server (`server: team-a-tickets`) matches it without `discovered` |
 
 ### Patterns
 

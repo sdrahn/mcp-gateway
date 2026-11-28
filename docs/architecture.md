@@ -1501,7 +1501,7 @@ first call's decision id, `answered`, `waiting` or `refused`).
 (step 46), the Kubernetes launcher (step 47) and the console (step 48).
 Several replicas (§5.12.5) are step 49, after 2.0 (D24, accepted);
 servers discovered from labelled Services (§5.12.8) step 50 (D25,
-proposed).*
+accepted; in progress, #465).*
 
 The gateway is built for a host: it starts instances as systemd units,
 confines them with SELinux domains and MCS pairs, knows local clients by
@@ -1957,7 +1957,7 @@ serves it too, next to Cockpit.
   gateway's account: for an operator with exec rights on the
   namespace, an emergency path, not the daily one.
 
-#### 5.12.8 Servers discovered in the cluster (step 50, D25, proposed)
+#### 5.12.8 Servers discovered in the cluster (step 50, D25, accepted)
 
 A cluster gateway serves the servers of its `mcp-gateway-servers`
 ConfigMap (§5.12.7). In a cluster where teams run their own MCP servers,
@@ -3386,7 +3386,7 @@ replica, so that starting an instance needs no store round trip (the
 chart's replicas times the limit bounds the gateway).
 
 **D25 — Servers discovered from labelled Services, granted by name.**
-*Decision (proposed 2026-11-28, roadmap step 50):* a cluster gateway may
+*Decision (accepted 2026-11-28, roadmap step 50, #465):* a cluster gateway may
 discover MCP servers from Services that carry a label
 (`mcp-gateway.io/server=true` by default) in namespaces its
 configuration names (`server_discovery.namespaces`), each with a prefix
@@ -5517,8 +5517,8 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       request (421): a taker that still remembered the draining replica
       as the owner refused what that replica sent it, four times;
 
-50. **Servers discovered in the cluster** (after 2.0; D25, proposed;
-    open; §5.12.8): `server_discovery` with its namespaces, prefixes and
+50. **Servers discovered in the cluster** (after 2.0; D25, accepted;
+    in progress, #465; §5.12.8): `server_discovery` with its namespaces, prefixes and
     selector (container mode); the Services of those namespaces watched
     and turned into definitions of servers that speak HTTP (name, port
     and path from annotations), joined to the reload of definitions, a
@@ -5532,7 +5532,31 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
     without `discovered: true` does not match, the default viewer
     reaches nothing discovered); the kind job (a labelled Service
     served, then denied until role data names it, then gone with its
-    Service).
+    Service);
+    as built (parts a and b, one PR so that no release discovers
+    servers the old globs reach): `internal/discovery` lists the
+    Services of each namespace with the selector and watches them from
+    that list (listed again when the watch breaks or its version is too
+    old), and turns each into a definition (`Definition`: the name with
+    its prefix, the port by annotation, else the one named `mcp`, else
+    the only TCP one, the path; `ClusterIP` only; checked as a server
+    file is, and with container mode's rules) carrying `Discovered`
+    (namespace and Service); `Merge` puts them after the server files,
+    a file of the same name winning and an empty file masking the name;
+    two Services of one name give neither; a change to what a Service
+    gives (not to its other labels) reloads the definitions ("Service
+    change" in the audit of the reload), as a changed file does; the
+    first list at the start waits 10 s at most, a namespace not listed
+    by then (a missing Role) following in the background; `pep.Guard`
+    names a discovered server's Service in every resource of the
+    policy's input (`input.resource.discovered`), and so does the
+    catalog of the what-if; `server_ok` matches a discovered server
+    with a glob only with `discovered: true` (in the role data's
+    schema); the chart's `serverDiscovery` values and a Role per
+    namespace, the manifests' `deploy/kubernetes/discovery` component;
+    the user guide (chapters 3, 6, 12 and 16); left for part c: the
+    console, the CLI, the doctor and the audit of discovered servers,
+    and the kind job;
 
 ## 12. Open items
 

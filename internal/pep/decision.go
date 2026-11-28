@@ -58,6 +58,18 @@ type Resource struct {
 	// the gateway offers modern agents for a server with contexts
 	// (docs/architecture.md, decision D22).
 	Context bool `json:"context,omitempty"`
+	// Discovered names the Service a server discovered in the cluster
+	// comes from (server_discovery; docs/architecture.md, section
+	// 5.12.8): in the shipped policy a permission whose server is a glob
+	// matches it only with "discovered": true. Nil for a server file's.
+	Discovered *Discovered `json:"discovered,omitempty"`
+}
+
+// Discovered is the namespace and the name of a discovered server's
+// Service.
+type Discovered struct {
+	Namespace string `json:"namespace"`
+	Service   string `json:"service"`
 }
 
 // Grant is a recorded human approval, as passed to policy.
