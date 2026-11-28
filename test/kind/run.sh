@@ -325,6 +325,23 @@ grep '"audit":true' <<<"$owner_log" | grep 'agents:custos"' | grep "\"replica\":
 	fail "no audit record of custos names $owner"
 pass "the audit records of custos's calls name $owner"
 
+# Another replica lists custos's instance, as $owner's, and stops it there
+# (mcp-gateway-admin instances, as the gateway's account: an approver in
+# the role data).
+admin() { k -n "$NS" exec "$1" -c gateway -- mcp-gateway-admin "${@:2}" --socket /run/mcp-gateway/control.sock; }
+other_pod=$(for r in $gws; do [ "$r" != "$owner" ] && echo "$r"; done | head -n1)
+listed=$(admin "$other_pod" instances --json) || fail "instances at $other_pod: $listed"
+id=$(jq -r --arg o "$owner" '[.[].instances[] | select(.replica == $o and (.sub | endswith("agents:custos")))][0].id // ""' <<<"$listed")
+[[ "$id" == "$owner~"* ]] || fail "custos's instance not listed at $other_pod as $owner's: $listed"
+pass "$other_pod lists custos's instance on $owner: $id"
+out=$(admin "$other_pod" instances stop "$id" --yes) || fail "stopping $id through $other_pod: $out"
+no_custos_pod() { [ -z "$(custos_pod)" ]; }
+until_ok 60 no_custos_pod || fail "custos's instance pod still there after the stop: $(custos_pod)"
+got=$(PORT=${ports[0]} call_as "$token" stdio echo '{"text":"after the stop"}')
+[[ "$got" == "echo: after the stop (call 1)" ]] || fail "custos's call after the stop: $got"
+[ "$(replica_of "$(custos_pod)")" = "$owner" ] || fail "custos's new instance is not $owner's"
+pass "stopped through $other_pod at $owner: custos's next call has a new instance there"
+
 # The replica that serves custos goes: its instance pod is reaped, and
 # the next call, through another replica, is served by the one that
 # takes custos over, with a new instance.

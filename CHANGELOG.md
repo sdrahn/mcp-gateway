@@ -68,6 +68,13 @@ minor release (with a warning) and removed in the next.
   principals (its Lease is marked draining, and the others take them),
   gives up those with nothing running at once, and serves the busy ones
   until they are done; `/readyz` fails meanwhile (#452).
+- `mcp-gateway-admin instances` lists the instances of the servers you
+  may manage, with the replica that runs each when there are several,
+  and `instances stop ID` stops one, as Cockpit's Servers tab and the
+  console's Servers page do. `clients`, `tasks` and `instances` take
+  `--gateway URL`, a gateway's console API (signed in with `approvals
+  login`), for a gateway in a cluster. The kind job lists and stops an
+  instance of one replica through another (#452).
 
 ### Fixed
 

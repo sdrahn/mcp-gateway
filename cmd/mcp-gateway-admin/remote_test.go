@@ -111,6 +111,9 @@ func newRemoteFake(t *testing.T) *remoteFake {
 			`{"check":"server tickets","id":"server","subject":"tickets","status":"warn","summary":"slow"}],`+
 			`"replicas":[{"replica":"gw-c","results":[{"check":"policy","id":"policy","status":"ok","summary":"gw-c's OPA decides"}]}]}`)
 	}))
+	mux.HandleFunc("GET /console/api/v1/servers", authed(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, `[{"name":"fs","instances":[{"id":"gw-c~fs-ivy-1","server":"fs","sub":"ivy","replica":"gw-c","sessions":1}]}]`)
+	}))
 	mux.HandleFunc("GET /approvals/api/v1/grants", authed(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprint(w, `[]`)
 	}))
@@ -174,6 +177,10 @@ func TestRemoteLogin(t *testing.T) {
 		!strings.Contains(stdout, "checked by the replica gw-b") || !strings.Contains(stdout, "checked by the replica gw-c") ||
 		!strings.Contains(stdout, "gw-c's OPA decides") {
 		t.Errorf("doctor: %d %s %s", rc, stdout, stderr)
+	}
+	// The instances through the console API.
+	if rc, stdout, stderr = runCmd("instances", "--gateway", gw); rc != 0 || !strings.Contains(stdout, "gw-c~fs-ivy-1") || !strings.Contains(stdout, "REPLICA") {
+		t.Errorf("instances: %d %s %s", rc, stdout, stderr)
 	}
 	if rc, stdout, _ = runCmd("doctor", "--gateway", gw, "--json", "--strict"); rc != 3 || !strings.Contains(stdout, `"subject": "tickets"`) {
 		t.Errorf("doctor --json --strict: %d %s", rc, stdout)

@@ -5471,6 +5471,12 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       principals with nothing running at once and the others as they
       end, for `replication.drain_timeout` (30 s) at most, while
       `/readyz` fails; then it stops as before;
+      as built (part 6a): `mcp-gateway-admin instances` lists and stops
+      the servers' instances over the control socket or, with
+      `--gateway`, the console API (and so do `clients` and `tasks`);
+      the kind job lists custos's instance on one replica through
+      another, as the gateway's own account made an approver in its role
+      data (`user:10001`), and stops it there;
 
 50. **Servers discovered in the cluster** (after 2.0; D25, proposed;
     open; §5.12.8): `server_discovery` with its namespaces, prefixes and

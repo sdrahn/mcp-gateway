@@ -81,11 +81,30 @@ the gateway does not answer.
 Options:
 `
 
-// adminFlags are the options clients and tasks share.
+// adminFlags are the options clients, tasks and instances share.
 type adminFlags struct {
-	fs     *flag.FlagSet
-	json   *bool
-	socket *string
+	fs      *flag.FlagSet
+	json    *bool
+	socket  *string
+	gateway *string
+}
+
+// withGateway adds --gateway, a gateway's console API: for clients,
+// tasks and instances (approvals, grants and reviews have their own, the
+// approval page's API).
+func (f adminFlags) withGateway() adminFlags {
+	f.gateway = f.fs.String("gateway", "", "a gateway's URL (https://gw.example.com): its console API, "+
+		"signed in with mcp-gateway-admin approvals login, instead of the control socket")
+	return f
+}
+
+// client reaches the gateway: at --gateway over its console API (signed
+// in with approvals login), else over the control socket.
+func (f adminFlags) client() (*controlClient, error) {
+	if f.gateway != nil && *f.gateway != "" {
+		return newConsoleClient(*f.gateway)
+	}
+	return newControlClient(*f.socket)
 }
 
 func newAdminFlags(name, usageText string, stderr io.Writer) adminFlags {
@@ -124,7 +143,7 @@ func (f adminFlags) parse(args []string) ([]string, int) {
 }
 
 func runClients(args []string, stdout, stderr io.Writer) int {
-	f := newAdminFlags("clients", clientsUsage, stderr)
+	f := newAdminFlags("clients", clientsUsage, stderr).withGateway()
 	yes := f.fs.Bool("yes", false, "end without asking")
 	words, rc := f.parse(args)
 	if rc >= 0 {
@@ -137,7 +156,7 @@ func runClients(args []string, stdout, stderr io.Writer) int {
 		f.fs.Usage()
 		return exitUsage
 	}
-	cc, err := newControlClient(*f.socket)
+	cc, err := f.client()
 	if err != nil {
 		say(stderr, "mcp-gateway-admin:", err)
 		return exitUnreachable
@@ -186,7 +205,7 @@ func runClients(args []string, stdout, stderr io.Writer) int {
 }
 
 func runTasks(args []string, stdout, stderr io.Writer) int {
-	f := newAdminFlags("tasks", tasksUsage, stderr)
+	f := newAdminFlags("tasks", tasksUsage, stderr).withGateway()
 	words, rc := f.parse(args)
 	if rc >= 0 {
 		return rc
@@ -198,7 +217,7 @@ func runTasks(args []string, stdout, stderr io.Writer) int {
 		f.fs.Usage()
 		return exitUsage
 	}
-	cc, err := newControlClient(*f.socket)
+	cc, err := f.client()
 	if err != nil {
 		say(stderr, "mcp-gateway-admin:", err)
 		return exitUnreachable

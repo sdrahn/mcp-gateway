@@ -82,3 +82,7 @@ data:
         "k8s:system:serviceaccount:agents:custos": [echoer]
         "k8s:system:serviceaccount:agents:other": [echoer]
       groups: {}
+    # The gateway's own account (uid 10001, no name in its image), as
+    # kubectl exec reaches the control socket: it manages the instances.
+    approvers:
+      default: ["user:10001"]
