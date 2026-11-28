@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
+	"strings"
 	"sync"
 	"time"
 )
@@ -21,6 +22,11 @@ import (
 type Table struct {
 	C   Collection
 	Log *slog.Logger
+	// Prefix, if set, is this writer's part of a collection shared by
+	// several (Shared): its records are named Prefix+id, and the table
+	// writes, deletes and loads those only. Names passed in and returned
+	// are the ids.
+	Prefix string
 	// MinBackoff and MaxBackoff bound the wait before retrying (default
 	// 1s and 30s).
 	MinBackoff, MaxBackoff time.Duration
@@ -41,11 +47,10 @@ func (t *Table) Load(ctx context.Context) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	saved := map[string]Record{}
+	saved := t.own(recs)
 	out := map[string][]byte{}
-	for _, r := range recs {
-		saved[r.Name] = r
-		out[r.Name] = r.Data
+	for name, r := range saved {
+		out[strings.TrimPrefix(name, t.Prefix)] = r.Data
 	}
 	t.init()
 	t.mu.Lock()
@@ -63,14 +68,27 @@ func (t *Table) init() {
 	}
 }
 
-// Save asks for the collection to be items, by name.
+// own returns the records of recs that are this table's, by name.
+func (t *Table) own(recs []Record) map[string]Record {
+	out := map[string]Record{}
+	for _, r := range recs {
+		if strings.HasPrefix(r.Name, t.Prefix) {
+			out[r.Name] = r
+		}
+	}
+	return out
+}
+
+// Save asks for the collection (this table's part of it) to be items, by
+// id.
 func (t *Table) Save(items map[string][]byte) {
 	t.init()
-	t.mu.Lock()
-	t.want = maps.Clone(items)
-	if t.want == nil {
-		t.want = map[string][]byte{}
+	want := make(map[string][]byte, len(items))
+	for id, data := range items {
+		want[t.Prefix+id] = data
 	}
+	t.mu.Lock()
+	t.want = want
 	t.saves++
 	t.mu.Unlock()
 	select {
@@ -194,10 +212,7 @@ func (t *Table) write(ctx context.Context, want map[string][]byte) error {
 	}
 	if stale {
 		if recs, _, err := t.C.List(ctx); err == nil {
-			saved = map[string]Record{}
-			for _, r := range recs {
-				saved[r.Name] = r
-			}
+			saved = t.own(recs)
 		}
 	}
 	t.mu.Lock()
@@ -211,4 +226,15 @@ func (t *Table) log() *slog.Logger {
 		return t.Log
 	}
 	return slog.Default()
+}
+
+// remember records r as written by this table (adopted from another
+// writer: Shared.Adopt).
+func (t *Table) remember(r Record) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.saved == nil {
+		t.saved = map[string]Record{}
+	}
+	t.saved[r.Name] = r
 }

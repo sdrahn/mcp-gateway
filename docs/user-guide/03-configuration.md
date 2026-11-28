@@ -256,7 +256,10 @@ forwards it there as it came, the client's certificate and address in
 headers the peer listener alone trusts; the owner validates the token
 itself. A request forwarded to a replica that no longer owns the
 principal is refused (421), and the client sends it again. A sign-in's
-callback goes to the replica that started it. Chapter 16, "The state in the Kubernetes API",
+callback goes to the replica that started it. Every replica lists the
+pending approvals, notices, review items and clients seen of all;
+those of a replica that is gone are taken over by another within half
+a minute. Chapter 16, "The state in the Kubernetes API",
 sets it up with the chart or the manifests.
 
 | Key | Default | Meaning |

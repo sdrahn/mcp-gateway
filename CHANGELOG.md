@@ -30,7 +30,9 @@ minor release (with a warning) and removed in the next.
   replicas' certificate (`replication.peer_*`), each principal is
   served by one replica, which holds its Lease, and the others forward
   its requests there over mTLS; sign-in callbacks go to the replica that
-  started the sign-in (#441).
+  started the sign-in. The replicas keep their pending approvals,
+  notices, reviews and clients seen side by side in the store, each list
+  showing all, and take over those of a replica that is gone (#441).
 
 ## v2.0.0 — 2026-11-27
 

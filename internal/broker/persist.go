@@ -19,15 +19,15 @@ import (
 // nowhere.
 type stateKept struct {
 	file  string
-	table *store.Table
+	table *store.Shared
 	// what names the state in messages ("pending approvals").
 	what string
 }
 
-// openTable loads c into a table written by its own goroutine until
-// ctx ends.
-func openTable(ctx context.Context, c store.Collection, log *slog.Logger, what string) (stateKept, map[string][]byte, error) {
-	t := &store.Table{C: c, Log: log, MinBackoff: sharedBackoff, MaxBackoff: 30 * sharedBackoff}
+// openTable loads this replica's records of c into a table written by
+// its own goroutine until ctx ends; the other replicas' are followed.
+func openTable(ctx context.Context, c store.Collection, replica string, log *slog.Logger, what string) (stateKept, map[string][]byte, error) {
+	t := &store.Shared{C: c, Replica: replica, Log: log, MinBackoff: sharedBackoff, MaxBackoff: 30 * sharedBackoff}
 	items, err := t.Load(ctx)
 	if err != nil {
 		return stateKept{}, nil, fmt.Errorf("broker: %s: %w", what, err)
@@ -66,6 +66,46 @@ func loadList[T any](p stateKept, items map[string][]byte, log *slog.Logger) ([]
 		return nil, fmt.Errorf("broker: reading %s: %w", p.file, err)
 	}
 	return out, nil
+}
+
+// others returns the other replicas' items of the state, decoded, by
+// id, with the replica that holds each (none without a shared store).
+func others[T any](p stateKept, log *slog.Logger) map[string]*T {
+	if p.table == nil {
+		return nil
+	}
+	recs, _ := p.table.Others()
+	out := make(map[string]*T, len(recs))
+	for id, o := range recs {
+		v := new(T)
+		if err := json.Unmarshal(o.Data, v); err != nil {
+			log.Debug("broker: another replica's record not read", "what", p.what, "id", id, "err", err)
+			continue
+		}
+		out[id] = v
+	}
+	return out
+}
+
+// adopt takes over the records of replicas that are gone, decoded.
+func adopt[T any](ctx context.Context, p stateKept, live func(string) bool, log *slog.Logger) []*T {
+	if p.table == nil {
+		return nil
+	}
+	recs, err := p.table.Adopt(ctx, live)
+	if err != nil {
+		log.Warn("broker: adopting the records of replicas that are gone failed", "what", p.what, "err", err)
+	}
+	var out []*T
+	for id, data := range recs {
+		v := new(T)
+		if err := json.Unmarshal(data, v); err != nil {
+			log.Warn("broker: adopted record not read", "what", p.what, "id", id, "err", err)
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 // saveMap keeps m: the file written whole (sorted by created), or the

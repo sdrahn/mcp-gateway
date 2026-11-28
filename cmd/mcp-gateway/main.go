@@ -511,6 +511,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		// The callback may reach any replica: its state names this one.
 		signIns.StatePrefix = fwd.members.Name + replicas.StateSeparator
 	}
+	if shared != nil && shared.members != nil {
+		go adoptRecords(shared.ctx, b, r, shared.members)
+	}
 	var self *selfCheck
 	if gw.Container() {
 		self = &selfCheck{log: log, gw: gw, backends: r.CurrentBackends, reloader: reloader, opa: opa, tokens: tokens, ready: opa.Health}
@@ -708,6 +711,25 @@ func reapPods(ctx context.Context, log *slog.Logger, k *supervisor.Kubernetes, m
 			return
 		case <-tick.C:
 		case <-changed:
+		}
+	}
+}
+
+// adoptRecords takes over the pending approvals, notices, reviews and
+// clients seen of replicas that are gone, and of one replica before there
+// were several: at the start and every 30 s, until ctx ends.
+func adoptRecords(ctx context.Context, b *broker.Broker, r *router.Router, members *replicas.Members) {
+	tick := time.NewTicker(30 * time.Second)
+	defer tick.Stop()
+	for {
+		actx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		b.Adopt(actx, members.IsLive)
+		r.AdoptHistory(actx, members.IsLive)
+		cancel()
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
 		}
 	}
 }
@@ -1021,8 +1043,10 @@ type sharedStore struct {
 	cancel    context.CancelFunc
 	client    *kube.Client
 	namespace string
+	// replica is this replica's name (after join).
+	replica string
 	// tables are flushed at stop.
-	tables []*store.Table
+	tables []interface{ Flush(context.Context) error }
 	// members are the replicas (after join); left is closed when this
 	// replica gave its Lease up.
 	members *replicas.Members
@@ -1075,6 +1099,7 @@ func (s *sharedStore) join(ctx context.Context, log *slog.Logger, gw *config.Gat
 		close(s.left)
 	}()
 	s.members = m
+	s.replica = name
 	log.Info("replicas: joined", "replica", name, "address", m.Address, "replicas", len(m.Live()))
 	return m, changed, nil
 }
@@ -1117,7 +1142,7 @@ func (s *sharedStore) history() (*router.SharedHistory, error) {
 	if err != nil {
 		return nil, err
 	}
-	t := &store.Table{C: c}
+	t := &store.Shared{C: c, Replica: s.replica}
 	items, err := t.Load(s.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("client history: %w", err)
@@ -1132,7 +1157,7 @@ func (s *sharedStore) broker() (*broker.Shared, error) {
 	if s == nil {
 		return nil, nil
 	}
-	sh := &broker.Shared{Context: s.ctx}
+	sh := &broker.Shared{Context: s.ctx, Replica: s.replica}
 	for name, c := range map[string]*store.Collection{"grants": &sh.Grants, "pending": &sh.Pending,
 		"notices": &sh.Notices, "reviews": &sh.Reviews} {
 		k, err := s.collection(name)

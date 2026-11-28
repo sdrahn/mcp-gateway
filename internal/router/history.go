@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -33,10 +34,61 @@ const (
 )
 
 // SharedHistory is the history in a shared store: a table (a record per
-// client), and the records it held at the start.
+// client, this replica's; the others' followed), and the records it held
+// at the start.
 type SharedHistory struct {
-	Table *store.Table
+	Table *store.Shared
 	Items map[string][]byte
+}
+
+// AdoptHistory takes over the history of replicas that are gone (live
+// reports which are not): their clients ended when their replica did.
+func (r *Router) AdoptHistory(ctx context.Context, live func(replica string) bool) {
+	if r.SharedHistory == nil {
+		return
+	}
+	recs, err := r.SharedHistory.Table.Adopt(ctx, live)
+	if err != nil {
+		r.Log.Warn("client history: adopting the records of replicas that are gone failed", "err", err)
+	}
+	if len(recs) == 0 {
+		return
+	}
+	now := time.Now()
+	r.hist.mu.Lock()
+	defer r.hist.mu.Unlock()
+	r.loadHistory()
+	for id, data := range recs {
+		rec := new(ClientRecord)
+		if json.Unmarshal(data, rec) != nil || r.hist.records[id] != nil {
+			continue
+		}
+		if rec.Ended == nil {
+			t := rec.LastActive
+			if t.Before(rec.Started) {
+				t = rec.Started
+			}
+			rec.Ended, rec.End = &t, EndRestart
+		}
+		r.hist.records[id] = rec
+	}
+	r.persistHistory(now)
+}
+
+// otherHistory returns the other replicas' clients (several replicas).
+func (r *Router) otherHistory() []*ClientRecord {
+	if r.SharedHistory == nil {
+		return nil
+	}
+	recs, _ := r.SharedHistory.Table.Others()
+	out := make([]*ClientRecord, 0, len(recs))
+	for _, o := range recs {
+		rec := new(ClientRecord)
+		if json.Unmarshal(o.Data, rec) == nil {
+			out = append(out, rec)
+		}
+	}
+	return out
 }
 
 func (r *Router) maxHistory() int {
@@ -250,10 +302,20 @@ func (r *Router) markEnded(id, by string) {
 // until (zero: no bound), oldest first: those connected now too.
 func (r *Router) History(since, until time.Time) []ClientRecord {
 	r.init()
+	others := r.otherHistory()
 	r.hist.mu.Lock()
 	r.loadHistory()
 	out := []ClientRecord{}
+	all := make([]*ClientRecord, 0, len(r.hist.records)+len(others))
 	for _, rec := range r.hist.records {
+		all = append(all, rec)
+	}
+	for _, rec := range others {
+		if r.hist.records[rec.ID] == nil {
+			all = append(all, rec)
+		}
+	}
+	for _, rec := range all {
 		if !until.IsZero() && rec.Started.After(until) {
 			continue
 		}
