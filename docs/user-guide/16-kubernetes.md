@@ -662,6 +662,64 @@ Secrets at rest (an `EncryptionConfiguration`), they are encrypted in
 etcd too. The doctor checks that the gateway reaches them
 (`shared-store`). Chapter 3, "Shared store", has the settings.
 
+## Several replicas
+
+On the shared store the gateway can run as several replicas (roadmap
+step 49; the console across them, draining and a rolling update come
+with stage C). Each principal is served by one replica, which starts
+its instances and holds its sessions and tasks; a request that reaches
+another replica is forwarded there, over a listener of the replicas'
+own with a certificate they all share. Make that certificate once, from
+a CA of its own, for the name `mcp-gateway-peer`, for server and client
+use:
+
+```bash
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 365 \
+  -subj /CN=mcp-gateway-peers -keyout peer-ca.key -out peer-ca.crt
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+  -subj /CN=mcp-gateway-peer -keyout peer.key -out peer.csr
+printf 'subjectAltName=DNS:mcp-gateway-peer\nextendedKeyUsage=serverAuth,clientAuth\n' >peer.ext
+openssl x509 -req -in peer.csr -CA peer-ca.crt -CAkey peer-ca.key -CAcreateserial -days 365 \
+  -extfile peer.ext -out peer.crt
+kubectl -n mcp-gateway create secret generic mcp-gateway-peer \
+  --from-file=tls.crt=peer.crt --from-file=tls.key=peer.key --from-file=ca.crt=peer-ca.crt
+```
+
+```yaml
+# my-values.yaml (Helm)
+replication:
+  enabled: true
+  replicas: 3
+  peerSecret: mcp-gateway-peer
+persistence:
+  enabled: false      # the store keeps the state
+```
+
+With the manifests, as `test/kind` does: the replication component,
+`replicas: 3`, the state volume an `emptyDir`, the Secret mounted at
+`/etc/mcp-gateway/peer` and the port `8444` on the gateway's container
+(`test/kind/replicas.yaml`), and in `gateway.yaml`:
+
+```yaml
+replication:
+  store: kubernetes
+  namespace: mcp-gateway
+  listen: ":8444"
+  peer_cert_file: /etc/mcp-gateway/peer/tls.crt
+  peer_key_file: /etc/mcp-gateway/peer/tls.key
+  peer_ca_file: /etc/mcp-gateway/peer/ca.crt
+```
+
+A replica that goes, deleted or lost with its node, gives up its
+principals (at once when it stops, else when its Lease runs out): the
+next request of each is served by another replica, with new instances;
+what lived in its memory (sessions, running tasks, contexts) ends as
+in a restart, and its instance pods are deleted. Its pending approvals
+are taken over by another replica, and an approval can be decided on
+any replica. The replicas reach each other on their pod addresses: a
+NetworkPolicy in the gateway's namespace must let them reach port
+`8444`.
+
 ## Configuration from ConfigMaps
 
 | ConfigMap | Mounted at | Holds |
@@ -730,4 +788,7 @@ and the last good one stays in force (`kubectl logs deploy/mcp-gateway
 with the manifests and with the chart (`DEPLOY=helm`), a stdio server in
 pods of their own among it (one per principal, no egress to other pods,
 gone after the idle timeout), on the shared store (its records, kept
-across a restart); CI runs both on every change.
+across a restart), with three replicas (one principal's calls through
+each reaching one instance; the replica that served it deleted, its
+instance pods reaped, another serving it); CI runs both on every
+change.

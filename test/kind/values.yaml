@@ -17,9 +17,14 @@ config:
     scopes: null
     # Reached through kubectl port-forward in the test.
     audience: https://127.0.0.1:8443/mcp
-# One replica on the shared store.
+# Three replicas on the shared store, with the replicas' certificate
+# run.sh makes, and no volume.
 replication:
   enabled: true
+  replicas: 3
+  peerSecret: mcp-gateway-peer
+persistence:
+  enabled: false
 servers:
   echo:
     name: echo

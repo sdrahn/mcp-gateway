@@ -31,10 +31,13 @@ HELM=${HELM:-helm}
 IMAGE_BASE=${IMAGE_BASE:-registry.suse.com/bci/bci-micro:16.0}
 NS=mcp-gateway
 PORT=${PORT:-18443}
+# The gateway's replicas (replicas.yaml, values.yaml).
+REPLICAS=3
 MPORT=${MPORT:-19464}
 
 work=$(mktemp -d)
 pf=
+pfs=()
 cleanup() {
 	status=$?
 	if [ "$status" != 0 ]; then
@@ -52,6 +55,7 @@ cleanup() {
 		done
 	fi
 	[ -n "$pf" ] && kill "$pf" 2>/dev/null || true
+	for p in "${pfs[@]}"; do kill "$p" 2>/dev/null || true; done
 	rm -rf "$work"
 	if [ "${KEEP:-}" != 1 ]; then
 		"$KIND" delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true
@@ -81,6 +85,17 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 -su
 	-addext "subjectAltName=IP:127.0.0.1,DNS:mcp-gateway.$NS.svc" \
 	-keyout "$work/tls.key" -out "$work/tls.crt" 2>/dev/null
 k -n "$NS" create secret tls mcp-gateway-tls --cert "$work/tls.crt" --key "$work/tls.key" --dry-run=client -o yaml | apply
+# The replicas' certificate (replication.peer_*): a CA of its own, and a
+# certificate for mcp-gateway-peer, for the server and the client.
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 -subj /CN=mcp-gateway-peers \
+	-keyout "$work/peer-ca.key" -out "$work/peer-ca.crt" 2>/dev/null
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj /CN=mcp-gateway-peer \
+	-keyout "$work/peer.key" -out "$work/peer.csr" 2>/dev/null
+printf 'subjectAltName=DNS:mcp-gateway-peer\nextendedKeyUsage=serverAuth,clientAuth\n' >"$work/peer.ext"
+openssl x509 -req -in "$work/peer.csr" -CA "$work/peer-ca.crt" -CAkey "$work/peer-ca.key" -CAcreateserial -days 1 \
+	-extfile "$work/peer.ext" -out "$work/peer.crt" 2>/dev/null
+k -n "$NS" create secret generic mcp-gateway-peer --from-file=tls.crt="$work/peer.crt" --from-file=tls.key="$work/peer.key" \
+	--from-file=ca.crt="$work/peer-ca.crt" --dry-run=client -o yaml | apply
 
 echo "--- deploy ($DEPLOY)"
 case "$DEPLOY" in
@@ -97,12 +112,18 @@ esac
 k -n "$NS" rollout status deploy/mcp-echo --timeout=180s
 k -n "$NS" rollout status deploy/mcp-gateway --timeout=240s
 
-k -n "$NS" port-forward svc/mcp-gateway "$PORT:443" "$MPORT:9464" >"$work/pf.log" 2>&1 &
-pf=$!
-for _ in $(seq 60); do
-	curl -s --cacert "$work/tls.crt" -o /dev/null "https://127.0.0.1:$PORT/.well-known/oauth-protected-resource/mcp" && break
-	sleep 1
-done
+# forward: a port-forward to the Service (to one of its pods), again after
+# a pod went.
+forward() {
+	[ -n "$pf" ] && kill "$pf" 2>/dev/null || true
+	k -n "$NS" port-forward svc/mcp-gateway "$PORT:443" "$MPORT:9464" >"$work/pf.log" 2>&1 &
+	pf=$!
+	for _ in $(seq 60); do
+		curl -s --cacert "$work/tls.crt" -o /dev/null "https://127.0.0.1:$PORT/.well-known/oauth-protected-resource/mcp" && break
+		sleep 1
+	done
+}
+forward
 meta=$(curl -sf --cacert "$work/tls.crt" "https://127.0.0.1:$PORT/.well-known/oauth-protected-resource/mcp") ||
 	fail "the gateway does not answer: $(cat "$work/pf.log")"
 [ "$(jq -r '.authorization_servers[0]' <<<"$meta")" = https://kubernetes.default.svc.cluster.local ] ||
@@ -230,15 +251,17 @@ replicas() {
 	k -n "$NS" get leases -l mcp-gateway.io/role=replica -o jsonpath='{range .items[*]}{.spec.holderIdentity}{"\n"}{end}'
 }
 live_pod() { [ -z "$(k -n "$NS" get pod "$1" -o jsonpath='{.metadata.deletionTimestamp}')" ]; }
-# The replica that started them: the one gateway pod, which holds its
-# Lease.
-gwpod=$(replicas)
-[ "$(grep -c . <<<"$gwpod")" = 1 ] && live_pod "$gwpod" || fail "replica Leases: $gwpod"
+# replica_of POD: the replica an instance pod names.
+replica_of() { k -n "$INS" get pod "$1" -o jsonpath='{.metadata.labels.mcp-gateway\.sdrahn\.github\.io/replica}'; }
+# The three replicas hold their Leases, and each instance pod names one
+# of them, the one that serves its principal.
+gws=$(replicas | sort)
+[ "$(grep -c . <<<"$gws")" = "$REPLICAS" ] || fail "replica Leases: $gws (want $REPLICAS)"
+for r in $gws; do live_pod "$r" || fail "the replica $r is not a live pod"; done
 for pod in $mine; do
-	[ "$(k -n "$INS" get pod "$pod" -o jsonpath='{.metadata.labels.mcp-gateway\.sdrahn\.github\.io/replica}')" = "$gwpod" ] ||
-		fail "pod $pod does not name its replica $gwpod"
+	grep -qx "$(replica_of "$pod")" <<<"$gws" || fail "pod $pod names $(replica_of "$pod"), not a replica of $(tr '\n' ' ' <<<"$gws")"
 done
-pass "the instance pods name their replica, $gwpod, which holds its Lease"
+pass "$REPLICAS replicas hold their Leases; the instance pods name theirs"
 
 for pod in $mine; do
 	np=$(k -n "$INS" get networkpolicy "$pod" -o json) || fail "no NetworkPolicy for $pod"
@@ -267,6 +290,57 @@ gone() { [ -z "$(comm -12 <(echo "$mine") <(pods) | grep . || true)" ]; }
 until_ok 150 gone || fail "pods still there after the idle timeout: $(pods | tr '\n' ' ')"
 pass "the pods go after the idle timeout"
 
+echo "--- one principal through each replica"
+# A port-forward to each replica's pod, past the Service's choice.
+ports=()
+i=0
+for r in $gws; do
+	p=$((PORT + 100 + i))
+	i=$((i + 1))
+	k -n "$NS" port-forward "pod/$r" "$p:8443" >"$work/pf-$r.log" 2>&1 &
+	pfs+=($!)
+	ports+=("$p")
+	for _ in $(seq 30); do
+		curl -s --cacert "$work/tls.crt" -o /dev/null "https://127.0.0.1:$p/.well-known/oauth-protected-resource/mcp" && break
+		sleep 1
+	done
+done
+n=0
+for p in "${ports[@]}"; do
+	n=$((n + 1))
+	got=$(PORT=$p call_as "$token" stdio echo '{"text":"via each"}')
+	[[ "$got" == "echo: via each (call $n)" ]] || fail "call $n, through the replica at port $p: $got"
+done
+custos_pod() {
+	for pod in $(pods); do
+		case "$(serves "$pod")" in *agents:custos) echo "$pod" ;; esac
+	done
+}
+[ "$(custos_pod | grep -c .)" = 1 ] || fail "custos's instance pods: $(custos_pod | tr '\n' ' ')"
+owner=$(replica_of "$(custos_pod)")
+pass "custos's calls through each of the $REPLICAS replicas reach one instance, at $owner"
+
+# The replica that serves custos goes: its instance pod is reaped, and
+# the next call, through another replica, is served by the one that
+# takes custos over, with a new instance.
+k -n "$NS" delete pod "$owner" --wait=false >/dev/null
+reaped() { [ -z "$(for pod in $(pods); do [ "$(replica_of "$pod")" = "$owner" ] && echo "$pod"; done)" ]; }
+until_ok 120 reaped || fail "the instance pods of $owner are still there: $(pods | tr '\n' ' ')"
+other_port=
+i=0
+for r in $gws; do
+	[ "$r" != "$owner" ] && other_port=${ports[$i]}
+	i=$((i + 1))
+done
+taken_over() { [[ "$(PORT=$other_port call_as "$token" stdio echo '{"text":"again"}')" == "echo: again (call 1)" ]]; }
+until_ok 60 taken_over || fail "custos not served again after $owner went: $(PORT=$other_port call_as "$token" stdio echo '{"text":"again"}')"
+[ "$(replica_of "$(custos_pod)")" != "$owner" ] || fail "custos's new instance names $owner"
+pass "$owner went: its instance pods were reaped, and another replica serves custos with a new instance"
+for p in "${pfs[@]}"; do kill "$p" 2>/dev/null || true; done
+pfs=()
+# The Service's port-forward may have gone with the pod.
+forward
+
 echo "--- role data changed in the ConfigMap"
 k -n "$NS" patch configmap mcp-gateway-rbac --type merge -p '{"data":{"data.yaml":"version: 1\nroles: {}\nbindings: {users: {}, groups: {}}\n"}}' >/dev/null
 denied() { [[ "$(call echo bye)" != "echo: "* ]]; }
@@ -277,6 +351,7 @@ echo "--- the shared store across a restart"
 audit_key() { records keys | jq -r '.items[] | select(.metadata.annotations["mcp-gateway.io/name"] == "audit") | .data.record'; }
 key=$(audit_key)
 clients=$(records clients | jq '.items | length')
+before=$(replicas | sort)
 k -n "$NS" rollout restart deploy/mcp-gateway >/dev/null
 k -n "$NS" rollout status deploy/mcp-gateway --timeout=240s
 [ "$(audit_key)" = "$key" ] || fail "another audit key after the restart"
@@ -284,13 +359,15 @@ k -n "$NS" rollout status deploy/mcp-gateway --timeout=240s
 logs=$(k -n "$NS" logs deploy/mcp-gateway -c gateway)
 ! grep -q "files of state_dir imported" <<<"$logs" || fail "the files imported again after the restart"
 pass "a restarted gateway keeps its audit key and the clients seen, and imports nothing again"
-# The replica that stopped gave its Lease up; the new one holds its own.
+# The replicas that stopped gave their Leases up; the new ones hold
+# their own.
 handed_over() {
 	local r
-	r=$(replicas)
-	[ "$(grep -c . <<<"$r")" = 1 ] && [ "$r" != "$gwpod" ] && live_pod "$r"
+	r=$(replicas | sort)
+	[ "$(grep -c . <<<"$r")" = "$REPLICAS" ] && [ -z "$(comm -12 <(echo "$before") <(echo "$r") | grep . || true)" ] || return 1
+	for p in $r; do live_pod "$p" || return 1; done
 }
-until_ok 60 handed_over || fail "replica Leases after the restart: $(replicas | tr '\n' ' ') (before: $gwpod)"
-pass "the stopped replica gave its Lease up, the new one ($(replicas)) holds its own"
+until_ok 90 handed_over || fail "replica Leases after the restart: $(replicas | tr '\n' ' ') (before: $(tr '\n' ' ' <<<"$before"))"
+pass "the stopped replicas gave their Leases up, the new ones ($(replicas | tr '\n' ' ')) hold their own"
 
 echo "PASS"

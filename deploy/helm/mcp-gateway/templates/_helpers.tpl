@@ -54,7 +54,14 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- $_ := set $cfg "supervisor" $sup -}}
 {{- end -}}
 {{- if .Values.replication.enabled -}}
-{{- $_ := set $cfg "replication" (dict "store" "kubernetes" "namespace" .Release.Namespace) -}}
+{{- $rep := dict "store" "kubernetes" "namespace" .Release.Namespace -}}
+{{- if .Values.replication.peerSecret -}}
+{{- $_ := set $rep "listen" ":8444" -}}
+{{- $_ := set $rep "peer_cert_file" "/etc/mcp-gateway/peer/tls.crt" -}}
+{{- $_ := set $rep "peer_key_file" "/etc/mcp-gateway/peer/tls.key" -}}
+{{- $_ := set $rep "peer_ca_file" "/etc/mcp-gateway/peer/ca.crt" -}}
+{{- end -}}
+{{- $_ := set $cfg "replication" $rep -}}
 {{- end -}}
 {{- $policy := deepCopy (default dict $cfg.policy) -}}
 {{- $_ := set $policy "opa_socket" "/run/mcp-gateway/opa.sock" -}}
