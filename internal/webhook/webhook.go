@@ -237,6 +237,9 @@ func (h *Hooks) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case ev := <-ch:
+			if ev.Replica != "" {
+				continue // another replica's: it posts it (several replicas)
+			}
 			switch {
 			case ev.Type == "pending" && ev.New && ev.Pending != nil:
 				for i := range h.Hooks {

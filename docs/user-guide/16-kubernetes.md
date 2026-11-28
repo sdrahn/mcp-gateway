@@ -724,7 +724,11 @@ the console's status names the replica that serves the page and the
 live ones. The console and the control API list every replica's
 instances, tasks and clients, each naming its replica, and stop, cancel
 or end one on the replica that holds it; the Doctor page and
-`doctor --gateway` show every replica's checks (each runs its own). The replicas reach each other on their pod addresses: a
+`doctor --gateway` show every replica's checks (each runs its own).
+The approval page, the console and `GET /v1/events` show another
+replica's approvals, notices and review items as they come and go, as
+their own; mail and webhooks announce each once, from the replica that
+holds it. The replicas reach each other on their pod addresses: a
 NetworkPolicy in the gateway's namespace must let them reach port
 `8444`.
 

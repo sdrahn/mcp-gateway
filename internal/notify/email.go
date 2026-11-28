@@ -134,6 +134,9 @@ func (e *Email) Run(ctx context.Context, events <-chan broker.Event) {
 			if !ok {
 				return
 			}
+			if ev.Replica != "" {
+				continue // another replica's: it mails it (several replicas)
+			}
 			switch {
 			case ev.Type == "pending" && ev.New && ev.Pending != nil:
 				go e.notify(ctx, *ev.Pending)

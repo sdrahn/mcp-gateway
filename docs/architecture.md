@@ -5454,6 +5454,14 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       the doctor's report carries the others' (`replicas`); sign-ins
       need nothing (their tokens are in the shared store) and neither
       does the clients' history;
+      as built (part 4): the shared tables call back when the others'
+      records change, and the broker publishes the events its own would
+      (an approval new, changed or gone; a notice posted, dismissed for
+      a reader or gone; a review item new, judged or gone), naming the
+      replica that holds it (`Event.Replica`); mail and webhooks skip
+      those, so that each is announced once, where it is held; an
+      approval adopted from a replica that is gone is announced as this
+      replica's but not as new;
 
 50. **Servers discovered in the cluster** (after 2.0; D25, proposed;
     open; §5.12.8): `server_discovery` with its namespaces, prefixes and

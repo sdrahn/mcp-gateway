@@ -460,3 +460,115 @@ func TestSharedDismissalVerdictAcrossReplicas(t *testing.T) {
 		return err == nil && got.Verdict != nil && got.Verdict.Reason == "wrong unit"
 	})
 }
+
+// awaitEvent takes events from ch until one matches, or fails.
+func awaitEvent(t *testing.T, ch <-chan Event, what string, match func(Event) bool) Event {
+	t.Helper()
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case ev := <-ch:
+			if match(ev) {
+				return ev
+			}
+		case <-timeout:
+			t.Fatalf("no event: %s", what)
+			return Event{}
+		}
+	}
+}
+
+// Another replica's approvals, notices and review items are announced on
+// this replica as they change, naming the replica that holds them; mail
+// and webhooks leave them to it (Replica set).
+func TestSharedEventsAcrossReplicas(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	defer func(d time.Duration) { sharedBackoff = d }(sharedBackoff)
+	sharedBackoff = 10 * time.Millisecond
+	a := newBroker(t, replicaOptions(t, api, "gw-a"))
+	b := newBroker(t, replicaOptions(t, api, "gw-b"))
+	ch, stop := b.Subscribe()
+	defer stop()
+	p := orphaned(t, a)
+	flushed(t, a)
+	ev := awaitEvent(t, ch, "a's approval at b", func(ev Event) bool { return ev.Type == "pending" && ev.ID == p.ID })
+	if ev.Replica != "gw-a" || ev.Pending == nil || ev.Pending.Server != p.Server || !ev.New {
+		t.Errorf("a's approval at b: %+v", ev)
+	}
+	// Decided at b, carried out at a: closed at b.
+	if _, err := b.Resolve(context.Background(), aliceApprover, p.ID, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	ev = awaitEvent(t, ch, "a's approval decided", func(ev Event) bool { return ev.Type == "resolved" && ev.ID == p.ID && ev.Replica == "gw-a" })
+
+	// One of a that is gone, adopted by b: b's now, not new (it was
+	// announced where it was asked), and not closed.
+	q := orphaned(t, a)
+	flushed(t, a)
+	// As a wrote it last (its call gone): adopting goes by that version.
+	awaitEvent(t, ch, "a's second approval at b", func(ev Event) bool {
+		return ev.Type == "pending" && ev.ID == q.ID && ev.Pending != nil && !ev.Pending.Waiting
+	})
+	b.Adopt(context.Background(), func(r string) bool { return r == "gw-b" })
+	ev = awaitEvent(t, ch, "the adopted approval", func(ev Event) bool { return ev.ID == q.ID && ev.Replica == "" })
+	if ev.Type != "pending" || ev.New {
+		t.Errorf("adopted: %+v", ev)
+	}
+	flushed(t, b)
+	select {
+	case ev := <-ch:
+		if ev.ID == q.ID && ev.Type == "resolved" {
+			t.Errorf("the adopted approval closed: %+v", ev)
+		}
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// Notices and review items: posted, dismissed and judged on another
+// replica.
+func TestSharedNoticeReviewEventsAcrossReplicas(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	defer func(d time.Duration) { sharedBackoff = d }(sharedBackoff)
+	sharedBackoff = 10 * time.Millisecond
+	with := func(replica string, pol BoolPolicy) func(*Options) {
+		o := replicaOptions(t, api, replica)
+		return func(opts *Options) { o(opts); opts.Policy = pol }
+	}
+	a := newBroker(t, with("gw-a", noticePolicy{}))
+	b := newBroker(t, with("gw-b", noticePolicy{}))
+	ch, stop := b.Subscribe()
+	defer stop()
+	n, err := a.PostNotice(t.Context(), rootApprover, demotion())
+	if err != nil {
+		t.Fatal(err)
+	}
+	flushed(t, a)
+	ev := awaitEvent(t, ch, "a's notice at b", func(ev Event) bool { return ev.Type == "notice" && ev.ID == n.ID })
+	if ev.Replica != "gw-a" || !ev.New || ev.Notice == nil {
+		t.Errorf("notice: %+v", ev)
+	}
+	if err := b.DismissNotice(t.Context(), pat, n.ID); err != nil {
+		t.Fatal(err)
+	}
+	ev = awaitEvent(t, ch, "the dismissal", func(ev Event) bool { return ev.Type == "notice-closed" && ev.ID == n.ID })
+	if ev.Reader != pat.ReaderKey() {
+		t.Errorf("closed for %q", ev.Reader)
+	}
+
+	ra := newBroker(t, with("gw-a", reviewPolicy{}))
+	rb := newBroker(t, with("gw-b", reviewPolicy{}))
+	rch, rstop := rb.Subscribe()
+	defer rstop()
+	r := ra.AddReview(restart())
+	flushed(t, ra)
+	ev = awaitEvent(t, rch, "a's review item at b", func(ev Event) bool { return ev.Type == "review" && ev.ID == r.ID })
+	if ev.Replica != "gw-a" || ev.Review == nil || ev.Review.Verdict != nil {
+		t.Errorf("review item: %+v", ev)
+	}
+	if _, err := rb.Judge(t.Context(), opsUser, r.ID, VerdictIncident, "wrong unit", ""); err != nil {
+		t.Fatal(err)
+	}
+	awaitEvent(t, rch, "the verdict", func(ev Event) bool {
+		return ev.Type == "review" && ev.ID == r.ID && ev.Review != nil && ev.Review.Verdict != nil && ev.Replica == "gw-a"
+	})
+}
