@@ -339,7 +339,7 @@ rbac:
 | 401 for an agent | the token's audience (`mcp-gateway` for ServiceAccounts, `http.audience` for the identity provider's) and issuer; the doctor's identity provider checks |
 | A tool the agent does not see, or a call denied | the role data's binding of the principal (`k8s:system:serviceaccount:<namespace>:<name>`); the audit record names the decision and its reason |
 | A server's calls fail | the doctor's check of the server: its Service's name and port, the servers' NetworkPolicy (it must admit the gateway's pods) |
-| A labelled Service gives no server | `kubectl -n mcp-gateway logs deploy/mcp-gateway -c gateway \| grep server_discovery`: the namespace not in `server_discovery.namespaces` or without its Role, the Service's ports, type or name, or a server file of the same name in force; a discovered server reachable by no one is the role data's doing (`discovered: true`, chapter 6) |
+| A labelled Service gives no server | the doctor's `server discovery` check, `mcp-gateway-admin servers`, `kubectl -n mcp-gateway logs deploy/mcp-gateway -c gateway \| grep server_discovery`: the namespace not in `server_discovery.namespaces` or without its Role, the Service's ports, type or name, or a server file of the same name in force; a discovered server reachable by no one is the role data's doing (`discovered: true`, chapter 6) |
 | A stdio server's instance does not start | `kubectl -n mcp-instances get pods`, `describe pod`: an image that does not pull, the namespace's Pod Security; the definition's limits |
 | A change does not take | the console's Gateway page or the doctor's configuration check: the gateway refused it and says why; keys that need a restart roll with `helm upgrade` |
 | Approvals do not reach anyone | `approvals.page.client_id`, the redirect URI at the identity provider, and the approver rules (`remote-group:`, `remote-user:`); the doctor's approval page check |
@@ -643,9 +643,20 @@ Services that would give one name give no server, and neither does a
 Service the gateway cannot make a definition of: several ports and none
 named `mcp` (name it with `mcp-gateway.io/port`), no TCP port, a type
 other than `ClusterIP`, or a name longer than 32 characters with its
-prefix. The gateway logs each (`kubectl -n mcp-gateway logs
-deploy/mcp-gateway -c gateway | grep server_discovery`), and says
-which namespace it cannot list (a missing Role).
+prefix. The doctor names each (below), and the gateway logs it (`kubectl -n
+mcp-gateway logs deploy/mcp-gateway -c gateway | grep
+server_discovery`), and says which namespace it cannot list (a missing
+Role).
+
+**Seeing them.** `mcp-gateway-admin servers` lists every server with
+where it comes from (`Service team-a/tickets`, or `server file`), the
+console's Servers page names a discovered server's Service, and
+`GET /v1/servers` has it as `discovered`. The doctor's `server
+discovery` check (`server-discovery`) counts the servers discovered, fails for a namespace
+whose Services it cannot list (a missing Role), warns for each Service
+that gives no server and says why, and lists the names a server file
+overrides. The audit records each discovered server as it comes, changes
+and goes (`mcp-server-discovered`, chapter 11).
 
 Let only the gateway's pods reach the discovered servers, as for any
 server in the cluster (above): a NetworkPolicy in each namespace that
@@ -948,5 +959,8 @@ across a restart), with three replicas (one principal's calls through
 each reaching one instance; its instance listed and stopped through
 another replica; the replica that served it deleted, its instance pods
 reaped, another serving it; a caller in the cluster calling through the
-Service while the replicas roll, none of its calls failing); CI runs
-both on every change.
+Service while the replicas roll, none of its calls failing), and with
+servers discovered from the labelled Services of `mcp-servers` (one the
+role data names served, one under a glob without `discovered: true` not
+reached, an unlabelled Service not a server, a deleted Service's server
+gone, each replica auditing them); CI runs both on every change.

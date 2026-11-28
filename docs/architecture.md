@@ -1501,7 +1501,7 @@ first call's decision id, `answered`, `waiting` or `refused`).
 (step 46), the Kubernetes launcher (step 47) and the console (step 48).
 Several replicas (§5.12.5) are step 49, after 2.0 (D24, accepted);
 servers discovered from labelled Services (§5.12.8) step 50 (D25,
-accepted; in progress, #465).*
+accepted; done, #465).*
 
 The gateway is built for a host: it starts instances as systemd units,
 confines them with SELinux domains and MCS pairs, knows local clients by
@@ -2037,7 +2037,7 @@ audit apply as to any server.
 *Seen as such.* The console's Servers view, `mcp-gateway-admin servers`
 and the doctor show a discovered server with its namespace and Service;
 the audit records a server discovered, changed and gone
-(`mcp-server-discovered`, with the Service and its resource version).
+(`mcp-server-discovered`, with the Service and the server's URL).
 
 *What stays out.* Stdio servers (a Service is a network endpoint); a
 Service of another kind than ClusterIP; a cluster-wide watch.
@@ -5518,7 +5518,7 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       as the owner refused what that replica sent it, four times;
 
 50. **Servers discovered in the cluster** (after 2.0; D25, accepted;
-    in progress, #465; §5.12.8): `server_discovery` with its namespaces, prefixes and
+    done, #465; §5.12.8): `server_discovery` with its namespaces, prefixes and
     selector (container mode); the Services of those namespaces watched
     and turned into definitions of servers that speak HTTP (name, port
     and path from annotations), joined to the reload of definitions, a
@@ -5554,9 +5554,22 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
     with a glob only with `discovered: true` (in the role data's
     schema); the chart's `serverDiscovery` values and a Role per
     namespace, the manifests' `deploy/kubernetes/discovery` component;
-    the user guide (chapters 3, 6, 12 and 16); left for part c: the
-    console, the CLI, the doctor and the audit of discovered servers,
-    and the kind job;
+    the user guide (chapters 3, 6, 12 and 16);
+    as built (part c): `GET /v1/servers` has a discovered server's
+    `discovered` (namespace and Service), the console's Servers page
+    names its Service, and `mcp-gateway-admin servers` (new) lists
+    every server with where it comes from; the doctor's `server
+    discovery` check counts the servers discovered, fails for a
+    namespace not followed, warns for the Services that give no server
+    and lists the names a file overrides; each replica audits the
+    discovered servers it puts in force, at the start and at every
+    reload (`mcp-server-discovered`: `added`, `changed`, `removed`,
+    with the namespace, the Service and the URL); the kind job (both
+    deploys) discovers the labelled Services of `mcp-servers`, serves
+    the one the role data names, does not reach the one only a glob
+    without `discovered: true` covers, leaves an unlabelled Service
+    out, sees each replica audit them and the server of a deleted
+    Service go;
 
 ## 12. Open items
 

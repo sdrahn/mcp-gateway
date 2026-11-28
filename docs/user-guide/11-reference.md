@@ -243,6 +243,21 @@ with that id ("no such task"), the prefix names several, or it has
 ended ("the task has ended"); 2 on usage errors; 3 when the gateway does
 not answer.
 
+### mcp-gateway-admin servers
+
+```
+mcp-gateway-admin servers [options]
+```
+
+Lists the servers the gateway serves (`GET /v1/servers`): where each
+comes from (`server file`, or `Service <namespace>/<name>` for one
+discovered with `server_discovery`, chapter 16), how its instances are
+isolated, and how many of the instances you may manage run. A server
+removed from the configuration whose instances still run is listed as
+removed. Flags `--json`, `--socket` and `--gateway` as for `instances`.
+
+Exit status 0; 2 on usage errors; 3 when the gateway does not answer.
+
 ### mcp-gateway-admin instances
 
 ```
@@ -262,7 +277,7 @@ with that id ("no such instance"), the prefix names several, a call to
 it runs (a privileged server's) or the question was answered no; 2 on
 usage errors; 3 when the gateway does not answer.
 
-`clients`, `tasks` and `instances` take `--gateway URL`: a gateway's
+`clients`, `tasks`, `servers` and `instances` take `--gateway URL`: a gateway's
 console API (signed in with `approvals login --gateway URL`) instead of
 the control socket, as in a cluster.
 
@@ -571,7 +586,7 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `POST /v1/approvals/{id}` | `{"decision": "approve"\|"deny", "scope": "once"\|"session"\|<duration>, "via": "cockpit"\|"cli"}`; returns the grant (`200`) or nothing (`204`, denied); `400 scope not offered`; `403` with `"code": "password_required"` when approving the caller's own request, which only the approver rule `self` allows, without their password (polkit; chapter 7). `via` (optional) names the way the decision came, for the audit; anything else is recorded as `api` |
 | `GET /v1/grants` | grants the caller may manage (list of grants, below) |
 | `DELETE /v1/grants/{id}` | revoke; `204`. `?via=cockpit\|cli` as for decisions |
-| `GET /v1/servers` | registered servers `{"name", "selinux_type", "isolation", "network", "network_view", "requires", "run_as", "privileged", "capabilities", "sign_in", "landlock", "instances"}` with the instances the caller may manage `{"id", "server", "unit", "sub", "iss", "uid", "transport", "session_id", "context", "isolation", "started", "sessions", "privileged", "busy", "definition"}` (`context`, with isolation `context`, for the instance of an agent's context, chapter 4); an instance's `privileged` is also set for a server with `capabilities` (such an instance is not stopped during a call); `definition` is `current`, `previous` (started from a definition changed since) or `removed`; a server removed from the configuration whose instances still run is listed with `"removed": true` |
+| `GET /v1/servers` | registered servers `{"name", "selinux_type", "isolation", "network", "network_view", "requires", "run_as", "privileged", "capabilities", "sign_in", "landlock", "instances"}` with the instances the caller may manage `{"id", "server", "unit", "sub", "iss", "uid", "transport", "session_id", "context", "isolation", "started", "sessions", "privileged", "busy", "definition"}` (`context`, with isolation `context`, for the instance of an agent's context, chapter 4); an instance's `privileged` is also set for a server with `capabilities` (such an instance is not stopped during a call); `definition` is `current`, `previous` (started from a definition changed since) or `removed`; a server removed from the configuration whose instances still run is listed with `"removed": true`; a server discovered from a cluster's Service (`server_discovery`, chapter 16) has `"discovered": {"namespace", "service"}` |
 | `DELETE /v1/instances/{id}` | stop an instance; `204`; `409` for a privileged instance with a call running |
 | `GET /v1/tasks` | the agents' tasks the caller may manage (`data.mcp.approvals.manage_task`), newest first: `{"id", "server", "tool", "sub", "iss", "uid", "transport", "status", "status_message", "created", "updated", "ended", "delivered"}`; `status` is `working`, `input_required`, `completed`, `failed` or `cancelled`; `delivered` tells that the agent fetched the result |
 | `POST /v1/tasks/{id}/cancel` | cancel a running task: its call is cancelled at the server, as by its agent; `204`; `409` if it has ended; `404` if unknown or not the caller's to manage |
@@ -749,7 +764,8 @@ Kernel audit (`TRUSTED_APP`) operations:
 | `mcp-webhook-callback` | a webhook's receiver called back with a decision, validly signed (`res=success` taken; `failed` refused: replayed, an approver the rules do not allow, a scope not offered, …; unsigned or stale callbacks are not audited) | `webhook`, `approver` (as the callback names them), `id`, `reason` |
 | `mcp-grant-revoke` | a grant was revoked | `id`, `by`, `principal`, `server`, `target`; `via` as for `mcp-approval` |
 | `mcp-policy-change` | OPA loaded a different policy | `revision` |
-| `mcp-config-reload` | the server definitions, or `gateway.yaml` (`file=gateway.yaml`), were reloaded with changes (`res=success`), or could not be (`res=failed`; what was in force stays) | `trigger` (`file change`, `SIGHUP`), `file`, `added`, `changed`, `removed`, `restart_needed`, `error` |
+| `mcp-config-reload` | the server definitions, or `gateway.yaml` (`file=gateway.yaml`), were reloaded with changes (`res=success`), or could not be (`res=failed`; what was in force stays) | `trigger` (`file change`, `SIGHUP`, `Service change`: a discovered Service), `file`, `added`, `changed`, `removed`, `restart_needed`, `error` |
+| `mcp-server-discovered` | a server discovered from a cluster's Service (`server_discovery`, chapter 16) came into force, changed or went, on each replica that serves it | `change` (`added`, `changed`, `removed`), `server`, `namespace`, `service`, `url` |
 | `mcp-mcs-collision` | an instance's MCS pair was taken by another workload | `instance`, `pair`, `foreign_pid`, `foreign_context` |
 | `mcp-limit` | a session or instance was refused at a limit (`res=failed`) | `principal`, `transport`, `session`, `limit`, `max` |
 | `mcp-result-withheld` | policy withheld a call's result on delivery (`res=failed`; chapter 12, "Deciding again on delivery") | `principal`, `transport`, `session`, `action`, `server`, `target`, `reason`, `decision_id`, `call_decision_id` |

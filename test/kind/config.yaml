@@ -23,6 +23,11 @@ data:
       peer_cert_file: /etc/mcp-gateway/peer/tls.crt
       peer_key_file: /etc/mcp-gateway/peer/tls.key
       peer_ca_file: /etc/mcp-gateway/peer/ca.crt
+    # The labelled Services of mcp-servers are servers too (the
+    # discovery component's Role there).
+    server_discovery:
+      namespaces:
+        - namespace: mcp-servers
     supervisor:
       # An instance no session uses stops soon: the test sees its pod go.
       idle_timeout: 20s
@@ -77,6 +82,10 @@ data:
           - {server: echo, tool: echo}
           - {server: echo2, tool: echo}
           - {server: stdio, tool: '*'}
+          # Servers discovered in mcp-servers (run.sh): one named, the others
+          # under a glob without discovered: true, which does not reach them.
+          - {server: mcp-servers-tickets, tool: echo}
+          - {server: 'mcp-servers-*', tool: '*'}
     bindings:
       users:
         "k8s:system:serviceaccount:agents:custos": [echoer]

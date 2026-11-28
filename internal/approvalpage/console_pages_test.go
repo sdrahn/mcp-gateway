@@ -81,7 +81,8 @@ func consolePagesFixture(t *testing.T) (*fixture, *gateway) {
 	g := &gateway{}
 	cs := &control.Server{Broker: b, Instances: g, Sessions: g, Tasks: g, Policy: g,
 		Backends: func() map[string]*config.Backend {
-			return map[string]*config.Backend{"fs": {Name: "fs", Isolation: "principal"}}
+			return map[string]*config.Backend{"fs": {Name: "fs", Isolation: "principal"},
+				"team-a-tickets": {Name: "team-a-tickets", Isolation: "principal", Discovered: &config.Discovered{Namespace: "team-a", Service: "tickets"}}}
 		},
 		ConfigError: func() string { return "gateway.yaml: line 3: unknown key" }}
 	f := newFixture(t, func(pg *Page) { pg.Control = cs.Handler() })
@@ -96,6 +97,9 @@ func TestConsolePages(t *testing.T) {
 	if code != 200 || !strings.Contains(body, "MCP Gateway console") || !strings.Contains(body, "fs-ivy-1") ||
 		!strings.Contains(body, `aria-current="page">Servers`) {
 		t.Fatalf("servers: %d %s", code, body)
+	}
+	if !strings.Contains(body, "<b>team-a-tickets</b> <span class=\"muted\">discovered from the Service team-a/tickets</span>") {
+		t.Errorf("a discovered server: %s", body)
 	}
 	if !strings.Contains(hdr.Get("Content-Security-Policy"), "default-src 'none'") || hdr.Get("X-Frame-Options") != "DENY" {
 		t.Errorf("headers %v", hdr)

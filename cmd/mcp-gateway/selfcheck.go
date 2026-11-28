@@ -18,6 +18,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/authn"
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	controlapi "github.com/sdrahn/mcp-gateway/internal/control"
+	"github.com/sdrahn/mcp-gateway/internal/discovery"
 	"github.com/sdrahn/mcp-gateway/internal/doctor"
 	"github.com/sdrahn/mcp-gateway/internal/httpsetup"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
@@ -63,6 +64,10 @@ type selfCheck struct {
 	// Health): the run at the start waits for it, as OPA starts beside
 	// the gateway in the pod.
 	ready func(context.Context) error
+	// discovery is server_discovery's (nil without it).
+	discovery interface {
+		Problems() ([]discovery.Problem, map[string]string)
+	}
 	// replica names this replica of several in its reports.
 	replica string
 	// dial connects to a server's address (net.Dialer by default).
@@ -184,6 +189,9 @@ func (c *selfCheck) results(ctx context.Context, trigger string) []doctor.Result
 		}
 	}
 	add(c.servers(ctx)...)
+	if c.discovery != nil {
+		add(c.serverDiscovery()...)
+	}
 	add(c.stateVolume())
 	if c.shared != nil {
 		add(c.sharedStore(ctx))
@@ -358,6 +366,44 @@ func (c *selfCheck) sharedStore(ctx context.Context) doctor.Result {
 	}
 	r.Status, r.Summary = doctor.OK, fmt.Sprintf("the API server answers: %d keys in %s", len(recs), ns)
 	return r
+}
+
+// serverDiscovery: each namespace's Services are followed, and which of
+// them give no server (two of one name, a port that cannot be told, a
+// server file of the same name in force).
+func (c *selfCheck) serverDiscovery() []doctor.Result {
+	problems, errs := c.discovery.Problems()
+	var rs []doctor.Result
+	for _, n := range c.gw.ServerDiscovery.Namespaces {
+		if err, ok := errs[n.Namespace]; ok {
+			rs = append(rs, doctor.Result{Check: "server discovery", Subject: n.Namespace, Status: doctor.Fail,
+				Summary: "the Services of " + n.Namespace + " are not followed: " + err,
+				Details: []string{"its servers are not served; check the gateway's Role in that namespace (get, list and watch Services)"}})
+		}
+	}
+	found, namespaces := 0, map[string]bool{}
+	for _, b := range c.backends() {
+		if b.Discovered != nil {
+			found++
+			namespaces[b.Discovered.Namespace] = true
+		}
+	}
+	r := doctor.Result{Check: "server discovery", Status: doctor.OK,
+		Summary: fmt.Sprintf("%d servers discovered in %d of %d namespaces", found, len(namespaces), len(c.gw.ServerDiscovery.Namespaces))}
+	var refused, overridden []string
+	for _, p := range problems {
+		if p.Overridden {
+			overridden = append(overridden, p.String())
+		} else {
+			refused = append(refused, p.String())
+		}
+	}
+	if len(refused) > 0 {
+		r.Status = doctor.Warn
+		r.Summary += fmt.Sprintf("; %d Services give no server", len(refused))
+	}
+	r.Details = append(refused, overridden...)
+	return append(rs, r)
 }
 
 // kubernetes: the launcher reaches the API server and may list the

@@ -25,7 +25,7 @@ var consoleOverviewTmpl = template.Must(template.New("overview").Funcs(funcs).Pa
 {{template "bottom" .}}`))
 
 var consoleServersTmpl = template.Must(template.New("servers").Funcs(funcs).Parse(layout + `{{template "top" .}}
-{{range .List}}<div class="card"><div><b>{{.Name}}</b>{{if .Removed}} <span class="muted">(removed from the configuration; its instances stop once their calls are answered)</span>{{end}}</div>
+{{range .List}}<div class="card"><div><b>{{.Name}}</b>{{with .Discovered}} <span class="muted">discovered from the Service {{.Namespace}}/{{.Service}}</span>{{end}}{{if .Removed}} <span class="muted">(removed from the configuration; its instances stop once their calls are answered)</span>{{end}}</div>
 {{if not .Removed}}<div class="muted">isolation {{.Isolation}} · network {{if .Network}}yes{{else}}no{{end}}{{if .SignIn}} · each user signs in{{end}}{{if .Landlock}} · Landlock{{end}}{{if .Privileged}} · privileged{{end}}{{if .Capabilities}} · capabilities {{join .Capabilities ", "}}{{end}}</div>{{end}}
 {{if .Instances}}<table><tr><th>Instance</th><th>For</th><th>Started</th><th>Sessions</th><th>Definition</th><th></th></tr>
 {{range .Instances}}<tr><td>{{.ID}}{{if .Replica}} <span class="muted">on {{.Replica}}</span>{{end}}</td><td>{{.Sub}}{{if .Issuer}} <span class="muted">({{.Issuer}})</span>{{end}}</td><td>{{ago .Started}}</td><td>{{.Sessions}}{{if .Busy}} · busy{{end}}</td><td>{{.Definition}}</td>

@@ -47,17 +47,21 @@ const maxRoleData = 1 << 20
 
 // consoleServer is an entry of GET /v1/servers, as the console shows it.
 type consoleServer struct {
-	Name         string                `json:"name"`
-	Isolation    string                `json:"isolation"`
-	Network      bool                  `json:"network"`
-	NetworkView  string                `json:"network_view"`
-	RunAs        string                `json:"run_as"`
-	Privileged   bool                  `json:"privileged"`
-	Capabilities []string              `json:"capabilities"`
-	SignIn       bool                  `json:"sign_in"`
-	Landlock     bool                  `json:"landlock"`
-	Removed      bool                  `json:"removed"`
-	Instances    []router.InstanceInfo `json:"instances"`
+	Name         string   `json:"name"`
+	Isolation    string   `json:"isolation"`
+	Network      bool     `json:"network"`
+	NetworkView  string   `json:"network_view"`
+	RunAs        string   `json:"run_as"`
+	Privileged   bool     `json:"privileged"`
+	Capabilities []string `json:"capabilities"`
+	SignIn       bool     `json:"sign_in"`
+	Landlock     bool     `json:"landlock"`
+	Removed      bool     `json:"removed"`
+	Discovered   *struct {
+		Namespace string `json:"namespace"`
+		Service   string `json:"service"`
+	} `json:"discovered"`
+	Instances []router.InstanceInfo `json:"instances"`
 }
 
 // consoleStatus is GET /v1/status.

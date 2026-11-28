@@ -87,6 +87,8 @@ var checkIDs = map[string]string{
 	"state volume": "state-volume",
 	"kubernetes":   "kubernetes-api",
 	"shared store": "shared-store",
+	// Before the prefix "server ": not a server's check.
+	"server discovery": "server-discovery",
 }
 
 // checkPrefixes are the IDs of the checks labeled "<prefix><subject>",

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +33,50 @@ type discoverySource struct {
 	mu       sync.Mutex
 	problems []discovery.Problem
 	logged   string // the problems last logged
+	// served are the discovered servers in force, by name: what the
+	// audit last recorded.
+	served map[string]config.Backend
+}
+
+// auditor records an event (audit.Logger).
+type auditor interface {
+	Event(op string, ok bool, fields map[string]string)
+}
+
+// audit records each discovered server that came, changed or went
+// between the servers last in force and next (mcp-server-discovered).
+func (s *discoverySource) audit(a auditor, next map[string]*config.Backend) {
+	if s == nil || a == nil {
+		return
+	}
+	now := map[string]config.Backend{}
+	for name, b := range next {
+		if b.Discovered != nil {
+			now[name] = *b
+		}
+	}
+	s.mu.Lock()
+	before := s.served
+	s.served = now
+	s.mu.Unlock()
+	record := func(change string, b config.Backend) {
+		a.Event("mcp-server-discovered", true, map[string]string{"change": change, "server": b.Name,
+			"namespace": b.Discovered.Namespace, "service": b.Discovered.Service, "url": b.URL})
+	}
+	for _, name := range slices.Sorted(maps.Keys(now)) {
+		b, was := now[name], before[name]
+		switch {
+		case was.Discovered == nil:
+			record("added", b)
+		case was.URL != b.URL || *was.Discovered != *b.Discovered:
+			record("changed", b)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(before)) {
+		if _, ok := now[name]; !ok {
+			record("removed", before[name])
+		}
+	}
 }
 
 // newDiscovery makes the source, nil without server_discovery, and lists
