@@ -5512,7 +5512,10 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       the replica list again before it counts the holder as gone (a new
       replica of a rolling update took principals while the others,
       listing every 5 s, did not know it yet, and took them over: two
-      owners, "unknown session" in the kind job);
+      owners, "unknown session" in the kind job); the peer listener
+      reads a principal's Lease again before it refuses a forwarded
+      request (421): a taker that still remembered the draining replica
+      as the owner refused what that replica sent it, four times;
 
 50. **Servers discovered in the cluster** (after 2.0; D25, proposed;
     open; §5.12.8): `server_discovery` with its namespaces, prefixes and

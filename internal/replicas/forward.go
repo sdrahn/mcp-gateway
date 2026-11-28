@@ -314,7 +314,17 @@ func (h *PeerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				cert = state.PeerCertificates[0]
 			}
 			if p, err := f.Auth.Authenticate(r2.Context(), strings.TrimSpace(token), cert); err == nil {
-				if owner, err := f.Owners.Owner(r2.Context(), Key(p)); err != nil || owner != f.Members.Name {
+				key := Key(p)
+				owner, err := f.Owners.Owner(r2.Context(), key)
+				if err == nil && owner != f.Members.Name {
+					// A peer sent it here as the owner, or as the taker of a
+					// principal it gave up: what this replica remembers of
+					// another owner may be what that peer has just ended.
+					// Read the Lease again before refusing.
+					f.Owners.forgetOwner(key)
+					owner, err = f.Owners.Owner(r2.Context(), key)
+				}
+				if err != nil || owner != f.Members.Name {
 					http.Error(w, "this replica does not serve the principal; try again", http.StatusMisdirectedRequest)
 					return
 				}

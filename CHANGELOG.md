@@ -96,7 +96,10 @@ minor release (with a warning) and removed in the next.
   replica that finds a principal's Lease held by a replica it has not
   listed yet (one a rolling update just started) lists the replicas
   again instead of taking the principal over: two replicas served it,
-  and a session made on one was unknown on the other (#452).
+  and a session made on one was unknown on the other. A replica that a
+  principal's request reaches as its owner or taker reads the Lease
+  again before refusing it (421), instead of trusting an owner it
+  remembered from moments before (#452).
 
 ### Fixed
 

@@ -412,3 +412,33 @@ func TestPeerInternal(t *testing.T) {
 	}
 	<-a.seen
 }
+
+// A draining replica sends a principal it gave up to its taker, which
+// still remembers the draining one as the owner (seen within the last
+// few seconds): the taker reads the Lease again rather than refuse
+// (421), and serves the principal.
+func TestForwardToTakerWithStaleOwner(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	p := newPKI(t)
+	a, b := newReplica(t, api, p, "gw-a"), newReplica(t, api, p, "gw-b")
+	refreshAll(t, a, b)
+	if w := a.request("POST", "/mcp/fs", "alice", nil, nil); w.Body.String() != "served by gw-a" {
+		t.Fatalf("at a: %s", w.Body)
+	}
+	<-a.seen
+	// b forwards alice to a, and remembers a as her owner.
+	if w := b.request("POST", "/mcp/fs", "alice", nil, nil); w.Body.String() != "served by gw-a" {
+		t.Fatalf("at b: %s", w.Body)
+	}
+	<-a.seen
+	if err := a.fwd.Members.Drain(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	refreshAll(t, a, b)
+	a.fwd.Owners.releaseAll()
+	w := a.requestBody("/mcp/fs", "alice", "{}")
+	if w.Code != http.StatusOK || w.Body.String() != "served by gw-b" {
+		t.Fatalf("at a after it drained: %d %s", w.Code, w.Body)
+	}
+	<-b.seen
+}
