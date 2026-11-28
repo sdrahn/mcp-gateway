@@ -47,6 +47,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/policydata"
 	"github.com/sdrahn/mcp-gateway/internal/polkit"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/replicas"
 	"github.com/sdrahn/mcp-gateway/internal/router"
 	"github.com/sdrahn/mcp-gateway/internal/signin"
 	"github.com/sdrahn/mcp-gateway/internal/store"
@@ -269,6 +270,17 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	defer shared.stop()
 	if err := importState(ctx, log, gw, shared); err != nil {
 		return err
+	}
+	if shared != nil {
+		members, changed, err := shared.join(ctx, log, gw)
+		if err != nil {
+			return err
+		}
+		if s, ok := launcher.(supervisor.Split); ok {
+			if k, ok := s.Stdio.(*supervisor.Kubernetes); ok {
+				go reapPods(shared.ctx, log, k, members, changed)
+			}
+		}
 	}
 	auditLog, closeAudit, err := newAudit(log, gw, shared)
 	if err != nil {
@@ -625,6 +637,13 @@ func newKubernetes(log *slog.Logger, gw *config.Gateway) (*supervisor.Kubernetes
 		Namespace: kc.Namespace, BridgeImage: kc.BridgeImage, ImagePullPolicy: kc.ImagePullPolicy,
 		GatewayNamespace: kc.GatewayNamespace, GatewayLabels: kc.GatewayLabels, AllowSELinuxType: kc.AllowSELinuxType,
 	}}
+	if gw.Replication.Shared() {
+		// One of several replicas: its pods name it, and the replicas
+		// delete those of replicas that are gone (reapPods), not every
+		// pod at the start.
+		k.Options.Replica = replicaName(gw)
+		return k, config.CheckReplica(k.Options.Replica)
+	}
 	if kc.SELinux == "on" {
 		lo, hi, err := gw.Supervisor.MCSCategories()
 		if err != nil {
@@ -638,6 +657,51 @@ func newKubernetes(log *slog.Logger, gw *config.Gateway) (*supervisor.Kubernetes
 		return nil, fmt.Errorf("kubernetes launcher: removing the pods of an earlier run in %s: %w", kc.Namespace, err)
 	}
 	return k, nil
+}
+
+// replicaName is this replica's name: replication.replica, else the
+// pod's ($POD_NAME).
+func replicaName(gw *config.Gateway) string {
+	if gw.Replication.Replica != "" {
+		return gw.Replication.Replica
+	}
+	return os.Getenv(config.ReplicaEnv)
+}
+
+// replicaAddress is where the other replicas reach this one:
+// replication.address, else the pod's IP address ($POD_IP).
+func replicaAddress(gw *config.Gateway) string {
+	if gw.Replication.Address != "" {
+		return gw.Replication.Address
+	}
+	return os.Getenv(config.AddressEnv)
+}
+
+// reapPods deletes the instance pods of replicas that are gone, at the
+// start, when a replica comes or goes, and every minute, until ctx ends.
+func reapPods(ctx context.Context, log *slog.Logger, k *supervisor.Kubernetes, members *replicas.Members, changed <-chan struct{}) {
+	reap := func() {
+		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		gone, err := k.Reap(rctx, members.IsLive)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			log.Warn("kubernetes launcher: deleting the pods of replicas that are gone failed", "err", err)
+		case len(gone) > 0:
+			log.Info("kubernetes launcher: deleted the instance pods of replicas that are gone", "replicas", gone)
+		}
+	}
+	tick := time.NewTicker(time.Minute)
+	defer tick.Stop()
+	for {
+		reap()
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		case <-changed:
+		}
+	}
 }
 
 // helperLauncher is the launcher of mcp-oauth-helper: a child process
@@ -936,6 +1000,10 @@ type sharedStore struct {
 	namespace string
 	// tables are flushed at stop.
 	tables []*store.Table
+	// members are the replicas (after join); left is closed when this
+	// replica gave its Lease up.
+	members *replicas.Members
+	left    chan struct{}
 }
 
 func newShared(gw *config.Gateway) (*sharedStore, error) {
@@ -951,6 +1019,34 @@ func newShared(gw *config.Gateway) (*sharedStore, error) {
 	return &sharedStore{ctx: ctx, cancel: cancel, client: client, namespace: r.Namespace}, nil
 }
 
+// join takes this replica's Lease among the replicas' and keeps it until
+// stop; changed has a value when a replica came or went.
+func (s *sharedStore) join(ctx context.Context, log *slog.Logger, gw *config.Gateway) (*replicas.Members, <-chan struct{}, error) {
+	name := replicaName(gw)
+	if err := config.CheckReplica(name); err != nil {
+		return nil, nil, err
+	}
+	changed := make(chan struct{}, 1)
+	m := &replicas.Members{Client: s.client, Namespace: s.namespace, Name: name, Address: replicaAddress(gw), Log: log,
+		OnChange: func() {
+			select {
+			case changed <- struct{}{}:
+			default:
+			}
+		}}
+	if err := m.Join(ctx); err != nil {
+		return nil, nil, err
+	}
+	s.left = make(chan struct{})
+	go func() {
+		m.Run(s.ctx)
+		close(s.left)
+	}()
+	s.members = m
+	log.Info("replicas: joined", "replica", name, "address", m.Address, "replicas", len(m.Live()))
+	return m, changed, nil
+}
+
 // stop flushes the tables opened here (a few seconds at most), then ends
 // the watches and writers.
 func (s *sharedStore) stop() {
@@ -963,6 +1059,13 @@ func (s *sharedStore) stop() {
 		_ = t.Flush(ctx)
 	}
 	s.cancel()
+	if s.left != nil {
+		// The others take over at once, not when the Lease runs out.
+		select {
+		case <-s.left:
+		case <-time.After(6 * time.Second):
+		}
+	}
 }
 
 func (s *sharedStore) collection(name string) (store.Collection, error) {

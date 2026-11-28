@@ -223,6 +223,23 @@ done)
 [ "$(for pod in $mine; do serves "$pod"; done | sort -u | wc -l)" = 2 ] || fail "both pods serve one principal: $mine"
 pass "a stdio server runs in a pod per principal"
 
+# replicas: the holders of the replicas' Leases (replication;
+# docs/architecture.md, section 5.12.5), each a gateway pod not being
+# deleted.
+replicas() {
+	k -n "$NS" get leases -l mcp-gateway.io/role=replica -o jsonpath='{range .items[*]}{.spec.holderIdentity}{"\n"}{end}'
+}
+live_pod() { [ -z "$(k -n "$NS" get pod "$1" -o jsonpath='{.metadata.deletionTimestamp}')" ]; }
+# The replica that started them: the one gateway pod, which holds its
+# Lease.
+gwpod=$(replicas)
+[ "$(grep -c . <<<"$gwpod")" = 1 ] && live_pod "$gwpod" || fail "replica Leases: $gwpod"
+for pod in $mine; do
+	[ "$(k -n "$INS" get pod "$pod" -o jsonpath='{.metadata.labels.mcp-gateway\.sdrahn\.github\.io/replica}')" = "$gwpod" ] ||
+		fail "pod $pod does not name its replica $gwpod"
+done
+pass "the instance pods name their replica, $gwpod, which holds its Lease"
+
 for pod in $mine; do
 	np=$(k -n "$INS" get networkpolicy "$pod" -o json) || fail "no NetworkPolicy for $pod"
 	[ "$(jq '.spec.egress | length' <<<"$np")" = 0 ] && [ "$(jq -r '.metadata.ownerReferences[0].kind' <<<"$np")" = Pod ] ||
@@ -267,5 +284,13 @@ k -n "$NS" rollout status deploy/mcp-gateway --timeout=240s
 logs=$(k -n "$NS" logs deploy/mcp-gateway -c gateway)
 ! grep -q "files of state_dir imported" <<<"$logs" || fail "the files imported again after the restart"
 pass "a restarted gateway keeps its audit key and the clients seen, and imports nothing again"
+# The replica that stopped gave its Lease up; the new one holds its own.
+handed_over() {
+	local r
+	r=$(replicas)
+	[ "$(grep -c . <<<"$r")" = 1 ] && [ "$r" != "$gwpod" ] && live_pod "$r"
+}
+until_ok 60 handed_over || fail "replica Leases after the restart: $(replicas | tr '\n' ' ') (before: $gwpod)"
+pass "the stopped replica gave its Lease up, the new one ($(replicas)) holds its own"
 
 echo "PASS"

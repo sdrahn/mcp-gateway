@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -215,6 +217,37 @@ func podReason(st *kube.PodStatus) string {
 // them.
 func (k *Kubernetes) Cleanup(ctx context.Context) error {
 	return k.Client.DeleteCollection(ctx, kube.PodsPath(k.Options.Namespace), LabelManagedBy+"="+managedBy)
+}
+
+// Reap deletes the pods of replicas that are gone (live reports which
+// are not), and those that name no replica (left by a gateway of one
+// replica): with several replicas, each deletes what the others left,
+// instead of everything at its start. Their Secrets and NetworkPolicies
+// go with them. It returns the replicas whose pods it deleted ("" for
+// those without a replica).
+func (k *Kubernetes) Reap(ctx context.Context, live func(replica string) bool) ([]string, error) {
+	var list kube.PodList
+	if err := k.Client.List(ctx, kube.PodsPath(k.Options.Namespace), LabelManagedBy+"="+managedBy, &list); err != nil {
+		return nil, err
+	}
+	gone := map[string]bool{}
+	for _, p := range list.Items {
+		if r := p.Metadata.Labels[LabelReplica]; r == "" || !live(r) {
+			gone[r] = true
+		}
+	}
+	var out []string
+	for _, r := range slices.Sorted(maps.Keys(gone)) {
+		sel := LabelManagedBy + "=" + managedBy + "," + LabelReplica + "=" + r
+		if r == "" {
+			sel = LabelManagedBy + "=" + managedBy + ",!" + LabelReplica
+		}
+		if err := k.Client.DeleteCollection(ctx, kube.PodsPath(k.Options.Namespace), sel); err != nil {
+			return out, err
+		}
+		out = append(out, r)
+	}
+	return out, nil
 }
 
 // kubeInstance is an instance in its pod.

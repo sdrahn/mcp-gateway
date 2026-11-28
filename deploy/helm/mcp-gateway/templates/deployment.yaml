@@ -50,6 +50,13 @@ spec:
           image: {{ $image }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["--config", "/etc/mcp-gateway/config/gateway.yaml"]
+          # The replica's name and address (replication; several
+          # replicas: docs/architecture.md, section 5.12.5).
+          env:
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
           ports:
             - {name: https, containerPort: 8443}
             - {name: metrics, containerPort: 9464}

@@ -652,7 +652,9 @@ its grants, approvals, sign-ins and audit key; keep the volume for that
 start. Its records are Secrets labelled
 `app.kubernetes.io/managed-by=mcp-gateway`, one collection each
 (`mcp-gateway.io/collection`: `grants`, `pending`, `notices`, `reviews`,
-`tokens`, `clients`, `keys`); the sign-in tokens in them are encrypted
+`tokens`, `clients`, `keys`), and each replica holds a Lease
+`mcp-gateway-replica-<pod>` (`mcp-gateway.io/role=replica`), which it
+gives up when it stops; the sign-in tokens in them are encrypted
 under the `tokens` key, as on the volume. Who may read Secrets in the
 gateway's namespace may read the records, approvals' arguments among
 them: grant that to no one else, and where the API server encrypts

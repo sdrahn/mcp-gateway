@@ -23,14 +23,25 @@ func TestReplication(t *testing.T) {
 		t.Errorf("default: %v %+v", err, h.Replication)
 	}
 	for content, want := range map[string]string{
-		"replication:\n  store: kubernetes\n  namespace: gw\n":               "replication.store: kubernetes only in container mode",
-		c + httpYAML + "replication:\n  store: etcd\n":                       `replication.store: "etcd"`,
-		c + httpYAML + "replication:\n  store: kubernetes\n":                 "replication.namespace: required",
-		c + httpYAML + "replication:\n  store: kubernetes\n  namespace: A\n": `replication.namespace: "A" is not a namespace name`,
-		c + httpYAML + "replication:\n  namespace: gw\n":                     "replication: set store: kubernetes, or nothing",
+		"replication:\n  store: kubernetes\n  namespace: gw\n":                                 "replication.store: kubernetes only in container mode",
+		c + httpYAML + "replication:\n  store: etcd\n":                                         `replication.store: "etcd"`,
+		c + httpYAML + "replication:\n  store: kubernetes\n":                                   "replication.namespace: required",
+		c + httpYAML + "replication:\n  store: kubernetes\n  namespace: A\n":                   `replication.namespace: "A" is not a namespace name`,
+		c + httpYAML + "replication:\n  namespace: gw\n":                                       "replication: set store: kubernetes, or nothing",
+		c + httpYAML + "replication:\n  store: kubernetes\n  namespace: gw\n  replica: GW_1\n": `replication.replica: "GW_1" is not a label value`,
 	} {
 		if _, err := LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", content)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: %v, want %q", content, err, want)
 		}
+	}
+}
+
+// The replica's name: set, or from the pod's ($POD_NAME); a label value.
+func TestCheckReplica(t *testing.T) {
+	if err := CheckReplica("mcp-gateway-6d4f9c7b8-x2kqp"); err != nil {
+		t.Error(err)
+	}
+	if err := CheckReplica(""); err == nil || !strings.Contains(err.Error(), "$POD_NAME is empty") {
+		t.Errorf("unset: %v", err)
 	}
 }
