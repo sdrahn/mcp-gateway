@@ -13,9 +13,12 @@ minor release (with a warning) and removed in the next.
   step 49, D24; being built): `replication.store: kubernetes` keeps the
   grants of scope `duration` and the stored `once` grants, the pending
   approvals, notices and review items, the sign-in tokens (encrypted as
-  before) and the keys of the tokens and of the audit as Secrets in the
-  gateway's namespace (`replication.namespace`) instead of the files in
-  `state_dir`. A `once` grant is
+  before), the clients seen and the keys of the tokens and of the audit
+  as Secrets in the gateway's namespace (`replication.namespace`)
+  instead of the files in `state_dir`, which it imports at its first
+  start with the store. The chart's `replication.enabled` and the
+  manifests' `deploy/kubernetes/replication` component add the Role for
+  them; the doctor checks the store (`shared-store`). A `once` grant is
   taken by one call only; while the gateway cannot follow the store, its
   grants count as absent (#436).
 

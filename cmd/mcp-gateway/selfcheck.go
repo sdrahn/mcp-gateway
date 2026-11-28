@@ -22,6 +22,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/httpsetup"
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/store"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 )
 
@@ -56,6 +57,8 @@ type selfCheck struct {
 	opa      decider
 	tokens   *authn.OAuth           // nil without the HTTP listener
 	kube     *supervisor.Kubernetes // nil without the Kubernetes launcher
+	// shared is a collection of the shared store (nil without one).
+	shared store.Collection
 	// ready, if set, tells whether the policy engine answers (pep.OPA.
 	// Health): the run at the start waits for it, as OPA starts beside
 	// the gateway in the pod.
@@ -180,6 +183,9 @@ func (c *selfCheck) results(ctx context.Context, trigger string) []doctor.Result
 	}
 	add(c.servers(ctx)...)
 	add(c.stateVolume())
+	if c.shared != nil {
+		add(c.sharedStore(ctx))
+	}
 	if c.kube != nil {
 		add(c.kubernetes(ctx))
 	}
@@ -334,6 +340,21 @@ func (c *selfCheck) stateVolume() doctor.Result {
 	_ = f.Close()
 	_ = os.Remove(f.Name())
 	r.Status, r.Summary = doctor.OK, c.gw.StateDir+" is writable"
+	return r
+}
+
+// sharedStore: the gateway reaches the shared store and may list its
+// records (replication.store: kubernetes).
+func (c *selfCheck) sharedStore(ctx context.Context) doctor.Result {
+	ns := c.gw.Replication.Namespace
+	r := doctor.Result{Check: "shared store", Subject: ns}
+	recs, _, err := c.shared.List(ctx)
+	if err != nil {
+		r.Status, r.Summary = doctor.Fail, "the API server does not list the gateway's records in "+ns+": "+err.Error()
+		r.Details = []string{"grants, approvals and sign-ins are not kept; check the gateway's Role for Secrets in that namespace (get, list, watch, create, update, delete)"}
+		return r
+	}
+	r.Status, r.Summary = doctor.OK, fmt.Sprintf("the API server answers: %d keys in %s", len(recs), ns)
 	return r
 }
 

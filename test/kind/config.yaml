@@ -14,6 +14,10 @@ data:
       watch_interval: 2s
     metrics:
       listen: ":9464"
+    # The shared store, in the gateway's namespace (the component's Role).
+    replication:
+      store: kubernetes
+      namespace: mcp-gateway
     supervisor:
       # An instance no session uses stops soon: the test sees its pod go.
       idle_timeout: 20s

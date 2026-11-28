@@ -72,7 +72,7 @@ spec:
             {{- range $i, $s := .Values.secrets }}
             - {name: secret-{{ $i }}, mountPath: {{ default (printf "/etc/mcp-gateway/secrets/%s" $s.name) $s.mountPath }}, readOnly: true}
             {{- end }}
-            {{- if .Values.clusterIssuer.enabled }}
+            {{- if or .Values.clusterIssuer.enabled .Values.replication.enabled }}
             - {name: cluster-ca, mountPath: /etc/mcp-gateway/cluster-ca, readOnly: true}
             - {name: token, mountPath: /var/run/secrets/mcp-gateway/token, readOnly: true}
             {{- end }}
@@ -132,11 +132,12 @@ spec:
         - name: secret-{{ $i }}
           secret: {secretName: {{ required "secrets[].name: the Secret's name" $s.name }}, defaultMode: 0440}
         {{- end }}
-        {{- if .Values.clusterIssuer.enabled }}
+        {{- if or .Values.clusterIssuer.enabled .Values.replication.enabled }}
         - name: cluster-ca
           configMap: {name: kube-root-ca.crt}
-        # The gateway's own token, for the cluster's issuer key set: for
-        # the API server, an hour long, renewed by the kubelet.
+        # The gateway's own token, for the cluster's issuer key set and the
+        # shared store: for the API server, an hour long, renewed by the
+        # kubelet.
         - name: token
           projected:
             sources:

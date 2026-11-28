@@ -186,6 +186,64 @@ func OpenSharedStore(ctx context.Context, tokens, keys store.Collection, log *sl
 	return s, nil
 }
 
+// ImportFiles copies the store in dir (tokens.json and its key, as
+// OpenStore keeps them) into a shared store's tokens and keys: the key
+// first, so that the entries stay readable. If keys has a tokens key
+// already (another one), nothing is copied: the entries could not be
+// read. It returns the number of records copied.
+func ImportFiles(ctx context.Context, dir string, tokens, keys store.Collection) (int, error) {
+	key, err := os.ReadFile(filepath.Join(dir, "tokens.key"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if len(key) != 32 {
+		return 0, fmt.Errorf("token key: %d bytes, not 32", len(key))
+	}
+	if _, err := keys.Create(ctx, "tokens", key); err != nil {
+		if errors.Is(err, store.ErrExists) {
+			return 0, errors.New("the store has a token key of its own already: tokens.json not copied")
+		}
+		return 0, err
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "tokens.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var f storeFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return 0, fmt.Errorf("tokens.json: %w", err)
+	}
+	n := 0
+	put := func(name string, v any) error {
+		data, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		if _, err := tokens.Create(ctx, name, data); err != nil && !errors.Is(err, store.ErrExists) {
+			return err
+		}
+		n++
+		return nil
+	}
+	for _, e := range f.Entries {
+		if err := put(entryName(e.Server, e.Principal), e); err != nil {
+			return n, err
+		}
+	}
+	for _, c := range f.Clients {
+		if err := put(clientName(c.Server, c.Issuer), c); err != nil {
+			return n, err
+		}
+	}
+	return n, nil
+}
+
 // loadKey reads the 32-byte key at path, making it first if there is
 // none.
 func loadKey(path string) ([]byte, error) {

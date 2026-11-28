@@ -101,6 +101,9 @@ type Router struct {
 	// (0: 30 days).
 	HistoryFile      string
 	HistoryRetention time.Duration
+	// SharedHistory, if set, keeps the history in a shared store instead of
+	// HistoryFile (docs/architecture.md, section 5.12.5).
+	SharedHistory *SharedHistory
 
 	once    sync.Once
 	sealer  *sealer

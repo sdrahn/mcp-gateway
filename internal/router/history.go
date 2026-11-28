@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sdrahn/mcp-gateway/internal/store"
 )
 
 // The clients' history: each session from its initialize to its end, and
@@ -25,7 +27,24 @@ const (
 	defaultHistoryRetention = 30 * 24 * time.Hour
 	// maxHistory bounds the records kept; the oldest ended go first.
 	maxHistory = 10000
+	// maxSharedHistory bounds them in a shared store, a Secret each: a
+	// list of the collection stays a few megabytes.
+	maxSharedHistory = 2000
 )
+
+// SharedHistory is the history in a shared store: a table (a record per
+// client), and the records it held at the start.
+type SharedHistory struct {
+	Table *store.Table
+	Items map[string][]byte
+}
+
+func (r *Router) maxHistory() int {
+	if r.SharedHistory != nil {
+		return maxSharedHistory
+	}
+	return maxHistory
+}
 
 // How a client ended (ClientRecord.End).
 const (
@@ -71,20 +90,31 @@ func (r *Router) loadHistory() {
 	}
 	h.loaded = true
 	h.records = map[string]*ClientRecord{}
-	if r.HistoryFile == "" {
-		return
-	}
-	data, err := os.ReadFile(r.HistoryFile)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			r.Log.Warn("client history not read", "file", r.HistoryFile, "err", err)
-		}
-		return
-	}
 	var list []*ClientRecord
-	if err := json.Unmarshal(data, &list); err != nil {
-		r.Log.Warn("client history not read", "file", r.HistoryFile, "err", err)
-		return
+	if r.SharedHistory != nil {
+		for name, data := range r.SharedHistory.Items {
+			rec := new(ClientRecord)
+			if err := json.Unmarshal(data, rec); err != nil {
+				r.Log.Warn("client history: record not read", "name", name, "err", err)
+				continue
+			}
+			list = append(list, rec)
+		}
+	} else {
+		if r.HistoryFile == "" {
+			return
+		}
+		data, err := os.ReadFile(r.HistoryFile)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				r.Log.Warn("client history not read", "file", r.HistoryFile, "err", err)
+			}
+			return
+		}
+		if err := json.Unmarshal(data, &list); err != nil {
+			r.Log.Warn("client history not read", "file", r.HistoryFile, "err", err)
+			return
+		}
 	}
 	for _, rec := range list {
 		if rec.ID == "" {
@@ -110,7 +140,7 @@ func (r *Router) persistHistory(now time.Time) {
 			delete(h.records, id)
 		}
 	}
-	if len(h.records) > maxHistory {
+	if len(h.records) > r.maxHistory() {
 		var ended []*ClientRecord
 		for _, rec := range h.records {
 			if rec.Ended != nil {
@@ -119,11 +149,22 @@ func (r *Router) persistHistory(now time.Time) {
 		}
 		slices.SortFunc(ended, func(a, b *ClientRecord) int { return a.Ended.Compare(*b.Ended) })
 		for _, rec := range ended {
-			if len(h.records) <= maxHistory {
+			if len(h.records) <= r.maxHistory() {
 				break
 			}
 			delete(h.records, rec.ID)
 		}
+	}
+	if r.SharedHistory != nil {
+		// Written by the table's own writer.
+		items := make(map[string][]byte, len(h.records))
+		for id, rec := range h.records {
+			if data, err := json.Marshal(rec); err == nil {
+				items[id] = data
+			}
+		}
+		r.SharedHistory.Table.Save(items)
+		return
 	}
 	if r.HistoryFile == "" {
 		return

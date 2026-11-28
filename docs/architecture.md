@@ -5211,6 +5211,16 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       and of the audit's argument digests as records of a `keys`
       collection, made at the first start (two replicas making one at
       once agree on the one stored first);
+      as built (part 4): the clients seen as records (a table; the
+      latest 2000, so that a list of the collection stays a few
+      megabytes); at the first start with the store the files of
+      `state_dir` copied into it, once (a record `imported` in `keys`;
+      a record the store has already is kept, a tokens key of its own
+      keeps `tokens.json` out); the doctor's `shared-store` check; the
+      chart's `replication.enabled` and the `deploy/kubernetes/replication`
+      component with the Role (Secrets in the gateway's namespace: get,
+      list, watch, create, update, delete); the kind job on the store,
+      with a restart that keeps the audit key and imports nothing again;
     - stage B, owners and forwarding: the replicas' leases, a lease per
       principal, the peer listener with mTLS, forwarding of requests and
       their streams, sign-in callbacks forwarded by their `state`,

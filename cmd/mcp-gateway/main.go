@@ -267,6 +267,9 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		return err
 	}
 	defer shared.stop()
+	if err := importState(ctx, log, gw, shared); err != nil {
+		return err
+	}
 	auditLog, closeAudit, err := newAudit(log, gw, shared)
 	if err != nil {
 		return err
@@ -369,14 +372,19 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if err != nil {
 		return err
 	}
+	history, err := shared.history()
+	if err != nil {
+		return err
+	}
 	r := &router.Router{
-		Seen:     remember,
-		Backends: backends,
-		Launcher: launcher,
-		PDP:      pep.Guard{PDP: opa, Blocked: guard.Blocked},
-		Broker:   b,
-		Audit:    auditLog,
-		Log:      log,
+		SharedHistory: history,
+		Seen:          remember,
+		Backends:      backends,
+		Launcher:      launcher,
+		PDP:           pep.Guard{PDP: opa, Blocked: guard.Blocked},
+		Broker:        b,
+		Audit:         auditLog,
+		Log:           log,
 
 		IdleTimeout:      gw.Supervisor.IdleTimeout,
 		StartTimeout:     gw.Supervisor.StartTimeout,
@@ -488,6 +496,11 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		self = &selfCheck{log: log, gw: gw, backends: r.CurrentBackends, reloader: reloader, opa: opa, tokens: tokens, ready: opa.Health}
 		if s, ok := launcher.(supervisor.Split); ok {
 			self.kube, _ = s.Stdio.(*supervisor.Kubernetes)
+		}
+		if shared != nil {
+			if self.shared, err = shared.collection("keys"); err != nil {
+				return err
+			}
 		}
 		cs.Doctor = self
 		reloader.reloaded = func() { self.background("reload") }
@@ -921,6 +934,8 @@ type sharedStore struct {
 	cancel    context.CancelFunc
 	client    *kube.Client
 	namespace string
+	// tables are flushed at stop.
+	tables []*store.Table
 }
 
 func newShared(gw *config.Gateway) (*sharedStore, error) {
@@ -936,14 +951,42 @@ func newShared(gw *config.Gateway) (*sharedStore, error) {
 	return &sharedStore{ctx: ctx, cancel: cancel, client: client, namespace: r.Namespace}, nil
 }
 
+// stop flushes the tables opened here (a few seconds at most), then ends
+// the watches and writers.
 func (s *sharedStore) stop() {
-	if s != nil {
-		s.cancel()
+	if s == nil {
+		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, t := range s.tables {
+		_ = t.Flush(ctx)
+	}
+	s.cancel()
 }
 
 func (s *sharedStore) collection(name string) (store.Collection, error) {
 	return store.NewKubernetes(s.client, s.namespace, name)
+}
+
+// history returns the clients' history in the store (nil without one),
+// its table flushed at stop.
+func (s *sharedStore) history() (*router.SharedHistory, error) {
+	if s == nil {
+		return nil, nil
+	}
+	c, err := s.collection("clients")
+	if err != nil {
+		return nil, err
+	}
+	t := &store.Table{C: c}
+	items, err := t.Load(s.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("client history: %w", err)
+	}
+	go t.Run(s.ctx)
+	s.tables = append(s.tables, t)
+	return &router.SharedHistory{Table: t, Items: items}, nil
 }
 
 // broker returns the broker's collections (nil without a shared store).

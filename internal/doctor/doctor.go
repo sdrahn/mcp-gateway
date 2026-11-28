@@ -86,6 +86,7 @@ var checkIDs = map[string]string{
 	// the doctor in the gateway (container mode)
 	"state volume": "state-volume",
 	"kubernetes":   "kubernetes-api",
+	"shared store": "shared-store",
 }
 
 // checkPrefixes are the IDs of the checks labeled "<prefix><subject>",
