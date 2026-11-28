@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"regexp"
 )
 
@@ -29,7 +30,24 @@ type Replication struct {
 	// environment ($POD_NAME, $POD_IP; the downward API).
 	Replica string `yaml:"replica"`
 	Address string `yaml:"address"`
+	// Listen is the peer listener's address (":8444"): the other
+	// replicas forward the requests of this replica's principals to it,
+	// over TLS with the replicas' certificate (PeerCertFile, PeerKeyFile),
+	// which the replicas present as clients too, issued by PeerCAFile, for
+	// PeerServerName ("mcp-gateway-peer" by default). Unset: no
+	// forwarding (one replica on the store).
+	Listen         string `yaml:"listen"`
+	PeerCertFile   string `yaml:"peer_cert_file"`
+	PeerKeyFile    string `yaml:"peer_key_file"`
+	PeerCAFile     string `yaml:"peer_ca_file"`
+	PeerServerName string `yaml:"peer_server_name"`
 }
+
+// DefaultPeerServerName is the name in the replicas' certificate.
+const DefaultPeerServerName = "mcp-gateway-peer"
+
+// Forwarding reports whether the replicas forward to each other.
+func (r Replication) Forwarding() bool { return r.Shared() && r.Listen != "" }
 
 // Environment variables the replica's name and address default to.
 const (
@@ -59,6 +77,9 @@ func (r Replication) WithDefaults() Replication {
 	if r.APIServer == "" {
 		r.APIServer = DefaultKubernetesAPIServer
 	}
+	if r.PeerServerName == "" {
+		r.PeerServerName = DefaultPeerServerName
+	}
 	if r.TokenFile == "" {
 		r.TokenFile = DefaultKubernetesTokenFile
 	}
@@ -74,7 +95,7 @@ func (r Replication) Shared() bool { return r.Store == ReplicationKubernetes }
 func (r Replication) validate(container bool) error {
 	switch r.Store {
 	case "":
-		if r.Namespace != "" || r.APIServer != "" || r.TokenFile != "" || r.CAFile != "" || r.Replica != "" || r.Address != "" {
+		if r != (Replication{}) {
 			return errors.New("replication: set store: kubernetes, or nothing")
 		}
 		return nil
@@ -95,6 +116,18 @@ func (r Replication) validate(container bool) error {
 		if err := CheckReplica(r.Replica); err != nil {
 			return err
 		}
+	}
+	if r.Listen != "" {
+		if _, port, err := net.SplitHostPort(r.Listen); err != nil || port == "" {
+			return fmt.Errorf("replication.listen: %q is not host:port (\":8444\")", r.Listen)
+		}
+		for key, v := range map[string]string{"peer_cert_file": r.PeerCertFile, "peer_key_file": r.PeerKeyFile, "peer_ca_file": r.PeerCAFile} {
+			if v == "" {
+				return fmt.Errorf("replication.%s: required with replication.listen (the replicas' certificate, key and CA)", key)
+			}
+		}
+	} else if r.PeerCertFile != "" || r.PeerKeyFile != "" || r.PeerCAFile != "" || r.PeerServerName != "" {
+		return errors.New("replication.peer_*: only with replication.listen")
 	}
 	return nil
 }

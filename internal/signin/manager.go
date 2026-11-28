@@ -86,6 +86,11 @@ type Manager struct {
 	RunDir string
 	// Timeout bounds a sign-in (config.SignInSettings.Timeout).
 	Timeout time.Duration
+	// StatePrefix goes before each sign-in's state: with several
+	// replicas the replica's name and a separator, so that the callback,
+	// which may reach any replica, is forwarded to the one that waits for
+	// it (docs/architecture.md, section 5.12.5).
+	StatePrefix string
 	// OnChange is called when a principal signed in to or out of a
 	// server (the router tells their sessions, and stops their instances
 	// on sign-out).
@@ -346,7 +351,7 @@ func (m *Manager) Begin(ctx context.Context, b *config.Backend, p principal.Prin
 	if err != nil {
 		return nil, err
 	}
-	pd := &Pending{State: oauth.NewState(), Server: b.Name, Key: KeyOf(p), Expires: m.now().Add(m.timeout()),
+	pd := &Pending{State: m.StatePrefix + oauth.NewState(), Server: b.Name, Key: KeyOf(p), Expires: m.now().Add(m.timeout()),
 		verifier: oauth.NewVerifier(), backend: b, client: c, info: info, done: make(chan error, 1)}
 	pd.URL, err = oauth.AuthURL(info.server.AuthorizationEndpoint, oauth.AuthParams{ClientID: c.id, RedirectURI: m.RedirectURI,
 		Scope: m.scope(b, info), State: pd.State, Verifier: pd.verifier, Resource: b.URL})
