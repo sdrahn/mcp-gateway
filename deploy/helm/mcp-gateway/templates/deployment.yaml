@@ -10,7 +10,13 @@ metadata:
   name: {{ $name }}
   labels: {{- include "mcp-gateway.labels" . | nindent 4 }}
 spec:
-  replicas: 1
+  {{- $replicas := int .Values.replication.replicas }}
+  {{- if gt $replicas 1 }}
+  {{- if or (not .Values.replication.enabled) .Values.persistence.enabled (not .Values.replication.peerSecret) }}
+  {{- fail "replication.replicas > 1 needs replication.enabled, persistence.enabled false and replication.peerSecret" }}
+  {{- end }}
+  {{- end }}
+  replicas: {{ $replicas }}
   strategy:
     type: Recreate
   selector:
@@ -60,6 +66,10 @@ spec:
           ports:
             - {name: https, containerPort: 8443}
             - {name: metrics, containerPort: 9464}
+            {{- if .Values.replication.peerSecret }}
+            # The peer listener: the other replicas only (mTLS).
+            - {name: peer, containerPort: 8444}
+            {{- end }}
           # /readyz: the policy engine answers; /healthz: the gateway
           # serves (metrics.listen).
           readinessProbe:
@@ -84,6 +94,9 @@ spec:
             - {name: token, mountPath: /var/run/secrets/mcp-gateway/token, readOnly: true}
             {{- end }}
             - {name: state, mountPath: /var/lib/mcp-gateway}
+            {{- if .Values.replication.peerSecret }}
+            - {name: peer, mountPath: /etc/mcp-gateway/peer, readOnly: true}
+            {{- end }}
             - {name: run, mountPath: /run/mcp-gateway}
             - {name: rendered, mountPath: /run/mcp-opa, readOnly: true}
             - {name: tmp, mountPath: /tmp}
@@ -151,8 +164,16 @@ spec:
               - serviceAccountToken: {path: token, expirationSeconds: 3600}
         {{- end }}
         - name: state
+          {{- if .Values.persistence.enabled }}
           persistentVolumeClaim:
             claimName: {{ default (printf "%s-state" $name) .Values.persistence.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.replication.peerSecret }}
+        - name: peer
+          secret: {secretName: {{ .Values.replication.peerSecret }}, defaultMode: 0440}
+        {{- end }}
         - name: run
           emptyDir: {medium: Memory}
         - name: rendered

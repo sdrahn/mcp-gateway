@@ -5415,6 +5415,17 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       kept 10 minutes; the approval page and the console show other
       replicas' approvals when they load, live updates of them come with
       stage C;
+      as built (part 4): the chart's `replication.replicas`,
+      `replication.peerSecret` (the peer listener, its port and the
+      replicas' certificate) and `persistence.enabled: false` (the
+      state directory an `emptyDir`); the kind job runs three replicas
+      with both deploys: one principal's calls through each replica
+      reach one instance, the replica that serves it deleted, its
+      instance pods are reaped and another serves the principal with a
+      new instance, and a restart hands all Leases over; an approval
+      decided on another replica and a sign-in through another are
+      tested against the fake API (they need an approver and a server
+      with sign-in, which the kind job has not);
     - stage C, the console and the control API across replicas (views
       merged from the peers, actions forwarded to the replica that holds
       them), draining on `SIGTERM`, the chart's `replicas` with a

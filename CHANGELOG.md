@@ -35,7 +35,10 @@ minor release (with a warning) and removed in the next.
   showing all, and take over those of a replica that is gone; an
   approval, a notice's dismissal or a review's verdict decided on any
   replica is carried out by the replica that holds it, the first
-  decision counting (#441).
+  decision counting. The chart runs several replicas with
+  `replication.replicas`, `replication.peerSecret` and
+  `persistence.enabled: false` (user guide, chapter 16, "Several
+  replicas") (#441).
 
 ## v2.0.0 — 2026-11-27
 

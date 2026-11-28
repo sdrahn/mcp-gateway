@@ -1,4 +1,4 @@
-{{- if not .Values.persistence.existingClaim }}
+{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
 # The gateway's state (grants, pending approvals, the audit key, sign-in
 # tokens, clients). Kept when the release is uninstalled.
 apiVersion: v1

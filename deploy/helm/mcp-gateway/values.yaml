@@ -55,6 +55,15 @@ kubernetesLauncher:
 # gateway imports the files of the volume. Off: the files on the volume.
 replication:
   enabled: false
+  # Several replicas (roadmap step 49, being built: the console across
+  # them and a rolling update come with stage C): replicas > 1 needs the
+  # shared store, persistence.enabled false, and the replicas'
+  # certificate, a Secret with tls.crt, tls.key and ca.crt (its
+  # certificate for the name mcp-gateway-peer, for server and client
+  # use), with which they forward each principal's requests to the
+  # replica that serves it.
+  replicas: 1
+  peerSecret: ""
 
 # Server definitions, by file name: name, url, ... (chapter 4); a stdio
 # server names its image.
@@ -89,6 +98,9 @@ tls:
   secretName: mcp-gateway-tls
 
 persistence:
+  # false: the state directory is an emptyDir (with the shared store,
+  # which keeps the state).
+  enabled: true
   size: 1Gi
   storageClassName: ""
   # An existing claim instead of a new one.

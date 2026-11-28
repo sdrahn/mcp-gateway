@@ -18,6 +18,11 @@ data:
     replication:
       store: kubernetes
       namespace: mcp-gateway
+      # Three replicas (replicas.yaml) forward to each other.
+      listen: ":8444"
+      peer_cert_file: /etc/mcp-gateway/peer/tls.crt
+      peer_key_file: /etc/mcp-gateway/peer/tls.key
+      peer_ca_file: /etc/mcp-gateway/peer/ca.crt
     supervisor:
       # An instance no session uses stops soon: the test sees its pod go.
       idle_timeout: 20s
