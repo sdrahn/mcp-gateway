@@ -560,7 +560,7 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `GET /v1/policy` | `{"mode": "directories"\|"bundle", "bundles": {name: revision}, "shipped_roles": {role: {"setup", "description", "permissions"}}}`; `502` if OPA is unavailable |
 | `POST /v1/policy/whatif` | body: proposed role data (as `data.json`); returns `{"changes": [{"principal", "server", "kind", "name", "before", "after"}], "principals", "resources", "unchecked": {server: reason}}`: the decisions that would change, for the users (`user:<name>`) and groups (`group:<name>`) either role data binds; `403` unless `data.mcp.approvals.review_policy` allows the caller |
 | `GET /v1/metrics` | metrics in the Prometheus text format (chapter 10); `403` unless the caller is root |
-| `GET /v1/doctor` | container mode: the doctor's checks the gateway runs itself (chapter 16, "Operating"), as last run (at the start, after a reload, on request): `{"checked", "trigger": "start"\|"reload"\|"request", "replica", "results"}` (`replica`: with several replicas, the one that ran the checks), `results` as `mcp-gateway-admin doctor --json`'s; `403` unless the caller is root or `data.mcp.approvals.review_policy` allows them; `404` on a host (run `mcp-gateway-admin doctor`) |
+| `GET /v1/doctor` | container mode: the doctor's checks the gateway runs itself (chapter 16, "Operating"), as last run (at the start, after a reload, on request): `{"checked", "trigger": "start"\|"reload"\|"request", "replica", "results"}` (`replica`: with several replicas, the one that ran the checks), `results` as `mcp-gateway-admin doctor --json`'s; with several replicas also `"replicas"`, the other replicas' reports (each with `"unreachable"` instead of results if it did not answer); `403` unless the caller is root or `data.mcp.approvals.review_policy` allows them; `404` on a host (run `mcp-gateway-admin doctor`) |
 | `POST /v1/doctor` | run those checks now and answer as `GET` (up to a minute) |
 | `POST /v1/notices` | post a notice (chapter 7, "Notices"): `{"principal", "servers", "severity": "info"\|"warning", "title", "text"}`; returns the notice (`201`): `{"id", "principal": {"sub", "uid"}, "servers", "severity", "title", "text", "posted_by", "created", "expires"}`; `400` with what is wrong; `403` unless the caller is root or `data.mcp.approvals.post_notice` allows them |
 | `GET /v1/notices` | the unexpired notices the caller may read and has not dismissed, oldest first |
@@ -569,6 +569,16 @@ curl -s --unix-socket /run/mcp-gateway/control.sock http://localhost/v1/whoami
 | `GET /v1/reviews/{id}` | one item; `404` if unknown or not the caller's to review |
 | `POST /v1/reviews/{id}` | `{"verdict": "ok"\|"incident", "reason", "via": "cockpit"\|"cli"}`; returns the item with the verdict (`200`), which replaces an earlier one; `400` for an incident without a reason; `403` with `"code": "password_required"` for `ok` on the caller's own call that only `self` lets them review, without their password |
 | `GET /v1/events` | server-sent events (`event: approval`) for the approvals the caller may decide on, the notices they may read and the review items they may review: first all of them, then changes; `data` is `{"type": "pending"\|"resolved"\|"notice"\|"notice-closed"\|"review"\|"review-closed", "id", "new", "pending", "notice", "review", "url"}`; `notice-closed` when a notice expired or the caller dismissed it; `review` for a new item and for a new verdict, `review-closed` when it expired |
+
+With several replicas (chapter 16, "Several replicas") the instances of
+`GET /v1/servers`, `GET /v1/tasks` and `GET /v1/sessions` are those of
+every live replica, each with `"replica"`, the one that runs it; the id
+of another replica's is `<replica>~<id>` (and so are the instances a
+session of another replica uses), and `DELETE /v1/instances/{id}`,
+`POST /v1/tasks/{id}/cancel` and `DELETE /v1/sessions/{id}` with such an
+id are carried out by that replica. Who sees and does what is decided on
+the replica that answers, as for its own. A replica that does not
+answer within a few seconds is left out (and logged).
 
 Errors are `{"error": "…"}` with a matching status, and `"code"` for
 those a client handles: `"password_required"` (403) refuses approving

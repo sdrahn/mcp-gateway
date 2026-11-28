@@ -306,3 +306,44 @@ func TestForwardCookies(t *testing.T) {
 	}
 	<-a.seen
 }
+
+// The peer listener serves the replicas' own requests below its
+// internal prefix, to replicas only; clients' forwarded requests go on as
+// before.
+func TestPeerInternal(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	p := newPKI(t)
+	a, b := newReplica(t, api, p, "gw-a"), newReplica(t, api, p, "gw-b")
+	refreshAll(t, a, b)
+	b.peer.Config.Handler = &PeerHandler{Forwarder: b.fwd, InternalPrefix: "/peer/v1/",
+		Internal: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = fmt.Fprint(w, "internal "+r.URL.Path) })}
+	peer := &http.Client{Transport: a.fwd.Transport}
+	req, _ := http.NewRequest("GET", b.peer.URL+"/peer/v1/instances", nil)
+	req.Header.Set(ForwardedByHeader, "gw-a")
+	resp, err := peer.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if string(body) != "internal /peer/v1/instances" {
+		t.Errorf("internal: %d %s", resp.StatusCode, body)
+	}
+	// Not without the peer header, nor without the replicas' certificate.
+	resp, err = peer.Get(b.peer.URL + "/peer/v1/instances")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("without the header: %d", resp.StatusCode)
+	}
+	if _, err := http.Get(b.peer.URL + "/peer/v1/instances"); err == nil {
+		t.Error("without a certificate")
+	}
+	// The public listener does not reach it.
+	if w := a.request("GET", "/peer/v1/instances", "", nil, nil); w.Body.String() != "served by gw-a" {
+		t.Errorf("public listener: %s", w.Body)
+	}
+	<-a.seen
+}

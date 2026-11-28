@@ -973,7 +973,10 @@ func modernCapabilities(caps any) map[string]json.RawMessage {
 
 // TaskInfo describes a task for the control API (GET /v1/tasks).
 type TaskInfo struct {
-	ID        string              `json:"id"`
+	ID string `json:"id"`
+	// Replica names the replica of several that runs the task (set by
+	// the merged views, internal/cluster).
+	Replica   string              `json:"replica,omitempty"`
 	Server    string              `json:"server"`
 	Tool      string              `json:"tool"`
 	Sub       string              `json:"sub"`

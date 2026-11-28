@@ -50,6 +50,13 @@ minor release (with a warning) and removed in the next.
   replica, and the others forward the browser's requests there. Before,
   a browser was signed in on one replica only, and a sign-in's callback
   could fail on another (#452).
+- With several replicas the console and the control API list every
+  replica's instances, tasks and clients (`replica` on each, the id of
+  another replica's `<replica>~<id>`), and an action on one is carried
+  out by the replica that holds it, decided by the approver rules where
+  it is asked; the doctor's report has the other replicas' reports
+  (`replicas`), shown on the Doctor page and by `doctor --gateway`,
+  whose exit status counts them all (#452).
 
 ### Fixed
 

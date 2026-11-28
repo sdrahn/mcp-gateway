@@ -108,7 +108,8 @@ func newRemoteFake(t *testing.T) *remoteFake {
 	mux.HandleFunc("POST /console/api/v1/doctor", authed(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprint(w, `{"checked":"2026-11-27T11:00:00Z","trigger":"request","replica":"gw-b","results":[`+
 			`{"check":"policy","id":"policy","status":"ok","summary":"OPA decides"},`+
-			`{"check":"server tickets","id":"server","subject":"tickets","status":"warn","summary":"slow"}]}`)
+			`{"check":"server tickets","id":"server","subject":"tickets","status":"warn","summary":"slow"}],`+
+			`"replicas":[{"replica":"gw-c","results":[{"check":"policy","id":"policy","status":"ok","summary":"gw-c's OPA decides"}]}]}`)
 	}))
 	mux.HandleFunc("GET /approvals/api/v1/grants", authed(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprint(w, `[]`)
@@ -170,7 +171,8 @@ func TestRemoteLogin(t *testing.T) {
 	}
 	// The gateway's own checks, through its console API.
 	if rc, stdout, stderr = runCmd("doctor", "--gateway", gw); rc != 0 || !strings.Contains(stdout, "OPA decides") || !strings.Contains(stdout, "slow") ||
-		!strings.Contains(stdout, "checked by the replica gw-b") {
+		!strings.Contains(stdout, "checked by the replica gw-b") || !strings.Contains(stdout, "checked by the replica gw-c") ||
+		!strings.Contains(stdout, "gw-c's OPA decides") {
 		t.Errorf("doctor: %d %s %s", rc, stdout, stderr)
 	}
 	if rc, stdout, _ = runCmd("doctor", "--gateway", gw, "--json", "--strict"); rc != 3 || !strings.Contains(stdout, `"subject": "tickets"`) {

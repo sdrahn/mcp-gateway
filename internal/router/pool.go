@@ -655,7 +655,10 @@ func (p *pool) scheduleStop(e *poolEntry) {
 
 // InstanceInfo describes a running backend instance.
 type InstanceInfo struct {
-	ID        string              `json:"id"`
+	ID string `json:"id"`
+	// Replica names the replica of several that runs the instance (set
+	// by the merged views, internal/cluster).
+	Replica   string              `json:"replica,omitempty"`
 	Server    string              `json:"server"`
 	Unit      string              `json:"unit"`
 	Sub       string              `json:"sub"`

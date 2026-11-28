@@ -22,7 +22,10 @@ const agentSeenFor = time.Hour
 // SessionInfo is a client of the gateway: a session (Kind "session") or
 // an agent of 2026-07-28 as last seen (Kind "agent").
 type SessionInfo struct {
-	ID        string              `json:"id"`
+	ID string `json:"id"`
+	// Replica names the replica of several that serves the client (set
+	// by the merged views, internal/cluster).
+	Replica   string              `json:"replica,omitempty"`
 	Kind      string              `json:"kind"`
 	Sub       string              `json:"sub"`
 	Issuer    string              `json:"iss,omitempty"`

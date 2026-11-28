@@ -37,6 +37,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/audit"
 	"github.com/sdrahn/mcp-gateway/internal/authn"
 	"github.com/sdrahn/mcp-gateway/internal/broker"
+	"github.com/sdrahn/mcp-gateway/internal/cluster"
 	"github.com/sdrahn/mcp-gateway/internal/config"
 	controlapi "github.com/sdrahn/mcp-gateway/internal/control"
 	"github.com/sdrahn/mcp-gateway/internal/fswatch"
@@ -538,6 +539,19 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		}
 		cs.Doctor = self
 		reloader.reloaded = func() { self.background("reload") }
+	}
+	if fwd != nil {
+		// Several replicas: the control API and the console list every
+		// replica's instances, tasks and clients, and the doctor's
+		// reports of all; an action on another replica's is carried out
+		// there (internal/cluster).
+		view := &cluster.View{Local: r, Members: fwd.members, Client: &http.Client{Transport: fwd.transport}, Log: log}
+		cs.Instances, cs.Tasks, cs.Sessions = view, view, view
+		if self != nil {
+			view.Doctor = self
+			cs.Doctor = view
+		}
+		fwd.internal = view.Handler()
 	}
 	if page != nil {
 		page.Control = cs.Handler()
