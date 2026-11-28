@@ -164,8 +164,27 @@ a project such as `home:sdrahn:testing`, whose repository
      not find them, list what the path offers:
      `osc ls -b openSUSE:Containers:Tumbleweed containers x86_64 | grep -E 'bci|tumbleweed'`.
    - It tags `sdrahn/mcp-gateway` as `latest`, `%PKG_VERSION%` and
-     `%PKG_VERSION%-%RELEASE%`. `_service` puts the version of
-     `mcp-gateway-container` into `%PKG_VERSION%` at build time.
+     `%PKG_VERSION%-%RELEASE%`, and names the built file after
+     `%PKG_VERSION%` (`#!BuildVersion`), e.g.
+     `sdrahn-mcp-gateway-2.0.0.x86_64-4.1.tar`. `_service` fills these
+     in at build time: `replace_using_package_version` puts the version
+     of `mcp-gateway-container` into `%PKG_VERSION%`, and
+     `kiwi_metainfo_helper` replaces `%RELEASE%` (OBS's build counter),
+     `%BUILDTIME%` and `%DISTURL%`. obs-build itself replaces none of
+     them; without `kiwi_metainfo_helper`, podman refuses the tag
+     `…-%RELEASE%` ("invalid reference format").
+   - Its labels carry the image's own prefix as well,
+     `org.opensuse.mcp-gateway.*` (`docker_label_helper`), so they do
+     not read as BCI-Micro's. `org.opensuse.reference` names where
+     `home:sdrahn:testing` publishes the image: in another project,
+     change it to that project's path (below).
+   - container-build-checks warns four times in a home project, which
+     is not fatal there: three times that the tags are outside the
+     namespaces openSUSE's container projects allow (`opensuse/*`,
+     `bci/*` and a few more), and once that `org.opensuse.reference`
+     names no tag. The check strips only the registry's host from the
+     reference, and a home project publishes below its project and
+     repository, so the rest never equals a tag.
    - The image is the one `make image` builds: uid 10001, port 8443,
      the same entry point. Its RPM database names the package, so
      scanners see the gateway's version.
