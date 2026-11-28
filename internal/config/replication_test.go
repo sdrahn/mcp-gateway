@@ -23,15 +23,16 @@ func TestReplication(t *testing.T) {
 		t.Errorf("default: %v %+v", err, h.Replication)
 	}
 	for content, want := range map[string]string{
-		"replication:\n  store: kubernetes\n  namespace: gw\n":                                     "replication.store: kubernetes only in container mode",
-		c + httpYAML + "replication:\n  store: etcd\n":                                             `replication.store: "etcd"`,
-		c + httpYAML + "replication:\n  store: kubernetes\n":                                       "replication.namespace: required",
-		c + httpYAML + "replication:\n  store: kubernetes\n  namespace: A\n":                       `replication.namespace: "A" is not a namespace name`,
-		c + httpYAML + "replication:\n  namespace: gw\n":                                           "replication: set store: kubernetes, or nothing",
-		c + httpYAML + "replication:\n  store: kubernetes\n  namespace: gw\n  replica: GW_1\n":     `replication.replica: "GW_1" is not a label value`,
-		c + httpYAML + "replication:\n  store: kubernetes\n  namespace: gw\n  listen: \":8444\"\n": "replication.peer_cert_file: required with replication.listen",
-		c + httpYAML + "replication:\n  store: kubernetes\n  namespace: gw\n  listen: \"8444\"\n":  `replication.listen: "8444" is not host:port`,
-		c + httpYAML + "replication:\n  store: kubernetes\n  namespace: gw\n  peer_ca_file: /ca\n": "replication.peer_*: only with replication.listen",
+		"replication:\n  store: kubernetes\n  namespace: gw\n":                                      "replication.store: kubernetes only in container mode",
+		c + httpYAML + "replication:\n  store: etcd\n":                                              `replication.store: "etcd"`,
+		c + httpYAML + "replication:\n  store: kubernetes\n":                                        "replication.namespace: required",
+		c + httpYAML + "replication:\n  store: kubernetes\n  namespace: A\n":                        `replication.namespace: "A" is not a namespace name`,
+		c + httpYAML + "replication:\n  namespace: gw\n":                                            "replication: set store: kubernetes, or nothing",
+		c + httpYAML + "replication:\n  store: kubernetes\n  namespace: gw\n  replica: GW_1\n":      `replication.replica: "GW_1" is not a label value`,
+		c + httpYAML + "replication:\n  store: kubernetes\n  namespace: gw\n  listen: \":8444\"\n":  "replication.peer_cert_file: required with replication.listen",
+		c + httpYAML + "replication:\n  store: kubernetes\n  namespace: gw\n  drain_timeout: 10s\n": "replication.drain_timeout: only with replication.listen",
+		c + httpYAML + "replication:\n  store: kubernetes\n  namespace: gw\n  listen: \"8444\"\n":   `replication.listen: "8444" is not host:port`,
+		c + httpYAML + "replication:\n  store: kubernetes\n  namespace: gw\n  peer_ca_file: /ca\n":  "replication.peer_*: only with replication.listen",
 	} {
 		if _, err := LoadGateway(writeFile(t, t.TempDir(), "gateway.yaml", content)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: %v, want %q", content, err, want)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"time"
 )
 
 // Replication configures the shared store of several replicas
@@ -41,10 +42,20 @@ type Replication struct {
 	PeerKeyFile    string `yaml:"peer_key_file"`
 	PeerCAFile     string `yaml:"peer_ca_file"`
 	PeerServerName string `yaml:"peer_server_name"`
+	// DrainTimeout, with forwarding, is how long a replica that is told
+	// to stop (SIGTERM) keeps serving the principals busy on it while it
+	// takes no new ones (DefaultDrainTimeout); below the pod's
+	// terminationGracePeriodSeconds. 0: as long as the default.
+	DrainTimeout time.Duration `yaml:"drain_timeout"`
 }
 
 // DefaultPeerServerName is the name in the replicas' certificate.
 const DefaultPeerServerName = "mcp-gateway-peer"
+
+// DefaultDrainTimeout is as long as Kubernetes' default grace period: a
+// pod of several replicas needs a longer one (terminationGracePeriodSeconds
+// 45 leaves 15 s for the stop itself).
+const DefaultDrainTimeout = 30 * time.Second
 
 // Forwarding reports whether the replicas forward to each other.
 func (r Replication) Forwarding() bool { return r.Shared() && r.Listen != "" }
@@ -85,6 +96,9 @@ func (r Replication) WithDefaults() Replication {
 	}
 	if r.CAFile == "" {
 		r.CAFile = DefaultKubernetesCAFile
+	}
+	if r.DrainTimeout == 0 {
+		r.DrainTimeout = DefaultDrainTimeout
 	}
 	return r
 }
@@ -128,6 +142,11 @@ func (r Replication) validate(container bool) error {
 		}
 	} else if r.PeerCertFile != "" || r.PeerKeyFile != "" || r.PeerCAFile != "" || r.PeerServerName != "" {
 		return errors.New("replication.peer_*: only with replication.listen")
+	} else if r.DrainTimeout != 0 {
+		return errors.New("replication.drain_timeout: only with replication.listen (several replicas)")
+	}
+	if r.DrainTimeout < 0 || r.DrainTimeout > 10*time.Minute {
+		return fmt.Errorf("replication.drain_timeout: %s is not between 0 and 10m", r.DrainTimeout)
 	}
 	return nil
 }

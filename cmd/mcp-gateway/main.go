@@ -29,6 +29,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -256,8 +257,26 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		log.Info("container mode: no Unix socket; principals connect to the HTTP listener", "version", version.Version)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	signalled, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// ctx ends the gateway: at the signal, after a replica of several
+	// drained (drain, set with the forwarding).
+	ctx, endGateway := context.WithCancel(context.Background())
+	defer endGateway()
+	var drain atomic.Pointer[func()]
+	var draining atomic.Bool
+	go func() {
+		select {
+		case <-signalled.Done():
+		case <-ctx.Done():
+			return
+		}
+		if d := drain.Load(); d != nil {
+			draining.Store(true)
+			(*d)()
+		}
+		endGateway()
+	}()
 	hup, stopHUP := notifyHUP() // systemctl reload: gateway.yaml and the server definitions
 	defer stopHUP()
 
@@ -467,7 +486,7 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 
 	registerGauges(r, b)
 	if gw.Metrics.Listen != "" {
-		stopMetrics, err := serveMetrics(log, gw.Metrics.Listen, opa.Health)
+		stopMetrics, err := serveMetrics(log, gw.Metrics.Listen, readiness(&draining, opa.Health))
 		if err != nil {
 			return err
 		}
@@ -516,6 +535,10 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	if signIns != nil && fwd != nil {
 		// The callback may reach any replica: its state names this one.
 		signIns.StatePrefix = fwd.members.Name + replicas.StateSeparator
+	}
+	if fwd != nil {
+		d := func() { fwd.drain(log, gw.Replication.WithDefaults().DrainTimeout) }
+		drain.Store(&d)
 	}
 	if page != nil && fwd != nil {
 		// A browser's next request may reach any replica: the page's

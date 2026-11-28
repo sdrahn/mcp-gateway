@@ -5462,6 +5462,15 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       those, so that each is announced once, where it is held; an
       approval adopted from a replica that is gone is announced as this
       replica's but not as new;
+      as built (part 5): at `SIGTERM` a replica marks its Lease as
+      draining (`mcp-gateway.io/draining`), so that it takes no new
+      principal: one no live replica holds goes to one that does not
+      drain (the same for a principal on every draining replica, by its
+      key), which takes it when the request reaches it; alone, or with
+      every replica draining, it takes it itself; it gives up the
+      principals with nothing running at once and the others as they
+      end, for `replication.drain_timeout` (30 s) at most, while
+      `/readyz` fails; then it stops as before;
 
 50. **Servers discovered in the cluster** (after 2.0; D25, proposed;
     open; §5.12.8): `server_discovery` with its namespaces, prefixes and

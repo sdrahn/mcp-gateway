@@ -710,7 +710,15 @@ replication:
   peer_ca_file: /etc/mcp-gateway/peer/ca.crt
 ```
 
-A replica that goes, deleted or lost with its node, gives up its
+A replica that is told to stop (`SIGTERM`: deleted, evicted, or rolled
+by an update) drains first, for `replication.drain_timeout` (30 s) at
+most: it takes no new principals, which go to the other replicas, and
+gives up those with nothing running at once; the principals busy on it
+(instances, sessions, tasks) are served there until they are done, and
+`/readyz` fails, so that the Service sends it no new connections. The
+chart gives the pods 45 s to stop (`terminationGracePeriodSeconds`) with
+several replicas; with the manifests, set it (`test/kind/replicas.yaml`
+does). A replica that goes, after draining or lost with its node, gives up its
 principals (at once when it stops, else when its Lease runs out): the
 next request of each is served by another replica, with new instances;
 what lived in its memory (sessions, running tasks, contexts) ends as

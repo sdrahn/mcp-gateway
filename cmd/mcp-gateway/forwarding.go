@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -92,6 +93,27 @@ func busyPrincipals(r *router.Router) map[string]bool {
 
 // serve starts the peer listener with f's PeerHandler; the returned
 // function stops it.
+// drain stops this replica taking principals and gives up those with
+// nothing running here, then waits until the busy ones are done too, at
+// most timeout (docs/architecture.md, section 5.12.5): what still runs then
+// ends as in a restart.
+func (fw *forwarding) drain(log *slog.Logger, timeout time.Duration) {
+	log.Info("replicas: draining: no new principals here", "for", timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	mctx, mcancel := context.WithTimeout(ctx, 5*time.Second)
+	if err := fw.members.Drain(mctx); err != nil {
+		log.Warn("replicas: marking this replica's Lease as draining failed; the others still send it principals", "err", err)
+	}
+	mcancel()
+	fw.owners.Drain(ctx)
+	if held := len(fw.owners.Held()); held > 0 {
+		log.Warn("replicas: drain timeout: principals still busy here end as in a restart", "principals", held)
+		return
+	}
+	log.Info("replicas: drained")
+}
+
 func (fw *forwarding) serve(log *slog.Logger, f *replicas.Forwarder, errc chan<- error) (func(), error) {
 	srv := &http.Server{
 		Addr: fw.listen,

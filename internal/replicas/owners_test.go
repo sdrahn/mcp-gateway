@@ -121,3 +121,109 @@ func TestOwnersRenewRelease(t *testing.T) {
 		t.Fatalf("%d owner Leases after giving up", n)
 	}
 }
+
+// A draining replica takes no new principals: it names one that takes
+// them, the same for a principal on each draining replica, which takes it
+// when the request reaches it; the principals it holds that are not busy
+// are given up at once, the busy ones once they are done, and the others
+// see it draining.
+func TestDrain(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	c := &clock{t: time.Now()}
+	ma, mb := member(api, "gw-a", c), member(api, "gw-b", c)
+	ctx := context.Background()
+	for _, m := range []*Members{ma, mb} {
+		if err := m.Join(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = ma.refresh(ctx)
+	var mu sync.Mutex
+	busy := map[string]bool{"busy": true}
+	oa, ob := owners(api, ma, c), owners(api, mb, c)
+	oa.Busy = func() map[string]bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return map[string]bool{"busy": busy["busy"]}
+	}
+	for _, k := range []string{"busy", "idle"} {
+		if got, err := oa.Owner(ctx, k); err != nil || got != "gw-a" {
+			t.Fatalf("%s: %q %v", k, got, err)
+		}
+	}
+	if err := ma.Drain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_ = mb.refresh(ctx)
+	if !ma.Draining() || mb.Draining() || len(mb.Takers()) != 0 || len(ma.Takers()) != 1 {
+		t.Fatalf("draining: a %v b %v, takers at b %v, at a %v", ma.Draining(), mb.Draining(), mb.Takers(), ma.Takers())
+	}
+	if !mb.Live()["gw-a"].Draining {
+		t.Error("b does not see a draining")
+	}
+	// A new principal: b's, not taken here.
+	if got, err := oa.Owner(ctx, "new"); err != nil || got != "gw-b" {
+		t.Fatalf("new at a: %q %v", got, err)
+	}
+	if got, err := ob.Owner(ctx, "new"); err != nil || got != "gw-b" {
+		t.Fatalf("new at b: %q %v", got, err)
+	}
+	// The busy one is kept while busy; it is served here meanwhile.
+	done := make(chan struct{})
+	go func() { oa.Drain(ctx); close(done) }()
+	waitFor(t, "idle given up", func() bool { return len(oa.Held()) == 1 })
+	if got, _ := oa.Owner(ctx, "busy"); got != "gw-a" {
+		t.Errorf("busy while draining: %q", got)
+	}
+	mu.Lock()
+	busy["busy"] = false
+	mu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("drain did not end")
+	}
+	if n := len(api.Names("leases", "gw", "mcp-gateway.io/role=owner")); n != 1 {
+		t.Errorf("%d owner Leases after draining (b's new one only)", n)
+	}
+	// Alone and draining, a replica serves what comes rather than none.
+	_ = mb.Drain(ctx)
+	_ = ma.refresh(ctx)
+	if got, err := oa.Owner(ctx, "late"); err != nil || got != "gw-a" {
+		t.Errorf("late with every replica draining: %q %v", got, err)
+	}
+}
+
+// Drain ends at its deadline with a principal still busy.
+func TestDrainTimeout(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	c := &clock{t: time.Now()}
+	m := member(api, "gw-a", c)
+	ctx := context.Background()
+	if err := m.Join(ctx); err != nil {
+		t.Fatal(err)
+	}
+	o := owners(api, m, c)
+	o.Busy = func() map[string]bool { return map[string]bool{"busy": true} }
+	if _, err := o.Owner(ctx, "busy"); err != nil {
+		t.Fatal(err)
+	}
+	dctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	o.Drain(dctx)
+	if d := time.Since(start); d < time.Second || d > 4*time.Second || len(o.Held()) != 1 {
+		t.Errorf("drain took %s, holds %v", d, o.Held())
+	}
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out: %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
