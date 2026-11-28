@@ -179,7 +179,7 @@ fi
 doc=$(k -n "$NS" exec deploy/mcp-gateway -c gateway -- mcp-gateway-admin doctor --config /etc/mcp-gateway/config/gateway.yaml --json) || true
 [ "$(jq '[.[] | select(.status == "fail")] | length' <<<"$doc" 2>/dev/null)" = 0 ] || fail "doctor: $doc"
 [ "$(jq '[.[] | select(.id == "policy" or .id == "state-volume" or .id == "kubernetes-api" or .id == "identity-provider" or
-	.id == "shared-store")] | length >= 5 and all(.status == "ok")' <<<"$doc")" = true ] || fail "doctor: $doc"
+	.id == "shared-store" or .id == "server-discovery")] | length >= 6 and all(.status == "ok")' <<<"$doc")" = true ] || fail "doctor: $doc"
 pass "the doctor in the gateway: $(jq -r '[.[] | .id + " " + .status] | join(", ")' <<<"$doc")"
 
 token=$(k -n agents create token custos --audience mcp-gateway --duration 30m)

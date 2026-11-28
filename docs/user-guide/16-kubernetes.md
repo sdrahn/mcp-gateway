@@ -652,7 +652,7 @@ Role).
 where it comes from (`Service team-a/tickets`, or `server file`), the
 console's Servers page names a discovered server's Service, and
 `GET /v1/servers` has it as `discovered`. The doctor's `server
-discovery` check counts the servers discovered, fails for a namespace
+discovery` check (`server-discovery`) counts the servers discovered, fails for a namespace
 whose Services it cannot list (a missing Role), warns for each Service
 that gives no server and says why, and lists the names a server file
 overrides. The audit records each discovered server as it comes, changes

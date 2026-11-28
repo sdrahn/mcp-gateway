@@ -74,6 +74,10 @@ func TestSelfCheckServerDiscovery(t *testing.T) {
 		errs: map[string]string{"team-b": "forbidden"},
 	}
 	rs = c.serverDiscovery()
+	doctor.Identify(rs)
+	if len(rs) != 2 || rs[0].ID != "server-discovery" || rs[1].ID != "server-discovery" {
+		t.Errorf("ids: %+v", rs)
+	}
 	if len(rs) != 2 || rs[0].Status != doctor.Fail || rs[0].Subject != "team-b" || !strings.Contains(rs[0].Summary, "forbidden") {
 		t.Fatalf("namespace: %+v", rs)
 	}
