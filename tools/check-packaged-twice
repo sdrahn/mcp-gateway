@@ -1,0 +1,50 @@
+#!/bin/bash
+# Usage: tools/check-packaged-twice RPM...
+#
+# Fails when a file is in two of the RPMs and neither declares a conflict
+# with the other, as OBS's post-build check 50-check-packaged-twice does
+# (post-build-checks, findfileconflicts): a Conflicts: naming the other
+# package or one of its Provides, of any version. Directories, symbolic
+# links and %ghost files are not counted; files with the same contents
+# are.
+set -euo pipefail
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+for rpm in "$@"; do
+	case $rpm in *-debuginfo-* | *-debugsource-*) continue ;; esac
+	name=$(rpm -qp --qf '%{NAME}' "$rpm")
+	{
+		echo "$name"
+		rpm -qp --qf '[%{PROVIDENAME}\n]' "$rpm"
+	} | sort -u >"$tmp/$name.provides"
+	rpm -qp --qf '[%{CONFLICTNAME}\n]' "$rpm" |
+		sed 's/^otherproviders(\(.*\))$/\1/' | sort -u >"$tmp/$name.conflicts"
+	# mode, flags (g: %ghost), path
+	rpm -qp --qf '[%{FILEMODES:octal} %{FILEFLAGS:fflags}- %{FILENAMES}\n]' "$rpm" |
+		while read -r mode flags path; do
+			case $mode in 4???? | 12????) continue ;; esac
+			case $flags in *g*) continue ;; esac
+			printf '%s\t%s\n' "$path" "$name"
+		done >>"$tmp/files"
+done
+touch "$tmp/files"
+
+# conflicts A B: whether A declares a conflict with B's name or Provides.
+conflicts() {
+	[ -n "$(comm -12 "$tmp/$1.conflicts" "$tmp/$2.provides")" ]
+}
+
+failed=0
+sort -u "$tmp/files" | awk -F'\t' '
+	$1 == path { for (i = 1; i <= n; i++) print owners[i] "\t" $2 "\t" $1; owners[++n] = $2; next }
+	{ path = $1; n = 1; owners[1] = $2 }' | sort -t$'\t' -k1,1 -k2,2 -k3,3 >"$tmp/pairs"
+while IFS=$'\t' read -r a b path; do
+	if conflicts "$a" "$b" || conflicts "$b" "$a"; then
+		continue
+	fi
+	echo "$path: in $a and $b, which do not conflict" >&2
+	failed=1
+done <"$tmp/pairs"
+exit $failed
