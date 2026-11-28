@@ -22,8 +22,15 @@ func sharedGrants(t *testing.T, api *kubetest.Secrets) store.Collection {
 	return c
 }
 
-// sharedOptions keeps a broker's state in api, with its own context.
+// sharedOptions keeps a broker's state in api, with its own context, as
+// the replica gw-a.
 func sharedOptions(t *testing.T, api *kubetest.Secrets) func(*Options) {
+	t.Helper()
+	return replicaOptions(t, api, "gw-a")
+}
+
+// replicaOptions is sharedOptions for the replica called replica.
+func replicaOptions(t *testing.T, api *kubetest.Secrets, replica string) func(*Options) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -36,7 +43,7 @@ func sharedOptions(t *testing.T, api *kubetest.Secrets) func(*Options) {
 	}
 	return func(o *Options) {
 		o.Shared = &Shared{Context: ctx, Grants: coll("grants"), Pending: coll("pending"),
-			Notices: coll("notices"), Reviews: coll("reviews")}
+			Notices: coll("notices"), Reviews: coll("reviews"), Replica: replica}
 	}
 }
 
@@ -295,4 +302,74 @@ func TestSharedNoticesAndReviews(t *testing.T) {
 	if err != nil || got.Verdict == nil || got.Verdict.Reason != "wrong unit" {
 		t.Fatalf("review restored: %+v %v", got, err)
 	}
+}
+
+// Two replicas on one store: each keeps its own pending approvals without
+// deleting the other's, and lists the other's; the approvals of a replica
+// that is gone are adopted, and decided where they are now.
+func TestSharedPendingReplicas(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	defer func(d time.Duration) { sharedBackoff = d }(sharedBackoff)
+	sharedBackoff = 10 * time.Millisecond
+	a := newBroker(t, replicaOptions(t, api, "gw-a"))
+	b := newBroker(t, replicaOptions(t, api, "gw-b"))
+	p := orphaned(t, a)
+	flushed(t, a)
+	// b saves its own (none) after a's: a's record stays.
+	b.mu.Lock()
+	b.persistPending()
+	b.mu.Unlock()
+	flushed(t, b)
+	// As a wrote it last (its call gone): adopting goes by that version.
+	waitUntil(t, "a's approval listed at b", func() bool {
+		ps := b.ListPending(context.Background(), admin)
+		return len(ps) == 1 && ps[0].ID == p.ID && !ps[0].Waiting
+	})
+	if got, err := b.GetPending(context.Background(), admin, p.ID); err != nil || got.ID != p.ID {
+		t.Fatalf("a's approval at b: %+v %v", got, err)
+	}
+	if _, err := b.Resolve(context.Background(), aliceApprover, p.ID, true, "once"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("decided at b, which does not hold it: %v", err)
+	}
+	// a is gone: b adopts the approval and decides it.
+	b.Adopt(context.Background(), func(r string) bool { return r == "gw-b" })
+	g, err := b.Resolve(context.Background(), aliceApprover, p.ID, true, "once")
+	if err != nil || g.Scope != "once" {
+		t.Fatalf("decided at b after adopting it: %+v %v", g, err)
+	}
+	flushed(t, b)
+	if n := len(api.Names("secrets", "gw", "mcp-gateway.io/collection=pending")); n != 0 {
+		t.Fatalf("%d pending records left", n)
+	}
+}
+
+// A notice posted and a review item made on one replica are listed on
+// the other.
+func TestSharedNoticesReviewsReplicas(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	defer func(d time.Duration) { sharedBackoff = d }(sharedBackoff)
+	sharedBackoff = 10 * time.Millisecond
+	with := func(replica string, pol BoolPolicy) func(*Options) {
+		o := replicaOptions(t, api, replica)
+		return func(opts *Options) { o(opts); opts.Policy = pol }
+	}
+	a := newBroker(t, with("gw-a", noticePolicy{}))
+	b := newBroker(t, with("gw-b", noticePolicy{}))
+	n, err := a.PostNotice(t.Context(), rootApprover, demotion())
+	if err != nil {
+		t.Fatal(err)
+	}
+	flushed(t, a)
+	waitUntil(t, "a's notice at b", func() bool {
+		got := b.ListNotices(t.Context(), olga)
+		return len(got) == 1 && got[0].ID == n.ID
+	})
+	ra := newBroker(t, with("gw-a", reviewPolicy{}))
+	rb := newBroker(t, with("gw-b", reviewPolicy{}))
+	r := ra.AddReview(restart())
+	flushed(t, ra)
+	waitUntil(t, "a's review item at b", func() bool {
+		got, err := rb.GetReview(t.Context(), opsUser, r.ID)
+		return err == nil && got.ID == r.ID && len(rb.ListReviews(t.Context(), opsUser)) == 1
+	})
 }

@@ -5391,6 +5391,18 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       the request as the public listener would; a sign-in's state
       starts with its replica's name (`<replica>~`), and its start page
       and callback are forwarded there;
+      as built (part 3a): stage A's tables were written by one writer (a
+      save deleted every record not in the writer's map); each replica
+      now keeps its records of pending approvals, notices, reviews and
+      clients seen named `<replica>/<id>`, writes and deletes those only,
+      and follows the others' (`store.Shared`): the lists of approvals,
+      notices, review items and clients show every replica's; a record
+      of a replica that is gone, or of one replica before there were
+      several, is adopted by a live one (copied under its name, the
+      original deleted with its version: one adopter wins), at the start
+      and every 30 s, approvals kept without a waiting call as after a
+      restart; deciding, dismissing or judging a record another replica
+      holds follows in part 3b;
     - stage C, the console and the control API across replicas (views
       merged from the peers, actions forwarded to the replica that holds
       them), draining on `SIGTERM`, the chart's `replicas` with a

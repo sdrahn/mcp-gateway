@@ -15,7 +15,7 @@ func sharedHistory(t *testing.T, api *kubetest.Secrets) *SharedHistory {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tb := &store.Table{C: c}
+	tb := &store.Shared{C: c, Replica: "gw-a"}
 	items, err := tb.Load(context.Background())
 	if err != nil {
 		t.Fatal(err)

@@ -139,11 +139,18 @@ func (b *Broker) MayReview(ctx context.Context, a Approver, r Review) bool {
 // ListReviews returns the unexpired review items a may review, oldest
 // first, with their verdicts.
 func (b *Broker) ListReviews(ctx context.Context, a Approver) []Review {
+	remote := others[Review](b.reviewsStore, b.log)
 	b.mu.Lock()
 	b.pruneReviews()
-	all := make([]Review, 0, len(b.reviews))
+	all := make([]Review, 0, len(b.reviews)+len(remote))
 	for _, r := range b.reviews {
 		all = append(all, copyReview(r))
+	}
+	// The other replicas' (several replicas).
+	for id, r := range remote {
+		if b.reviews[id] == nil && r.Expires.After(b.now()) {
+			all = append(all, *r)
+		}
 	}
 	b.mu.Unlock()
 	out := []Review{}
@@ -166,6 +173,11 @@ func (b *Broker) GetReview(ctx context.Context, a Approver, id string) (Review, 
 		c = copyReview(r)
 	}
 	b.mu.Unlock()
+	if !ok {
+		if o := others[Review](b.reviewsStore, b.log)[id]; o != nil && o.Expires.After(b.now()) {
+			c, ok = *o, true
+		}
+	}
 	if !ok || !b.MayReview(ctx, a, c) {
 		return Review{}, ErrNotFound
 	}

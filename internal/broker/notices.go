@@ -260,11 +260,18 @@ func (a Approver) ReaderKey() string {
 // dismissed, oldest first.
 func (b *Broker) ListNotices(ctx context.Context, a Approver) []Notice {
 	key := a.ReaderKey()
+	remote := others[storedNotice](b.noticesStore, b.log)
 	b.mu.Lock()
 	b.pruneNotices()
 	var all []Notice
 	for _, n := range b.notices {
 		if !slices.Contains(n.Dismissed, key) {
+			all = append(all, n.Notice)
+		}
+	}
+	// The other replicas' (several replicas).
+	for id, n := range remote {
+		if b.notices[id] == nil && n.Expires.After(b.now()) && !slices.Contains(n.Dismissed, key) {
 			all = append(all, n.Notice)
 		}
 	}
@@ -282,8 +289,11 @@ func (b *Broker) ListNotices(ctx context.Context, a Approver) []Notice {
 // NoticeDismissed reports whether a dismissed notice id.
 func (b *Broker) NoticeDismissed(a Approver, id string) bool {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	n, ok := b.notices[id]
+	b.mu.Unlock()
+	if !ok {
+		n, ok = others[storedNotice](b.noticesStore, b.log)[id]
+	}
 	return ok && slices.Contains(n.Dismissed, a.ReaderKey())
 }
 

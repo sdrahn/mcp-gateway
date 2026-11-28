@@ -122,8 +122,10 @@ type Shared struct {
 	// Grants holds the duration and stored once grants.
 	Grants store.Collection
 	// Pending, Notices and Reviews hold what PendingFile, NoticesFile and
-	// ReviewsFile do.
+	// ReviewsFile do: each replica's records named after it (Replica),
+	// the others' followed and shown with them.
 	Pending, Notices, Reviews store.Collection
+	Replica                   string
 }
 
 // BoolPolicy answers boolean policy queries (pep.OPA implements it).
@@ -346,7 +348,7 @@ func New(opts Options) (*Broker, error) {
 			p     *stateKept
 			items *map[string][]byte
 		}{{sh.Pending, &b.pendingStore, &pendingItems}, {sh.Notices, &b.noticesStore, &noticeItems}, {sh.Reviews, &b.reviewsStore, &reviewItems}} {
-			if *s.p, *s.items, err = openTable(sh.Context, s.c, log, s.p.what); err != nil {
+			if *s.p, *s.items, err = openTable(sh.Context, s.c, sh.Replica, log, s.p.what); err != nil {
 				return nil, err
 			}
 		}
@@ -361,6 +363,54 @@ func New(opts Options) (*Broker, error) {
 		return nil, err
 	}
 	return b, nil
+}
+
+// Adopt takes over the pending approvals, notices and review items of
+// replicas that are gone (live reports which are not), and of a single
+// replica before there were several: the approvals kept without a
+// waiting call, as after a restart.
+func (b *Broker) Adopt(ctx context.Context, live func(replica string) bool) {
+	pending := adopt[Pending](ctx, b.pendingStore, live, b.log)
+	notices := adopt[storedNotice](ctx, b.noticesStore, live, b.log)
+	reviews := adopt[Review](ctx, b.reviewsStore, live, b.log)
+	if len(pending)+len(notices)+len(reviews) == 0 {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, p := range pending {
+		if p.ID != "" && p.Expires.After(b.now()) && b.pending[p.ID] == nil {
+			orphan(p)
+			b.pending[p.ID] = p
+			b.log.Info("approval adopted from a replica that is gone", "id", p.ID, "sub", p.Principal.Sub, "server", p.Server)
+			b.publishPending(p, true)
+		}
+	}
+	for _, n := range notices {
+		if n.ID != "" && n.Expires.After(b.now()) && b.notices[n.ID] == nil {
+			b.notices[n.ID] = n
+		}
+	}
+	for _, r := range reviews {
+		if r.ID != "" && r.Expires.After(b.now()) && b.reviews[r.ID] == nil {
+			b.reviews[r.ID] = r
+		}
+	}
+	b.persistPending()
+	b.persistNotices()
+	b.persistReviews()
+}
+
+// remotePending returns the other replicas' unexpired pending approvals
+// not here, by id.
+func (b *Broker) remotePending() map[string]*Pending {
+	out := others[Pending](b.pendingStore, b.log)
+	for id, p := range out {
+		if !p.Expires.After(b.now()) {
+			delete(out, id)
+		}
+	}
+	return out
 }
 
 // Flush waits until the state saved so far is in the shared store, or
@@ -990,12 +1040,20 @@ func (b *Broker) mayManage(ctx context.Context, a Approver, g pep.Grant) bool {
 
 // snapshotPending copies the pending approvals.
 func (b *Broker) snapshotPending() []Pending {
+	remote := b.remotePending()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.pruneExpired()
-	out := make([]Pending, 0, len(b.pending))
+	out := make([]Pending, 0, len(b.pending)+len(remote))
 	for _, p := range b.pending {
 		out = append(out, *p)
+	}
+	// The other replicas' (several replicas): shown here, decided where
+	// their call waits.
+	for id, p := range remote {
+		if b.pending[id] == nil {
+			out = append(out, *p)
+		}
 	}
 	return out
 }
@@ -1031,6 +1089,11 @@ func (b *Broker) GetPending(ctx context.Context, a Approver, id string) (Pending
 		c = *p
 	}
 	b.mu.Unlock()
+	if !ok {
+		if r := b.remotePending()[id]; r != nil {
+			c, ok = *r, true
+		}
+	}
 	if !ok || !b.mayApprove(ctx, a, &c) {
 		return Pending{}, ErrNotFound
 	}
