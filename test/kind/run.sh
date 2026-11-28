@@ -5,6 +5,8 @@
 # a ServiceAccount token of the cluster (no other identity provider):
 #   - the call reaches echo through the gateway, which runs as one pod
 #     with OPA and the role data renderer beside it;
+#   - OPA and mcp-policy-render run as sidecars, OPA started once the
+#     role data is rendered (no restart);
 #   - a token for another audience is refused;
 #   - a server added to the servers ConfigMap is served once the kubelet
 #     updates the mounted files (the ..data swap; docs/architecture.md,
@@ -13,6 +15,8 @@
 #     one per principal, each with a NetworkPolicy without egress (the
 #     server cannot reach another pod), owned by the pod, and deleted
 #     after the idle timeout;
+#   - a rolling update of the replicas cuts no call off: a caller in the
+#     cluster calls through the Service all along;
 #   - role data changed in its ConfigMap takes effect (mcp-policy-render
 #     and OPA follow the swap too).
 # DEPLOY=helm deploys the chart (deploy/helm/mcp-gateway, with
@@ -47,6 +51,15 @@ cleanup() {
 			echo "--- $c" >&2
 			k -n "$NS" logs deploy/mcp-gateway -c "$c" --tail=60 >&2 || true
 		done
+		# Each replica's warnings and errors, not only one pod's.
+		for pod in $(k -n "$NS" get pods -o name 2>/dev/null | grep '^pod/mcp-gateway-'); do
+			echo "--- $pod: warnings" >&2
+			k -n "$NS" logs "$pod" -c gateway --tail=400 2>/dev/null | grep -E 'level=(WARN|ERROR)|"level":"(WARN|ERROR)"' | tail -20 >&2 || true
+		done
+		if k -n agents get pod caller >/dev/null 2>&1; then
+			echo "--- the caller" >&2
+			k -n agents logs caller --tail=30 >&2 || true
+		fi
 		echo "--- mcp-instances" >&2
 		k -n mcp-instances get pods,networkpolicies,secrets -o wide >&2 || true
 		for pod in $(k -n mcp-instances get pods -o name 2>/dev/null); do
@@ -63,6 +76,9 @@ cleanup() {
 	exit "$status"
 }
 trap cleanup EXIT
+# A command that fails outside a check (set -e) says which, where fail
+# would have said why.
+trap 'echo "FAIL: line $LINENO: $BASH_COMMAND" >&2' ERR
 k() { "$KUBECTL" --context "kind-$CLUSTER" "$@"; }
 apply() { k apply -f - >/dev/null; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -135,6 +151,12 @@ pass "metadata names the cluster's issuer"
 	fail "probes: $(curl -s "http://127.0.0.1:$MPORT/readyz")"
 curl -s "http://127.0.0.1:$MPORT/metrics" | grep -q '^mcp_gateway_instances ' || fail "no metrics"
 pass "/readyz, /healthz and /metrics on the metrics port"
+# OPA starts once the role data is rendered (policy-render's startup
+# probe): it never failed to start for want of it.
+restarts=$(k -n "$NS" get pods -o json | jq -r '[.items[] | select(.metadata.name | startswith("mcp-gateway-")) |
+	.status.initContainerStatuses[]? | select(.name == "opa" or .name == "policy-render") | .restartCount] | add // -1')
+[ "$restarts" = 0 ] || fail "the sidecars restarted at the start ($restarts): $(k -n "$NS" logs deploy/mcp-gateway -c opa --previous --tail=5 2>&1)"
+pass "OPA and policy-render, sidecars, started once in each replica"
 
 if [ "$DEPLOY" = helm ]; then
 	# The chart's secrets: mounted for the gateway's account, for no one else.
@@ -329,7 +351,9 @@ pass "the audit records of custos's calls name $owner"
 # (mcp-gateway-admin instances, as the gateway's account: an approver in
 # the role data).
 admin() { k -n "$NS" exec "$1" -c gateway -- mcp-gateway-admin "${@:2}" --socket /run/mcp-gateway/control.sock; }
-other_pod=$(for r in $gws; do [ "$r" != "$owner" ] && echo "$r"; done | head -n1)
+# (if, not &&: a loop whose last test fails fails the pipeline, and set -e
+# ends the script without a word when the owner sorts last.)
+other_pod=$(for r in $gws; do if [ "$r" != "$owner" ]; then echo "$r"; fi; done | head -n1)
 listed=$(admin "$other_pod" instances --json) || fail "instances at $other_pod: $listed"
 id=$(jq -r --arg o "$owner" '[.[].instances[] | select(.replica == $o and (.sub | endswith("agents:custos")))][0].id // ""' <<<"$listed")
 [[ "$id" == "$owner~"* ]] || fail "custos's instance not listed at $other_pod as $owner's: $listed"
@@ -346,7 +370,7 @@ pass "stopped through $other_pod at $owner: custos's next call has a new instanc
 # the next call, through another replica, is served by the one that
 # takes custos over, with a new instance.
 k -n "$NS" delete pod "$owner" --wait=false >/dev/null
-reaped() { [ -z "$(for pod in $(pods); do [ "$(replica_of "$pod")" = "$owner" ] && echo "$pod"; done)" ]; }
+reaped() { [ -z "$(for pod in $(pods); do if [ "$(replica_of "$pod")" = "$owner" ]; then echo "$pod"; fi; done)" ]; }
 until_ok 120 reaped || fail "the instance pods of $owner are still there: $(pods | tr '\n' ' ')"
 other_port=
 i=0
@@ -361,6 +385,59 @@ pass "$owner went: its instance pods were reaped, and another replica serves cus
 for p in "${pfs[@]}"; do kill "$p" 2>/dev/null || true; done
 pfs=()
 # The Service's port-forward may have gone with the pod.
+forward
+
+echo "--- a rolling update under calls"
+# A caller in the cluster (echo -call, as agents/custos, with a projected
+# token for the gateway's audience) calls the stdio server through the
+# Service over and over, each call in a session of its own, while the
+# Deployment rolls (RollingUpdate: a new pod before an old one drains):
+# no call fails.
+k -n agents create configmap mcp-gateway-ca --from-file=ca.crt="$work/tls.crt" --dry-run=client -o yaml | apply
+apply <<EOF2
+apiVersion: v1
+kind: Pod
+metadata: {name: caller, namespace: agents}
+spec:
+  serviceAccountName: custos
+  automountServiceAccountToken: false
+  terminationGracePeriodSeconds: 1
+  securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: caller
+      image: mcp-echo:test
+      args: [-call, "https://mcp-gateway.$NS.svc/mcp/stdio"]
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+      volumeMounts:
+        - {name: token, mountPath: /var/run/secrets/tokens, readOnly: true}
+        - {name: ca, mountPath: /etc/mcp-gateway-ca, readOnly: true}
+  volumes:
+    - name: token
+      projected:
+        sources: [{serviceAccountToken: {audience: mcp-gateway, expirationSeconds: 3600, path: token}}]
+    - name: ca
+      configMap: {name: mcp-gateway-ca}
+EOF2
+k -n agents wait pod/caller --for=condition=Ready --timeout=120s >/dev/null
+calls() { k -n agents logs caller 2>/dev/null; }
+oks() { calls | grep -c '^ok ' || true; }
+some_ok() { [ "$(oks)" -ge 5 ]; }
+until_ok 60 some_ok || fail "the caller's calls before the update: $(calls | tail -5)"
+k -n "$NS" rollout restart deploy/mcp-gateway >/dev/null
+k -n "$NS" rollout status deploy/mcp-gateway --timeout=300s >/dev/null
+# Until the old replicas are gone too, and some calls after.
+# (By name: the chart's pods and the manifests' have different labels.)
+old_gone() { [ "$(k -n "$NS" get pods -o name | grep -c '^pod/mcp-gateway-')" = "$REPLICAS" ]; }
+until_ok 120 old_gone || fail "old replicas still there: $(k -n "$NS" get pods -o wide)"
+n=$(oks)
+more_ok() { [ "$(oks)" -ge $((n + 10)) ]; }
+until_ok 60 more_ok || fail "the caller's calls after the update: $(calls | tail -5)"
+failed=$(calls | grep '^failed ' || true)
+total=$(oks)
+k -n agents delete pod caller --wait=false >/dev/null
+[ -z "$failed" ] || fail "calls failed in the rolling update: $failed"
+pass "$total calls through the Service while the $REPLICAS replicas rolled, none failed"
+gws=$(replicas | sort)
 forward
 
 echo "--- role data changed in the ConfigMap"

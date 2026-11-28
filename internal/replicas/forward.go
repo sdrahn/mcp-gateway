@@ -1,16 +1,20 @@
 package replicas
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 )
@@ -106,22 +110,46 @@ func (f *Forwarder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.Local.ServeHTTP(w, r)
 		return
 	}
-	owner, err := f.Owners.Owner(r.Context(), Key(p))
+	key := Key(p)
+	// The body again for each try (a request too large to keep goes once).
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxReplayBody+1))
 	if err != nil {
-		f.log().Warn("replicas: no owner for a principal; not served", "sub", p.Sub, "err", err)
-		http.Error(w, "the gateway cannot serve this principal now; try again", http.StatusServiceUnavailable)
+		http.Error(w, "reading the request failed", http.StatusBadRequest)
 		return
 	}
-	if owner == f.Members.Name {
-		f.Local.ServeHTTP(w, r)
-		return
+	replay := len(body) <= maxReplayBody
+	rest := r.Body
+	for try := 1; ; try++ {
+		owner, err := f.Owners.Owner(r.Context(), key)
+		if err != nil {
+			f.log().Warn("replicas: no owner for a principal; not served", "sub", p.Sub, "err", err)
+			http.Error(w, "the gateway cannot serve this principal now; try again", http.StatusServiceUnavailable)
+			return
+		}
+		r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(body), rest))
+		if owner == f.Members.Name {
+			f.Local.ServeHTTP(w, r)
+			return
+		}
+		m, ok := f.Members.Live()[owner]
+		if !ok {
+			http.Error(w, "the gateway cannot serve this principal now; try again", http.StatusServiceUnavailable)
+			return
+		}
+		if f.tryForward(w, r, m, replay && try < forwardTries) {
+			return
+		}
+		// The owner went, or gave the principal up (it drains), before
+		// the others saw it: ask again, the Leases read anew.
+		f.log().Info("replicas: the owner did not take a request; asking again", "replica", owner, "try", try)
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(time.Duration(try) * 200 * time.Millisecond):
+		}
+		f.Owners.forgetOwner(key)
+		f.Members.recheck(r.Context())
 	}
-	m, ok := f.Members.Live()[owner]
-	if !ok {
-		http.Error(w, "the gateway cannot serve this principal now; try again", http.StatusServiceUnavailable)
-		return
-	}
-	f.forward(w, r, m)
 }
 
 func (f *Forwarder) isMCP(path string) bool {
@@ -166,8 +194,30 @@ func (f *Forwarder) signInReplica(r *http.Request) string {
 	return ""
 }
 
+const (
+	// forwardTries is how often a principal's request goes to an owner
+	// that did not take it (it went, or drains), asked anew each time.
+	forwardTries = 4
+	// maxReplayBody is the largest body kept to try again with; a larger
+	// one (up to jsonrpc.MaxMessageSize) goes once.
+	maxReplayBody = 4 << 20
+)
+
+// errMisdirected is the owner's answer that it does not serve the
+// principal (421).
+var errMisdirected = errors.New("replicas: the owner does not serve the principal")
+
 // forward sends r to m's peer listener and its answer back as it comes.
 func (f *Forwarder) forward(w http.ResponseWriter, r *http.Request, m Member) {
+	f.tryForward(w, r, m, false)
+}
+
+// tryForward is forward; with again, it writes nothing and reports false
+// when the request did not reach a replica that serves it: the
+// connection could not be made, or the owner answered 421. Either way
+// nothing ran there, so that it may go to another.
+func (f *Forwarder) tryForward(w http.ResponseWriter, r *http.Request, m Member, again bool) bool {
+	missed := false
 	target := &url.URL{Scheme: "https", Host: m.Address}
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -182,8 +232,18 @@ func (f *Forwarder) forward(w http.ResponseWriter, r *http.Request, m Member) {
 		Transport: f.Transport,
 		// Streams (SSE) pass through as they come.
 		FlushInterval: -1,
+		ModifyResponse: func(resp *http.Response) error {
+			if again && resp.StatusCode == http.StatusMisdirectedRequest {
+				return errMisdirected
+			}
+			return nil
+		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if errors.Is(err, context.Canceled) {
+				return
+			}
+			if again && (errors.Is(err, errMisdirected) || notConnected(err)) {
+				missed = true
 				return
 			}
 			f.log().Warn("replicas: forwarding to the owner failed", "replica", m.Name, "err", err)
@@ -191,14 +251,23 @@ func (f *Forwarder) forward(w http.ResponseWriter, r *http.Request, m Member) {
 		},
 	}
 	rp.ServeHTTP(w, r)
+	return !missed
+}
+
+// notConnected reports whether err is a failure to connect: the request
+// was not sent.
+func notConnected(err error) bool {
+	var op *net.OpError
+	return errors.As(err, &op) && op.Op == "dial"
 }
 
 // PeerHandler serves the peer listener: requests other replicas forwarded,
 // over mTLS with the replicas' certificate (the listener's TLS layer
 // verified it). The client's certificate and address come from the
 // forwarding replica's headers; a request of a principal this replica
-// does not own (any more) is refused (421), and the client tries again
-// (D24): no replica takes a principal on a peer's word.
+// does not own (any more) is refused (421), and the forwarding replica
+// asks for the owner again (D24): no replica takes a principal on a
+// peer's word.
 type PeerHandler struct {
 	Forwarder *Forwarder
 	// Internal, if set, serves the paths below InternalPrefix: what the
@@ -245,7 +314,17 @@ func (h *PeerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				cert = state.PeerCertificates[0]
 			}
 			if p, err := f.Auth.Authenticate(r2.Context(), strings.TrimSpace(token), cert); err == nil {
-				if owner, err := f.Owners.Owner(r2.Context(), Key(p)); err != nil || owner != f.Members.Name {
+				key := Key(p)
+				owner, err := f.Owners.Owner(r2.Context(), key)
+				if err == nil && owner != f.Members.Name {
+					// A peer sent it here as the owner, or as the taker of a
+					// principal it gave up: what this replica remembers of
+					// another owner may be what that peer has just ended.
+					// Read the Lease again before refusing.
+					f.Owners.forgetOwner(key)
+					owner, err = f.Owners.Owner(r2.Context(), key)
+				}
+				if err != nil || owner != f.Members.Name {
 					http.Error(w, "this replica does not serve the principal; try again", http.StatusMisdirectedRequest)
 					return
 				}

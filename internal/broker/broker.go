@@ -388,7 +388,7 @@ func New(opts Options) (*Broker, error) {
 		}
 	}
 	if sh := opts.Shared; sh != nil {
-		go b.followRemote(sh.Context)
+		go b.followRemote(sh.Context, b.remoteState())
 	}
 	return b, nil
 }

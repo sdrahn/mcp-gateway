@@ -55,13 +55,13 @@ kubernetesLauncher:
 # gateway imports the files of the volume. Off: the files on the volume.
 replication:
   enabled: false
-  # Several replicas (roadmap step 49, being built: the console across
-  # them and a rolling update come with stage C): replicas > 1 needs the
-  # shared store, persistence.enabled false, and the replicas'
-  # certificate, a Secret with tls.crt, tls.key and ca.crt (its
-  # certificate for the name mcp-gateway-peer, for server and client
-  # use), with which they forward each principal's requests to the
-  # replica that serves it.
+  # Several replicas (roadmap step 49): replicas > 1 needs the shared
+  # store, persistence.enabled false, and the replicas' certificate, a
+  # Secret with tls.crt, tls.key and ca.crt (its certificate for the name
+  # mcp-gateway-peer, for server and client use), with which they forward
+  # each principal's requests to the replica that serves it. They update
+  # one by one (RollingUpdate), at most one of them disrupted at a time
+  # (a PodDisruptionBudget), spread over the nodes.
   replicas: 1
   peerSecret: ""
 
@@ -139,3 +139,6 @@ podAnnotations: {}
 nodeSelector: {}
 tolerations: []
 affinity: {}
+# Empty: with several replicas, spread over the nodes (kubernetes.io/
+# hostname, ScheduleAnyway).
+topologySpreadConstraints: []

@@ -42,8 +42,9 @@ token, and operators who approve its calls in the console. The sections
 after this one explain each part. `test/kind/run.sh` runs the same flow
 in CI on every change.
 
-**You need** a cluster whose network plugin enforces NetworkPolicies
-(Calico, Cilium; most managed clusters), `kubectl` and `helm`, a
+**You need** a cluster of Kubernetes 1.29 or later (the pod's sidecars)
+whose network plugin enforces NetworkPolicies (Calico, Cilium; most
+managed clusters), `kubectl` and `helm`, a
 registry for the gateway's image, and a TLS certificate for the name
 agents connect to. For people and approvals, add an OpenID Connect
 identity provider (chapter 15 sets up Keycloak).
@@ -315,7 +316,8 @@ rbac:
   whether the gateway took them. A change to `config` rolls the pod.
 - **Upgrades**: a new `image.tag`, then `helm upgrade`. The one replica
   is replaced (strategy Recreate: the state's volume is read-write
-  once), so agents reconnect after a short gap. Grants, sign-ins and
+  once), so agents reconnect after a short gap; several replicas roll
+  one by one ("Several replicas"). Grants, sign-ins and
   pending approvals are on the volume and stay: an approval decided
   while its agent was away lets the agent's next identical call through
   (chapter 7, "Pending approvals across disconnects and restarts").
@@ -332,7 +334,8 @@ rbac:
 
 | You see | Look at |
 |---|---|
-| The pod is not ready | `kubectl -n mcp-gateway logs deploy/mcp-gateway -c opa`: OPA must start and load the policy; `-c gateway` for a configuration the gateway refuses |
+| The pod is not ready | `kubectl -n mcp-gateway logs deploy/mcp-gateway -c policy-render`: OPA starts only once the role data is rendered, and role data that does not parse is not; `-c opa`: OPA must start and load the policy; `-c gateway` for a configuration the gateway refuses |
+| Calls fail or are denied while the replicas roll | `kubectl -n mcp-gateway get pdb,deploy` (`RollingUpdate`, the budget), each replica's `-c gateway` warnings; a client that keeps one session open loses it when its replica stops, as in a restart |
 | 401 for an agent | the token's audience (`mcp-gateway` for ServiceAccounts, `http.audience` for the identity provider's) and issuer; the doctor's identity provider checks |
 | A tool the agent does not see, or a call denied | the role data's binding of the principal (`k8s:system:serviceaccount:<namespace>:<name>`); the audit record names the decision and its reason |
 | A server's calls fail | the doctor's check of the server: its Service's name and port, the servers' NetworkPolicy (it must admit the gateway's pods) |
@@ -430,9 +433,17 @@ Deployment of one replica (sessions, pending approvals and tasks live in
 its memory), a Service for the HTTPS listener, a volume for the state,
 and three ConfigMaps. The pod has three containers that share two
 in-memory volumes, as the three services do on a host: the gateway, OPA,
-and `mcp-policy-render`, which renders the role data for OPA. An init
-container copies the policy from the gateway's image, so gateway and
-policy are always of one version.
+and `mcp-policy-render`, which renders the role data for OPA. OPA and
+`mcp-policy-render` are sidecars (init containers that keep running,
+Kubernetes 1.29 or later): they start before the gateway and stop after
+it, so that a replica told to stop still decides while it drains. OPA
+starts once the role data is rendered (a startup probe on
+`mcp-policy-render`, its `-check`), as on a host, where systemd starts
+it after `mcp-policy-render`; role data that does not parse when a pod
+starts keeps the pod from becoming ready, and
+`kubectl logs <pod> -c policy-render` says why. An init container
+copies the policy from the gateway's image, so gateway and policy are
+always of one version.
 
 ```bash
 kubectl create namespace mcp-gateway
@@ -667,8 +678,7 @@ etcd too. The doctor checks that the gateway reaches them
 ## Several replicas
 
 On the shared store the gateway can run as several replicas (roadmap
-step 49; the console across them, draining and a rolling update come
-with stage C). Each principal is served by one replica, which starts
+step 49). Each principal is served by one replica, which starts
 its instances and holds its sessions and tasks; a request that reaches
 another replica is forwarded there, over a listener of the replicas'
 own with a certificate they all share. Make that certificate once, from
@@ -697,10 +707,18 @@ persistence:
   enabled: false      # the store keeps the state
 ```
 
-With the manifests, as `test/kind` does: the replication component,
-`replicas: 3`, the state volume an `emptyDir`, the Secret mounted at
-`/etc/mcp-gateway/peer` and the port `8444` on the gateway's container
-(`test/kind/replicas.yaml`), and in `gateway.yaml`:
+The chart then updates the replicas one by one (strategy
+`RollingUpdate`, a new pod ready before an old one drains:
+`maxUnavailable: 0`, `maxSurge: 1`), lets a voluntary disruption, such
+as a node drain, take one at a time (a PodDisruptionBudget,
+`maxUnavailable: 1`), and spreads them over the nodes where it can
+(`topologySpreadConstraints` on `kubernetes.io/hostname`,
+`ScheduleAnyway`; `topologySpreadConstraints` in the values replaces
+it). With the manifests, as `test/kind` does: the replication
+component, `replicas: 3`, the same strategy and spread, the state volume
+an `emptyDir`, the Secret mounted at `/etc/mcp-gateway/peer` and the
+port `8444` on the gateway's container (`test/kind/replicas.yaml`), the
+PodDisruptionBudget (`test/kind/pdb.yaml`), and in `gateway.yaml`:
 
 ```yaml
 replication:
@@ -715,9 +733,16 @@ replication:
 A replica that is told to stop (`SIGTERM`: deleted, evicted, or rolled
 by an update) drains first, for `replication.drain_timeout` (30 s) at
 most: it takes no new principals, which go to the other replicas, and
-gives up those with nothing running at once; the principals busy on it
-(instances, sessions, tasks) are served there until they are done, and
-`/readyz` fails, so that the Service sends it no new connections. The
+gives up at once those without an open session or a running task there
+(an instance alone does not keep its principal: it would end with the
+replica anyway, and the next request starts a new one on another);
+those with a session or a task are served there until they are done.
+`/readyz` fails, so that the Service sends it no new connections, and
+it serves 5 s at least, until the Service has dropped it. A request
+that a replica forwards to an owner that has just gone, or given the
+principal up, is sent again to the one that serves it now: a client
+whose sessions are short (one per call, or ended between calls) sees
+no failed call when the replicas roll. The
 chart gives the pods 45 s to stop (`terminationGracePeriodSeconds`) with
 several replicas; with the manifests, set it (`test/kind/replicas.yaml`
 does). A replica that goes, after draining or lost with its node, gives up its
@@ -811,6 +836,8 @@ with the manifests and with the chart (`DEPLOY=helm`), a stdio server in
 pods of their own among it (one per principal, no egress to other pods,
 gone after the idle timeout), on the shared store (its records, kept
 across a restart), with three replicas (one principal's calls through
-each reaching one instance; the replica that served it deleted, its
-instance pods reaped, another serving it); CI runs both on every
-change.
+each reaching one instance; its instance listed and stopped through
+another replica; the replica that served it deleted, its instance pods
+reaped, another serving it; a caller in the cluster calling through the
+Service while the replicas roll, none of its calls failing); CI runs
+both on every change.

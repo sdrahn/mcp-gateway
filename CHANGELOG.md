@@ -75,9 +75,38 @@ minor release (with a warning) and removed in the next.
   `--gateway URL`, a gateway's console API (signed in with `approvals
   login`), for a gateway in a cluster. The kind job lists and stops an
   instance of one replica through another (#452).
+- With several replicas the chart updates them one by one
+  (`RollingUpdate`, a new pod ready before an old one drains), adds a
+  PodDisruptionBudget (one replica disrupted at a time) and spreads them
+  over the nodes (`topologySpreadConstraints`, which the values may
+  set). A draining replica now keeps only the principals with an open
+  session or a running task (an idle instance ends with it either way)
+  and serves 5 s at least, and a replica whose forward reaches an owner
+  that has just gone or given the principal up sends it again to the
+  new one, instead of answering 502 or 421: a client with short
+  sessions sees no failed call while the replicas roll. The kind job
+  calls through the Service from a pod during a rolling update. OPA and
+  `mcp-policy-render` are now sidecars of the gateway's pod (init
+  containers that keep running; Kubernetes 1.29 or later), in the chart
+  and the manifests: they stop after the gateway, where before OPA
+  stopped with it, and a replica that drained denied the calls it
+  decided meanwhile. OPA starts once the role data is rendered (a
+  startup probe on `mcp-policy-render -check`): before, it could start
+  with none and deny every call while the pod counted as ready. A
+  replica that finds a principal's Lease held by a replica it has not
+  listed yet (one a rolling update just started) lists the replicas
+  again instead of taking the principal over: two replicas served it,
+  and a session made on one was unknown on the other. A replica that a
+  principal's request reaches as its owner or taker reads the Lease
+  again before refusing it (421), instead of trusting an owner it
+  remembered from moments before (#452).
 
 ### Fixed
 
+- With several replicas a replica's event streams could miss another
+  replica's approvals, notices and review items made just after it
+  started, until they changed again: what it had seen first was taken
+  when its follower started, not when the replica did (#452).
 - The package `mcp-gateway-container` conflicts with `mcp-gateway` and
   `mcp-gateway-tools`, whose files it shares: without that, OBS's
   post-build check refused the build ("found conflict of mcp-gateway

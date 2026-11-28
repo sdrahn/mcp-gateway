@@ -46,10 +46,11 @@ func (b *Broker) remoteState() remoteState {
 }
 
 // followRemote publishes the events of the other replicas' records as
-// they change, until ctx ends. What there is at the start is not
-// announced: a subscriber lists it.
-func (b *Broker) followRemote(ctx context.Context) {
-	seen := b.remoteState()
+// they change from seen, until ctx ends. What there is at the start is
+// not announced: a subscriber lists it. seen is taken before the broker
+// is returned, so that a change after that is announced however late
+// this goroutine starts.
+func (b *Broker) followRemote(ctx context.Context, seen remoteState) {
 	for {
 		select {
 		case <-ctx.Done():

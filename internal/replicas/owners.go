@@ -45,6 +45,12 @@ type Owners struct {
 	// Busy, if set, reports the principals that have instances,
 	// sessions or tasks here, by key.
 	Busy func() map[string]bool
+	// Kept, if set, reports the principals a drain keeps here until
+	// they end, by key: those with something an instance's loss would
+	// cut off (an open session, a task still working). An instance
+	// alone keeps none: it ends with the replica whether its principal
+	// waits or not. Unset: Busy.
+	Kept func() map[string]bool
 	Now  func() time.Time
 
 	mu      sync.Mutex
@@ -139,6 +145,15 @@ func (o *Owners) Owner(ctx context.Context, key string) (string, error) {
 func (o *Owners) claim(ctx context.Context, key string, draining bool) (string, error) {
 	var cur kube.Lease
 	err := o.Client.Get(ctx, o.path(key), &cur)
+	if h := cur.Spec.HolderIdentity; err == nil && h != "" && h != o.Members.Name && cur.Spec.Expires().After(o.now()) &&
+		!o.Members.known(h) {
+		// A holder this replica has not seen: most likely a replica that
+		// came since the last list (a rolling update's), not one that went.
+		// List again rather than take its principal over.
+		if err := o.Members.refresh(ctx); err != nil {
+			return "", err
+		}
+	}
 	var out kube.Lease
 	free := kube.IsNotFound(err) || (err == nil && cur.Spec.HolderIdentity != o.Members.Name &&
 		(cur.Spec.HolderIdentity == "" || !cur.Spec.Expires().After(o.now()) || !o.Members.IsLive(cur.Spec.HolderIdentity)))
@@ -205,6 +220,15 @@ func (o *Owners) hold(key string, l kube.Lease, trans int) {
 	delete(o.foreign, key)
 }
 
+// forgetOwner drops what this replica knows of key's owner among the
+// others (it did not serve the principal), so that the next Owner reads
+// the Lease again.
+func (o *Owners) forgetOwner(key string) {
+	o.mu.Lock()
+	delete(o.foreign, key)
+	o.mu.Unlock()
+}
+
 // Held returns the keys this replica holds.
 func (o *Owners) Held() []string {
 	o.mu.Lock()
@@ -232,16 +256,20 @@ func (o *Owners) Run(ctx context.Context) {
 	}
 }
 
-// Drain gives up the Leases of the principals that are not busy here, at
-// once and as they stop being busy, until none is held or ctx ends (the
-// pod's grace period); the busy ones keep what they have here until then.
+// Drain gives up the Leases of the principals not kept here (Kept, else
+// Busy), at once and as they stop being kept, until none is held or ctx
+// ends (the pod's grace period); the kept ones keep what they have here
+// until then.
 // Members.Drain first, so that no new principals come.
 func (o *Owners) Drain(ctx context.Context) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for {
 		var busy map[string]bool
-		if o.Busy != nil {
+		switch {
+		case o.Kept != nil:
+			busy = o.Kept()
+		case o.Busy != nil:
 			busy = o.Busy()
 		}
 		o.mu.Lock()
