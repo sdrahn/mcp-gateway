@@ -358,11 +358,12 @@ approvals:
 %s%s`, socketLine, filepath.Join(tmp, "servers.d"), filepath.Join(tmp, "state"), opaSock, approvalTimeout, filepath.Join(tmp, "control.sock"),
 		urlTemplate, approvalsExtra, extra))
 	gwCmd, gwLogs := start(t, gateway, "--config", filepath.Join(tmp, "gateway.yaml"))
-	if container {
-		waitFor(t, filepath.Join(tmp, "control.sock"))
-	} else {
+	// The control socket comes later in the gateway's start than the MCP
+	// socket: a test may talk to either at once.
+	if !container {
 		waitFor(t, gwSock)
 	}
+	waitFor(t, filepath.Join(tmp, "control.sock"))
 	return &env{tmp: tmp, connect: connect, gwSock: gwSock, ctlSock: filepath.Join(tmp, "control.sock"), opa: opaCmd,
 		gwLogs: gwLogs, opaLogs: opaLogs, gateway: gwCmd, gwBin: gateway, gwConfig: filepath.Join(tmp, "gateway.yaml")}
 }
