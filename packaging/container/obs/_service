@@ -1,10 +1,18 @@
-<!-- Puts the version of mcp-gateway-container, as the project built it,
-     into the Dockerfile's tags and label (%PKG_VERSION%), at build time. -->
+<!-- Build-time services of the image's package (packaging/container/README.md,
+     "Building in OBS"):
+     - kiwi_metainfo_helper replaces %RELEASE%, %BUILDTIME% and %DISTURL%
+       (obs-build itself replaces only <VERSION> and <RELEASE> in tags);
+     - replace_using_package_version puts the version of
+       mcp-gateway-container, as the project built it, into %PKG_VERSION%;
+     - docker_label_helper repeats the labels between labelprefix and
+       endlabelprefix with the image's own prefix. -->
 <services>
+  <service mode="buildtime" name="kiwi_metainfo_helper"/>
   <service mode="buildtime" name="replace_using_package_version">
     <param name="file">Dockerfile</param>
     <param name="regex">%PKG_VERSION%</param>
     <param name="parse-version">patch</param>
     <param name="package">mcp-gateway-container</param>
   </service>
+  <service mode="buildtime" name="docker_label_helper"/>
 </services>
