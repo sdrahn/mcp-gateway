@@ -21,6 +21,12 @@ minor release (with a warning) and removed in the next.
   them; the doctor checks the store (`shared-store`). A `once` grant is
   taken by one call only; while the gateway cannot follow the store, its
   grants count as absent (#436).
+- Replicas that know each other (roadmap step 49 stage B, being built):
+  on the shared store each replica holds a Lease of its own
+  (`replication.replica`, by default the pod's name), and the instance
+  pods of the Kubernetes launcher name their replica; the replicas
+  delete the pods of a replica that is gone instead of every pod at the
+  start. The Role adds Leases (#441).
 
 ## v2.0.0 — 2026-11-27
 

@@ -5230,6 +5230,17 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       through each reach one instance; an approval decided on another
       replica wakes the call; a sign-in completed through another
       replica; a replica deleted: its principals taken by the others);
+    - stage B as built (part 1, #441): each replica holds a Lease
+      (`coordination.k8s.io/v1`) `mcp-gateway-replica-<name>`, its
+      name the pod's (`replication.replica`, `$POD_NAME`) and its
+      address in an annotation, renewed every 5 s for 15 s, given up
+      at a stop (`internal/replicas`); instance pods carry their
+      replica's name (`mcp-gateway.sdrahn.github.io/replica`), and the
+      replicas delete the pods of a replica whose Lease ran out, and of
+      none, at the start, when a replica comes or goes, and every minute
+      (`supervisor.Kubernetes.Reap`), instead of every pod at the start;
+      the Role has Leases; the kind job checks the label and the Lease
+      handed over in a restart;
     - stage C, the console and the control API across replicas (views
       merged from the peers, actions forwarded to the replica that holds
       them), draining on `SIGTERM`, the chart's `replicas` with a

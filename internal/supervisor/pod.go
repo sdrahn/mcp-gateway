@@ -38,7 +38,10 @@ const (
 	LabelManagedBy = "app.kubernetes.io/managed-by"
 	LabelServer    = "mcp-gateway.sdrahn.github.io/server"
 	LabelInstance  = "mcp-gateway.sdrahn.github.io/instance"
-	managedBy      = "mcp-gateway"
+	// LabelReplica names the gateway's replica that runs the instance
+	// (with several replicas; docs/architecture.md, section 5.12.5).
+	LabelReplica = "mcp-gateway.sdrahn.github.io/replica"
+	managedBy    = "mcp-gateway"
 	// Instances run as a uid of their own, in [instanceUIDBase,
 	// instanceUIDBase+instanceUIDs): never root, never a system account.
 	instanceUIDBase = 100000
@@ -56,6 +59,9 @@ type PodOptions struct {
 	// only ones that may reach an instance's bridge.
 	GatewayNamespace string
 	GatewayLabels    map[string]string
+	// Replica is the gateway's replica that starts the pods (several
+	// replicas; empty: one gateway, without the label).
+	Replica string
 	// MCSLevel ("s0:c12,c34") separates two instances of one image on
 	// nodes that run SELinux; empty: none.
 	MCSLevel string
@@ -91,6 +97,9 @@ func InstancePod(b *config.Backend, p principal.Principal, id string, o PodOptio
 	}
 	name := InstanceName(b.Name, id)
 	labels := map[string]string{LabelManagedBy: managedBy, LabelServer: b.Name, LabelInstance: id}
+	if o.Replica != "" {
+		labels[LabelReplica] = o.Replica
+	}
 	meta := kube.ObjectMeta{Name: name, Namespace: o.Namespace, Labels: labels}
 
 	creds, err := b.ParseCredentials()

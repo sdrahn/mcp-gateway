@@ -240,7 +240,11 @@ every replica uses the same. At that first start the files in
 one call only, whichever replica serves it. While the gateway cannot
 follow the store (the API server out of reach), its grants count as
 absent: calls ask for approval again rather than run on a grant that
-may have been revoked. Chapter 16, "The state in the Kubernetes API",
+may have been revoked. Each replica holds a Lease of its own in the
+namespace (its ServiceAccount must get, list, create, update and delete
+Leases there too); with the Kubernetes launcher, the replicas delete
+the instance pods of a replica whose Lease ran out, instead of every
+pod at the start. Chapter 16, "The state in the Kubernetes API",
 sets it up with the chart or the manifests.
 
 | Key | Default | Meaning |
@@ -248,6 +252,8 @@ sets it up with the chart or the manifests.
 | `replication.store` | empty | `kubernetes`: the shared store; empty: the files in `state_dir`. Container mode only. Read at start only |
 | `replication.namespace` | none | the gateway's own namespace, required with the store; its ServiceAccount must get, list, watch, create, update and delete Secrets there |
 | `replication.api_server`, `replication.token_file`, `replication.ca_file` | as `supervisor.kubernetes` | reach the Kubernetes API as the gateway's ServiceAccount |
+| `replication.replica` | `$POD_NAME` | this replica's name: it holds a Lease of that name in the namespace, renewed every few seconds, and the instance pods it starts carry it; the manifests and the chart set `POD_NAME` from the pod's name |
+| `replication.address` | `$POD_IP` | where the other replicas reach this one (in its Lease) |
 
 ### Local socket
 
