@@ -408,7 +408,8 @@ until_ok 60 some_ok || fail "the caller's calls before the update: $(calls | tai
 k -n "$NS" rollout restart deploy/mcp-gateway >/dev/null
 k -n "$NS" rollout status deploy/mcp-gateway --timeout=300s >/dev/null
 # Until the old replicas are gone too, and some calls after.
-old_gone() { [ "$(k -n "$NS" get pods -l app.kubernetes.io/component=gateway -o name | grep -c .)" = "$REPLICAS" ]; }
+# (By name: the chart's pods and the manifests' have different labels.)
+old_gone() { [ "$(k -n "$NS" get pods -o name | grep -c '^pod/mcp-gateway-')" = "$REPLICAS" ]; }
 until_ok 120 old_gone || fail "old replicas still there: $(k -n "$NS" get pods -o wide)"
 n=$(oks)
 more_ok() { [ "$(oks)" -ge $((n + 10)) ]; }
