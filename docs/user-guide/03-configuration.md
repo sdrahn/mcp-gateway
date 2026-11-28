@@ -215,6 +215,31 @@ as on a host, where the container runtime collects them. The control
 socket stays, inside the container; approvers use the approval page,
 `mcp-gateway-admin approvals --gateway`, webhooks or mail.
 
+### Shared store
+
+```yaml
+replication:
+  store: kubernetes
+  namespace: mcp-gateway
+```
+
+For several replicas of a cluster gateway (2.1, being built: roadmap
+step 49, D24), what people reach other than the principal it belongs
+to is kept in the Kubernetes API instead of `state_dir`: as Secrets in
+the gateway's namespace, one per record, written with their version
+and watched. So far that is the grants of scope `duration` and the
+stored `once` grants; the other files follow. A `once` grant is taken
+by one call only, whichever replica serves it. While the gateway cannot
+follow the store (the API server out of reach), its grants count as
+absent: calls ask for approval again rather than run on a grant that
+may have been revoked.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `replication.store` | empty | `kubernetes`: the shared store; empty: the files in `state_dir`. Container mode only. Read at start only |
+| `replication.namespace` | none | the gateway's own namespace, required with the store; its ServiceAccount must get, list, watch, create, update and delete Secrets there |
+| `replication.api_server`, `replication.token_file`, `replication.ca_file` | as `supervisor.kubernetes` | reach the Kubernetes API as the gateway's ServiceAccount |
+
 ### Local socket
 
 ```yaml

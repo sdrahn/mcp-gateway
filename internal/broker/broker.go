@@ -20,6 +20,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/pep"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/proposal"
+	"github.com/sdrahn/mcp-gateway/internal/store"
 )
 
 // Grant lifetimes.
@@ -109,6 +110,17 @@ type Options struct {
 	// Audit, if set, records approval decisions and grant revocations.
 	Audit *audit.Logger
 	Log   *slog.Logger
+	// Shared, if set, keeps the grants in a shared store instead of
+	// GrantsFile (docs/architecture.md, section 5.12.5).
+	Shared *Shared
+}
+
+// Shared is the shared store's collections a broker keeps its state in.
+type Shared struct {
+	// Context ends the collections' watches.
+	Context context.Context
+	// Grants holds the duration and stored once grants.
+	Grants store.Collection
 }
 
 // BoolPolicy answers boolean policy queries (pep.OPA implements it).
@@ -307,11 +319,18 @@ func New(opts Options) (*Broker, error) {
 	}
 	b := &Broker{opts: opts, now: time.Now, log: log, pending: map[string]*Pending{}}
 	b.live.Store(&liveOptions{timeout: opts.Timeout, urlTemplate: opts.URLTemplate})
-	store, err := OpenStore(opts.GrantsFile, func() time.Time { return b.now() })
+	now := func() time.Time { return b.now() }
+	var grants *Store
+	var err error
+	if sh := opts.Shared; sh != nil {
+		grants, err = OpenSharedStore(sh.Context, sh.Grants, now, log)
+	} else {
+		grants, err = OpenStore(opts.GrantsFile, now)
+	}
 	if err != nil {
 		return nil, err
 	}
-	b.store = store
+	b.store = grants
 	if err := b.loadPending(); err != nil {
 		return nil, err
 	}

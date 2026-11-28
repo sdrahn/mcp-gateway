@@ -49,6 +49,7 @@ import (
 	"github.com/sdrahn/mcp-gateway/internal/principal"
 	"github.com/sdrahn/mcp-gateway/internal/router"
 	"github.com/sdrahn/mcp-gateway/internal/signin"
+	"github.com/sdrahn/mcp-gateway/internal/store"
 	"github.com/sdrahn/mcp-gateway/internal/supervisor"
 	"github.com/sdrahn/mcp-gateway/internal/transport"
 	"github.com/sdrahn/mcp-gateway/internal/version"
@@ -279,7 +280,12 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		return len(b) > 0, err
 	}}
 	guard.Blocked()
+	shared, err := newShared(ctx, gw)
+	if err != nil {
+		return err
+	}
 	b, err := broker.New(broker.Options{
+		Shared:      shared,
 		Timeout:     gw.ApprovalTimeout,
 		GrantsFile:  filepath.Join(gw.StateDir, "grants.json"),
 		PendingFile: filepath.Join(gw.StateDir, "pending.json"),
@@ -873,6 +879,25 @@ func watchUpdate(ctx context.Context, log *slog.Logger) {
 			return
 		}
 	}
+}
+
+// newShared returns the broker's collections in the shared store
+// (replication.store: kubernetes; docs/architecture.md, section 5.12.5),
+// nil without one: the files in state_dir.
+func newShared(ctx context.Context, gw *config.Gateway) (*broker.Shared, error) {
+	if !gw.Replication.Shared() {
+		return nil, nil
+	}
+	r := gw.Replication.WithDefaults()
+	client, err := kube.NewClient(r.APIServer, r.TokenFile, r.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("replication: %w", err)
+	}
+	grants, err := store.NewKubernetes(client, r.Namespace, "grants")
+	if err != nil {
+		return nil, err
+	}
+	return &broker.Shared{Context: ctx, Grants: grants}, nil
 }
 
 // newAudit sets up the audit trail: JSON records on stderr (journald),
