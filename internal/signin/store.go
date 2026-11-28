@@ -1,6 +1,7 @@
 package signin
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -8,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +20,7 @@ import (
 
 	"github.com/sdrahn/mcp-gateway/internal/oauth"
 	"github.com/sdrahn/mcp-gateway/internal/principal"
+	"github.com/sdrahn/mcp-gateway/internal/store"
 )
 
 // Key identifies a principal across sessions: how they connect, who
@@ -84,9 +88,15 @@ type storeFile struct {
 // state_dir/tokens.key (made on first use), with the server and the
 // principal (or the issuer) as associated data: an entry cannot be moved
 // to another principal or server.
+//
+// With a shared store (OpenSharedStore; docs/architecture.md, section
+// 5.12.5) the entries and clients are records of a collection instead,
+// sealed as in the file, and the key is a record of the keys' collection.
 type Store struct {
 	path string
 	aead cipher.AEAD
+	// table holds the records with a shared store (path is "").
+	table *store.Table
 
 	mu      sync.Mutex
 	entries []stored
@@ -99,11 +109,7 @@ func OpenStore(dir string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	aead, err := cipher.NewGCM(block)
+	aead, err := newAEAD(key)
 	if err != nil {
 		return nil, err
 	}
@@ -120,6 +126,63 @@ func OpenStore(dir string) (*Store, error) {
 		}
 		s.entries, s.clients = f.Entries, f.Clients
 	}
+	return s, nil
+}
+
+func newAEAD(key []byte) (cipher.AEAD, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	return cipher.NewGCM(block)
+}
+
+// Record names in the shared store.
+func entryName(server string, k Key) string {
+	return "token/" + url.PathEscape(server) + "/" + url.PathEscape(k.id())
+}
+
+func clientName(server, issuer string) string {
+	return "client/" + url.PathEscape(server) + "/" + url.PathEscape(issuer)
+}
+
+// OpenSharedStore keeps the store's entries and clients in tokens, and
+// its key in keys (made there at the first use), with a writer of its
+// own until ctx ends.
+func OpenSharedStore(ctx context.Context, tokens, keys store.Collection, log *slog.Logger) (*Store, error) {
+	key, err := store.Key(ctx, keys, "tokens", 32)
+	if err != nil {
+		return nil, fmt.Errorf("sign-in tokens: %w", err)
+	}
+	aead, err := newAEAD(key)
+	if err != nil {
+		return nil, err
+	}
+	t := &store.Table{C: tokens, Log: log}
+	items, err := t.Load(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sign-in tokens: %w", err)
+	}
+	s := &Store{aead: aead, table: t}
+	for name, data := range items {
+		var err error
+		switch {
+		case strings.HasPrefix(name, "token/"):
+			var e stored
+			if err = json.Unmarshal(data, &e); err == nil {
+				s.entries = append(s.entries, e)
+			}
+		case strings.HasPrefix(name, "client/"):
+			var c clientEntry
+			if err = json.Unmarshal(data, &c); err == nil {
+				s.clients = append(s.clients, c)
+			}
+		}
+		if err != nil {
+			log.Warn("sign-in tokens: record not read", "name", name, "err", err)
+		}
+	}
+	go t.Run(ctx)
 	return s, nil
 }
 
@@ -328,8 +391,38 @@ func (s *Store) PutClient(server, issuer string, c oauth.Client) error {
 	return s.persist()
 }
 
-// persist writes the store atomically (mode 0600). Caller holds s.mu.
+// persistTimeout bounds how long a write waits for the shared store.
+const persistTimeout = 10 * time.Second
+
+// persist writes the store atomically (mode 0600), or makes the shared
+// store's records the store's and waits until they are written: a
+// refresh token the authorization server rotated must not be lost.
+// Caller holds s.mu.
 func (s *Store) persist() error {
+	if s.table != nil {
+		items := map[string][]byte{}
+		for _, e := range s.entries {
+			data, err := json.Marshal(e)
+			if err != nil {
+				return err
+			}
+			items[entryName(e.Server, e.Principal)] = data
+		}
+		for _, c := range s.clients {
+			data, err := json.Marshal(c)
+			if err != nil {
+				return err
+			}
+			items[clientName(c.Server, c.Issuer)] = data
+		}
+		s.table.Save(items)
+		ctx, cancel := context.WithTimeout(context.Background(), persistTimeout)
+		defer cancel()
+		if err := s.table.Flush(ctx); err != nil {
+			return fmt.Errorf("sign-in tokens: not written to the store: %w", err)
+		}
+		return nil
+	}
 	b, err := json.MarshalIndent(storeFile{Version: 1, Entries: s.entries, Clients: s.clients}, "", "  ")
 	if err != nil {
 		return err

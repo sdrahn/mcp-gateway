@@ -5203,6 +5203,14 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       the broker's lock is not held over the API server; it keeps the
       latest map only, retries, and lists again when a record changed
       under it; at a stop the gateway flushes it before the writers end;
+      as built (part 3): the sign-in tokens and the clients registered
+      for them as records of a collection of their own, sealed as in
+      `tokens.json` (AES-256-GCM, the server and the principal as
+      associated data), a write waiting until it is in the store (a
+      rotated refresh token must not be lost); the keys of the tokens
+      and of the audit's argument digests as records of a `keys`
+      collection, made at the first start (two replicas making one at
+      once agree on the one stored first);
     - stage B, owners and forwarding: the replicas' leases, a lease per
       principal, the peer listener with mTLS, forwarding of requests and
       their streams, sign-in callbacks forwarded by their `state`,

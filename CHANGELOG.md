@@ -12,9 +12,10 @@ minor release (with a warning) and removed in the next.
 - A shared store for several replicas of a cluster gateway (roadmap
   step 49, D24; being built): `replication.store: kubernetes` keeps the
   grants of scope `duration` and the stored `once` grants, the pending
-  approvals, notices and review items as Secrets in the gateway's
-  namespace (`replication.namespace`) instead of `grants.json`,
-  `pending.json`, `notices.json` and `reviews.json`. A `once` grant is
+  approvals, notices and review items, the sign-in tokens (encrypted as
+  before) and the keys of the tokens and of the audit as Secrets in the
+  gateway's namespace (`replication.namespace`) instead of the files in
+  `state_dir`. A `once` grant is
   taken by one call only; while the gateway cannot follow the store, its
   grants count as absent (#436).
 
