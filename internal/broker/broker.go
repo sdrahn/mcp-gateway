@@ -126,6 +126,9 @@ type Shared struct {
 	// the others' followed and shown with them.
 	Pending, Notices, Reviews store.Collection
 	Replica                   string
+	// Requests holds the changes asked of another replica's records: a
+	// decision, a dismissal, a verdict (requests.go).
+	Requests store.Collection
 }
 
 // BoolPolicy answers boolean policy queries (pep.OPA implements it).
@@ -156,6 +159,9 @@ type Broker struct {
 	log   *slog.Logger
 	// where pending approvals, notices and reviews are kept
 	pendingStore, noticesStore, reviewsStore stateKept
+	// requests are the changes asked of other replicas' records, and of
+	// this one's (nil without a shared store).
+	requests *requests
 
 	mu      sync.Mutex
 	pending map[string]*Pending
@@ -361,6 +367,11 @@ func New(opts Options) (*Broker, error) {
 	}
 	if err := b.loadReviews(reviewItems); err != nil {
 		return nil, err
+	}
+	if sh := opts.Shared; sh != nil && sh.Requests != nil {
+		if err := b.openRequests(sh.Context, sh.Requests, sh.Replica); err != nil {
+			return nil, fmt.Errorf("broker: requests: %w", err)
+		}
 	}
 	return b, nil
 }
@@ -1118,17 +1129,66 @@ func (b *Broker) ResolveVia(ctx context.Context, a Approver, id string, approve 
 		c = *p
 	}
 	b.mu.Unlock()
+	if !ok && b.requests != nil {
+		if r := b.remotePending()[id]; r != nil {
+			return b.resolveRemote(ctx, a, r, approve, scope, via)
+		}
+	}
 	// Someone else's approval is reported as unknown.
 	if !ok || !b.mayApprove(ctx, a, &c) {
 		return nil, ErrNotFound
 	}
+	if approve && !slices.Contains(c.Scopes, scope) {
+		return nil, ErrBadScope
+	}
+	// With several replicas, one decision per approval, wherever made.
+	if claimed, err := b.claimDecision(ctx, a, id, approve, scope, via); err != nil {
+		return nil, err
+	} else if !claimed {
+		return nil, ErrNotFound
+	}
+	return b.decide(id, p, approve, scope, a.Name, via)
+}
+
+// resolveRemote decides an approval another replica holds (several
+// replicas): checked here as one of this replica's would be, claimed,
+// and carried out by its replica, which wakes the call waiting there and
+// makes the grant. The grant returned is what that replica makes, but
+// for its id.
+func (b *Broker) resolveRemote(ctx context.Context, a Approver, p *Pending, approve bool, scope, via string) (*pep.Grant, error) {
+	if !b.mayApprove(ctx, a, p) {
+		return nil, ErrNotFound
+	}
+	if approve && !slices.Contains(p.Scopes, scope) {
+		return nil, ErrBadScope
+	}
+	if claimed, err := b.claimDecision(ctx, a, p.ID, approve, scope, via); err != nil {
+		return nil, err
+	} else if !claimed {
+		return nil, ErrNotFound
+	}
+	b.log.Info("approval decided; its replica carries the decision out", "id", p.ID, "approved", approve, "by", a.Name, "scope", scope, "via", via)
+	if !approve {
+		return nil, nil
+	}
+	stored := scope
+	if scope != "once" && scope != "session" {
+		stored = "duration"
+	}
+	return &pep.Grant{Sub: p.Principal.Sub, Issuer: p.Principal.Issuer, UID: p.Principal.UID, Server: p.Server, Tool: p.Name,
+		Scope: stored, ApprovedBy: a.Name, Channel: p.Channel, ApprovalID: p.ID}, nil
+}
+
+// decide carries out a decision by "by" on approval id, p here: the grant
+// made and handed to the waiting call, or kept for the next attempt.
+func (b *Broker) decide(id string, p *Pending, approve bool, scope, by, via string) (*pep.Grant, error) {
 	b.mu.Lock()
 	if b.pending[id] != p {
 		b.mu.Unlock()
 		return nil, ErrNotFound // decided or timed out meanwhile
 	}
 	// Re-read under the lock: a new attempt may have taken p over.
-	c = *p
+	c := *p
 	if approve && !slices.Contains(c.Scopes, scope) {
 		b.mu.Unlock()
 		return nil, ErrBadScope
@@ -1145,9 +1205,9 @@ func (b *Broker) ResolveVia(ctx context.Context, a Approver, id string, approve 
 	if approve {
 		var err error
 		if c.result == nil {
-			g, err = b.orphanGrant(c, scope, a.Name)
+			g, err = b.orphanGrant(c, scope, by)
 		} else {
-			g, err = b.grant(c.Principal, c.Server, c.Name, scope, c.Scopes, a.Name, c.Channel, id)
+			g, err = b.grant(c.Principal, c.Server, c.Name, scope, c.Scopes, by, c.Channel, id)
 		}
 		if err != nil {
 			if c.result != nil {
@@ -1161,8 +1221,8 @@ func (b *Broker) ResolveVia(ctx context.Context, a Approver, id string, approve 
 		decision = "approve"
 	}
 	metrics.ApprovalsDecided.Inc(decision)
-	b.log.Info("approval resolved", "id", id, "approved", approve, "by", a.Name, "scope", scope, "waiting", c.result != nil, "via", via)
-	b.auditApproval(id, approve, c.Principal, c.Server, c.Name, a.Name, scope, c.Channel, via, c.Proposal, c.OverRate)
+	b.log.Info("approval resolved", "id", id, "approved", approve, "by", by, "scope", scope, "waiting", c.result != nil, "via", via)
+	b.auditApproval(id, approve, c.Principal, c.Server, c.Name, by, scope, c.Channel, via, c.Proposal, c.OverRate)
 	if c.result != nil {
 		c.result <- g
 	}
