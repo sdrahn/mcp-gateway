@@ -220,11 +220,22 @@ func (b *Broker) Judge(ctx context.Context, a Approver, id, verdict, reason, via
 	case len(reason) > MaxReviewReason || !plainText(reason, true):
 		return Review{}, fmt.Errorf("%w: the reason must be plain text of at most %d bytes", ErrBadVerdict, MaxReviewReason)
 	}
-	if _, err := b.GetReview(ctx, a, id); err != nil {
+	got, err := b.GetReview(ctx, a, id)
+	if err != nil {
 		return Review{}, err
 	}
 	b.mu.Lock()
 	r, ok := b.reviews[id]
+	if !ok && b.requests != nil {
+		b.mu.Unlock()
+		// Another replica's (several replicas): it records the verdict.
+		if err := b.askReplica(ctx, remoteName(requestVerdict, id), request{Kind: requestVerdict, ID: id, Verdict: verdict, Reason: reason,
+			By: a.Name, Issuer: a.Issuer, Remote: a.Remote, Via: via}); err != nil {
+			return Review{}, err
+		}
+		got.Verdict = &Verdict{Verdict: verdict, Reason: reason, By: a.Name, At: b.now().UTC(), Via: via}
+		return got, nil
+	}
 	if !ok {
 		b.mu.Unlock()
 		return Review{}, ErrNotFound
@@ -235,18 +246,24 @@ func (b *Broker) Judge(ctx context.Context, a Approver, id, verdict, reason, via
 	e := c
 	b.publish(Event{Type: "review", ID: id, Review: &e})
 	b.mu.Unlock()
-	if b.opts.Audit != nil {
-		fields := map[string]string{"id": id, "decision_id": c.DecisionID, "sub": c.Principal.Sub, "server": c.Server,
-			"name": c.Name, "verdict": verdict, "reason": reason, "by": a.Name}
-		if a.Remote {
-			fields["issuer"] = a.Issuer
-		}
-		if via != "" {
-			fields["via"] = via
-		}
-		b.opts.Audit.Event("mcp-review", verdict == VerdictOK, fields)
-	}
+	b.auditVerdict(c, verdict, reason, a.Name, a.Remote, a.Issuer, via)
 	return c, nil
+}
+
+// auditVerdict records a verdict on review item c.
+func (b *Broker) auditVerdict(c Review, verdict, reason, by string, remote bool, issuer, via string) {
+	if b.opts.Audit == nil {
+		return
+	}
+	fields := map[string]string{"id": c.ID, "decision_id": c.DecisionID, "sub": c.Principal.Sub, "server": c.Server,
+		"name": c.Name, "verdict": verdict, "reason": reason, "by": by}
+	if remote {
+		fields["issuer"] = issuer
+	}
+	if via != "" {
+		fields["via"] = via
+	}
+	b.opts.Audit.Event("mcp-review", verdict == VerdictOK, fields)
 }
 
 func copyReview(r *Review) Review {

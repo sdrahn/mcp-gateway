@@ -5403,6 +5403,18 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       and every 30 s, approvals kept without a waiting call as after a
       restart; deciding, dismissing or judging a record another replica
       holds follows in part 3b;
+      as built (part 3b): a decision, a dismissal or a verdict on a
+      record another replica holds is checked where it is asked (the
+      approver rules, the scope, the verdict) and written as a request
+      (a `requests` collection), which the holder follows and carries
+      out as its own: a decision wakes the call waiting there and makes
+      the grant there (a session grant belongs to the call's session),
+      and is audited there; a decision is claimed by its name
+      (`decision/<id>`), by the holder too when it decides itself, so
+      that the first decision wins wherever it was made; requests are
+      kept 10 minutes; the approval page and the console show other
+      replicas' approvals when they load, live updates of them come with
+      stage C;
     - stage C, the console and the control API across replicas (views
       merged from the peers, actions forwarded to the replica that holds
       them), draining on `SIGTERM`, the chart's `replicas` with a

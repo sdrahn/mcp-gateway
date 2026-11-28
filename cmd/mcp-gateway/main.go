@@ -1159,7 +1159,7 @@ func (s *sharedStore) broker() (*broker.Shared, error) {
 	}
 	sh := &broker.Shared{Context: s.ctx, Replica: s.replica}
 	for name, c := range map[string]*store.Collection{"grants": &sh.Grants, "pending": &sh.Pending,
-		"notices": &sh.Notices, "reviews": &sh.Reviews} {
+		"notices": &sh.Notices, "reviews": &sh.Reviews, "requests": &sh.Requests} {
 		k, err := s.collection(name)
 		if err != nil {
 			return nil, err

@@ -288,13 +288,17 @@ func (b *Broker) ListNotices(ctx context.Context, a Approver) []Notice {
 
 // NoticeDismissed reports whether a dismissed notice id.
 func (b *Broker) NoticeDismissed(a Approver, id string) bool {
+	key := a.ReaderKey()
 	b.mu.Lock()
 	n, ok := b.notices[id]
+	dismissed := ok && slices.Contains(n.Dismissed, key)
 	b.mu.Unlock()
 	if !ok {
-		n, ok = others[storedNotice](b.noticesStore, b.log)[id]
+		if o := others[storedNotice](b.noticesStore, b.log)[id]; o != nil {
+			dismissed = slices.Contains(o.Dismissed, key)
+		}
 	}
-	return ok && slices.Contains(n.Dismissed, a.ReaderKey())
+	return dismissed
 }
 
 // DismissNotice hides notice id from a (only); ErrNotFound if a may not
@@ -308,6 +312,20 @@ func (b *Broker) DismissNotice(ctx context.Context, a Approver, id string) error
 		c = n.Notice
 	}
 	b.mu.Unlock()
+	if !ok && b.requests != nil {
+		// Another replica's (several replicas): it records the dismissal.
+		if r := others[storedNotice](b.noticesStore, b.log)[id]; r != nil && r.Expires.After(b.now()) {
+			if !b.MayReadNotice(ctx, a, r.Notice) {
+				return ErrNotFound
+			}
+			key := a.ReaderKey()
+			if err := b.askReplica(ctx, remoteName(requestDismissal, id), request{Kind: requestDismissal, ID: id, Reader: key, By: a.Name}); err != nil {
+				return err
+			}
+			b.publish(Event{Type: "notice-closed", ID: id, Reader: key})
+			return nil
+		}
+	}
 	if !ok || !b.MayReadNotice(ctx, a, c) {
 		return ErrNotFound
 	}

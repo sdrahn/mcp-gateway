@@ -43,7 +43,7 @@ func replicaOptions(t *testing.T, api *kubetest.Secrets, replica string) func(*O
 	}
 	return func(o *Options) {
 		o.Shared = &Shared{Context: ctx, Grants: coll("grants"), Pending: coll("pending"),
-			Notices: coll("notices"), Reviews: coll("reviews"), Replica: replica}
+			Notices: coll("notices"), Reviews: coll("reviews"), Requests: coll("requests"), Replica: replica}
 	}
 }
 
@@ -328,9 +328,6 @@ func TestSharedPendingReplicas(t *testing.T) {
 	if got, err := b.GetPending(context.Background(), admin, p.ID); err != nil || got.ID != p.ID {
 		t.Fatalf("a's approval at b: %+v %v", got, err)
 	}
-	if _, err := b.Resolve(context.Background(), aliceApprover, p.ID, true, "once"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("decided at b, which does not hold it: %v", err)
-	}
 	// a is gone: b adopts the approval and decides it.
 	b.Adopt(context.Background(), func(r string) bool { return r == "gw-b" })
 	g, err := b.Resolve(context.Background(), aliceApprover, p.ID, true, "once")
@@ -371,5 +368,95 @@ func TestSharedNoticesReviewsReplicas(t *testing.T) {
 	waitUntil(t, "a's review item at b", func() bool {
 		got, err := rb.GetReview(t.Context(), opsUser, r.ID)
 		return err == nil && got.ID == r.ID && len(rb.ListReviews(t.Context(), opsUser)) == 1
+	})
+}
+
+// An approval decided on another replica is carried out where its call
+// waits: the call gets the grant there (a session grant of its session);
+// the first decision wins, wherever made.
+func TestSharedDecisionAcrossReplicas(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	defer func(d time.Duration) { sharedBackoff = d }(sharedBackoff)
+	sharedBackoff = 10 * time.Millisecond
+	a := newBroker(t, replicaOptions(t, api, "gw-a"))
+	b := newBroker(t, replicaOptions(t, api, "gw-b"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type result struct {
+		g   *pep.Grant
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		ask := urlAsk
+		ask.Scopes = []string{"once", "session"}
+		g, err := a.Approve(ctx, &fakeElicitor{}, input(), ask)
+		done <- result{g, err}
+	}()
+	var id string
+	waitUntil(t, "a's approval listed at b", func() bool {
+		ps := b.ListPending(context.Background(), admin)
+		if len(ps) == 1 {
+			id = ps[0].ID
+		}
+		return len(ps) == 1
+	})
+	g, err := b.Resolve(context.Background(), aliceApprover, id, true, "session")
+	if err != nil || g == nil || g.Scope != "session" || g.ApprovedBy != "alice" {
+		t.Fatalf("decided at b: %+v %v", g, err)
+	}
+	// A second decision, at a or b, is too late.
+	if _, err := a.Resolve(context.Background(), aliceApprover, id, false, ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a second decision at a: %v", err)
+	}
+	select {
+	case r := <-done:
+		if r.err != nil || r.g == nil || r.g.Scope != "session" || r.g.SessionID != alice.SessionID || r.g.ApprovedBy != "alice" {
+			t.Fatalf("the waiting call got %+v %v", r.g, r.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the call at a was not woken")
+	}
+	if got := a.Grants(alice, "fs", "write_file"); len(got) != 1 || got[0].Scope != "session" {
+		t.Fatalf("the session grant at a: %+v", got)
+	}
+}
+
+// A notice's dismissal and a review item's verdict made on another
+// replica are recorded by the replica that holds them.
+func TestSharedDismissalVerdictAcrossReplicas(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	defer func(d time.Duration) { sharedBackoff = d }(sharedBackoff)
+	sharedBackoff = 10 * time.Millisecond
+	with := func(replica string, pol BoolPolicy) func(*Options) {
+		o := replicaOptions(t, api, replica)
+		return func(opts *Options) { o(opts); opts.Policy = pol }
+	}
+	a := newBroker(t, with("gw-a", noticePolicy{}))
+	b := newBroker(t, with("gw-b", noticePolicy{}))
+	n, err := a.PostNotice(t.Context(), rootApprover, demotion())
+	if err != nil {
+		t.Fatal(err)
+	}
+	flushed(t, a)
+	waitUntil(t, "a's notice at b", func() bool { return len(b.ListNotices(t.Context(), pat)) == 1 })
+	if err := b.DismissNotice(t.Context(), pat, n.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the dismissal at a", func() bool { return a.NoticeDismissed(pat, n.ID) })
+	waitUntil(t, "the dismissal seen at b", func() bool { return len(b.ListNotices(t.Context(), pat)) == 0 })
+
+	ra := newBroker(t, with("gw-a", reviewPolicy{}))
+	rb := newBroker(t, with("gw-b", reviewPolicy{}))
+	r := ra.AddReview(restart())
+	flushed(t, ra)
+	waitUntil(t, "a's review item at b", func() bool { _, err := rb.GetReview(t.Context(), opsUser, r.ID); return err == nil })
+	got, err := rb.Judge(t.Context(), opsUser, r.ID, VerdictIncident, "wrong unit", "")
+	if err != nil || got.Verdict == nil || got.Verdict.Reason != "wrong unit" {
+		t.Fatalf("judged at b: %+v %v", got, err)
+	}
+	waitUntil(t, "the verdict at a", func() bool {
+		got, err := ra.GetReview(t.Context(), opsUser, r.ID)
+		return err == nil && got.Verdict != nil && got.Verdict.Reason == "wrong unit"
 	})
 }
