@@ -34,6 +34,14 @@ minor release (with a warning) and removed in the next.
   notices, reviews and clients seen side by side in the store, each list
   showing all, and take over those of a replica that is gone (#441).
 
+### Fixed
+
+- The package `mcp-gateway-container` conflicts with `mcp-gateway` and
+  `mcp-gateway-tools`, whose files it shares: without that, OBS's
+  post-build check refused the build ("found conflict of mcp-gateway
+  with mcp-gateway-container"). CI runs the same check on the RPMs it
+  builds (`tools/check-packaged-twice`) (#448).
+
 ## v2.0.0 — 2026-11-27
 
 The gateway in containers and in front of a Kubernetes cluster's MCP
