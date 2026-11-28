@@ -162,6 +162,9 @@ type Broker struct {
 	// requests are the changes asked of other replicas' records, and of
 	// this one's (nil without a shared store).
 	requests *requests
+	// remoteKick has a value when another replica's pending approvals,
+	// notices or review items changed (remote.go).
+	remoteKick chan struct{}
 
 	mu      sync.Mutex
 	pending map[string]*Pending
@@ -199,6 +202,10 @@ type Event struct {
 	// Reader is who dismissed a notice (notice-closed for them only);
 	// "" for all.
 	Reader string `json:"-"`
+	// Replica, with several replicas, names the replica that holds the
+	// approval, notice or review item when it is another one's (remote.go):
+	// shown here, but announced by mail and webhooks there only.
+	Replica string `json:"replica,omitempty"`
 }
 
 // Subscribe returns a channel of pending approval events and a function
@@ -349,12 +356,19 @@ func New(opts Options) (*Broker, error) {
 	b.reviewsStore = stateKept{file: opts.ReviewsFile, what: "review items"}
 	var pendingItems, noticeItems, reviewItems map[string][]byte
 	if sh := opts.Shared; sh != nil {
+		b.remoteKick = make(chan struct{}, 1)
+		kick := func() {
+			select {
+			case b.remoteKick <- struct{}{}:
+			default:
+			}
+		}
 		for _, s := range []struct {
 			c     store.Collection
 			p     *stateKept
 			items *map[string][]byte
 		}{{sh.Pending, &b.pendingStore, &pendingItems}, {sh.Notices, &b.noticesStore, &noticeItems}, {sh.Reviews, &b.reviewsStore, &reviewItems}} {
-			if *s.p, *s.items, err = openTable(sh.Context, s.c, sh.Replica, log, s.p.what); err != nil {
+			if *s.p, *s.items, err = openTable(sh.Context, s.c, sh.Replica, log, s.p.what, kick); err != nil {
 				return nil, err
 			}
 		}
@@ -372,6 +386,9 @@ func New(opts Options) (*Broker, error) {
 		if err := b.openRequests(sh.Context, sh.Requests, sh.Replica); err != nil {
 			return nil, fmt.Errorf("broker: requests: %w", err)
 		}
+	}
+	if sh := opts.Shared; sh != nil {
+		go b.followRemote(sh.Context)
 	}
 	return b, nil
 }
@@ -394,7 +411,8 @@ func (b *Broker) Adopt(ctx context.Context, live func(replica string) bool) {
 			orphan(p)
 			b.pending[p.ID] = p
 			b.log.Info("approval adopted from a replica that is gone", "id", p.ID, "sub", p.Principal.Sub, "server", p.Server)
-			b.publishPending(p, true)
+			// Not new: mail and webhooks announced it where it was asked.
+			b.publishPending(p, false)
 		}
 	}
 	for _, n := range notices {

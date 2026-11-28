@@ -57,6 +57,12 @@ minor release (with a warning) and removed in the next.
   it is asked; the doctor's report has the other replicas' reports
   (`replicas`), shown on the Doctor page and by `doctor --gateway`,
   whose exit status counts them all (#452).
+- With several replicas the event streams (`GET /v1/events`, the
+  approval page's and the console's) carry the other replicas'
+  approvals, notices and review items as they change, not only when a
+  page loads; mail and webhooks announce them where they are held, and
+  an approval a replica adopts from one that is gone is not announced
+  again (#452).
 
 ### Fixed
 

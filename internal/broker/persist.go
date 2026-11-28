@@ -26,8 +26,9 @@ type stateKept struct {
 
 // openTable loads this replica's records of c into a table written by
 // its own goroutine until ctx ends; the other replicas' are followed.
-func openTable(ctx context.Context, c store.Collection, replica string, log *slog.Logger, what string) (stateKept, map[string][]byte, error) {
-	t := &store.Shared{C: c, Replica: replica, Log: log, MinBackoff: sharedBackoff, MaxBackoff: 30 * sharedBackoff}
+// onChange is called when the other replicas' records changed.
+func openTable(ctx context.Context, c store.Collection, replica string, log *slog.Logger, what string, onChange func()) (stateKept, map[string][]byte, error) {
+	t := &store.Shared{C: c, Replica: replica, Log: log, MinBackoff: sharedBackoff, MaxBackoff: 30 * sharedBackoff, OnChange: onChange}
 	items, err := t.Load(ctx)
 	if err != nil {
 		return stateKept{}, nil, fmt.Errorf("broker: %s: %w", what, err)

@@ -20,6 +20,9 @@ type Shared struct {
 	Log     *slog.Logger
 	// MinBackoff and MaxBackoff are the table's and the mirror's.
 	MinBackoff, MaxBackoff time.Duration
+	// OnChange, if set, is called after the records the mirror follows
+	// changed (not with any lock of the caller's held).
+	OnChange func()
 
 	table  *Table
 	mirror *Mirror[[]byte]
@@ -42,7 +45,7 @@ func (s *Shared) prefix() string { return s.Replica + "/" }
 func (s *Shared) Load(ctx context.Context) (map[string][]byte, error) {
 	s.table = &Table{C: s.C, Log: s.Log, Prefix: s.prefix(), MinBackoff: s.MinBackoff, MaxBackoff: s.MaxBackoff}
 	s.mirror = &Mirror[[]byte]{C: s.C, Log: s.Log, MinBackoff: s.MinBackoff, MaxBackoff: s.MaxBackoff,
-		Decode: func(b []byte) ([]byte, error) { return b, nil }}
+		Decode: func(b []byte) ([]byte, error) { return b, nil }, OnChange: s.OnChange}
 	if err := s.mirror.Load(ctx); err != nil {
 		return nil, err
 	}
