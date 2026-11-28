@@ -1,6 +1,8 @@
-# Three replicas on the shared store (roadmap step 49 stage B): no
-# volume (the store keeps the state), the replicas' certificate from the
-# Secret run.sh makes, and the peer listener's port.
+# Three replicas on the shared store (roadmap step 49): no volume (the
+# store keeps the state), the replicas' certificate from the Secret
+# run.sh makes, and the peer listener's port; a rolling update, one new
+# pod before an old one drains, spread over the nodes (as the chart does
+# with replication.replicas > 1; pdb.yaml with it).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -8,8 +10,17 @@ metadata:
   namespace: mcp-gateway
 spec:
   replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
   template:
     spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: mcp-gateway, app.kubernetes.io/component: gateway}
       # A replica drains for replication.drain_timeout (30 s) before it
       # stops: 15 s more for the stop itself.
       terminationGracePeriodSeconds: 45

@@ -3,7 +3,9 @@
 # One replica (docs/architecture.md, section 5.12.5), Recreate as its
 # volume is ReadWriteOnce: the gateway, OPA and mcp-policy-render in one
 # pod, the policy copied from the gateway's image by the init container.
-# As deploy/kubernetes/deployment.yaml.
+# As deploy/kubernetes/deployment.yaml. Several replicas (on the shared
+# store, no volume): a rolling update, one new pod before an old one
+# drains, spread over the nodes.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,7 +20,12 @@ spec:
   {{- end }}
   replicas: {{ $replicas }}
   strategy:
+    {{- if gt $replicas 1 }}
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+    {{- else }}
     type: Recreate
+    {{- end }}
   selector:
     matchLabels: {{- include "mcp-gateway.selectorLabels" . | nindent 6 }}
   template:
@@ -142,6 +149,17 @@ spec:
       {{- end }}
       {{- with .Values.affinity }}
       affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- toYaml .Values.topologySpreadConstraints | nindent 8 }}
+      {{- else if gt $replicas 1 }}
+      # The replicas on different nodes where the scheduler can.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {{- include "mcp-gateway.selectorLabels" . | nindent 14 }}
       {{- end }}
       volumes:
         - name: config

@@ -1806,10 +1806,17 @@ replica that holds it, and decided by policy there as now. The doctor
 reports per replica.
 
 *Ending a replica.* On `SIGTERM` a replica gives up its lease for new
-principals: the requests of an owned principal with nothing running move
-at once; one with instances, sessions or tasks stays until those end or
-the pod's grace period runs out, then moves with what a restart loses.
-A rolling update thus ends no more than a restart of one replica does.
+principals: the requests of an owned principal without an open session
+or a running task move at once (its instances end with the replica, as
+they would after waiting); one with sessions or tasks stays until those
+end or the pod's grace period runs out, then moves with what a restart
+loses. The replica serves a few seconds at least, while the Service
+drops it, and a replica whose forward finds the owner gone, or no
+longer the owner, asks again and sends it to the new one: nothing ran
+there, so the request is not run twice. A rolling update (a new pod
+before an old one goes, one at a time) thus ends no more than a restart
+of one replica does, and a client with short sessions sees nothing of
+it.
 
 *What stays per replica:* the configuration (each watches its own
 mounts, and converges within the reload's delay), OPA (a sidecar of each
@@ -5387,7 +5394,8 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       flushed as they come) and the client's certificate (DER), its
       address and the forwarding replica in headers it drops from
       clients; the `PeerHandler` puts them in place of the peer's,
-      checks that this replica is the owner (421 otherwise) and serves
+      checks that this replica is the owner (421 otherwise, and the
+      forwarding replica asks again: part 6b) and serves
       the request as the public listener would; a sign-in's state
       starts with its replica's name (`<replica>~`), and its start page
       and callback are forwarded there;
@@ -5477,6 +5485,19 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       the kind job lists custos's instance on one replica through
       another, as the gateway's own account made an approver in its role
       data (`user:10001`), and stops it there;
+      as built (part 6b): with several replicas the chart's Deployment
+      is `RollingUpdate` (`maxUnavailable: 0`, `maxSurge: 1`; one
+      replica stays `Recreate` for its volume), with a
+      PodDisruptionBudget (`maxUnavailable: 1`) and a spread over the
+      nodes (`ScheduleAnyway`); a drain keeps only the principals with
+      a session or a running task (`Owners.Kept`) and lasts 5 s at
+      least; the `Forwarder` keeps a request's body (4 MiB at most) and,
+      when the owner refuses it (421) or cannot be reached, forgets the
+      owner, lists the replicas again (at most once a second) and asks
+      for the owner anew, four tries in all; the kind job's caller
+      (`echo -call`, a pod of the agents' namespace with a projected
+      token) calls the stdio server through the Service during a
+      `rollout restart`, and no call fails;
 
 50. **Servers discovered in the cluster** (after 2.0; D25, proposed;
     open; §5.12.8): `server_discovery` with its namespaces, prefixes and

@@ -56,9 +56,10 @@ type Members struct {
 	// the lock held).
 	OnChange func()
 
-	mu      sync.Mutex
-	members map[string]Member
-	version string // of this replica's Lease
+	mu        sync.Mutex
+	rechecked time.Time // recheck's last refresh
+	members   map[string]Member
+	version   string // of this replica's Lease
 	// draining is set once this replica stops (Drain).
 	draining bool
 	// live are the live replicas' names at the last refresh, for
@@ -186,6 +187,25 @@ func (m *Members) refresh(ctx context.Context) error {
 		m.OnChange()
 	}
 	return nil
+}
+
+// recheck lists the replicas' Leases again, unless it did within the last
+// second: a peer did not answer as the list says it would (it went, or
+// gave a principal up), before the next refresh would see it.
+func (m *Members) recheck(ctx context.Context) {
+	now := m.now()
+	m.mu.Lock()
+	recent := now.Sub(m.rechecked) < time.Second
+	if !recent {
+		m.rechecked = now
+	}
+	m.mu.Unlock()
+	if recent {
+		return
+	}
+	if err := m.refresh(ctx); err != nil && ctx.Err() == nil {
+		m.log().Warn("replicas: listing the replicas failed", "err", err)
+	}
 }
 
 // liveNames returns the live replicas' names, sorted. Caller holds m.mu.

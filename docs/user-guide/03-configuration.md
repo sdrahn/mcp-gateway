@@ -273,7 +273,7 @@ sets it up with the chart or the manifests.
 | `replication.listen` | none | the peer listener (`":8444"`): with it, each principal is served by one replica, its owner, and the others forward its requests there, streams included; unset, no forwarding (one replica) |
 | `replication.peer_cert_file`, `replication.peer_key_file`, `replication.peer_ca_file` | none | the replicas' certificate and key, which they present on the peer listener and as its clients, and the CA that issued it: required with `replication.listen` (a Secret mounted in each pod) |
 | `replication.peer_server_name` | `mcp-gateway-peer` | the name in the replicas' certificate |
-| `replication.drain_timeout` | `30s` | with `replication.listen`: how long a replica told to stop (`SIGTERM`) drains. It takes no new principals (the others do), gives up those with nothing running at once, and serves the busy ones until they are done or this time is up; `/readyz` fails meanwhile. Keep it below the pod's `terminationGracePeriodSeconds`, which is 30 s unless set: give the gateway's pods 45 s or more, or a shorter drain |
+| `replication.drain_timeout` | `30s` | with `replication.listen`: how long a replica told to stop (`SIGTERM`) drains. It takes no new principals (the others do), gives up those without an open session or a running task at once (an instance alone keeps none), and serves the others until they are done or this time is up, 5 s at least; `/readyz` fails meanwhile. Keep it below the pod's `terminationGracePeriodSeconds`, which is 30 s unless set: give the gateway's pods 45 s or more, or a shorter drain |
 
 ### Local socket
 

@@ -1,0 +1,14 @@
+{{- if gt (int .Values.replication.replicas) 1 }}
+# Several replicas: a node drain or another voluntary disruption takes
+# one at a time, which drains (replication.drain_timeout) while the others
+# serve.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "mcp-gateway.fullname" . }}
+  labels: {{- include "mcp-gateway.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels: {{- include "mcp-gateway.selectorLabels" . | nindent 6 }}
+{{- end }}

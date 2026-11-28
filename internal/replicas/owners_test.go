@@ -217,6 +217,32 @@ func TestDrainTimeout(t *testing.T) {
 	}
 }
 
+// A principal with an instance only (Busy, not Kept) is given up at
+// once: its instance ends with the replica either way.
+func TestDrainKept(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	c := &clock{t: time.Now()}
+	m := member(api, "gw-a", c)
+	ctx := context.Background()
+	if err := m.Join(ctx); err != nil {
+		t.Fatal(err)
+	}
+	o := owners(api, m, c)
+	o.Busy = func() map[string]bool { return map[string]bool{"instance": true, "session": true} }
+	o.Kept = func() map[string]bool { return map[string]bool{"session": true} }
+	for _, k := range []string{"instance", "session"} {
+		if _, err := o.Owner(ctx, k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	o.Drain(dctx)
+	if held := o.Held(); len(held) != 1 || held[0] != "session" {
+		t.Errorf("held after the drain: %v, want the session's only", held)
+	}
+}
+
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

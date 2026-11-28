@@ -61,7 +61,8 @@ func (s *sharedStore) forwarding(log *slog.Logger, gw *config.Gateway, r *router
 		ServerName: rep.PeerServerName}
 	tr.ResponseHeaderTimeout = 0 // a call may wait for its approval
 	o := &replicas.Owners{Client: s.client, Namespace: s.namespace, Members: s.members, Idle: gw.Supervisor.IdleTimeout,
-		Busy: func() map[string]bool { return busyPrincipals(r) }}
+		Busy: func() map[string]bool { return busyPrincipals(r, true) },
+		Kept: func() map[string]bool { return busyPrincipals(r, false) }}
 	done := make(chan struct{})
 	go func() {
 		o.Run(s.ctx)
@@ -73,15 +74,18 @@ func (s *sharedStore) forwarding(log *slog.Logger, gw *config.Gateway, r *router
 			ClientAuth: tls.RequireAndVerifyClientCert}}, nil
 }
 
-// busyPrincipals are the principals with instances, sessions or tasks
-// here, by the key of their Lease.
-func busyPrincipals(r *router.Router) map[string]bool {
+// busyPrincipals are the principals with sessions or tasks here, and
+// with instances, by the key of their Lease. Without instances: those a
+// drain keeps (replicas.Owners.Kept).
+func busyPrincipals(r *router.Router, instances bool) map[string]bool {
 	out := map[string]bool{}
 	for _, s := range r.Sessions() {
 		out[string(s.Transport)+"\x00"+s.Issuer+"\x00"+s.Sub] = true
 	}
-	for _, i := range r.Instances() {
-		out[string(i.Transport)+"\x00"+i.Issuer+"\x00"+i.Sub] = true
+	if instances {
+		for _, i := range r.Instances() {
+			out[string(i.Transport)+"\x00"+i.Issuer+"\x00"+i.Sub] = true
+		}
 	}
 	for _, t := range r.Tasks() {
 		if t.Status == "working" || t.Status == "input_required" {
@@ -91,16 +95,24 @@ func busyPrincipals(r *router.Router) map[string]bool {
 	return out
 }
 
-// serve starts the peer listener with f's PeerHandler; the returned
-// function stops it.
-// drain stops this replica taking principals and gives up those with
-// nothing running here, then waits until the busy ones are done too, at
-// most timeout (docs/architecture.md, section 5.12.5): what still runs then
-// ends as in a restart.
+// drainLinger is how long a draining replica serves at least: the
+// Service's endpoints drop a terminating pod a moment after it got its
+// SIGTERM, and requests that reach it meanwhile are forwarded.
+const drainLinger = 5 * time.Second
+
+// drain stops this replica taking principals and gives up those without
+// a session or a working task here, then waits until the others are done
+// too, at most timeout (docs/architecture.md, section 5.12.5): what still
+// runs then ends as in a restart. It serves drainLinger at least.
 func (fw *forwarding) drain(log *slog.Logger, timeout time.Duration) {
 	log.Info("replicas: draining: no new principals here", "for", timeout)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	linger, lcancel := context.WithTimeout(ctx, drainLinger)
+	defer func() {
+		<-linger.Done()
+		lcancel()
+	}()
 	mctx, mcancel := context.WithTimeout(ctx, 5*time.Second)
 	if err := fw.members.Drain(mctx); err != nil {
 		log.Warn("replicas: marking this replica's Lease as draining failed; the others still send it principals", "err", err)
@@ -114,6 +126,8 @@ func (fw *forwarding) drain(log *slog.Logger, timeout time.Duration) {
 	log.Info("replicas: drained")
 }
 
+// serve starts the peer listener with f's PeerHandler; the returned
+// function stops it.
 func (fw *forwarding) serve(log *slog.Logger, f *replicas.Forwarder, errc chan<- error) (func(), error) {
 	srv := &http.Server{
 		Addr: fw.listen,

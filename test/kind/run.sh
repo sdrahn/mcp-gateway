@@ -13,6 +13,8 @@
 #     one per principal, each with a NetworkPolicy without egress (the
 #     server cannot reach another pod), owned by the pod, and deleted
 #     after the idle timeout;
+#   - a rolling update of the replicas cuts no call off: a caller in the
+#     cluster calls through the Service all along;
 #   - role data changed in its ConfigMap takes effect (mcp-policy-render
 #     and OPA follow the swap too).
 # DEPLOY=helm deploys the chart (deploy/helm/mcp-gateway, with
@@ -47,6 +49,10 @@ cleanup() {
 			echo "--- $c" >&2
 			k -n "$NS" logs deploy/mcp-gateway -c "$c" --tail=60 >&2 || true
 		done
+		if k -n agents get pod caller >/dev/null 2>&1; then
+			echo "--- the caller" >&2
+			k -n agents logs caller --tail=30 >&2 || true
+		fi
 		echo "--- mcp-instances" >&2
 		k -n mcp-instances get pods,networkpolicies,secrets -o wide >&2 || true
 		for pod in $(k -n mcp-instances get pods -o name 2>/dev/null); do
@@ -361,6 +367,58 @@ pass "$owner went: its instance pods were reaped, and another replica serves cus
 for p in "${pfs[@]}"; do kill "$p" 2>/dev/null || true; done
 pfs=()
 # The Service's port-forward may have gone with the pod.
+forward
+
+echo "--- a rolling update under calls"
+# A caller in the cluster (echo -call, as agents/custos, with a projected
+# token for the gateway's audience) calls the stdio server through the
+# Service over and over, each call in a session of its own, while the
+# Deployment rolls (RollingUpdate: a new pod before an old one drains):
+# no call fails.
+k -n agents create configmap mcp-gateway-ca --from-file=ca.crt="$work/tls.crt" --dry-run=client -o yaml | apply
+apply <<EOF2
+apiVersion: v1
+kind: Pod
+metadata: {name: caller, namespace: agents}
+spec:
+  serviceAccountName: custos
+  automountServiceAccountToken: false
+  terminationGracePeriodSeconds: 1
+  securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: caller
+      image: mcp-echo:test
+      args: [-call, "https://mcp-gateway.$NS.svc/mcp/stdio"]
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+      volumeMounts:
+        - {name: token, mountPath: /var/run/secrets/tokens, readOnly: true}
+        - {name: ca, mountPath: /etc/mcp-gateway-ca, readOnly: true}
+  volumes:
+    - name: token
+      projected:
+        sources: [{serviceAccountToken: {audience: mcp-gateway, expirationSeconds: 3600, path: token}}]
+    - name: ca
+      configMap: {name: mcp-gateway-ca}
+EOF2
+k -n agents wait pod/caller --for=condition=Ready --timeout=120s >/dev/null
+calls() { k -n agents logs caller 2>/dev/null; }
+oks() { calls | grep -c '^ok ' || true; }
+some_ok() { [ "$(oks)" -ge 5 ]; }
+until_ok 60 some_ok || fail "the caller's calls before the update: $(calls | tail -5)"
+k -n "$NS" rollout restart deploy/mcp-gateway >/dev/null
+k -n "$NS" rollout status deploy/mcp-gateway --timeout=300s >/dev/null
+# Until the old replicas are gone too, and some calls after.
+old_gone() { [ "$(k -n "$NS" get pods -l app.kubernetes.io/component=gateway -o name | grep -c .)" = "$REPLICAS" ]; }
+until_ok 120 old_gone || fail "old replicas still there: $(k -n "$NS" get pods -o wide)"
+n=$(oks)
+more_ok() { [ "$(oks)" -ge $((n + 10)) ]; }
+until_ok 60 more_ok || fail "the caller's calls after the update: $(calls | tail -5)"
+failed=$(calls | grep '^failed ' || true)
+total=$(oks)
+k -n agents delete pod caller --wait=false >/dev/null
+[ -z "$failed" ] || fail "calls failed in the rolling update: $failed"
+pass "$total calls through the Service while the $REPLICAS replicas rolled, none failed"
+gws=$(replicas | sort)
 forward
 
 echo "--- role data changed in the ConfigMap"

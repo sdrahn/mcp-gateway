@@ -75,6 +75,17 @@ minor release (with a warning) and removed in the next.
   `--gateway URL`, a gateway's console API (signed in with `approvals
   login`), for a gateway in a cluster. The kind job lists and stops an
   instance of one replica through another (#452).
+- With several replicas the chart updates them one by one
+  (`RollingUpdate`, a new pod ready before an old one drains), adds a
+  PodDisruptionBudget (one replica disrupted at a time) and spreads them
+  over the nodes (`topologySpreadConstraints`, which the values may
+  set). A draining replica now keeps only the principals with an open
+  session or a running task (an idle instance ends with it either way)
+  and serves 5 s at least, and a replica whose forward reaches an owner
+  that has just gone or given the principal up sends it again to the
+  new one, instead of answering 502 or 421: a client with short
+  sessions sees no failed call while the replicas roll. The kind job
+  calls through the Service from a pod during a rolling update (#452).
 
 ### Fixed
 

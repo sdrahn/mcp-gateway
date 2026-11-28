@@ -1,0 +1,11 @@
+# Three replicas: a voluntary disruption (a node drain) takes one at a
+# time, which drains while the others serve (as the chart's).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mcp-gateway
+  namespace: mcp-gateway
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: mcp-gateway, app.kubernetes.io/component: gateway}

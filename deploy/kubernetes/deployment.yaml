@@ -1,6 +1,7 @@
-# One replica (docs/architecture.md, section 5.12.5): sessions, pending
-# approvals and tasks live in its memory, so a second replica would not
-# see them; Recreate, as its volume is ReadWriteOnce.
+# One replica (docs/architecture.md, section 5.12.5), Recreate, as its
+# volume is ReadWriteOnce. Several need the shared store (the
+# replication component) and no volume: test/kind/replicas.yaml shows
+# them, rolling one by one.
 #
 # Three containers share /run/mcp-gateway (OPA's socket) and
 # /run/mcp-opa (the rendered role data), as the three services do on a

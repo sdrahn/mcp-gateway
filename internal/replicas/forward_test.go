@@ -211,6 +211,71 @@ func TestForwardStream(t *testing.T) {
 	}
 }
 
+// requestBody is request with a body.
+func (rp *replica) requestBody(path, token, body string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest("POST", "https://gw.example"+path, strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	rp.fwd.ServeHTTP(w, r)
+	return w
+}
+
+// An owner that gave the principal up (it drains) before the forwarding
+// replica saw it: asked again, the request is served by the new owner,
+// with its body, and the client sees no 421.
+func TestForwardOwnerGaveUp(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	p := newPKI(t)
+	a, b := newReplica(t, api, p, "gw-a"), newReplica(t, api, p, "gw-b")
+	refreshAll(t, a, b)
+	if w := b.request("POST", "/mcp/fs", "alice", nil, nil); w.Body.String() != "served by gw-b" {
+		t.Fatalf("at b: %s", w.Body)
+	}
+	<-b.seen
+	if w := a.request("POST", "/mcp/fs", "alice", nil, nil); w.Body.String() != "served by gw-b" {
+		t.Fatalf("at a, before: %s", w.Body)
+	}
+	<-b.seen
+	if err := b.fwd.Members.Drain(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	refreshAll(t, a, b)
+	b.fwd.Owners.releaseAll()
+	w := a.requestBody("/mcp/fs", "alice", `{"jsonrpc":"2.0","id":7}`)
+	if w.Code != http.StatusOK || w.Body.String() != "served by gw-a" {
+		t.Fatalf("at a, after b gave alice up: %d %s", w.Code, w.Body)
+	}
+	got := <-a.seen
+	if body, _ := io.ReadAll(got.Body); string(body) != `{"jsonrpc":"2.0","id":7}` {
+		t.Errorf("the body at the new owner: %q", body)
+	}
+	select {
+	case <-b.seen:
+		t.Error("b served alice after giving her up")
+	default:
+	}
+}
+
+// An owner that went before the forwarding replica saw it (its peer
+// listener closed, its replica Lease gone): asked again, with the
+// replicas listed anew, another serves the principal.
+func TestForwardOwnerGone(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	p := newPKI(t)
+	a, b := newReplica(t, api, p, "gw-a"), newReplica(t, api, p, "gw-b")
+	refreshAll(t, a, b)
+	if w := b.request("POST", "/mcp/fs", "alice", nil, nil); w.Body.String() != "served by gw-b" {
+		t.Fatalf("at b: %s", w.Body)
+	}
+	<-b.seen
+	b.peer.Close()
+	b.fwd.Members.leave()
+	if w := a.requestBody("/mcp/fs", "alice", "{}"); w.Code != http.StatusOK || w.Body.String() != "served by gw-a" {
+		t.Fatalf("at a, after b went: %d %s", w.Code, w.Body)
+	}
+	<-a.seen
+}
+
 // The peer listener serves replicas only, and refuses a principal its
 // replica does not own (421: the client tries again).
 func TestPeerRefuses(t *testing.T) {
