@@ -126,6 +126,12 @@ type Page struct {
 
 	now func() time.Time
 
+	// CookiePrefix goes before the values of the session and login
+	// cookies: with several replicas, the replica's name and
+	// replicas.StateSeparator, so that a browser's requests reach the
+	// replica that holds its sign-in (RoutedCookies).
+	CookiePrefix string
+
 	// sealer seals the login cookie, with a key made at start: a
 	// restart ends the sign-ins in progress.
 	sealer cipher.AEAD
@@ -159,6 +165,10 @@ type session struct {
 // loginAAD binds a sealed login to its cookie.
 var loginAAD = []byte(loginCookie)
 
+// RoutedCookies are the cookies whose values start with the page's
+// CookiePrefix: the sign-in, and the sign-in in progress.
+var RoutedCookies = []string{sessionCookie, loginCookie}
+
 // seal makes the login cookie's value: nonce and AES-GCM ciphertext.
 func (pg *Page) seal(l login) string {
 	plain, _ := json.Marshal(l)
@@ -166,12 +176,16 @@ func (pg *Page) seal(l login) string {
 	if _, err := rand.Read(nonce); err != nil {
 		panic(err)
 	}
-	return base64.RawURLEncoding.EncodeToString(pg.sealer.Seal(nonce, nonce, plain, loginAAD))
+	return pg.CookiePrefix + base64.RawURLEncoding.EncodeToString(pg.sealer.Seal(nonce, nonce, plain, loginAAD))
 }
 
 // open returns the login of a cookie value the page sealed.
 func (pg *Page) open(v string) (login, bool) {
 	var l login
+	v, ok := strings.CutPrefix(v, pg.CookiePrefix)
+	if !ok {
+		return l, false
+	}
 	b, err := base64.RawURLEncoding.DecodeString(v)
 	if err != nil || len(b) < pg.sealer.NonceSize() {
 		return l, false
@@ -419,7 +433,7 @@ func (pg *Page) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a := approverOf(p)
-	value := randomToken()
+	value := pg.CookiePrefix + randomToken()
 	s := &session{Approver: a, CSRF: randomToken(), expires: pg.now().Add(pg.SessionTTL), idToken: idToken}
 	pg.mu.Lock()
 	if pg.sessions == nil {

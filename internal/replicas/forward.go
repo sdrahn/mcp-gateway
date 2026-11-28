@@ -58,7 +58,12 @@ type Forwarder struct {
 	// sign-in's paths with a state ("/oauth/start/", "/oauth/callback").
 	MCPPath     string
 	SignInPaths []string
-	Local       http.Handler
+	// Cookies are cookies whose values start with the name of the
+	// replica that holds what they stand for (the approval page's
+	// sign-ins: approvalpage.RoutedCookies): a request with one goes
+	// there.
+	Cookies []string
+	Local   http.Handler
 	// Transport reaches the peers' listener (mTLS).
 	Transport http.RoundTripper
 	Log       *slog.Logger
@@ -75,7 +80,7 @@ func (f *Forwarder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for _, h := range peerHeaders {
 		r.Header.Del(h)
 	}
-	if replica := f.signInReplica(r); replica != "" && replica != f.Members.Name {
+	if replica := f.routedReplica(r); replica != "" && replica != f.Members.Name {
 		if m, ok := f.Members.Live()[replica]; ok {
 			f.forward(w, r, m)
 			return
@@ -122,6 +127,24 @@ func (f *Forwarder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (f *Forwarder) isMCP(path string) bool {
 	base := strings.TrimSuffix(f.MCPPath, "/")
 	return path == base || strings.HasPrefix(path, base+"/")
+}
+
+// routedReplica returns the replica a request names: in a sign-in
+// path's state, else in one of the Cookies ("" for none).
+func (f *Forwarder) routedReplica(r *http.Request) string {
+	if replica := f.signInReplica(r); replica != "" {
+		return replica
+	}
+	for _, name := range f.Cookies {
+		c, err := r.Cookie(name)
+		if err != nil {
+			continue
+		}
+		if replica, _, ok := strings.Cut(c.Value, StateSeparator); ok {
+			return replica
+		}
+	}
+	return ""
 }
 
 // signInReplica returns the replica named in a sign-in path's state ("").

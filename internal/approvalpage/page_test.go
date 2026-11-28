@@ -896,3 +896,53 @@ func TestArgsHidden(t *testing.T) {
 		t.Fatalf("%d %s", code, body)
 	}
 }
+
+// With several replicas the page's cookies name the replica that holds
+// the sign-in (the forwarder routes by them); a login cookie of another
+// replica's is not this one's.
+func TestCookiesNameTheReplica(t *testing.T) {
+	f := newFixture(t, func(pg *Page) { pg.CookiePrefix = "gw-a~" })
+	c := f.browser(t)
+	if code, body, _ := get(t, c, f.srv.URL+"/approvals/"); code != 200 || !strings.Contains(body, "a-1") {
+		t.Fatalf("inbox: %d %s", code, body)
+	}
+	u, _ := url.Parse(f.srv.URL)
+	var session string
+	for _, ck := range c.Jar.Cookies(u) {
+		if ck.Name == sessionCookie {
+			session = ck.Value
+		}
+	}
+	if !strings.HasPrefix(session, "gw-a~") {
+		t.Fatalf("session cookie %q", session)
+	}
+	nr := f.noRedirects()
+	resp, err := nr.Get(f.srv.URL + "/approvals/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	loc, _ := url.Parse(resp.Header.Get("Location"))
+	var login *http.Cookie
+	for _, ck := range resp.Cookies() {
+		if ck.Name == loginCookie {
+			login = ck
+		}
+	}
+	if login == nil || !strings.HasPrefix(login.Value, "gw-a~") {
+		t.Fatalf("login cookie %+v", login)
+	}
+	other := *login
+	other.Value = "gw-b~" + strings.TrimPrefix(login.Value, "gw-a~")
+	req, _ := http.NewRequest(http.MethodGet, f.srv.URL+"/approvals/callback?code=x&state="+url.QueryEscape(loc.Query().Get("state")), nil)
+	req.AddCookie(&other)
+	resp, err = nr.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(b), "unknown, used or expired") {
+		t.Errorf("another replica's login cookie: %d %s", resp.StatusCode, b)
+	}
+}

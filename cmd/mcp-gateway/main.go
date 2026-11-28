@@ -516,6 +516,11 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		// The callback may reach any replica: its state names this one.
 		signIns.StatePrefix = fwd.members.Name + replicas.StateSeparator
 	}
+	if page != nil && fwd != nil {
+		// A browser's next request may reach any replica: the page's
+		// cookies name this one, where its sign-in is.
+		page.CookiePrefix = fwd.members.Name + replicas.StateSeparator
+	}
 	if shared != nil && shared.members != nil {
 		go adoptRecords(shared.ctx, b, r, shared.members)
 	}
@@ -856,7 +861,8 @@ func serveHTTP(log *slog.Logger, cfg config.HTTP, tokens *authn.OAuth, certs *ce
 		// 5.12.5).
 		u, _ := url.Parse(cfg.Audience)
 		f := &replicas.Forwarder{Members: fwd.members, Owners: fwd.owners, Auth: tokens, MCPPath: u.Path,
-			SignInPaths: []string{"/oauth/start/", "/oauth/callback"}, Local: handler, Transport: fwd.transport, Log: log}
+			SignInPaths: []string{"/oauth/start/", "/oauth/callback"}, Cookies: approvalpage.RoutedCookies,
+			Local: handler, Transport: fwd.transport, Log: log}
 		handler = f
 		var err error
 		if stopPeer, err = fwd.serve(log, f, errc); err != nil {
