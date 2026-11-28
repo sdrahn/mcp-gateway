@@ -716,7 +716,10 @@ next request of each is served by another replica, with new instances;
 what lived in its memory (sessions, running tasks, contexts) ends as
 in a restart, and its instance pods are deleted. Its pending approvals
 are taken over by another replica, and an approval can be decided on
-any replica. Each replica's audit records carry `replica`, its name;
+any replica. A sign-in on the approval page or the console is kept by
+the replica it was made on, and its cookies name that replica: a
+browser's requests reach it whichever replica the Service picks (a
+replica that went takes its sign-ins along: sign in again). Each replica's audit records carry `replica`, its name;
 the console's status names the replica that serves the page and the
 live ones, and the doctor's results the replica that ran them (each
 replica runs its own checks). The replicas reach each other on their pod addresses: a

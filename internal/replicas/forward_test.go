@@ -272,3 +272,37 @@ func TestForwardSignIn(t *testing.T) {
 	}
 	<-a.seen
 }
+
+// A request with a cookie that names a replica reaches it (the approval
+// page's sign-ins); one of a replica that is gone, or without a name, is
+// served here.
+func TestForwardCookies(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	p := newPKI(t)
+	a, b := newReplica(t, api, p, "gw-a"), newReplica(t, api, p, "gw-b")
+	refreshAll(t, a, b)
+	a.fwd.Cookies = []string{"__Host-session"}
+	for _, tc := range []struct{ cookie, want string }{
+		{"gw-b~xyz", "served by gw-b"},
+		{"gw-a~xyz", "served by gw-a"},
+		{"gw-gone~xyz", "served by gw-a"},
+		{"xyz", "served by gw-a"},
+	} {
+		hdr := http.Header{"Cookie": {"other=gw-b~1; __Host-session=" + tc.cookie}}
+		w := a.request("GET", "/approvals/a-1", "", nil, hdr)
+		if w.Body.String() != tc.want {
+			t.Errorf("cookie %s: %d %s", tc.cookie, w.Code, w.Body)
+			continue
+		}
+		if strings.HasSuffix(tc.want, "gw-b") {
+			<-b.seen
+		} else {
+			<-a.seen
+		}
+	}
+	// Only the cookies named route.
+	if w := a.request("GET", "/approvals/", "", nil, http.Header{"Cookie": {"other=gw-b~1"}}); w.Body.String() != "served by gw-a" {
+		t.Errorf("another cookie: %s", w.Body)
+	}
+	<-a.seen
+}

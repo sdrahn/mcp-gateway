@@ -45,6 +45,11 @@ minor release (with a warning) and removed in the next.
   status page shows them; the doctor's report names the replica that
   ran the checks (`replica`), on the console's Doctor page and in
   `doctor --gateway` (roadmap step 49 stage C) (#452).
+- With several replicas a browser's sign-in on the approval page and the
+  console is served by the replica that holds it: its cookies name the
+  replica, and the others forward the browser's requests there. Before,
+  a browser was signed in on one replica only, and a sign-in's callback
+  could fail on another (#452).
 
 ### Fixed
 

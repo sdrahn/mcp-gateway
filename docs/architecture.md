@@ -5435,6 +5435,13 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       names the replica that answers and the live ones, the doctor's
       report the replica that ran the checks; the console and
       `doctor --gateway` show them;
+      as built (part 2): a sign-in on the approval page (the session,
+      and the sealed login cookie of a sign-in in progress) stays in the
+      memory of the replica it was made on; the values of its cookies
+      start with that replica's name (`<replica>~`, as a server sign-in's
+      state), and the public listener forwards a request with one to
+      that replica; one of a replica that is gone is served where it
+      lands, which does not know it;
 
 50. **Servers discovered in the cluster** (after 2.0; D25, proposed;
     open; §5.12.8): `server_discovery` with its namespaces, prefixes and
