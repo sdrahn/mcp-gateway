@@ -280,10 +280,11 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 		return len(b) > 0, err
 	}}
 	guard.Blocked()
-	shared, err := newShared(ctx, gw)
+	shared, stopShared, err := newShared(gw)
 	if err != nil {
 		return err
 	}
+	defer stopShared()
 	b, err := broker.New(broker.Options{
 		Shared:      shared,
 		Timeout:     gw.ApprovalTimeout,
@@ -299,6 +300,17 @@ func run(log *slog.Logger, configPath string, checkOnly bool, policyData string)
 	})
 	if err != nil {
 		return err
+	}
+	if shared != nil {
+		// What the broker saved last goes to the store before its writers
+		// stop (deferred before, so run after this).
+		defer func() {
+			fctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := b.Flush(fctx); err != nil {
+				log.Warn("shared store: not everything written before stopping", "err", err)
+			}
+		}()
 	}
 	// Mail is set up whether or not it is configured, so that a reload can
 	// turn it on.
@@ -883,21 +895,30 @@ func watchUpdate(ctx context.Context, log *slog.Logger) {
 
 // newShared returns the broker's collections in the shared store
 // (replication.store: kubernetes; docs/architecture.md, section 5.12.5),
-// nil without one: the files in state_dir.
-func newShared(ctx context.Context, gw *config.Gateway) (*broker.Shared, error) {
+// nil without one: the files in state_dir. Their watches and writers run
+// until stop: after the broker's last save is flushed, not with the
+// signal that ends the gateway.
+func newShared(gw *config.Gateway) (sh *broker.Shared, stop func(), err error) {
 	if !gw.Replication.Shared() {
-		return nil, nil
+		return nil, func() {}, nil
 	}
 	r := gw.Replication.WithDefaults()
 	client, err := kube.NewClient(r.APIServer, r.TokenFile, r.CAFile)
 	if err != nil {
-		return nil, fmt.Errorf("replication: %w", err)
+		return nil, nil, fmt.Errorf("replication: %w", err)
 	}
-	grants, err := store.NewKubernetes(client, r.Namespace, "grants")
-	if err != nil {
-		return nil, err
+	ctx, cancel := context.WithCancel(context.Background())
+	sh = &broker.Shared{Context: ctx}
+	for name, c := range map[string]*store.Collection{"grants": &sh.Grants, "pending": &sh.Pending,
+		"notices": &sh.Notices, "reviews": &sh.Reviews} {
+		k, err := store.NewKubernetes(client, r.Namespace, name)
+		if err != nil {
+			cancel()
+			return nil, nil, err
+		}
+		*c = k
 	}
-	return &broker.Shared{Context: ctx, Grants: grants}, nil
+	return sh, cancel, nil
 }
 
 // newAudit sets up the audit trail: JSON records on stderr (journald),

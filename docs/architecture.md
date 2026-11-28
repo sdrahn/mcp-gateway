@@ -5196,6 +5196,13 @@ Kubernetes cluster's MCP servers (D23, §5.12). Step 49 follows it.
       while not synced, stored grants count as absent; expired ones
       deleted); tests against a fake of the Secrets API
       (`internal/kube/kubetest`), two and three brokers on one store;
+      as built (part 2): pending approvals, notices and review items as
+      records, a table each (`store.Table`): the broker saves its map
+      as it saved the file, and the table's own writer creates, updates
+      and deletes the records that changed, with their versions, so that
+      the broker's lock is not held over the API server; it keeps the
+      latest map only, retries, and lists again when a record changed
+      under it; at a stop the gateway flushes it before the writers end;
     - stage B, owners and forwarding: the replicas' leases, a lease per
       principal, the peer listener with mTLS, forwarding of requests and
       their streams, sign-in callbacks forwarded by their `state`,

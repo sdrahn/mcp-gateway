@@ -22,11 +22,37 @@ func sharedGrants(t *testing.T, api *kubetest.Secrets) store.Collection {
 	return c
 }
 
-func sharedBroker(t *testing.T, api *kubetest.Secrets) *Broker {
+// sharedOptions keeps a broker's state in api, with its own context.
+func sharedOptions(t *testing.T, api *kubetest.Secrets) func(*Options) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	return newBroker(t, func(o *Options) { o.Shared = &Shared{Context: ctx, Grants: sharedGrants(t, api)} })
+	coll := func(name string) store.Collection {
+		c, err := store.NewKubernetes(api.Client(), "gw", name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	return func(o *Options) {
+		o.Shared = &Shared{Context: ctx, Grants: coll("grants"), Pending: coll("pending"),
+			Notices: coll("notices"), Reviews: coll("reviews")}
+	}
+}
+
+func sharedBroker(t *testing.T, api *kubetest.Secrets) *Broker {
+	t.Helper()
+	return newBroker(t, sharedOptions(t, api))
+}
+
+// flushed waits until b's state is in the store, as before a restart.
+func flushed(t *testing.T, b *Broker) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := b.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func waitUntil(t *testing.T, what string, cond func() bool) {
@@ -56,6 +82,7 @@ func TestSharedGrants(t *testing.T) {
 	}
 	durable := approve("24h")
 	approve("session")
+	flushed(t, a)
 	if n := api.Len("gw"); n != 1 {
 		t.Fatalf("%d records, want the duration grant's", n)
 	}
@@ -203,4 +230,69 @@ func TestSharedExpiredDropped(t *testing.T) {
 		t.Fatalf("expired listed: %+v", got)
 	}
 	waitUntil(t, "the expired grant deleted", func() bool { return api.Len("gw") == 0 })
+}
+
+// A pending approval whose call went away is kept in the store: a
+// gateway started again (another broker on the store) lists it, decides
+// it, and the grant waits for the agent's next attempt.
+func TestSharedPendingSurvivesRestart(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	b := sharedBroker(t, api)
+	p := orphaned(t, b)
+	flushed(t, b)
+	b2 := sharedBroker(t, api)
+	ps := b2.ListPending(context.Background(), admin)
+	if len(ps) != 1 || ps[0].ID != p.ID || ps[0].Waiting || ps[0].Args["path"] != "/home/alice/x" {
+		t.Fatalf("restored %+v", ps)
+	}
+	g, err := b2.Resolve(context.Background(), aliceApprover, p.ID, true, "once")
+	if err != nil || g.Scope != "once" {
+		t.Fatalf("resolve: %+v %v", g, err)
+	}
+	flushed(t, b2)
+	b3 := sharedBroker(t, api)
+	if len(b3.ListPending(context.Background(), admin)) != 0 {
+		t.Fatal("the decided approval is still in the store")
+	}
+	if once, ok := b3.TakeOnce(alice, "fs", "write_file"); !ok || once.ID != g.ID {
+		t.Fatalf("take: %+v %v", once, ok)
+	}
+}
+
+// Notices and review items, with their dismissals and verdicts, are kept
+// in the store across a restart.
+func TestSharedNoticesAndReviews(t *testing.T) {
+	api := kubetest.NewSecrets(t)
+	opts := func(mod func(*Options)) func(*Options) {
+		shared := sharedOptions(t, api)
+		return func(o *Options) { shared(o); mod(o) }
+	}
+	b := newBroker(t, opts(func(o *Options) { o.Policy = noticePolicy{} }))
+	n, err := b.PostNotice(t.Context(), rootApprover, demotion())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.DismissNotice(t.Context(), pat, n.ID); err != nil {
+		t.Fatal(err)
+	}
+	flushed(t, b)
+	b = newBroker(t, opts(func(o *Options) { o.Policy = noticePolicy{} }))
+	if got := b.ListNotices(t.Context(), olga); len(got) != 1 || got[0].ID != n.ID {
+		t.Fatalf("notices restored: %+v", got)
+	}
+	if !b.NoticeDismissed(pat, n.ID) {
+		t.Fatal("the dismissal was not kept")
+	}
+
+	b = newBroker(t, opts(func(o *Options) { o.Policy = reviewPolicy{} }))
+	r := b.AddReview(restart())
+	if _, err := b.Judge(t.Context(), opsUser, r.ID, VerdictIncident, "wrong unit", ""); err != nil {
+		t.Fatal(err)
+	}
+	flushed(t, b)
+	b = newBroker(t, opts(func(o *Options) { o.Policy = reviewPolicy{} }))
+	got, err := b.GetReview(t.Context(), opsUser, r.ID)
+	if err != nil || got.Verdict == nil || got.Verdict.Reason != "wrong unit" {
+		t.Fatalf("review restored: %+v %v", got, err)
+	}
 }

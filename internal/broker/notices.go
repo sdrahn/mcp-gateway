@@ -2,10 +2,8 @@ package broker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -346,21 +344,12 @@ func (b *Broker) dropOldestNotice() {
 	}
 }
 
-// loadNotices restores the notices of a previous run.
-func (b *Broker) loadNotices() error {
-	if b.opts.NoticesFile == "" {
-		return nil
-	}
-	data, err := os.ReadFile(b.opts.NoticesFile)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+// loadNotices restores the notices of a previous run (items: a shared
+// store's records).
+func (b *Broker) loadNotices(items map[string][]byte) error {
+	list, err := loadList[storedNotice](b.noticesStore, items, b.log)
 	if err != nil {
 		return err
-	}
-	var list []*storedNotice
-	if err := json.Unmarshal(data, &list); err != nil {
-		return fmt.Errorf("broker: reading %s: %w", b.opts.NoticesFile, err)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -375,21 +364,7 @@ func (b *Broker) loadNotices() error {
 
 // persistNotices writes the notices. Caller holds b.mu.
 func (b *Broker) persistNotices() {
-	if b.opts.NoticesFile == "" {
-		return
-	}
-	list := make([]*storedNotice, 0, len(b.notices))
-	for _, n := range b.notices {
-		list = append(list, n)
-	}
-	slices.SortFunc(list, func(x, y *storedNotice) int { return x.Created.Compare(y.Created) })
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err == nil {
-		err = writeFileAtomic(b.opts.NoticesFile, append(data, '\n'))
-	}
-	if err != nil {
-		b.log.Warn("persisting notices failed", "err", err)
-	}
+	saveMap(b.noticesStore, b.notices, func(n *storedNotice) time.Time { return n.Created }, b.log)
 }
 
 // NoticesURL is the approval page's list (its inbox), where notices are

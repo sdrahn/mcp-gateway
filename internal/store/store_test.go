@@ -234,3 +234,16 @@ func TestMirrorExpired(t *testing.T) {
 	defer func() { cancel(); <-done }()
 	waitFor(t, "a listed again", func() bool { v, _ := value(m, "a"); return v == "1" && m.Synced() })
 }
+
+// failingWrites fails creates while fail is set.
+type failingWrites struct {
+	*Kubernetes
+	fail atomic.Bool
+}
+
+func (f *failingWrites) Create(ctx context.Context, name string, data []byte) (Record, error) {
+	if f.fail.Load() {
+		return Record{}, errors.New("no API server")
+	}
+	return f.Kubernetes.Create(ctx, name, data)
+}
